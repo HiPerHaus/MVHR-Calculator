@@ -5,6 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MVHR Design Engine — HiPer Haus</title>
 <style>
+/* ── Login overlay ── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg, #0d2b1d 0%, #1a4731 60%, #2d6a4f 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box {
+  background: white; border-radius: 16px; padding: 40px 36px;
+  width: 100%; max-width: 380px; box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+}
+.login-logo { font-size: 13px; font-weight: 800; letter-spacing: 2px; color: var(--primary-mid); text-transform: uppercase; margin-bottom: 6px; }
+.login-title { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 4px; }
+.login-sub { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+.login-field { margin-bottom: 16px; }
+.login-field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+.login-field input {
+  width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 9px;
+  font-size: 15px; color: var(--text); background: var(--input-bg); outline: none;
+  transition: border-color 0.15s;
+}
+.login-field input:focus { border-color: var(--accent); }
+.login-error { background: #fef2f2; border: 1px solid #fecaca; color: #9b1c1c; border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 14px; display: none; }
+.login-error.visible { display: block; }
+.btn-login {
+  width: 100%; background: var(--primary); color: white; border: none;
+  border-radius: 9px; padding: 13px; font-size: 15px; font-weight: 800; cursor: pointer;
+  margin-top: 4px; letter-spacing: 0.2px;
+}
+.btn-login:hover { background: var(--accent); }
+.login-footer { text-align: center; font-size: 12px; color: var(--muted); margin-top: 20px; }
 :root {
   --bg: #f0f4f8;
   --card: #ffffff;
@@ -169,6 +200,26 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </style>
 </head>
 <body>
+
+<!-- ═══ LOGIN OVERLAY ═══ -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Haus</div>
+    <div class="login-title">MVHR Design Engine</div>
+    <div class="login-sub">Sign in to continue</div>
+    <div class="login-error" id="loginError">Incorrect email or password. Please try again.</div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-login" onclick="attemptLogin()">Sign In →</button>
+    <div class="login-footer">HiPer Haus · MVHR Design Platform</div>
+  </div>
+</div>
 
 <header>
   <h1>MVHR Design Engine</h1>
@@ -835,6 +886,39 @@ function showTab(name) {
   const tabs = document.querySelectorAll('.tab');
   const map = { summary:0, rooms:1, ducts:2, bom:3, commission:4, warnings:5 };
   tabs[map[name]].classList.add('active');
+}
+
+// ══════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════
+const AUTH_EMAIL = 'hello@hiperhaus.com.au';
+const AUTH_PASS  = 'Test1234MVHR!';
+const SESSION_KEY = 'hh_mvhr_auth';
+
+function attemptLogin() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const pass   = document.getElementById('loginPassword').value;
+  if (email === AUTH_EMAIL && pass === AUTH_PASS) {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('loginError').classList.remove('visible');
+  } else {
+    document.getElementById('loginError').classList.add('visible');
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginPassword').focus();
+  }
+}
+
+// Allow Enter key to submit
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) {
+    attemptLogin();
+  }
+});
+
+// Check existing session
+if (sessionStorage.getItem(SESSION_KEY) === '1') {
+  document.getElementById('loginOverlay').classList.add('hidden');
 }
 
 // ══════════════════════════════════════════════════════
