@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MVHR Design Engine — HiPer Haus</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 /* ── Login overlay ── */
 #loginOverlay {
@@ -69,13 +70,9 @@ header h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.3px; }
 header span { font-size: 12px; opacity: 0.65; }
 
 /* ── Layout ── */
-.layout { display: grid; grid-template-columns: 380px 1fr; min-height: calc(100vh - 56px); }
-.sidebar { background: var(--card); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
-.main { padding: 20px; overflow-y: auto; }
-@media (max-width: 860px) {
-  .layout { grid-template-columns: 1fr; }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
-}
+#tab-project { background: var(--card); min-height: calc(100vh - 104px); }
+#tab-project > div { margin-bottom: 18px; }
+#results { padding: 20px; }
 
 /* ── Section headings ── */
 .section-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: var(--primary-mid); margin-bottom: 10px; border-bottom: 2px solid var(--primary-light); padding-bottom: 5px; }
@@ -109,11 +106,46 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .btn-calc { width: 100%; background: var(--primary); color: white; border: none; border-radius: 9px; padding: 13px; font-size: 15px; font-weight: 800; cursor: pointer; letter-spacing: 0.2px; margin-top: 4px; }
 .btn-calc:hover { background: var(--accent); }
 
-/* ── Tabs ── */
-.tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 18px; flex-wrap: wrap; }
-.tab { padding: 9px 16px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--primary); border-bottom-color: var(--accent); }
+/* ── Project Bar ── */
+.proj-bar {
+  background: #f8fafc; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; padding: 7px 16px; flex-wrap: wrap;
+}
+.proj-bar select {
+  flex: 1; min-width: 160px; max-width: 320px; padding: 6px 10px;
+  border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px;
+  font-weight: 600; color: var(--text); background: white; outline: none;
+}
+.proj-bar select:focus { border-color: var(--accent); }
+.proj-name-edit {
+  flex: 1; min-width: 160px; max-width: 320px; padding: 6px 10px;
+  border: 1.5px solid var(--accent); border-radius: 7px; font-size: 13px;
+  font-weight: 600; color: var(--text); background: white; outline: none; display:none;
+}
+.proj-btn {
+  padding: 6px 14px; border-radius: 7px; border: 1.5px solid var(--border);
+  background: white; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text);
+  white-space: nowrap; transition: all 0.12s; letter-spacing: 0.2px;
+}
+.proj-btn:hover { background: var(--primary-light); border-color: var(--accent); color: var(--primary); }
+.proj-btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+.proj-btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+.proj-saved-badge { font-size: 11px; color: var(--accent); font-weight: 700; opacity: 0; transition: opacity 0.4s; margin-left: 4px; }
+
+/* ── Top Nav Tabs ── */
+.top-nav { background: var(--primary); display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: nowrap; overflow-x: auto; }
+.top-nav::-webkit-scrollbar { height: 0; }
+.nav-tab {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 700; white-space: nowrap;
+  border: 1.5px solid transparent; min-width: 64px; transition: all 0.15s; letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.nav-tab:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+.nav-tab.active { background: rgba(255,255,255,0.15); color: #fff; border-color: rgba(255,255,255,0.3); }
+.nav-tab .nav-icon { font-size: 17px; line-height: 1; }
+.nav-tab .nav-label { font-size: 10px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
@@ -220,6 +252,44 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   .metrics { grid-template-columns: repeat(4, 1fr) !important; }
   body { font-size: 12px; }
 }
+
+/* ── Plan Markup ── */
+.plan-toolbar {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+  background: var(--card); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; flex-shrink: 0;
+}
+.plan-btn {
+  background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--text); white-space: nowrap; transition: background 0.15s;
+}
+.plan-btn:hover { background: var(--primary-light); border-color: var(--accent); }
+.plan-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+.plan-sep { width: 1px; height: 24px; background: var(--border); margin: 0 2px; }
+.plan-scale-badge { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--primary-mid); background: var(--primary-light); padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.plan-cursor-info { font-size: 11px; color: var(--muted); min-width: 120px; }
+.plan-canvas-wrap {
+  flex: 1; overflow: auto; position: relative;
+  background: #e8ecf0; display: flex; align-items: flex-start; justify-content: flex-start;
+}
+.plan-upload-prompt {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center;
+}
+.room-picker {
+  position: fixed; z-index: 1000; background: white; border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  min-width: 220px; max-width: 280px; max-height: 340px; overflow-y: auto;
+}
+.room-picker-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: var(--primary-mid); margin-bottom: 10px; }
+.room-picker-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-radius: 7px; cursor: pointer; font-size: 13px; margin-bottom: 3px;
+  border: 1px solid transparent; transition: background 0.1s;
+}
+.room-picker-item:hover { background: var(--primary-light); border-color: var(--ok-border); }
+.room-picker-item .ri-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
@@ -251,12 +321,33 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <span id="saveBadge" style="margin-left:auto;font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
 </header>
 
-<div class="layout">
+<nav class="top-nav">
+  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Plan</span></div>
+  <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">🏗</span><span class="nav-label">Project</span></div>
+  <div class="nav-tab" id="navtab-summary" onclick="showTab('summary')"><span class="nav-icon">📊</span><span class="nav-label">Summary</span></div>
+  <div class="nav-tab" id="navtab-rooms" onclick="showTab('rooms')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></div>
+  <div class="nav-tab" id="navtab-ducts" onclick="showTab('ducts')"><span class="nav-icon">🔩</span><span class="nav-label">Ducts</span></div>
+  <div class="nav-tab" id="navtab-bom" onclick="showTab('bom')"><span class="nav-icon">📋</span><span class="nav-label">BOM</span></div>
+  <div class="nav-tab" id="navtab-commission" onclick="showTab('commission')"><span class="nav-icon">✅</span><span class="nav-label">Commission</span></div>
+  <div class="nav-tab" id="navtab-warnings" onclick="showTab('warnings')"><span class="nav-icon">⚠️</span><span class="nav-label">Warnings <span id="warnBadge"></span></span></div>
+  <div class="nav-tab" id="navtab-help" onclick="showTab('help')"><span class="nav-icon">❓</span><span class="nav-label">Help</span></div>
+</nav>
 
-<!-- ═══ SIDEBAR INPUTS ═══ -->
-<div class="sidebar">
+<!-- ═══ PROJECT BAR ═══ -->
+<div class="proj-bar">
+  <select id="projSelect" onchange="switchProject(this.value)" title="Switch project"></select>
+  <input id="projNameEdit" class="proj-name-edit" type="text" placeholder="Project name" title="Rename project">
+  <button class="proj-btn" onclick="renameProject()" title="Rename current project">✏️ Rename</button>
+  <button class="proj-btn" onclick="newProject()">＋ New Project</button>
+  <button class="proj-btn" onclick="copyProject()">⧉ Copy</button>
+  <button class="proj-btn primary" onclick="saveCurrentProject()">💾 Save</button>
+  <span class="proj-saved-badge" id="projSavedBadge">✓ Saved</span>
+</div>
 
-  <div>
+<!-- ═══ PROJECT INPUTS TAB ═══ -->
+<div class="tab-panel" id="tab-project" style="padding:24px;max-width:820px;margin:0 auto">
+
+  <div style="margin-bottom:18px">
     <div class="section-title">Project Basics</div>
     <div class="grid3">
       <div class="field"><label>Floor Area (m²)</label><input type="number" id="floorArea" min="0" placeholder="220"></div>
@@ -325,18 +416,10 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 
   <button class="btn-calc" onclick="calculate()">Run Design Calculation ›</button>
 
-</div><!-- /sidebar -->
+</div><!-- /tab-project -->
 
-<!-- ═══ MAIN RESULTS ═══ -->
-<div class="main">
-
-  <div id="placeholder" class="placeholder">
-    <div class="ph-icon">🌬️</div>
-    <h2>MVHR Design Engine</h2>
-    <p>Enter project details and room schedule, then click <strong>Run Design Calculation</strong>.</p>
-  </div>
-
-  <div id="results" style="display:none">
+<!-- ═══ RESULTS TABS ═══ -->
+<div id="results">
 
     <div class="pdf-toolbar">
       <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()">
@@ -345,17 +428,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </button>
     </div>
 
-    <div class="tabs">
-      <div class="tab active" onclick="showTab('summary')">Summary</div>
-      <div class="tab" onclick="showTab('rooms')">Room Schedule</div>
-      <div class="tab" onclick="showTab('ducts')">Duct Schedule</div>
-      <div class="tab" onclick="showTab('bom')">Bill of Materials</div>
-      <div class="tab" onclick="showTab('commission')">Commissioning</div>
-      <div class="tab" onclick="showTab('warnings')">Warnings <span id="warnBadge"></span></div>
-    </div>
-
     <!-- ── Tab: Summary ── -->
-    <div class="tab-panel active" id="tab-summary" data-title="Design Summary">
+    <div class="tab-panel" id="tab-summary" data-title="Design Summary">
 
       <div class="section-title">Airflow Design</div>
       <div class="metrics">
@@ -423,30 +497,6 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </div>
     </div>
 
-    <div class="section-title" style="margin-top:4px">Noise Performance — PHI Certificate Data (at unit connection)</div>
-    <div class="metrics" style="grid-template-columns:repeat(4,1fr)">
-      <div class="metric">
-        <div class="ml">Device dB(A)</div>
-        <div class="mv" id="noiseDevice">—</div>
-        <div class="mu">unit casing emission</div>
-      </div>
-      <div class="metric">
-        <div class="ml">Supply duct dB(A)</div>
-        <div class="mv" id="noiseSupply">—</div>
-        <div class="mu">at unit — before attenuation</div>
-      </div>
-      <div class="metric">
-        <div class="ml">Extract duct dB(A)</div>
-        <div class="mv" id="noiseExtract">—</div>
-        <div class="mu">at unit — before attenuation</div>
-      </div>
-      <div class="metric">
-        <div class="ml">PHI Rated Flow</div>
-        <div class="mv" id="noiseRatedFlow">—</div>
-        <div class="mu">m³/h (test condition)</div>
-      </div>
-    </div>
-    <div id="noiseAlert" style="margin-bottom:14px"></div>
 
     <!-- ── Tab: Room Schedule ── -->
     <div class="tab-panel" id="tab-rooms" data-title="Room Schedule">
@@ -513,10 +563,232 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       <div class="alert-list" id="alertList"></div>
     </div>
 
-  </div><!-- /results -->
+    <!-- ── Tab: Help ── -->
+    <div class="tab-panel" id="tab-help" data-title="User Manual" style="max-width:860px;margin:0 auto;padding:8px 0 32px">
 
-</div><!-- /main -->
-</div><!-- /layout -->
+      <style>
+        .help-section { margin-bottom: 28px; }
+        .help-h1 { font-size:18px; font-weight:900; color:var(--primary); border-bottom:2px solid var(--primary-light); padding-bottom:6px; margin-bottom:12px; margin-top:24px; }
+        .help-h2 { font-size:13px; font-weight:800; color:var(--accent); margin-top:14px; margin-bottom:5px; text-transform:uppercase; letter-spacing:0.4px; }
+        .help-body { font-size:13px; color:var(--text); line-height:1.6; margin-bottom:6px; }
+        .help-table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:10px; }
+        .help-table th { background:var(--primary); color:white; padding:6px 10px; text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; }
+        .help-table td { padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:top; line-height:1.5; }
+        .help-table tr:nth-child(even) td { background:var(--bg); }
+        .help-tip { background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:7px; padding:9px 13px; font-size:12px; color:#92400e; margin-bottom:8px; line-height:1.5; }
+        .help-note { background:var(--info-bg); border:1px solid var(--info-border); border-radius:7px; padding:9px 13px; font-size:12px; color:#1d4ed8; margin-bottom:8px; line-height:1.5; }
+        .help-step { display:grid; grid-template-columns:36px 1fr; gap:10px; align-items:start; margin-bottom:10px; }
+        .help-step-num { font-size:20px; font-weight:900; color:var(--accent); line-height:1.2; }
+        .help-bullets { padding-left:18px; margin:4px 0 8px; }
+        .help-bullets li { font-size:13px; color:var(--text); line-height:1.6; margin-bottom:2px; }
+        .help-cover { background:var(--primary); color:white; border-radius:10px; padding:20px 24px; margin-bottom:20px; }
+        .help-cover h1 { font-size:22px; font-weight:900; margin-bottom:4px; letter-spacing:-0.3px; }
+        .help-cover p { font-size:12px; opacity:0.7; margin:0; }
+      </style>
+
+      <div class="help-cover">
+        <h1>MVHR Design Engine — User Manual</h1>
+        <p>HiPer Haus · Passivhaus-aligned MVHR sizing for Australian high-performance homes</p>
+      </div>
+
+      <!-- Introduction -->
+      <div class="help-section">
+        <div class="help-h1">Introduction</div>
+        <p class="help-body">The HiPer Haus MVHR Design Engine is a browser-based tool for sizing and documenting Mechanical Ventilation with Heat Recovery (MVHR) systems. It follows the Passivhaus Institute (PHI) three-criteria method, selects an appropriate unit, sizes individual duct runs, and produces a complete commissioning schedule.</p>
+        <p class="help-body">All work auto-saves to your browser as named projects. No internet connection is required once the page is loaded.</p>
+        <div class="help-note">ℹ️ Projects are stored in this browser only. Export the PDF as a backup before closing.</div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="help-section">
+        <div class="help-h1">Navigation — Top Tabs</div>
+        <table class="help-table">
+          <tr><th>Tab</th><th>Purpose</th></tr>
+          <tr><td>📐 Plan</td><td>Upload floor plan, draw building + rooms, place MVHR unit and grilles, auto-route ducts</td></tr>
+          <tr><td>🏗 Project</td><td>Edit all design inputs: floor area, ceiling height, occupancy, duct settings, supply and extract rooms</td></tr>
+          <tr><td>📊 Summary</td><td>Design airflow, unit selection, pressure loss and external grille summary — auto-updates as you draw</td></tr>
+          <tr><td>🏠 Rooms</td><td>Room-by-room schedule showing flow rates, duct count, velocity and status</td></tr>
+          <tr><td>🔩 Ducts</td><td>Individual duct run schedule with ID, length, velocity, pressure loss and status</td></tr>
+          <tr><td>📋 BOM</td><td>Bill of materials — all ComfoTube, fittings and terminals required</td></tr>
+          <tr><td>✅ Commission</td><td>Commissioning table ready to hand to the installer</td></tr>
+          <tr><td>⚠️ Warnings</td><td>Design warnings, code issues and informational notes</td></tr>
+          <tr><td>❓ Help</td><td>This manual</td></tr>
+        </table>
+      </div>
+
+      <!-- Project Management -->
+      <div class="help-section">
+        <div class="help-h1">Project Management</div>
+        <table class="help-table">
+          <tr><th>Control</th><th>Action</th></tr>
+          <tr><td>Dropdown</td><td>Switch between saved projects. Current project auto-saves on switch.</td></tr>
+          <tr><td>✏️ Rename</td><td>Rename the current project.</td></tr>
+          <tr><td>＋ New Project</td><td>Save current work, then open a blank project with empty plan and rooms.</td></tr>
+          <tr><td>⧉ Copy</td><td>Duplicate the current project including plan drawing and all inputs.</td></tr>
+          <tr><td>💾 Save</td><td>Explicit save — a ✓ Saved badge confirms. Auto-save also runs on every change (800ms debounce).</td></tr>
+        </table>
+      </div>
+
+      <!-- Plan Tool -->
+      <div class="help-section">
+        <div class="help-h1">Plan Tool — Step-by-Step Workflow</div>
+        <p class="help-body">The Plan tab is the primary input. Draw on your floor plan to populate the design automatically. Results update in the background as you work.</p>
+
+        <div class="help-step"><div class="help-step-num">1</div><div><div class="help-h2">Upload your floor plan</div><p class="help-body">Drag and drop a PDF or image (JPG/PNG) onto the upload area, or click to browse. PDFs use the first page.</p></div></div>
+        <div class="help-step"><div class="help-step-num">2</div><div><div class="help-h2">Set the scale</div><p class="help-body">Click 📏 Scale. Click two known points on the plan, then enter the real-world distance in metres. All subsequent measurements use this reference.</p></div></div>
+        <div class="help-step"><div class="help-step-num">3</div><div><div class="help-h2">Draw the building outline</div><p class="help-body">Click 🏗 Building. Click each corner of the external perimeter. Close by clicking back on the first point (snap ring appears) or double-click. Floor area auto-fills in Project.</p></div></div>
+        <div class="help-step"><div class="help-step-num">4</div><div><div class="help-h2">Draw supply rooms</div><p class="help-body">Click 🟢 Supply Room. Trace the polygon. A popup appears on completion — choose room type and name, then click Add Room. The room auto-populates the Project tab.</p></div></div>
+        <div class="help-step"><div class="help-step-num">5</div><div><div class="help-h2">Draw extract rooms</div><p class="help-body">Click 🟠 Extract Room. Same as supply rooms. Extract rooms (kitchens, bathrooms, wet areas) are shown in orange.</p></div></div>
+        <div class="help-step"><div class="help-step-num">6</div><div><div class="help-h2">Mark V-Through zones</div><p class="help-body">Click ↔ V-Through for hallways and open-plan corridors. These show on the plan but don't create duct runs — they allow air transfer between spaces.</p></div></div>
+        <div class="help-step"><div class="help-step-num">7</div><div><div class="help-h2">Place the MVHR unit</div><p class="help-body">Click 🔵 MVHR Unit, then click the plant room location. Duct routes are auto-drawn to every supply and extract room immediately.</p></div></div>
+        <div class="help-step"><div class="help-step-num">8</div><div><div class="help-h2">Place intake and exhaust grilles</div><p class="help-body">Click 🌬 Intake then click the external wall location. Click 💨 Exhaust for the exhaust outlet. Dashed external duct lines are drawn and lengths update automatically.</p></div></div>
+        <div class="help-step"><div class="help-step-num">9</div><div><div class="help-h2">Re-route ducts</div><p class="help-body">Click ⚡ Auto Route to regenerate all routes. Click any duct segment to insert a waypoint, then drag it to reroute. Waypoints snap to the unit and grilles.</p></div></div>
+        <div class="help-step"><div class="help-step-num">10</div><div><div class="help-h2">Adjust outlets</div><p class="help-body">Drag any outlet symbol within its room to the grille position. Click an outlet (without dragging) to toggle between ceiling-mounted and wall/bulkhead-mounted type.</p></div></div>
+
+        <div class="help-h2">Plan Toolbar Reference</div>
+        <table class="help-table">
+          <tr><th>Button</th><th>Mode</th><th>Interaction</th></tr>
+          <tr><td>📏 Scale</td><td>Two-point</td><td>Click 2 points → enter metres</td></tr>
+          <tr><td>🏗 Building</td><td>Polygon</td><td>Click corners → close to snap ring or double-click</td></tr>
+          <tr><td>🟢 Supply Room</td><td>Polygon</td><td>Click corners → popup to name room</td></tr>
+          <tr><td>🟠 Extract Room</td><td>Polygon</td><td>Click corners → popup to name room</td></tr>
+          <tr><td>↔ V-Through</td><td>Polygon</td><td>Click corners → popup to label zone</td></tr>
+          <tr><td>🔵 MVHR Unit</td><td>Single click</td><td>Click to place — auto-routes all ducts</td></tr>
+          <tr><td>🌬 Intake</td><td>Single click</td><td>Click external wall — auto-draws external duct</td></tr>
+          <tr><td>💨 Exhaust</td><td>Single click</td><td>Click external wall — auto-draws external duct</td></tr>
+          <tr><td>⚡ Auto Route</td><td>Action</td><td>Regenerates all duct routes</td></tr>
+          <tr><td>🗑 Clear</td><td>Action</td><td>Confirm prompt clears all plan markup</td></tr>
+        </table>
+
+        <div class="help-h2">Outlet Symbols</div>
+        <table class="help-table">
+          <tr><th>Symbol</th><th>Meaning</th></tr>
+          <tr><td>Blue circle + 4 outward arrows</td><td>Ceiling-mounted supply grille</td></tr>
+          <tr><td>Red circle + 4 inward arrows</td><td>Ceiling-mounted extract grille</td></tr>
+          <tr><td>Blue rectangle + 3 upward arrows</td><td>Wall/bulkhead-mounted supply grille</td></tr>
+          <tr><td>Red rectangle + 3 downward arrows</td><td>Wall/bulkhead-mounted extract grille</td></tr>
+        </table>
+      </div>
+
+      <!-- Calculation Method -->
+      <div class="help-section">
+        <div class="help-h1">Calculation Methodology — PHI Three-Criteria Method</div>
+        <p class="help-body">Design airflow is the maximum of three independently calculated values, per Passivhaus Institute protocol:</p>
+        <table class="help-table">
+          <tr><th>Criterion</th><th>Formula</th><th>Typical governing scenario</th></tr>
+          <tr><td>Occupancy-based</td><td>Persons × 30 m³/h</td><td>Small, densely occupied homes</td></tr>
+          <tr><td>Extract demand</td><td>Sum of extract room defaults (kitchen 60, wet areas 40 each)</td><td>Homes with multiple wet areas</td></tr>
+          <tr><td>0.3 ACH minimum</td><td>Floor area × ceiling height × 0.3</td><td>Large, lightly occupied homes</td></tr>
+        </table>
+        <div class="help-h2">Duct Sizing</div>
+        <p class="help-body">All ducts are DN90 (90mm) ComfoTube. Runs per room = ceil(normal flow ÷ 35 m³/h). At boost (1.3×), each DN90 carries up to 45.5 m³/h, keeping velocity below 2 m/s — the PHI limit for acceptable room noise.</p>
+        <table class="help-table">
+          <tr><th>Status</th><th>Boost velocity</th><th>Meaning</th></tr>
+          <tr><td><span style="color:var(--accent);font-weight:700">Excellent</span></td><td>&lt; 1.0 m/s</td><td>Very low velocity — may be oversized</td></tr>
+          <tr><td><span style="color:var(--primary);font-weight:700">Normal</span></td><td>1.0–1.5 m/s</td><td>Comfortable operating range</td></tr>
+          <tr><td><span style="color:var(--amber);font-weight:700">High</span></td><td>1.5–2.0 m/s</td><td>Acceptable — approaching PHI limit</td></tr>
+          <tr><td><span style="color:var(--critical);font-weight:700">Critical</span></td><td>&gt; 2.0 m/s</td><td>Exceeds PHI limit — add a duct run</td></tr>
+        </table>
+      </div>
+
+      <!-- Design Tips -->
+      <div class="help-section">
+        <div class="help-h1">Design Tips</div>
+        <div class="help-tip">🍳 <strong>Kitchen extract ducts —</strong> PHI standard is 60 m³/h for kitchen extract. The tool splits this across two DN90 runs at 30 m³/h each. Do not combine into one — boost velocity would exceed 3 m/s.</div>
+        <div class="help-tip">🏠 <strong>Duplicate rooms —</strong> If the same room type appears multiple times, check whether a large open-plan area was drawn more than once. Delete duplicates and redraw as one polygon.</div>
+        <div class="help-tip">📏 <strong>External duct length —</strong> The plan measures straight-line distance. Add 10–15% for installed bends. Keep intake and exhaust runs under 5m where possible.</div>
+        <div class="help-tip">💨 <strong>Combi grille —</strong> Use the ComfoEdge combi grille where supply and exhaust share one wall penetration. Select DN125 (&lt;3% recirculation) or DN160 (&lt;5%). Do not use if the unit is more than 3m from the wall.</div>
+        <div class="help-tip">💾 <strong>Saving —</strong> Auto-save runs every 800ms. Use 💾 Save explicitly before switching browsers or computers. Projects are browser-local — export the PDF as a backup.</div>
+      </div>
+
+      <!-- Airflow defaults -->
+      <div class="help-section">
+        <div class="help-h1">Default Airflow Weightings</div>
+        <table class="help-table">
+          <tr><th>Room Type</th><th>Default m³/h</th><th>Type</th></tr>
+          <tr><td>Master Bedroom</td><td>35</td><td>Supply</td></tr>
+          <tr><td>Double Bedroom</td><td>30</td><td>Supply</td></tr>
+          <tr><td>Single Bedroom</td><td>20</td><td>Supply</td></tr>
+          <tr><td>Living Room</td><td>40</td><td>Supply</td></tr>
+          <tr><td>Rumpus Room</td><td>30</td><td>Supply</td></tr>
+          <tr><td>Dining Room</td><td>25</td><td>Supply</td></tr>
+          <tr><td>Study / Office</td><td>20</td><td>Supply</td></tr>
+          <tr><td>Kitchen</td><td>60</td><td>Extract</td></tr>
+          <tr><td>Bathroom / Ensuite</td><td>40</td><td>Extract</td></tr>
+          <tr><td>Laundry</td><td>40</td><td>Extract</td></tr>
+          <tr><td>WC</td><td>20</td><td>Extract</td></tr>
+          <tr><td>Pantry</td><td>15</td><td>Extract</td></tr>
+        </table>
+      </div>
+
+      <p style="font-size:11px;color:var(--muted);margin-top:20px">HiPer Haus MVHR Design Engine — Always have designs reviewed by a qualified mechanical engineer before installation.</p>
+    </div>
+
+    <!-- ── Tab: Plan Markup ── -->
+    <div class="tab-panel active" id="tab-plan" data-title="Plan Markup" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 112px)">
+
+      <!-- Toolbar -->
+      <div class="plan-toolbar">
+        <label class="plan-btn" title="Upload PDF floor plan">
+          📄 Upload Plan
+          <input type="file" id="planUpload" accept=".pdf,image/*" style="display:none">
+        </label>
+        <div class="plan-sep"></div>
+        <button class="plan-btn" id="tool-scale"    onclick="setPlanTool('scale')"    title="Click two known points then enter real distance">📏 Scale</button>
+        <div class="plan-sep"></div>
+        <button class="plan-btn" id="tool-building" onclick="setPlanTool('building')"  title="Draw building outline polygon — double-click to close">🏗 Building</button>
+        <button class="plan-btn" id="tool-supply-room"  onclick="setPlanTool('supply-room')"  title="Draw supply room polygon — double-click to close">🟢 Supply Room</button>
+        <button class="plan-btn" id="tool-extract-room" onclick="setPlanTool('extract-room')" title="Draw extract room polygon — double-click to close">🟠 Extract Room</button>
+        <button class="plan-btn" id="tool-vthrough" onclick="setPlanTool('vthrough')"  title="Draw V-Through zone (hall, stair) — double-click to close">↔ V-Through</button>
+        <div class="plan-sep"></div>
+        <button class="plan-btn" id="tool-unit"    onclick="setPlanTool('unit')"    title="Place MVHR unit — replaces existing">🔵 MVHR Unit</button>
+        <button class="plan-btn" id="tool-intake"  onclick="setPlanTool('intake')"  title="Place fresh air intake on building perimeter">🌬 Intake</button>
+        <button class="plan-btn" id="tool-exhaust" onclick="setPlanTool('exhaust')" title="Place exhaust outlet on building perimeter">💨 Exhaust</button>
+        <div class="plan-sep"></div>
+        <button class="plan-btn" onclick="autoRouteDucts()" title="Auto-route ducts from unit to all rooms">⚡ Auto Route</button>
+        <button class="plan-btn" onclick="clearPlanAnnotations()" title="Remove all markup">🗑 Clear</button>
+        <span id="scaleDisplay" class="plan-scale-badge">No scale set</span>
+        <span id="planCursor" class="plan-cursor-info"></span>
+      </div>
+
+      <!-- Canvas container -->
+      <div class="plan-canvas-wrap" id="planWrap">
+        <div class="plan-upload-prompt" id="planPrompt">
+          <div style="font-size:48px;margin-bottom:12px">📐</div>
+          <div style="font-size:16px;font-weight:700;color:var(--primary);margin-bottom:6px">Upload a floor plan to get started</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:18px">Accepts PDF or image files (PNG, JPG)</div>
+          <label class="btn-calc" style="display:inline-block;width:auto;padding:10px 24px;cursor:pointer">
+            Choose file
+            <input type="file" id="planUpload2" accept=".pdf,image/*" style="display:none">
+          </label>
+        </div>
+        <canvas id="planCanvas" style="display:none"></canvas>
+        <canvas id="planOverlay" style="display:none;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+      </div>
+
+      <!-- Room picker popup -->
+      <div id="roomPicker" class="room-picker" style="display:none">
+        <div class="room-picker-title" id="roomPickerTitle">Link to room</div>
+        <div id="roomPickerList"></div>
+        <button onclick="closePicker()" style="margin-top:8px;font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer">Cancel</button>
+      </div>
+
+      <!-- Duct length input popup -->
+      <div id="ductPopup" class="room-picker" style="display:none">
+        <div class="room-picker-title">Duct route measured</div>
+        <div id="ductPopupBody"></div>
+        <button onclick="closeDuctPopup()" style="margin-top:8px;font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer">Cancel</button>
+      </div>
+
+      <!-- Room definition popup (after drawing room polygon) -->
+      <div id="roomDefPopup" class="room-picker" style="display:none;min-width:260px">
+        <div class="room-picker-title" id="roomDefTitle">Define Room</div>
+        <div id="roomDefBody"></div>
+      </div>
+
+    </div>
+
+  </div><!-- /results -->
 
 <script>
 // ══════════════════════════════════════════════════════
@@ -686,51 +958,224 @@ function seedIfEmpty() {
 }
 
 // ══════════════════════════════════════════════════════
-// AUTOSAVE
 // ══════════════════════════════════════════════════════
-const SAVE_KEY = 'hh_mvhr_state';
+// PROJECT MANAGEMENT
+// ══════════════════════════════════════════════════════
+const PROJECTS_KEY = 'hh_mvhr_projects_v1';
+const SAVE_KEY     = 'hh_mvhr_state';       // legacy — kept for planState compat
 let _saveTimer = null;
+let _currentProjectId = null;
 
-function scheduleAutosave() {
-  clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(saveState, 800);
+const FIELD_IDS = ['bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces'];
+
+// ── Read / write project store ──
+function getProjects() {
+  try { return JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) { return []; }
+}
+function putProjects(list) {
+  try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(list)); } catch(e) {}
 }
 
-const FIELD_IDS = ['bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize'];
-
-function saveState() {
+// ── Collect current state into an object ──
+function collectState() {
   const state = {};
   FIELD_IDS.forEach(id => { const el = document.getElementById(id); if (el) state[id] = el.value; });
   state.supplyRooms  = supplyRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
   state.extractRooms = extractRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
-  showSaveBadge();
+  return state;
 }
 
-function loadState() {
-  let raw;
-  try { raw = localStorage.getItem(SAVE_KEY); } catch(e) {}
-  if (!raw) return;
-  let state;
-  try { state = JSON.parse(raw); } catch(e) { return; }
+// ── Apply a state object to the form ──
+function applyState(state) {
+  if (!state) return;
   FIELD_IDS.forEach(id => {
     if (state[id] !== undefined) { const el = document.getElementById(id); if (el) el.value = state[id]; }
   });
-  if (state.supplyRooms  && Array.isArray(state.supplyRooms))  supplyRooms  = state.supplyRooms;
-  if (state.extractRooms && Array.isArray(state.extractRooms)) extractRooms = state.extractRooms;
+  supplyRooms  = Array.isArray(state.supplyRooms)  ? state.supplyRooms  : [];
+  extractRooms = Array.isArray(state.extractRooms) ? state.extractRooms : [];
   renderRooms('supply'); renderRooms('extract');
-  updateGrilleSize();
+  if (typeof updateGrilleSize === 'function') updateGrilleSize();
 }
 
-function showSaveBadge() {
-  const el = document.getElementById('saveBadge');
+// ── Save current project ──
+function saveCurrentProject() {
+  const projects = getProjects();
+  const idx = projects.findIndex(p => p.id === _currentProjectId);
+  const state    = collectState();
+  // planState collected from the plan IIFE's savePlanState — read directly from localStorage
+  let planState = null;
+  try { planState = JSON.parse(localStorage.getItem('hh_mvhr_plan_v2')); } catch(e) {}
+
+  if (idx >= 0) {
+    projects[idx].state     = state;
+    projects[idx].planState = planState;
+    projects[idx].updatedAt = Date.now();
+  } else {
+    const p = { id: _currentProjectId, name: 'Project', createdAt: Date.now(), updatedAt: Date.now(), state, planState };
+    projects.push(p);
+  }
+  putProjects(projects);
+  flashProjBadge();
+  renderProjSelect();
+}
+
+// ── New project ──
+function newProject() {
+  saveCurrentProject(); // persist current first
+  const id = 'proj_' + Date.now();
+  const projects = getProjects();
+  projects.push({ id, name: 'New Project', createdAt: Date.now(), updatedAt: Date.now(), state: {}, planState: null });
+  putProjects(projects);
+  loadProject(id);
+}
+
+// ── Copy project ──
+function copyProject() {
+  saveCurrentProject();
+  const projects = getProjects();
+  const src = projects.find(p => p.id === _currentProjectId);
+  if (!src) return;
+  const id = 'proj_' + Date.now();
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.id = id;
+  copy.name = src.name + ' (Copy)';
+  copy.createdAt = copy.updatedAt = Date.now();
+  projects.push(copy);
+  putProjects(projects);
+  loadProject(id);
+}
+
+// ── Switch project from dropdown ──
+function switchProject(id) {
+  if (id === _currentProjectId) return;
+  saveCurrentProject();
+  loadProject(id);
+}
+
+// ── Load a project by id ──
+function loadProject(id) {
+  const projects = getProjects();
+  const p = projects.find(p => p.id === id);
+  if (!p) return;
+  _currentProjectId = id;
+  applyState(p.state || {});
+  // Clear calculated results
+  clearResults();
+  // Restore plan state
+  try {
+    if (p.planState) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(p.planState));
+    else localStorage.removeItem('hh_mvhr_plan_v2');
+  } catch(e) {}
+  // Trigger plan reload
+  if (typeof loadPlanState === 'function') {
+    resetPlanState();
+    setTimeout(loadPlanState, 50);
+  }
+  renderProjSelect();
+  showTab('plan');
+}
+
+// ── Clear all calculated output tabs ──
+function clearResults() {
+  const results = document.getElementById('results');
+  if (results) results.style.display = 'none';
+  // Blank out dynamic result containers
+  ['sNormal','sBoost','sUnit','sExt','sDucts','sPressure','sNoise',
+   'unitGrid','ductTable','bomTable','commTable','alertList'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+  const wb = document.getElementById('warnBadge');
+  if (wb) wb.textContent = '';
+}
+
+// Reset plan to blank (called before loading a different project's plan)
+function resetPlanState() {
+  // Plan IIFE exposes its state via window.plan — reset it
+  if (window.plan) {
+    window.plan.building = null; window.plan.planRooms = []; window.plan.unitPos = null;
+    window.plan.ports = []; window.plan.ductRoutes = []; window.plan.externalRoutes = []; window.plan.scalePoints = [];
+    window.plan.scaleLine = null; window.plan.currentPath = []; window.plan.pxPerM = null;
+    window.plan.imgData = null;
+    const scaleEl = document.getElementById('scaleDisplay');
+    if (scaleEl) scaleEl.textContent = 'No scale set';
+    // clear canvases (actual IDs: planCanvas, planOverlay)
+    const bc = document.getElementById('planCanvas');
+    const ov = document.getElementById('planOverlay');
+    if (bc) { bc.width = bc.width; bc.style.display = 'none'; } // reset clears pixels
+    if (ov) { ov.width = ov.width; ov.style.display = 'none'; }
+    const prompt = document.getElementById('planPrompt');
+    if (prompt) prompt.style.display = 'flex';
+  }
+}
+
+// ── Render the project select dropdown ──
+function renderProjSelect() {
+  const sel = document.getElementById('projSelect');
+  if (!sel) return;
+  const projects = getProjects();
+  sel.innerHTML = projects.map(p =>
+    `<option value="${p.id}" ${p.id === _currentProjectId ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+}
+
+// ── Rename ──
+function renameProject() {
+  const projects = getProjects();
+  const p = projects.find(p => p.id === _currentProjectId);
+  if (!p) return;
+  const name = prompt('Project name:', p.name);
+  if (!name || !name.trim()) return;
+  p.name = name.trim();
+  putProjects(projects);
+  renderProjSelect();
+}
+
+function flashProjBadge() {
+  const el = document.getElementById('projSavedBadge');
   if (!el) return;
   el.style.opacity = '1';
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.style.opacity = '0'; }, 2000);
 }
 
-// Wire autosave to all sidebar inputs
+// Legacy showSaveBadge used by plan IIFE
+function showSaveBadge() { flashProjBadge(); }
+
+// ── Autosave (debounced) — saves into current project slot ──
+function scheduleAutosave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveCurrentProject, 800);
+}
+
+// Legacy saveState / loadState for plan IIFE compatibility
+function saveState() { saveCurrentProject(); }
+function loadState() {
+  const projects = getProjects();
+  if (projects.length === 0) {
+    // First run — create default project wrapping any existing legacy state
+    let legacyState = null;
+    try { legacyState = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch(e) {}
+    let legacyPlan = null;
+    try { legacyPlan = JSON.parse(localStorage.getItem('hh_mvhr_plan_v2')); } catch(e) {}
+    const id = 'proj_' + Date.now();
+    _currentProjectId = id;
+    projects.push({ id, name: 'My Project', createdAt: Date.now(), updatedAt: Date.now(), state: legacyState || {}, planState: legacyPlan });
+    putProjects(projects);
+    applyState(legacyState || {});
+  } else {
+    // Load the most recently updated project
+    projects.sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0));
+    _currentProjectId = projects[0].id;
+    applyState(projects[0].state || {});
+    try {
+      if (projects[0].planState) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(projects[0].planState));
+    } catch(e) {}
+  }
+  renderProjSelect();
+}
+
+// Wire autosave to all project inputs
 document.addEventListener('DOMContentLoaded', () => {
   FIELD_IDS.forEach(id => {
     const el = document.getElementById(id);
@@ -799,7 +1244,7 @@ function ductStatusPill(flowPerDuct) {
 // ══════════════════════════════════════════════════════
 // CALCULATE
 // ══════════════════════════════════════════════════════
-function calculate() {
+function calculate(silent) {
   const floorArea      = parseFloat(document.getElementById('floorArea').value) || 0;
   const ceilHeight     = parseFloat(document.getElementById('ceilHeight').value) || 2.5;
   const bedSpaces      = parseFloat(document.getElementById('bedSpaces').value) || 0;
@@ -1005,7 +1450,6 @@ function calculate() {
     warnings.push({ type: 'warn', icon: '🔊', text: `${highVelRooms.length} duct run(s) exceed 2 m/s terminal velocity (${highVelRooms.map(d=>d.id).join(', ')}) — room noise may exceed PHI target. Add duct run or reduce flow.` });
   else
     warnings.push({ type: 'ok', icon: '🔇', text: `All terminal velocities ≤2 m/s — room noise expected within PHI targets of ≤25 dB(A) supply / ≤35 dB(A) extract.` });
-  warnings.push({ type: 'info', icon: 'ℹ️', text: `PHI certificate noise (${noiseSupply} dB(A) supply, ${noiseExtract} dB(A) extract at ${nd.ratedFlow} m³/h) is measured at the unit connection. Room terminal noise is lower due to duct attenuation and is not directly comparable to the ≤25/≤35 dB(A) room targets.` });
   warnings.push({ type: 'ok', icon: '✅', text: `Design airflow ${Math.round(normal)} m³/h — ${govMethod}.` });
   if (extractDemand > byOcc) warnings.push({ type: 'info', icon: 'ℹ️', text: `Extract demand (${Math.round(extractDemand)} m³/h) exceeds occupancy-based supply (${Math.round(byOcc)} m³/h) — extract demand is governing per PHI protocol.` });
   if (byACH > byOcc && byACH > extractDemand) warnings.push({ type: 'amber', icon: '💡', text: `Minimum 0.3 ACH (${Math.round(byACH)} m³/h) is governing — building volume is large relative to occupancy. Consider adding persons or reviewing room count.` });
@@ -1085,15 +1529,6 @@ function calculate() {
 
   // Noise
   // Noise display — informational only. PHI figures are at the unit connection, NOT room terminals.
-  // Room terminal noise will be lower after duct attenuation. The ≤25/≤35 dB(A) PHI targets
-  // apply at the terminal and cannot be verified from unit-level data alone.
-  document.getElementById('noiseDevice').innerHTML  = `<span style="color:var(--primary)">${noiseDevice}</span>`;
-  document.getElementById('noiseSupply').innerHTML  = `<span style="color:var(--primary)">${noiseSupply}</span>`;
-  document.getElementById('noiseExtract').innerHTML = `<span style="color:var(--primary)">${noiseExtract}</span>`;
-  document.getElementById('noiseRatedFlow').textContent = nd.ratedFlow;
-  document.getElementById('noiseAlert').innerHTML = `<div style="background:var(--info-bg);border:1px solid var(--info-border);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--primary-mid)">
-    ℹ️ These figures are scaled from PHI certificate data measured <strong>at the unit duct connections</strong>. Room terminal noise will be significantly lower due to duct attenuation. PHI room targets of ≤25 dB(A) supply / ≤35 dB(A) extract apply at the terminal and are typically met when duct velocity is ≤2 m/s (see Room Schedule).
-  </div>`;
 
   // Room Schedule
   const rsBody = document.getElementById('roomScheduleBody');
@@ -1222,21 +1657,32 @@ function calculate() {
     alertList.appendChild(div);
   });
 
-  document.getElementById('placeholder').style.display = 'none';
-  document.getElementById('results').style.display = 'block';
-  showTab('summary');
+  if (!silent) showTab('summary');
+  else {
+    // Ensure results div is visible for other tabs to work, but don't switch
+    const res = document.getElementById('results');
+    if (res) res.style.display = 'block';
+  }
 }
 
 // ══════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════
 function showTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  // Nav tabs
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  const nt = document.getElementById('navtab-' + name);
+  if (nt) nt.classList.add('active');
+  // Content panels
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  const tabs = document.querySelectorAll('.tab');
-  const map = { summary:0, rooms:1, ducts:2, bom:3, commission:4, warnings:5 };
-  tabs[map[name]].classList.add('active');
+  const panel = document.getElementById('tab-' + name);
+  if (panel) panel.classList.add('active');
+  // #results div hosts the output tab panels — show it when on an output tab
+  const results = document.getElementById('results');
+  if (results) {
+    const outputTabs = ['summary','rooms','ducts','bom','commission','warnings','plan','help'];
+    results.style.display = outputTabs.includes(name) ? 'block' : 'none';
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -1449,6 +1895,949 @@ function exportPDF() {
 // ══════════════════════════════════════════════════════
 addRoom('supply');
 addRoom('extract');
+
+// ══════════════════════════════════════════════════════
+// PLAN ENGINE — PRIMARY INPUT MODE
+// ══════════════════════════════════════════════════════
+(function() {
+  'use strict';
+
+  // PDF.js worker
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  // ── State ──
+  const plan = window.plan = {
+    tool: null,
+    pxPerM: null,
+    scalePoints: [],
+    currentPath: [],
+    canvasW: 0, canvasH: 0,
+    imgData: null,
+    // Primary design objects
+    building: null,       // {path:[{x,y}], areaM2}
+    planRooms: [],        // [{id,name,roomType,pinType,path,areaM2,centroid,sidebarId,isVthrough}]
+    unitPos: null,        // {x,y,label}
+    ports: [],            // [{type:'intake'|'exhaust', x,y}]
+    ductRoutes: [],       // [{sidebarId,pinType,waypoints:[{x,y}],lengthM}]
+    externalRoutes: [],   // [{type:'intake'|'exhaust', waypoints:[{x,y}],lengthM}]
+    // Drag state
+    drag: null,           // {routeIdx, wpIdx}
+    outletDrag: null,     // planRoom index being dragged
+    _outletDragStart: null,
+    hoverWp: null,        // {routeIdx, wpIdx}
+    mousePos: {x:0,y:0},
+  };
+
+  const PLAN_SAVE_KEY = 'hh_mvhr_plan_v2';
+
+  // ── Elements ──
+  function el(id) { return document.getElementById(id); }
+  const overlay  = () => el('planOverlay');
+  const baseCanvas = () => el('planCanvas');
+
+  // ── Tool selection ──
+  window.setPlanTool = function(name) {
+    plan.tool = plan.tool === name ? null : name;
+    document.querySelectorAll('.plan-btn[id^="tool-"]').forEach(b => b.classList.remove('active'));
+    if (plan.tool) { const b = el('tool-' + plan.tool); if (b) b.classList.add('active'); }
+    plan.currentPath = [];
+    plan.drag = null;
+    redraw();
+    updateCursorHint();
+  };
+
+  function updateCursorHint() {
+    const hints = {
+      scale:        '📏 Click two known points on plan',
+      building:     '🏗 Click corners of building outline — double-click to close',
+      'supply-room':'🟢 Click room corners — double-click to close',
+      'extract-room':'🟠 Click room corners — double-click to close',
+      vthrough:     '↔ Click V-Through zone corners (hall/stair) — double-click to close',
+      unit:         '🔵 Click to place MVHR unit',
+      intake:       '🌬 Click to place fresh air intake on perimeter',
+      exhaust:      '💨 Click to place exhaust outlet on perimeter',
+    };
+    el('planCursor').textContent = plan.tool ? (hints[plan.tool] || '') : (plan.ductRoutes.length ? '↖ Drag waypoints to reroute ducts · click segment to add bend' : '');
+  }
+
+  // ── File upload ──
+  function setupUpload(inputId) {
+    const inp = el(inputId);
+    if (!inp) return;
+    inp.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.type === 'application/pdf') loadPDF(file);
+      else loadImage(file);
+      inp.value = '';
+    });
+  }
+  setupUpload('planUpload');
+  setupUpload('planUpload2');
+
+  function loadImage(file) {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => renderImageToCanvas(img);
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function renderImageToCanvas(img) {
+    const bc = baseCanvas(); const ov = overlay();
+    const wrap = el('planWrap');
+    const maxW = Math.min(img.naturalWidth, 3000);
+    const scale = maxW / img.naturalWidth;
+    bc.width = img.naturalWidth * scale;
+    bc.height = img.naturalHeight * scale;
+    ov.width = bc.width; ov.height = bc.height;
+    plan.canvasW = bc.width; plan.canvasH = bc.height;
+    const ctx = bc.getContext('2d');
+    ctx.drawImage(img, 0, 0, bc.width, bc.height);
+    plan.imgData = bc.toDataURL();
+    showCanvases();
+    redraw();
+    savePlanState();
+  }
+
+  async function loadPDF(file) {
+    if (!window.pdfjsLib) { alert('PDF.js not loaded — try refreshing.'); return; }
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const bc = baseCanvas();
+    bc.width = viewport.width; bc.height = viewport.height;
+    plan.canvasW = bc.width; plan.canvasH = bc.height;
+    const ctx = bc.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    plan.imgData = bc.toDataURL();
+    const ov = overlay();
+    ov.width = bc.width; ov.height = bc.height;
+    showCanvases();
+    redraw();
+    savePlanState();
+  }
+
+  function showCanvases() {
+    el('planPrompt').style.display = 'none';
+    baseCanvas().style.display = 'block';
+    const ov = overlay();
+    ov.style.display = 'block';
+    ov.style.top = '0'; ov.style.left = '0';
+    ['click','dblclick','mousemove','mousedown','mouseup'].forEach(ev => {
+      ov.removeEventListener(ev, evHandlers[ev]);
+      ov.addEventListener(ev, evHandlers[ev]);
+    });
+    updateCursorHint();
+  }
+
+  // ── Canvas coords ──
+  function canvasXY(e) {
+    const r = overlay().getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  // ── Snap to first point for polygon closing ──
+  function snapToFirst(pt) {
+    if (plan.currentPath.length < 3) return pt;
+    const f = plan.currentPath[0];
+    if (Math.hypot(pt.x - f.x, pt.y - f.y) < 14) return f;
+    return pt;
+  }
+
+  const POLYGON_TOOLS = ['building','supply-room','extract-room','vthrough'];
+
+  // ── Waypoint hit test (internal + external routes) ──
+  const WP_RADIUS = 8;
+  function findWaypoint(pt) {
+    // Internal routes
+    for (let ri = 0; ri < plan.ductRoutes.length; ri++) {
+      const r = plan.ductRoutes[ri];
+      for (let wi = 0; wi < r.waypoints.length; wi++) {
+        if (Math.hypot(pt.x - r.waypoints[wi].x, pt.y - r.waypoints[wi].y) <= WP_RADIUS)
+          return { ri, wi, ext: false };
+      }
+    }
+    // External routes (mid-waypoints only — endpoints snap to unit/port)
+    for (let ri = 0; ri < plan.externalRoutes.length; ri++) {
+      const r = plan.externalRoutes[ri];
+      for (let wi = 1; wi < r.waypoints.length - 1; wi++) {
+        if (Math.hypot(pt.x - r.waypoints[wi].x, pt.y - r.waypoints[wi].y) <= WP_RADIUS)
+          return { ri, wi, ext: true };
+      }
+    }
+    return null;
+  }
+
+  // ── Segment hit test (click to add waypoint) ──
+  function findDuctSegment(pt) {
+    for (let ri = 0; ri < plan.ductRoutes.length; ri++) {
+      const wps = plan.ductRoutes[ri].waypoints;
+      for (let si = 0; si < wps.length - 1; si++) {
+        if (distToSegment(pt, wps[si], wps[si+1]) < 8) return {ri, si, ext: false};
+      }
+    }
+    for (let ri = 0; ri < plan.externalRoutes.length; ri++) {
+      const wps = plan.externalRoutes[ri].waypoints;
+      for (let si = 0; si < wps.length - 1; si++) {
+        if (distToSegment(pt, wps[si], wps[si+1]) < 8) return {ri, si, ext: true};
+      }
+    }
+    return null;
+  }
+
+  function distToSegment(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const lenSq = dx*dx + dy*dy;
+    if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    let t = ((p.x - a.x)*dx + (p.y - a.y)*dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t*dx), p.y - (a.y + t*dy));
+  }
+
+  // ── Event handlers ──
+  let _lastClick = 0;
+  const OUTLET_R = 14; // hit radius px
+
+  function findOutlet(pt) {
+    for (let i = 0; i < plan.planRooms.length; i++) {
+      const r = plan.planRooms[i];
+      if (r.pinType === 'vthrough' || !r.outletPos) continue;
+      if (Math.hypot(pt.x - r.outletPos.x, pt.y - r.outletPos.y) < OUTLET_R) return i;
+    }
+    return -1;
+  }
+
+  const evHandlers = {
+    mousemove(e) {
+      const pt = canvasXY(e);
+      plan.mousePos = pt;
+      if (plan.pxPerM) {
+        const mx = (pt.x / plan.pxPerM).toFixed(1);
+        const my = (pt.y / plan.pxPerM).toFixed(1);
+        el('planCursor').textContent = `${mx}m, ${my}m`;
+      }
+      // Dragging outlet
+      if (plan.outletDrag != null) {
+        const r = plan.planRooms[plan.outletDrag];
+        if (r) {
+          r.outletPos = { x: pt.x, y: pt.y };
+          // Keep duct route endpoint in sync
+          const route = plan.ductRoutes.find(rt => rt.sidebarId === r.sidebarId);
+          if (route && route.waypoints.length >= 2) {
+            route.waypoints[route.waypoints.length - 1] = { x: pt.x, y: pt.y };
+            recalcDuctLength(route);
+          }
+        }
+        redraw(); return;
+      }
+      // Dragging a waypoint
+      if (plan.drag) {
+        const snapped = snapToAnchors(pt) || pt;
+        if (plan.drag.ext) {
+          const r = plan.externalRoutes[plan.drag.ri];
+          if (r) { r.waypoints[plan.drag.wi] = snapped; recalcExternalDuctLength(r); syncExternalLengths(); }
+        } else {
+          const r = plan.ductRoutes[plan.drag.ri];
+          if (r) { r.waypoints[plan.drag.wi] = snapped; recalcDuctLength(r); }
+        }
+        redraw(); return;
+      }
+      // Hover
+      const oi = findOutlet(pt);
+      const wp = oi < 0 ? findWaypoint(pt) : null;
+      if (wp !== plan.hoverWp) plan.hoverWp = wp;
+      overlay().style.cursor = (oi >= 0 || wp) ? 'grab' : (plan.tool ? 'crosshair' : findDuctSegment(pt) ? 'cell' : 'default');
+      if (plan.tool && POLYGON_TOOLS.includes(plan.tool) && plan.currentPath.length > 0) redraw();
+      else if (!plan.tool) redraw();
+    },
+    mousedown(e) {
+      if (plan.tool) return;
+      const pt = canvasXY(e);
+      const oi = findOutlet(pt);
+      if (oi >= 0) { plan.outletDrag = oi; plan._outletDragStart = pt; overlay().style.cursor = 'grabbing'; return; }
+      const wp = findWaypoint(pt);
+      if (wp) { plan.drag = wp; overlay().style.cursor = 'grabbing'; }
+    },
+    mouseup(e) {
+      if (plan.outletDrag != null) {
+        const start = plan._outletDragStart;
+        const pt = canvasXY(e);
+        const moved = start ? Math.hypot(pt.x - start.x, pt.y - start.y) > 5 : true;
+        if (!moved) {
+          // Treat as click → toggle outlet type
+          const r = plan.planRooms[plan.outletDrag];
+          if (r) r.outletType = r.outletType === 'ceiling' ? 'bulkhead' : 'ceiling';
+        }
+        plan.outletDrag = null; plan._outletDragStart = null;
+        overlay().style.cursor = 'default';
+        savePlanState(); redraw(); return;
+      }
+      if (plan.drag) { plan.drag = null; overlay().style.cursor = 'default'; savePlanState(); }
+    },
+    click(e) {
+      if (Date.now() - _lastClick < 280) return;
+      _lastClick = Date.now();
+      if (plan.drag || plan.outletDrag != null) return;
+      const pt = canvasXY(e);
+
+      if (!plan.tool) {
+        const seg = findDuctSegment(pt);
+        if (seg) {
+          if (seg.ext) {
+            plan.externalRoutes[seg.ri].waypoints.splice(seg.si + 1, 0, {x: pt.x, y: pt.y});
+            recalcExternalDuctLength(plan.externalRoutes[seg.ri]);
+            syncExternalLengths();
+          } else {
+            plan.ductRoutes[seg.ri].waypoints.splice(seg.si + 1, 0, {x: pt.x, y: pt.y});
+            recalcDuctLength(plan.ductRoutes[seg.ri]);
+          }
+          redraw(); savePlanState();
+        }
+        return;
+      }
+      if (plan.tool === 'scale') {
+        plan.scalePoints.push(pt); redraw();
+        if (plan.scalePoints.length === 2) promptScale();
+      } else if (plan.tool === 'unit') {
+        const unitEl = document.querySelector('.unit-card.recommended .uc-name');
+        plan.unitPos = { x: pt.x, y: pt.y, label: unitEl ? unitEl.textContent : 'MVHR Unit' };
+        // Re-route all rooms and external ducts from new unit position
+        plan.planRooms.filter(r => r.pinType !== 'vthrough').forEach(r => autoRouteSingleRoom(r));
+        syncExternalDucts();
+        setPlanTool(null); redraw(); savePlanState(); scheduleAutoCalc();
+      } else if (plan.tool === 'intake' || plan.tool === 'exhaust') {
+        plan.ports = plan.ports.filter(p => p.type !== plan.tool); // one of each
+        plan.ports.push({ type: plan.tool, x: pt.x, y: pt.y });
+        // Remove old external route so syncExternalDucts rebuilds it fresh
+        plan.externalRoutes = plan.externalRoutes.filter(r => r.type !== plan.tool);
+        syncExternalDucts();
+        setPlanTool(null); redraw(); savePlanState();
+      } else if (POLYGON_TOOLS.includes(plan.tool)) {
+        const snapped = snapToFirst(pt);
+        plan.currentPath.push(snapped);
+        if (snapped === plan.currentPath[0] && plan.currentPath.length > 3) finishPolygon(e);
+        else redraw();
+      }
+    },
+    dblclick(e) {
+      _lastClick = Date.now() + 1000;
+      if (POLYGON_TOOLS.includes(plan.tool) && plan.currentPath.length >= 3) finishPolygon(e);
+    },
+  };
+
+  // ── Scale ──
+  function promptScale() {
+    const dist = prompt('Enter the real-world distance between the two points (in metres):');
+    if (!dist || isNaN(parseFloat(dist))) { plan.scalePoints = []; redraw(); return; }
+    const metres = parseFloat(dist);
+    const p1 = plan.scalePoints[0], p2 = plan.scalePoints[1];
+    const px = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    plan.pxPerM = px / metres;
+    plan.scalePoints = [];
+    el('scaleDisplay').textContent = `1m = ${Math.round(plan.pxPerM)}px`;
+    plan.scaleLine = { p1, p2, label: metres + 'm' };
+    setPlanTool(null); redraw(); savePlanState();
+  }
+
+  // ── Polygon geometry ──
+  function polyArea(path) {
+    let a = 0;
+    for (let i = 0; i < path.length; i++) {
+      const j = (i + 1) % path.length;
+      a += path[i].x * path[j].y - path[j].x * path[i].y;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  function centroid(path) {
+    return { x: path.reduce((s,p) => s+p.x, 0)/path.length, y: path.reduce((s,p) => s+p.y, 0)/path.length };
+  }
+
+  function polyAreaM2(path) {
+    if (!plan.pxPerM) return null;
+    return (polyArea(path) / (plan.pxPerM * plan.pxPerM)).toFixed(1);
+  }
+
+  // ── Polygon completion ──
+  function finishPolygon(e) {
+    const path = [...plan.currentPath];
+    // Remove duplicate close point if snapped
+    if (path.length > 1 && path[path.length-1] === path[0]) path.pop();
+    plan.currentPath = [];
+    const tool = plan.tool;
+    setPlanTool(null);
+    const areaM2 = polyAreaM2(path);
+    const c = centroid(path);
+
+    if (tool === 'building') {
+      plan.building = { path, areaM2 };
+      // Update floor area input
+      if (areaM2) {
+        const fa = document.getElementById('floorArea');
+        if (fa) { fa.value = areaM2; scheduleAutosave(); }
+      }
+      redraw(); savePlanState(); return;
+    }
+    // Supply, extract, vthrough rooms → show definition popup
+    showRoomDefPopup(tool, path, areaM2, c, e ? e.clientX : window.innerWidth/2, e ? e.clientY : window.innerHeight/2);
+    redraw();
+  }
+
+  // ── Room definition popup ──
+  let _pendingRoom = null; // stores { pinType, path, areaM2 } for confirmRoomDef
+
+  function showRoomDefPopup(tool, path, areaM2, c, clientX, clientY) {
+    const popup = el('roomDefPopup');
+    const body  = el('roomDefBody');
+    const isVthrough = tool === 'vthrough';
+    const pinType = tool === 'supply-room' ? 'supply' : tool === 'extract-room' ? 'extract' : 'vthrough';
+    _pendingRoom = { pinType, path, areaM2 };
+    const defs = pinType === 'supply' ? SUPPLY_DEFAULTS : pinType === 'extract' ? EXTRACT_DEFAULTS : {'Hall/Corridor':0,'Stairwell':0,'Entry':0,'Other':0};
+    el('roomDefTitle').textContent = isVthrough ? '↔ V-Through Zone' : pinType === 'supply' ? '🟢 Supply Room' : '🟠 Extract Room';
+
+    body.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        Area: <strong>${areaM2 ? areaM2 + ' m²' : '(set scale first)'}</strong>
+      </div>
+      <div style="margin-bottom:8px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">ROOM TYPE</label>
+        <select id="rdType" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          ${Object.keys(defs).map(t => `<option value="${t}">${t}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">ROOM NAME</label>
+        <input id="rdName" type="text" placeholder="e.g. Master Bedroom" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+      </div>
+      <button id="rdConfirmBtn"
+        style="width:100%;background:var(--primary);color:white;border:none;border-radius:7px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">
+        Add Room ›
+      </button>
+      <button onclick="document.getElementById('roomDefPopup').style.display='none';_pendingRoom=null"
+        style="width:100%;background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;margin-top:6px">
+        Cancel
+      </button>
+    `;
+
+    // Wire confirm button and auto-fill name from type
+    setTimeout(() => {
+      const typeEl = document.getElementById('rdType');
+      const nameEl = document.getElementById('rdName');
+      const btnEl  = document.getElementById('rdConfirmBtn');
+      if (typeEl && nameEl) {
+        nameEl.value = typeEl.value;
+        typeEl.addEventListener('change', () => { nameEl.value = typeEl.value; });
+      }
+      if (btnEl) btnEl.addEventListener('click', confirmRoomDef);
+    }, 10);
+
+    popup.style.display = 'block';
+    popup.style.left = Math.min(clientX + 10, window.innerWidth  - 290) + 'px';
+    popup.style.top  = Math.min(clientY + 10, window.innerHeight - 320) + 'px';
+  }
+
+  window.el = function(id) { return document.getElementById(id); }; // expose for inline handlers
+
+  function confirmRoomDef() {
+    if (!_pendingRoom) return;
+    const { pinType, path, areaM2 } = _pendingRoom;
+    _pendingRoom = null;
+    document.getElementById('roomDefPopup').style.display = 'none';
+    const roomType = document.getElementById('rdType').value;
+    const name     = document.getElementById('rdName').value.trim() || roomType;
+
+    const c = centroid(path);
+    const id = Date.now() + Math.random();
+
+    // Add to plan rooms
+    const planRoom = { id, name, roomType, pinType, path, areaM2: parseFloat(areaM2)||0, centroid: c, sidebarId: null,
+      outletPos: { x: c.x, y: c.y }, outletType: 'ceiling' };
+    plan.planRooms.push(planRoom);
+
+    if (pinType !== 'vthrough') {
+      // Add to sidebar room list
+      const arr = pinType === 'supply' ? supplyRooms : extractRooms;
+      const sidebarRoom = { id, name, roomType, area: parseFloat(areaM2)||0, length: 8 };
+      arr.push(sidebarRoom);
+      planRoom.sidebarId = id;
+      renderRooms(pinType);
+      scheduleAutosave();
+      // Auto-route duct if unit placed
+      if (plan.unitPos) autoRouteSingleRoom(planRoom);
+    }
+    redraw(); savePlanState();
+    scheduleAutoCalc();
+  }
+
+  window.closePicker = function() { el('roomPicker').style.display = 'none'; };
+
+  window.closeDuctPopup = function() { el('ductPopup').style.display = 'none'; };
+
+  // ── External duct routing (unit ↔ grilles) ──
+  function syncExternalDucts() {
+    if (!plan.unitPos || !plan.pxPerM) return;
+    ['intake','exhaust'].forEach(type => {
+      const port = plan.ports.find(p => p.type === type);
+      if (!port) return;
+      // Ensure external route exists
+      let route = plan.externalRoutes.find(r => r.type === type);
+      if (!route) {
+        route = { type, waypoints: [{x: plan.unitPos.x, y: plan.unitPos.y}, {x: port.x, y: port.y}], lengthM: 0 };
+        plan.externalRoutes.push(route);
+      } else {
+        // Keep endpoints synced to unit/port if they haven't been manually moved
+        route.waypoints[0] = {x: plan.unitPos.x, y: plan.unitPos.y};
+        route.waypoints[route.waypoints.length - 1] = {x: port.x, y: port.y};
+      }
+      recalcExternalDuctLength(route);
+    });
+    // Write lengths to input fields
+    const intakeRoute  = plan.externalRoutes.find(r => r.type === 'intake');
+    const exhaustRoute = plan.externalRoutes.find(r => r.type === 'exhaust');
+    const siEl = document.getElementById('extSupplyLength');
+    const eiEl = document.getElementById('extExtractLength');
+    if (siEl && intakeRoute)  { siEl.value  = intakeRoute.lengthM;  scheduleAutosave(); }
+    if (eiEl && exhaustRoute) { eiEl.value = exhaustRoute.lengthM; scheduleAutosave(); }
+    scheduleAutoCalc();
+  }
+
+  function syncExternalLengths() {
+    const ir = plan.externalRoutes.find(r => r.type === 'intake');
+    const er = plan.externalRoutes.find(r => r.type === 'exhaust');
+    const siEl = document.getElementById('extSupplyLength');
+    const eiEl = document.getElementById('extExtractLength');
+    if (siEl && ir)  siEl.value  = ir.lengthM;
+    if (eiEl && er)  eiEl.value  = er.lengthM;
+    scheduleAutoCalc();
+  }
+
+  function recalcExternalDuctLength(route) {
+    if (!plan.pxPerM) return;
+    let px = 0;
+    for (let i = 1; i < route.waypoints.length; i++)
+      px += Math.hypot(route.waypoints[i].x - route.waypoints[i-1].x, route.waypoints[i].y - route.waypoints[i-1].y);
+    route.lengthM = parseFloat((px / plan.pxPerM).toFixed(2));
+  }
+
+  // ── Snap points (unit + grilles) ──
+  const SNAP_R = 20;
+  function snapToAnchors(pt) {
+    const anchors = [];
+    if (plan.unitPos) anchors.push(plan.unitPos);
+    plan.ports.forEach(p => anchors.push(p));
+    for (const a of anchors) {
+      if (Math.hypot(pt.x - a.x, pt.y - a.y) < SNAP_R) return { x: a.x, y: a.y };
+    }
+    return null;
+  }
+
+  // ── Auto-calculate silently when plan data changes ──
+  let _autoCalcTimer = null;
+  function scheduleAutoCalc() {
+    clearTimeout(_autoCalcTimer);
+    _autoCalcTimer = setTimeout(() => {
+      if (supplyRooms.length > 0 || extractRooms.length > 0) {
+        const currentTab = document.querySelector('.nav-tab.active');
+        calculate(true); // silent = stay on current tab
+        if (currentTab) {
+          document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+          currentTab.classList.add('active');
+        }
+      }
+    }, 600);
+  }
+
+  // ── Auto duct routing ──
+  function recalcDuctLength(route) {
+    if (!plan.pxPerM) return;
+    const wps = route.waypoints;
+    let px = 0;
+    for (let i = 1; i < wps.length; i++) px += Math.hypot(wps[i].x - wps[i-1].x, wps[i].y - wps[i-1].y);
+    route.lengthM = parseFloat((px / plan.pxPerM).toFixed(2));
+    // Write back to sidebar room
+    const arr = route.pinType === 'supply' ? supplyRooms : extractRooms;
+    const room = arr.find(r => r.id === route.sidebarId);
+    if (room) { room.length = route.lengthM; scheduleAutosave(); }
+  }
+
+  function autoRouteSingleRoom(planRoom) {
+    if (!plan.unitPos || planRoom.pinType === 'vthrough') return;
+    if (!planRoom.outletPos) planRoom.outletPos = { x: planRoom.centroid.x, y: planRoom.centroid.y };
+    if (!planRoom.outletType) planRoom.outletType = 'ceiling';
+    plan.ductRoutes = plan.ductRoutes.filter(r => r.sidebarId !== planRoom.sidebarId);
+    const route = {
+      sidebarId: planRoom.sidebarId,
+      pinType: planRoom.pinType,
+      waypoints: [ {x: plan.unitPos.x, y: plan.unitPos.y}, {x: planRoom.outletPos.x, y: planRoom.outletPos.y} ],
+      lengthM: 0,
+    };
+    recalcDuctLength(route);
+    plan.ductRoutes.push(route);
+  }
+
+  window.autoRouteDucts = function() {
+    if (!plan.unitPos) { alert('Place the MVHR unit on the plan first.'); return; }
+    plan.ductRoutes = [];
+    plan.planRooms.filter(r => r.pinType !== 'vthrough').forEach(r => autoRouteSingleRoom(r));
+    redraw(); savePlanState();
+    updateCursorHint();
+  };
+
+  // ── Draw engine ──
+  function redraw() {
+    const ov = overlay();
+    if (!ov || ov.style.display === 'none') return;
+    const ctx = ov.getContext('2d');
+    ctx.clearRect(0, 0, ov.width, ov.height);
+
+    // Building outline
+    if (plan.building) drawPoly(ctx, plan.building.path, 'rgba(30,60,40,0.08)', '#1a4731', 2, [], plan.building.areaM2 ? plan.building.areaM2 + ' m²' : '');
+
+    // Plan rooms
+    plan.planRooms.forEach(r => {
+      const col = r.pinType === 'supply' ? '#40916c' : r.pinType === 'extract' ? '#d97706' : '#6366f1';
+      const fill= r.pinType === 'supply' ? 'rgba(64,145,108,0.12)' : r.pinType === 'extract' ? 'rgba(217,119,6,0.12)' : 'rgba(99,102,241,0.10)';
+      // find _flow
+      const arr = r.pinType === 'supply' ? supplyRooms : r.pinType === 'extract' ? extractRooms : [];
+      const sRoom = arr.find(s => s.id === r.sidebarId);
+      const flowTxt = sRoom && sRoom._flow ? Math.round(sRoom._flow) + ' m³/h' : '';
+      const label = r.name + (flowTxt ? '\n' + flowTxt : '');
+      drawPoly(ctx, r.path, fill, col, 1.5, [], null);
+      // centroid label with pill background
+      const c = r.centroid;
+      ctx.save(); ctx.textAlign = 'center';
+      const nameFont = 'bold 12px sans-serif';
+      const flowFont = '10px sans-serif';
+      ctx.font = nameFont;
+      const nw = ctx.measureText(r.name).width;
+      const fw = flowTxt ? ctx.measureText(flowTxt).width : 0;
+      const pw = Math.max(nw, fw) + 12;
+      const ph = flowTxt ? 32 : 20;
+      const px = c.x - pw/2, py = c.y - ph/2 - (flowTxt ? 4 : 0);
+      // pill background
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.roundRect(px, py, pw, ph, 5);
+      ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+      // name
+      ctx.fillStyle = col; ctx.font = nameFont;
+      ctx.fillText(r.name, c.x, py + 14);
+      if (flowTxt) { ctx.font = flowFont; ctx.fillStyle = '#6b7280'; ctx.fillText(flowTxt, c.x, py + 26); }
+      ctx.restore();
+    });
+
+    // Scale reference line
+    if (plan.scaleLine) {
+      const a = plan.scaleLine;
+      drawLine(ctx, a.p1, a.p2, '#6366f1', 2, [6,3]);
+      drawDot(ctx, a.p1, '#6366f1', 5); drawDot(ctx, a.p2, '#6366f1', 5);
+      const mx=(a.p1.x+a.p2.x)/2, my=(a.p1.y+a.p2.y)/2;
+      ctx.save(); ctx.font='bold 11px sans-serif'; ctx.fillStyle='#6366f1';
+      ctx.fillText(a.label, mx+6, my-6); ctx.restore();
+    }
+
+    // Scale in-progress
+    plan.scalePoints.forEach(p => drawDot(ctx, p, '#6366f1', 6));
+    if (plan.scalePoints.length === 2) drawLine(ctx, plan.scalePoints[0], plan.scalePoints[1], '#6366f1', 2, [6,3]);
+
+    // MVHR unit
+    if (plan.unitPos) drawMVHRUnit(ctx, plan.unitPos);
+
+    // External ports
+    plan.ports.forEach(p => drawPort(ctx, p));
+
+    // Duct routes
+    plan.ductRoutes.forEach((route, ri) => {
+      const col = route.pinType === 'supply' ? '#40916c' : '#d97706';
+      const wps = route.waypoints;
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([]);
+      ctx.beginPath();
+      wps.forEach((wp, i) => i === 0 ? ctx.moveTo(wp.x, wp.y) : ctx.lineTo(wp.x, wp.y));
+      ctx.stroke(); ctx.restore();
+      // Length label on middle segment
+      if (wps.length >= 2 && route.lengthM) {
+        const mid = Math.floor(wps.length / 2);
+        const mx = (wps[mid-1].x + wps[mid].x)/2, my = (wps[mid-1].y + wps[mid].y)/2;
+        ctx.save(); ctx.font = '10px sans-serif'; ctx.fillStyle = col;
+        ctx.fillText(route.lengthM + 'm', mx + 4, my - 4); ctx.restore();
+      }
+      // Waypoint handles (not endpoints)
+      wps.forEach((wp, wi) => {
+        const isEnd = wi === 0 || wi === wps.length - 1;
+        const isHover = plan.hoverWp && plan.hoverWp.ri === ri && plan.hoverWp.wi === wi;
+        const isDrag  = plan.drag && plan.drag.ri === ri && plan.drag.wi === wi;
+        if (!isEnd) {
+          ctx.save(); ctx.fillStyle = isDrag ? col : isHover ? 'white' : col;
+          ctx.strokeStyle = col; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(wp.x, wp.y, 5, 0, Math.PI*2);
+          ctx.fill(); ctx.stroke(); ctx.restore();
+        }
+      });
+    });
+
+    // External duct routes (unit ↔ intake/exhaust grilles)
+    plan.externalRoutes.forEach((route, ri) => {
+      const isIntake = route.type === 'intake';
+      const col = isIntake ? '#1a5cdc' : '#9b1c1c';
+      const wps = route.waypoints;
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.setLineDash([8,4]);
+      ctx.beginPath();
+      wps.forEach((wp, i) => i === 0 ? ctx.moveTo(wp.x, wp.y) : ctx.lineTo(wp.x, wp.y));
+      ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+      // Label
+      if (wps.length >= 2 && route.lengthM) {
+        const mid = Math.floor(wps.length / 2);
+        const mx = (wps[mid-1].x + wps[mid].x)/2, my = (wps[mid-1].y + wps[mid].y)/2;
+        ctx.save(); ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = col;
+        ctx.fillText((isIntake ? '↓ Fresh ' : '↑ Exhaust ') + route.lengthM + 'm', mx + 4, my - 4); ctx.restore();
+      }
+      // Mid waypoint handles only
+      wps.forEach((wp, wi) => {
+        const isEnd = wi === 0 || wi === wps.length - 1;
+        const isHover = plan.hoverWp && plan.hoverWp.ext && plan.hoverWp.ri === ri && plan.hoverWp.wi === wi;
+        if (!isEnd) {
+          ctx.save(); ctx.fillStyle = isHover ? 'white' : col; ctx.strokeStyle = col; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(wp.x, wp.y, 5, 0, Math.PI*2);
+          ctx.fill(); ctx.stroke(); ctx.restore();
+        }
+      });
+    });
+
+    // Outlets — draw on top of duct lines
+    plan.planRooms.forEach((r, ri) => {
+      if (r.pinType === 'vthrough' || !r.outletPos) return;
+      const isDragging = plan.outletDrag === ri;
+      drawOutlet(ctx, r.outletPos.x, r.outletPos.y, r.pinType, r.outletType || 'ceiling', isDragging);
+    });
+
+    // Current polygon in progress
+    if (plan.currentPath.length > 0) {
+      const col = plan.tool === 'building' ? '#1a4731' : plan.tool === 'supply-room' ? '#40916c' : plan.tool === 'extract-room' ? '#d97706' : '#6366f1';
+      for (let i = 1; i < plan.currentPath.length; i++) drawLine(ctx, plan.currentPath[i-1], plan.currentPath[i], col, 1.5);
+      // Preview line to mouse
+      if (plan.currentPath.length > 0 && plan.mousePos) drawLine(ctx, plan.currentPath[plan.currentPath.length-1], plan.mousePos, col, 1, [4,3]);
+      plan.currentPath.forEach((p, i) => drawDot(ctx, p, i===0 ? '#fff' : col, i===0 ? 6 : 4));
+      if (plan.currentPath.length > 0) {
+        ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(plan.currentPath[0].x, plan.currentPath[0].y, 10, 0, Math.PI*2);
+        ctx.stroke(); ctx.restore(); // close-snap ring
+      }
+    }
+  }
+
+  // ── Outlet symbols ──
+  function drawOutlet(ctx, x, y, pinType, outletType, isDragging) {
+    const col = pinType === 'supply' ? '#1a5cdc' : '#c0392b';
+    const r = 10, as = 6, ag = 14; // circle radius, arrow size, arrow gap from edge
+    ctx.save();
+    if (isDragging) { ctx.shadowColor = col; ctx.shadowBlur = 8; }
+
+    if (outletType === 'ceiling') {
+      // Circle
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.fillStyle = 'white';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+      // 4 arrows — supply points OUT, extract points IN
+      const dirs = [[0,-1],[1,0],[0,1],[-1,0]]; // N E S W
+      dirs.forEach(([dx, dy]) => {
+        const base = pinType === 'supply' ? r + 2 : r + ag;
+        const tip  = pinType === 'supply' ? r + ag : r + 2;
+        const bx = x + dx * base, by = y + dy * base;
+        const tx = x + dx * tip,  ty = y + dy * tip;
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+        // arrowhead
+        const px = -dy, py = dx; // perpendicular
+        const hx = pinType === 'supply' ? tx : bx, hy = pinType === 'supply' ? ty : by;
+        const fx = pinType === 'supply' ? bx : tx, fy = pinType === 'supply' ? by : ty;
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(fx + px * 3, fy + py * 3);
+        ctx.lineTo(fx - px * 3, fy - py * 3);
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      });
+    } else {
+      // Bulkhead — rectangle with 3 arrows
+      const w = 22, h = 14;
+      ctx.fillStyle = 'white'; ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - w/2, y - h/2, w, h, 3) : ctx.rect(x - w/2, y - h/2, w, h);
+      ctx.fill(); ctx.stroke();
+      // Mounting surface line (bottom for supply=up, top for extract=down)
+      const lY = pinType === 'supply' ? y + h/2 : y - h/2;
+      ctx.beginPath(); ctx.moveTo(x - w/2 - 3, lY); ctx.lineTo(x + w/2 + 3, lY); ctx.stroke();
+      // 3 arrows
+      const arrowDir = pinType === 'supply' ? -1 : 1; // up or down
+      [-7, 0, 7].forEach(ox => {
+        const base = y + arrowDir * (h/2 + 2);
+        const tip  = y + arrowDir * (h/2 + as + 4);
+        ctx.beginPath(); ctx.moveTo(x + ox, base); ctx.lineTo(x + ox, tip); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + ox, tip);
+        ctx.lineTo(x + ox - 3, tip - arrowDir * 4);
+        ctx.lineTo(x + ox + 3, tip - arrowDir * 4);
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      });
+    }
+    ctx.restore();
+  }
+
+  function drawPoly(ctx, path, fill, stroke, lw, dash, label) {
+    ctx.save(); ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.setLineDash(dash||[]);
+    ctx.beginPath();
+    path.forEach((p,i) => i===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y));
+    ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  }
+
+  function drawLine(ctx, p1, p2, color, width, dash=[]) {
+    ctx.save(); ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = width;
+    ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); ctx.restore();
+  }
+
+  function drawDot(ctx, p, color, r) {
+    ctx.save(); ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill(); ctx.restore();
+  }
+
+  function drawMVHRUnit(ctx, a) {
+    const {x,y} = a; const sz = 18;
+    ctx.save();
+    ctx.shadowColor = '#1a4731'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#1a4731'; ctx.strokeStyle = 'white'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x-sz, y-sz, sz*2, sz*2, 5) : ctx.rect(x-sz, y-sz, sz*2, sz*2);
+    ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-8); ctx.lineTo(x,y+8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x-8,y); ctx.lineTo(x+8,y); ctx.stroke();
+    ctx.font = 'bold 11px sans-serif';
+    const lbl = a.label || 'MVHR';
+    const tw = ctx.measureText(lbl).width;
+    const lx=x+sz+6, ly=y-2;
+    ctx.fillStyle='#1a4731';
+    ctx.roundRect ? ctx.roundRect(lx-3,ly-13,tw+10,17,3) : ctx.rect(lx-3,ly-13,tw+10,17);
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(lx-3,ly-13,tw+10,17,3) : ctx.rect(lx-3,ly-13,tw+10,17);
+    ctx.fill(); ctx.fillStyle='white'; ctx.fillText(lbl, lx+2, ly+1); ctx.restore();
+  }
+
+  function drawPort(ctx, p) {
+    const isIntake = p.type === 'intake';
+    const col = isIntake ? '#1d4ed8' : '#9d174d';
+    const lbl = isIntake ? '🌬 Intake' : '💨 Exhaust';
+    ctx.save();
+    ctx.fillStyle = col; ctx.strokeStyle = 'white'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = col;
+    ctx.fillText(lbl, p.x + 14, p.y + 4); ctx.restore();
+  }
+
+  // ── Clear ──
+  window.clearPlanAnnotations = function() {
+    if (!confirm('Clear all plan markup?')) return;
+    plan.building = null;
+    plan.planRooms = [];
+    plan.unitPos = null;
+    plan.ports = [];
+    plan.ductRoutes = [];
+    plan.externalRoutes = [];
+    plan.scalePoints = [];
+    plan.scaleLine = null;
+    plan.currentPath = [];
+    plan.pxPerM = null;
+    el('scaleDisplay').textContent = 'No scale set';
+    // Clear sidebar rooms that came from plan
+    supplyRooms.length = 0; extractRooms.length = 0;
+    renderRooms('supply'); renderRooms('extract');
+    redraw();
+    savePlanState();
+  };
+
+  // ── Persist plan state ──
+  function savePlanState() {
+    try {
+      const s = {
+        pxPerM: plan.pxPerM,
+        scaleLine: plan.scaleLine,
+        imgData: plan.imgData,
+        building: plan.building,
+        planRooms: plan.planRooms,
+        unitPos: plan.unitPos,
+        ports: plan.ports,
+        ductRoutes: plan.ductRoutes,
+        externalRoutes: plan.externalRoutes,
+      };
+      localStorage.setItem(PLAN_SAVE_KEY, JSON.stringify(s));
+    } catch(e) {}
+  }
+
+  window.loadPlanState = loadPlanState;
+  function loadPlanState() {
+    let raw; try { raw = localStorage.getItem(PLAN_SAVE_KEY); } catch(e) {}
+    if (!raw) return;
+    let s; try { s = JSON.parse(raw); } catch(e) { return; }
+    if (s.pxPerM) {
+      plan.pxPerM = s.pxPerM;
+      el('scaleDisplay').textContent = s.scaleLine ? `Scale: ${s.scaleLine.label}` : 'Scale set';
+    }
+    if (s.scaleLine) plan.scaleLine = s.scaleLine;
+    if (s.building) plan.building = s.building;
+    if (s.planRooms) plan.planRooms = s.planRooms;
+    if (s.unitPos) plan.unitPos = s.unitPos;
+    if (s.ports) plan.ports = s.ports;
+    if (s.ductRoutes) plan.ductRoutes = s.ductRoutes;
+    if (s.externalRoutes) plan.externalRoutes = s.externalRoutes;
+    // Restore sidebar rooms from plan rooms
+    if (s.planRooms && s.planRooms.length) {
+      supplyRooms.length = 0; extractRooms.length = 0;
+      s.planRooms.forEach(pr => {
+        if (pr.pinType === 'supply') supplyRooms.push({ id: pr.sidebarId, name: pr.name, roomType: pr.roomType, area: pr.areaM2 || 0, length: 0, _nameEdited: true });
+        else if (pr.pinType === 'extract') extractRooms.push({ id: pr.sidebarId, name: pr.name, roomType: pr.roomType, area: pr.areaM2 || 0, length: 0, _nameEdited: true });
+      });
+      renderRooms('supply'); renderRooms('extract');
+    }
+    if (s.imgData) restoreImage(s.imgData);
+  }
+
+  function restoreImage(dataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      const bc = baseCanvas(); const ov = overlay();
+      bc.width = img.naturalWidth; bc.height = img.naturalHeight;
+      ov.width = bc.width; ov.height = bc.height;
+      plan.canvasW = bc.width; plan.canvasH = bc.height;
+      bc.getContext('2d').drawImage(img, 0, 0);
+      showCanvases();
+      redraw();
+    };
+    img.src = dataUrl;
+  }
+
+  // Re-draw pins after calculate() updates _flow values
+  const _origCalc = window.calculate;
+  window.calculate = function() {
+    _origCalc && _origCalc();
+    // Update MVHR unit label on plan if unit selection changed
+    setTimeout(() => {
+      const unitEl = document.querySelector('.unit-card.recommended .uc-name');
+      if (unitEl) {
+        if (plan.unitPos) plan.unitPos.label = unitEl.textContent;
+      }
+      redraw();
+    }, 50);
+  };
+
+  // Load on startup
+  document.addEventListener('DOMContentLoaded', () => {
+    showTab('plan');
+    setTimeout(loadPlanState, 200);
+  });
+
+})();
 </script>
 </body>
 </html>
