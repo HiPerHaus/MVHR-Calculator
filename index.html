@@ -773,7 +773,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 
       <!-- Toolbar -->
       <div class="plan-toolbar">
-        <label class="plan-btn" title="Upload PDF floor plan">
+        <label class="plan-btn" title="Upload PDF floor plan for active storey">
           📄 Upload Plan
           <input type="file" id="planUpload" accept=".pdf,image/*" style="display:none">
         </label>
@@ -788,6 +788,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <button class="plan-btn" id="tool-unit"    onclick="setPlanTool('unit')"    title="Place MVHR unit — replaces existing">🔵 MVHR Unit</button>
         <button class="plan-btn" id="tool-intake"  onclick="setPlanTool('intake')"  title="Place fresh air intake on building perimeter">🌬 Intake</button>
         <button class="plan-btn" id="tool-exhaust" onclick="setPlanTool('exhaust')" title="Place exhaust outlet on building perimeter">💨 Exhaust</button>
+        <button class="plan-btn" id="tool-riser"   onclick="setPlanTool('riser')"   title="Mark where duct rises from below through the floor slab" style="display:none">↕ Riser</button>
         <div class="plan-sep"></div>
         <button class="plan-btn" onclick="autoRouteDucts()" title="Auto-route ducts from unit to all rooms">⚡ Auto Route</button>
         <button class="plan-btn" onclick="clearPlanAnnotations()" title="Remove all markup">🗑 Clear</button>
@@ -799,6 +800,13 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <button class="plan-btn" onclick="planZoom(0.1)" title="Zoom in">+</button>
         <span id="scaleDisplay" class="plan-scale-badge">No scale set</span>
         <span id="planCursor" class="plan-cursor-info"></span>
+      </div>
+
+      <!-- Floor selector bar (multi-storey only) -->
+      <div id="floorBar" style="display:none;background:#f8fafc;border-bottom:1px solid var(--border);padding:6px 12px;align-items:center;gap:8px;flex-shrink:0">
+        <span style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap">Floor View:</span>
+        <div id="floorTabs" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+        <div style="margin-left:auto;font-size:11px;color:var(--muted)" id="floorHint"></div>
       </div>
 
       <!-- Canvas container -->
@@ -2052,6 +2060,7 @@ function updateStoreyFields() {
   const container = document.getElementById('storeyHeightFields');
   const unitSel = document.getElementById('unitFloor');
   if (!container || !unitSel) return;
+  if (typeof updateFloorBar === 'function') updateFloorBar();
 
   // Rebuild unit floor options
   const curUnit = unitSel.value;
@@ -2349,6 +2358,10 @@ addRoom('extract');
     editDrag: null,     // {vi} vertex index being dragged in edit mode
     editHoverV: null,   // vertex index hovered in edit mode
     editHoverE: null,   // edge index hovered in edit mode (for insert preview)
+    // Multi-storey
+    activeFloor: 0,           // floor currently visible/editable on canvas
+    floorData: {},            // {0: {imgData, pxPerM, scaleLine}, 1: {...}, ...}
+    ductRisers: [],           // [{id, x, y, floor, label}] — duct penetration points on upper floors
   };
 
   const PLAN_SAVE_KEY = 'hh_mvhr_plan_v2';
@@ -2357,6 +2370,115 @@ addRoom('extract');
   function el(id) { return document.getElementById(id); }
   const overlay  = () => el('planOverlay');
   const baseCanvas = () => el('planCanvas');
+
+  // ── Floor management ──
+  const FLOOR_NAMES = ['Ground Floor', 'Level 1', 'Level 2', 'Level 3'];
+
+  // Save current canvas image into floorData for the active floor, then switch
+  window.switchFloor = function(targetFloor) {
+    if (targetFloor === plan.activeFloor) return;
+    // Snapshot current canvas state into floorData
+    _saveActiveFloorData();
+    // Swap to target floor
+    plan.activeFloor = targetFloor;
+    _loadActiveFloorData();
+    updateFloorBar();
+    redraw();
+  };
+
+  function _saveActiveFloorData() {
+    const bc = baseCanvas();
+    const fd = {
+      pxPerM:    plan.pxPerM,
+      scaleLine: plan.scaleLine,
+      imgData:   (bc && bc.style.display !== 'none') ? bc.toDataURL() : null,
+    };
+    plan.floorData[plan.activeFloor] = fd;
+  }
+
+  function _loadActiveFloorData() {
+    const fd = plan.floorData[plan.activeFloor];
+    if (!fd || !fd.imgData) {
+      // No image for this floor — show upload prompt, clear canvas
+      const bc = baseCanvas(); const ov = overlay();
+      if (bc) { bc.width = bc.width; bc.style.display = 'none'; }
+      if (ov) { ov.width = ov.width; ov.style.display = 'none'; }
+      const prompt = el('planPrompt'); if (prompt) prompt.style.display = 'flex';
+      plan.pxPerM    = null;
+      plan.scaleLine = null;
+      plan.imgData   = null;
+      el('scaleDisplay').textContent = 'No scale set';
+    } else {
+      plan.pxPerM    = fd.pxPerM;
+      plan.scaleLine = fd.scaleLine;
+      plan.imgData   = fd.imgData;
+      restoreImage(fd.imgData);
+      el('scaleDisplay').textContent = fd.scaleLine ? `Scale: ${fd.scaleLine.label}` : 'Scale set';
+    }
+  }
+
+  // Rebuild the floor tab bar
+  window.updateFloorBar = function() {
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    const bar  = el('floorBar');
+    const tabs = el('floorTabs');
+    const hint = el('floorHint');
+    const riserBtn = el('tool-riser');
+
+    if (storeyCount <= 1) {
+      if (bar) bar.style.display = 'none';
+      if (riserBtn) riserBtn.style.display = 'none';
+      return;
+    }
+    if (bar) bar.style.display = 'flex';
+    if (tabs) {
+      tabs.innerHTML = '';
+      for (let f = 0; f < storeyCount; f++) {
+        const btn = document.createElement('button');
+        btn.className = 'plan-btn' + (f === plan.activeFloor ? ' active' : '');
+        btn.textContent = FLOOR_NAMES[f] || `Level ${f}`;
+        btn.title = `Switch to ${FLOOR_NAMES[f] || `Level ${f}`} — upload a separate plan image for each storey`;
+        btn.onclick = () => switchFloor(f);
+
+        // Upload trigger for this floor
+        const uploadLbl = document.createElement('label');
+        uploadLbl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;margin-left:2px;cursor:pointer;font-size:11px;color:var(--muted)';
+        uploadLbl.title = `Upload floor plan for ${FLOOR_NAMES[f] || `Level ${f}`}`;
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = '.pdf,image/*'; inp.style.display = 'none';
+        inp.dataset.floor = f;
+        inp.addEventListener('change', e => {
+          const targetFloor = parseInt(e.target.dataset.floor);
+          // Switch to that floor first, then let the normal upload handler process it
+          if (plan.activeFloor !== targetFloor) {
+            _saveActiveFloorData();
+            plan.activeFloor = targetFloor;
+            updateFloorBar();
+          }
+          handlePlanFileUpload(e.target.files[0]);
+        });
+        uploadLbl.appendChild(inp);
+        uploadLbl.appendChild(document.createTextNode('📄'));
+
+        const wrap = document.createElement('span');
+        wrap.style.cssText = 'display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden';
+        btn.style.border = 'none'; btn.style.borderRadius = '0';
+        uploadLbl.style.cssText += ';padding:4px 6px;background:var(--input-bg);border-left:1px solid var(--border)';
+        wrap.appendChild(btn); wrap.appendChild(uploadLbl);
+        tabs.appendChild(wrap);
+
+        // Dot indicator if this floor has an image
+        if (plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData)) {
+          btn.style.fontWeight = '800';
+        }
+      }
+    }
+    // Show riser button only on upper floors
+    if (riserBtn) riserBtn.style.display = plan.activeFloor > 0 ? 'inline-flex' : 'none';
+    if (hint) hint.textContent = plan.activeFloor > 0
+      ? 'Use ↕ Riser to mark where ducts penetrate the floor slab from below'
+      : '';
+  };
 
   // ── Snap toggle ──
   window.toggleSnap = function() {
@@ -2547,6 +2669,13 @@ addRoom('extract');
   setupUpload('planUpload');
   setupUpload('planUpload2');
 
+  // Exposed so per-floor upload inputs in updateFloorBar() can call it
+  window.handlePlanFileUpload = function(file) {
+    if (!file) return;
+    if (file.type === 'application/pdf') loadPDF(file);
+    else loadImage(file);
+  };
+
   function loadImage(file) {
     const reader = new FileReader();
     reader.onload = ev => {
@@ -2569,6 +2698,10 @@ addRoom('extract');
     const ctx = bc.getContext('2d');
     ctx.drawImage(img, 0, 0, bc.width, bc.height);
     plan.imgData = bc.toDataURL();
+    // Also persist into per-floor store so switching floors restores it
+    if (!plan.floorData[plan.activeFloor]) plan.floorData[plan.activeFloor] = {};
+    plan.floorData[plan.activeFloor].imgData = plan.imgData;
+    updateFloorBar();
     showCanvases();
     redraw();
     savePlanState();
@@ -2586,6 +2719,9 @@ addRoom('extract');
     const ctx = bc.getContext('2d');
     await page.render({ canvasContext: ctx, viewport }).promise;
     plan.imgData = bc.toDataURL();
+    if (!plan.floorData[plan.activeFloor]) plan.floorData[plan.activeFloor] = {};
+    plan.floorData[plan.activeFloor].imgData = plan.imgData;
+    updateFloorBar();
     const ov = overlay();
     ov.width = bc.width; ov.height = bc.height;
     showCanvases();
@@ -2851,6 +2987,11 @@ addRoom('extract');
         plan.planRooms.filter(r => r.pinType !== 'vthrough').forEach(r => autoRouteSingleRoom(r));
         syncExternalDucts();
         setPlanTool(null); redraw(); savePlanState(); scheduleAutoCalc();
+      } else if (plan.tool === 'riser') {
+        const id = 'riser_' + Date.now();
+        const label = 'R' + (plan.ductRisers.filter(r => r.floor === plan.activeFloor).length + 1);
+        plan.ductRisers.push({ id, x: pt.x, y: pt.y, floor: plan.activeFloor, label });
+        setPlanTool(null); redraw(); savePlanState();
       } else if (plan.tool === 'intake' || plan.tool === 'exhaust') {
         plan.ports = plan.ports.filter(p => p.type !== plan.tool); // one of each
         plan.ports.push({ type: plan.tool, x: pt.x, y: pt.y });
@@ -3310,6 +3451,11 @@ addRoom('extract');
       });
     });
 
+    // Duct risers (upper floor penetration points)
+    plan.ductRisers.filter(r => r.floor === plan.activeFloor).forEach(r => {
+      drawDuctRiser(ctx, r.x, r.y, r.label);
+    });
+
     // Outlets — draw on top of duct lines
     plan.planRooms.forEach((r, ri) => {
       if (r.pinType === 'vthrough' || !r.outletPos) return;
@@ -3336,6 +3482,33 @@ addRoom('extract');
   }
 
   // ── Outlet symbols ──
+  // ── Duct riser symbol ──
+  function drawDuctRiser(ctx, x, y, label) {
+    ctx.save();
+    const r = 14;
+    // Filled circle — dark purple
+    ctx.fillStyle = '#6d28d9';
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // Up + down arrows inside circle
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    // Down arrow (duct coming from below)
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y - 6); ctx.lineTo(x - 4, y + 3);
+    ctx.moveTo(x - 7, y);     ctx.lineTo(x - 4, y + 5); ctx.lineTo(x - 1, y);
+    ctx.stroke();
+    // Up arrow (duct going to rooms above / continuing)
+    ctx.beginPath();
+    ctx.moveTo(x + 4, y + 6); ctx.lineTo(x + 4, y - 3);
+    ctx.moveTo(x + 1, y);     ctx.lineTo(x + 4, y - 5); ctx.lineTo(x + 7, y);
+    ctx.stroke();
+    // Label above
+    ctx.fillStyle = '#6d28d9'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(label, x, y - r - 4);
+    ctx.restore();
+  }
+
   function drawOutlet(ctx, x, y, pinType, outletType, isDragging) {
     const col = pinType === 'supply' ? '#1a5cdc' : '#c0392b';
     const r = 10, as = 6, ag = 14; // circle radius, arrow size, arrow gap from edge
@@ -3453,6 +3626,8 @@ addRoom('extract');
     plan.scaleLine = null;
     plan.currentPath = [];
     plan.pxPerM = null;
+    plan.ductRisers = [];
+    plan.floorData = {};
     el('scaleDisplay').textContent = 'No scale set';
     // Clear sidebar rooms that came from plan
     supplyRooms.length = 0; extractRooms.length = 0;
@@ -3463,6 +3638,8 @@ addRoom('extract');
 
   // ── Persist plan state ──
   function savePlanState() {
+    // First snapshot current floor canvas into floorData
+    _saveActiveFloorData();
     try {
       const s = {
         pxPerM: plan.pxPerM,
@@ -3474,8 +3651,22 @@ addRoom('extract');
         ports: plan.ports,
         ductRoutes: plan.ductRoutes,
         externalRoutes: plan.externalRoutes,
+        activeFloor: plan.activeFloor,
+        floorData: plan.floorData,    // per-floor {pxPerM, scaleLine} — imgData handled separately
+        ductRisers: plan.ductRisers,
       };
-      localStorage.setItem(PLAN_SAVE_KEY, JSON.stringify(s));
+      // Store per-floor images separately to avoid localStorage size limit
+      Object.entries(plan.floorData).forEach(([f, fd]) => {
+        if (fd?.imgData) {
+          try { localStorage.setItem(PLAN_SAVE_KEY + '_img_' + f, fd.imgData); } catch(e) {}
+        }
+      });
+      // Don't embed imgData in main state blob
+      const slim = { ...s, imgData: null };
+      const slimFloorData = {};
+      Object.entries(s.floorData).forEach(([f,fd]) => { slimFloorData[f] = { pxPerM: fd?.pxPerM, scaleLine: fd?.scaleLine }; });
+      slim.floorData = slimFloorData;
+      localStorage.setItem(PLAN_SAVE_KEY, JSON.stringify(slim));
     } catch(e) {}
   }
 
@@ -3495,6 +3686,16 @@ addRoom('extract');
     if (s.ports) plan.ports = s.ports;
     if (s.ductRoutes) plan.ductRoutes = s.ductRoutes;
     if (s.externalRoutes) plan.externalRoutes = s.externalRoutes;
+    if (s.ductRisers) plan.ductRisers = s.ductRisers;
+    if (s.activeFloor !== undefined) plan.activeFloor = s.activeFloor;
+    // Restore per-floor data
+    if (s.floorData) {
+      plan.floorData = s.floorData;
+      Object.keys(s.floorData).forEach(f => {
+        const img = localStorage.getItem(PLAN_SAVE_KEY + '_img_' + f);
+        if (img) { if (!plan.floorData[f]) plan.floorData[f] = {}; plan.floorData[f].imgData = img; }
+      });
+    }
     // Restore sidebar rooms from plan rooms
     if (s.planRooms && s.planRooms.length) {
       supplyRooms.length = 0; extractRooms.length = 0;
@@ -3504,7 +3705,11 @@ addRoom('extract');
       });
       renderRooms('supply'); renderRooms('extract');
     }
-    if (s.imgData) restoreImage(s.imgData);
+    // Restore active floor image
+    const activeImg = plan.floorData[plan.activeFloor]?.imgData || s.imgData;
+    if (activeImg) { plan.imgData = activeImg; restoreImage(activeImg); }
+    // Update floor bar
+    setTimeout(updateFloorBar, 50);
   }
 
   function restoreImage(dataUrl) {
