@@ -92,11 +92,12 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
-/* ── Room rows ── */
-.room-col-heads { display: grid; grid-template-columns: 1fr 80px 28px; gap: 6px; margin-bottom: 4px; }
-.room-col-heads span { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
-.room-row { display: grid; grid-template-columns: 1fr 80px 28px; gap: 6px; align-items: center; margin-bottom: 5px; }
-.room-row select, .room-row input { margin: 0; font-size: 13px; }
+/* ── Room cards ── */
+.room-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 9px; margin-bottom: 6px; background: var(--input-bg); }
+.room-card-r1 { display: grid; grid-template-columns: 1fr 26px; gap: 5px; align-items: center; margin-bottom: 5px; }
+.room-card-r2 { display: grid; grid-template-columns: 1fr 56px 56px; gap: 5px; align-items: center; }
+.room-card input[type=text], .room-card input[type=number], .room-card select { margin: 0; font-size: 13px; padding: 5px 8px; }
+.room-duct-badge { font-size: 10px; font-weight: 800; color: var(--accent); text-align: center; white-space: nowrap; }
 .btn-rm { background: none; border: 1px solid var(--border); border-radius: 5px; width: 26px; height: 26px; cursor: pointer; color: var(--muted); font-size: 15px; display: flex; align-items: center; justify-content: center; }
 .btn-rm:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
 .btn-add { width: 100%; background: none; border: 1px dashed var(--accent); border-radius: 7px; padding: 6px; color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer; margin-top: 2px; }
@@ -197,7 +198,28 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 .placeholder .ph-icon { font-size: 48px; margin-bottom: 12px; }
 .placeholder h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
 .placeholder p { font-size: 13px; }
+
+/* ── PDF export button ── */
+.btn-pdf { background: var(--primary); color: white; border: none; border-radius: 7px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.btn-pdf:hover { background: var(--accent); }
+.btn-pdf:disabled { opacity: 0.6; cursor: wait; }
+.pdf-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+
+/* ── Print / PDF layout ── */
+@media print {
+  #loginOverlay, .sidebar, .tabs, .pdf-toolbar { display: none !important; }
+  .layout { display: block !important; }
+  .main { padding: 0 !important; }
+  .tab-panel { display: block !important; page-break-inside: avoid; margin-bottom: 24px; }
+  .tab-panel::before { content: attr(data-title); display: block; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #2d6a4f; border-bottom: 2px solid #d8f3dc; padding-bottom: 4px; margin-bottom: 12px; }
+  table { font-size: 11px; }
+  th, td { padding: 5px 8px !important; }
+  .unit-grid { grid-template-columns: repeat(5, 1fr) !important; }
+  .metrics { grid-template-columns: repeat(4, 1fr) !important; }
+  body { font-size: 12px; }
+}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
@@ -224,6 +246,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <header>
   <h1>MVHR Design Engine</h1>
   <span>HiPer Haus · Passivhaus-aligned · Australian high-performance homes</span>
+  <span id="saveBadge" style="margin-left:auto;font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
 </header>
 
 <div class="layout">
@@ -235,34 +258,65 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <div class="section-title">Project Basics</div>
     <div class="grid3">
       <div class="field"><label>Floor Area (m²)</label><input type="number" id="floorArea" min="0" placeholder="220"></div>
-      <div class="field"><label>Bedrooms</label><input type="number" id="bedrooms" min="0" placeholder="4"></div>
+      <div class="field"><label>Ceil. Height (m)</label><input type="number" id="ceilHeight" min="1.8" step="0.1" value="2.5" placeholder="2.5"></div>
       <div class="field"><label>Bed Spaces</label><input type="number" id="bedSpaces" min="0" placeholder="6"></div>
+    </div>
+    <div class="grid2" style="margin-top:2px">
+      <div class="field"><label>Bedrooms</label><input type="number" id="bedrooms" min="0" placeholder="4"></div>
+      <div class="field"><label>Persons</label><input type="number" id="persons" min="0" placeholder="auto"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Persons defaults to bed spaces if blank. Governing flow = max(persons×30, extract demand, 0.3 ACH).</div>
+  </div>
+
+  <div>
+    <div class="section-title">Duct Settings</div>
+    <div class="grid2">
+      <div class="field"><label>Bends per run</label><input type="number" id="bendsPerRun" min="0" value="0" placeholder="0"></div>
     </div>
   </div>
 
   <div>
-    <div class="section-title">Duct Assumptions</div>
-    <div class="grid3">
-      <div class="field"><label>Avg run (m)</label><input type="number" id="ductLength" min="1" value="8" placeholder="8"></div>
-      <div class="field"><label>Bends/run</label><input type="number" id="bendsPerRun" min="0" value="2" placeholder="2"></div>
-      <div class="field"><label>External (m)</label><input type="number" id="externalLength" min="1" value="3" placeholder="3"></div>
+    <div class="section-title">External Ducts &amp; Grille</div>
+    <div class="grid2">
+      <div class="field"><label>Supply ext. length (m)</label><input type="number" id="extSupplyLength" min="0" value="3" placeholder="3"></div>
+      <div class="field"><label>Extract ext. length (m)</label><input type="number" id="extExtractLength" min="0" value="3" placeholder="3"></div>
+    </div>
+    <div class="field">
+      <label>External grille type</label>
+      <select id="grilleType" onchange="updateGrilleSize()">
+        <option value="individual">Individual (separate supply + extract)</option>
+        <option value="combi">Combi — ComfoEdge (combined single unit)</option>
+      </select>
+    </div>
+    <div class="field" id="grilleSizeField">
+      <label>Grille size</label>
+      <select id="grilleSize">
+        <option value="DN125">DN125</option>
+        <option value="DN150">DN150</option>
+        <option value="DN160">DN160</option>
+        <option value="DN180">DN180</option>
+        <option value="DN200">DN200</option>
+      </select>
+    </div>
+    <div class="field hidden" id="combiSizeField" style="display:none">
+      <label>Combi grille size</label>
+      <select id="combiSize">
+        <option value="DN125">DN125 — recirculation &lt;3%</option>
+        <option value="DN160">DN160 — recirculation &lt;5%</option>
+      </select>
     </div>
   </div>
 
   <div>
     <div class="section-title">Supply Rooms</div>
-    <div class="room-col-heads">
-      <span>Room type</span><span>m³/h</span><span></span>
-    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Airflow calculated from design total · enter name, area (m²) and duct run length</div>
     <div id="supplyRooms"></div>
     <button class="btn-add" onclick="addRoom('supply')">+ Add supply room</button>
   </div>
 
   <div>
     <div class="section-title">Extract Rooms</div>
-    <div class="room-col-heads">
-      <span>Room type</span><span>Boost m³/h</span><span></span>
-    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Twin duct auto-selected when normal flow &gt;35 m³/h · enter name, area (m²) and duct run length</div>
     <div id="extractRooms"></div>
     <button class="btn-add" onclick="addRoom('extract')">+ Add extract room</button>
   </div>
@@ -282,6 +336,13 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 
   <div id="results" style="display:none">
 
+    <div class="pdf-toolbar">
+      <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export PDF
+      </button>
+    </div>
+
     <div class="tabs">
       <div class="tab active" onclick="showTab('summary')">Summary</div>
       <div class="tab" onclick="showTab('rooms')">Room Schedule</div>
@@ -292,7 +353,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Summary ── -->
-    <div class="tab-panel active" id="tab-summary">
+    <div class="tab-panel active" id="tab-summary" data-title="Design Summary">
 
       <div class="section-title">Airflow Design</div>
       <div class="metrics">
@@ -311,10 +372,28 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
           <div class="mv" id="sBoost">—</div>
           <div class="mu">m³/h</div>
         </div>
-        <div class="metric">
-          <div class="ml">Governing Method</div>
-          <div class="mv" style="font-size:14px;padding-top:4px" id="sMethod">—</div>
+      </div>
+      <!-- PHI Criteria Breakdown -->
+      <div id="phiCriteria" style="background:var(--info-bg);border:1px solid var(--info-border);border-radius:10px;padding:12px 14px;margin-top:8px;font-size:13px">
+        <div style="font-weight:700;color:var(--primary);margin-bottom:8px">PHI Governing Criteria</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div id="crit-occ"  style="padding:8px;border-radius:7px;border:1.5px solid transparent">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Occupancy</div>
+            <div id="crit-occ-val"  style="font-size:18px;font-weight:900">—</div>
+            <div style="font-size:11px;color:var(--muted)" id="crit-occ-sub">persons × 30</div>
+          </div>
+          <div id="crit-ext"  style="padding:8px;border-radius:7px;border:1.5px solid transparent">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Extract Demand</div>
+            <div id="crit-ext-val"  style="font-size:18px;font-weight:900">—</div>
+            <div style="font-size:11px;color:var(--muted)">sum of wet rooms</div>
+          </div>
+          <div id="crit-ach"  style="padding:8px;border-radius:7px;border:1.5px solid transparent">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Min. 0.3 ACH</div>
+            <div id="crit-ach-val"  style="font-size:18px;font-weight:900">—</div>
+            <div style="font-size:11px;color:var(--muted)" id="crit-ach-sub">vol × 0.3</div>
+          </div>
         </div>
+        <div style="margin-top:8px;font-size:12px;color:var(--primary-mid);font-weight:600" id="sMethod">—</div>
       </div>
 
       <div class="section-title" style="margin-top:4px">Unit Selection</div>
@@ -342,8 +421,33 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </div>
     </div>
 
+    <div class="section-title" style="margin-top:4px">Noise Performance — PHI Certificate Data (at unit connection)</div>
+    <div class="metrics" style="grid-template-columns:repeat(4,1fr)">
+      <div class="metric">
+        <div class="ml">Device dB(A)</div>
+        <div class="mv" id="noiseDevice">—</div>
+        <div class="mu">unit casing emission</div>
+      </div>
+      <div class="metric">
+        <div class="ml">Supply duct dB(A)</div>
+        <div class="mv" id="noiseSupply">—</div>
+        <div class="mu">at unit — before attenuation</div>
+      </div>
+      <div class="metric">
+        <div class="ml">Extract duct dB(A)</div>
+        <div class="mv" id="noiseExtract">—</div>
+        <div class="mu">at unit — before attenuation</div>
+      </div>
+      <div class="metric">
+        <div class="ml">PHI Rated Flow</div>
+        <div class="mv" id="noiseRatedFlow">—</div>
+        <div class="mu">m³/h (test condition)</div>
+      </div>
+    </div>
+    <div id="noiseAlert" style="margin-bottom:14px"></div>
+
     <!-- ── Tab: Room Schedule ── -->
-    <div class="tab-panel" id="tab-rooms">
+    <div class="tab-panel" id="tab-rooms" data-title="Room Schedule">
       <div class="tbl-wrap">
         <table>
           <thead>
@@ -351,6 +455,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
               <th>#</th><th>Room</th><th>Type</th>
               <th>Normal m³/h</th><th>Boost m³/h</th>
               <th>Ducts</th><th>m³/h / duct</th><th>Duct status</th>
+              <th>ACH</th><th>Terminal m/s</th><th>Velocity</th>
             </tr>
           </thead>
           <tbody id="roomScheduleBody"></tbody>
@@ -359,14 +464,14 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Duct Schedule ── -->
-    <div class="tab-panel" id="tab-ducts">
+    <div class="tab-panel" id="tab-ducts" data-title="Duct Schedule">
       <div class="tbl-wrap">
         <table>
           <thead>
             <tr>
               <th>Duct ID</th><th>Room</th><th>Type</th>
               <th>Dia (mm)</th><th>Length (m)</th><th>Bends</th>
-              <th>Airflow m³/h</th><th>Velocity m/s</th><th>ΔP (Pa)</th><th>Status</th>
+              <th>Normal m³/h</th><th>Boost m³/h</th><th>Boost vel. m/s</th><th>Boost ΔP (Pa)</th><th>Status</th>
             </tr>
           </thead>
           <tbody id="ductScheduleBody"></tbody>
@@ -375,7 +480,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: BOM ── -->
-    <div class="tab-panel" id="tab-bom">
+    <div class="tab-panel" id="tab-bom" data-title="Bill of Materials">
       <div class="tbl-wrap">
         <table>
           <thead>
@@ -387,7 +492,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Commissioning ── -->
-    <div class="tab-panel" id="tab-commission">
+    <div class="tab-panel" id="tab-commission" data-title="Commissioning Schedule">
       <div class="scard" style="margin-bottom:14px">
         <p style="font-size:13px;color:var(--muted)">Record measured airflows at commissioning. Supply and extract should each balance within ±5% of design. Adjust valves as required.</p>
       </div>
@@ -402,7 +507,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Warnings ── -->
-    <div class="tab-panel" id="tab-warnings">
+    <div class="tab-panel" id="tab-warnings" data-title="Design Warnings">
       <div class="alert-list" id="alertList"></div>
     </div>
 
@@ -436,11 +541,16 @@ const EXTRACT_DEFAULTS = {
 };
 
 const UNITS = [
-  { name: 'Aerofresh 300', maxDesign: 280, nomMin: 0,   nomMax: 300, conn: '4×125mm', pref: [112, 224] },
-  { name: 'Zehnder Q350',  maxDesign: 300, nomMin: 150, nomMax: 350, conn: '180mm',   pref: [120, 240] },
-  { name: 'Aerofresh 450', maxDesign: 400, nomMin: 0,   nomMax: 450, conn: '4×160mm', pref: [160, 320] },
-  { name: 'Zehnder Q450',  maxDesign: 400, nomMin: 200, nomMax: 450, conn: '200mm',   pref: [160, 320] },
-  { name: 'Zehnder Q600',  maxDesign: 550, nomMin: 250, nomMax: 600, conn: '200mm',   pref: [220, 440] },
+  { name: 'Aerofresh 300', maxDesign: 280, nomMin: 0,   nomMax: 300, conn: '4×125mm', pref: [112, 224],
+    noise: { device: 50.1, supply: 65.6, extract: 58.4, ratedFlow: 280 } },
+  { name: 'Zehnder Q350',  maxDesign: 300, nomMin: 150, nomMax: 350, conn: '180mm',   pref: [120, 240],
+    noise: { device: 43.0, supply: 52.1, extract: 39.2, ratedFlow: 273 } },
+  { name: 'Aerofresh 450', maxDesign: 400, nomMin: 0,   nomMax: 450, conn: '4×160mm', pref: [160, 320],
+    noise: { device: 50.2, supply: 65.7, extract: 50.7, ratedFlow: 370 } },
+  { name: 'Zehnder Q450',  maxDesign: 400, nomMin: 200, nomMax: 450, conn: '200mm',   pref: [160, 320],
+    noise: { device: 47.0, supply: 58.7, extract: 46.4, ratedFlow: 347 } },
+  { name: 'Zehnder Q600',  maxDesign: 550, nomMin: 250, nomMax: 600, conn: '200mm',   pref: [220, 440],
+    noise: { device: 50.9, supply: 65.3, extract: 47.1, ratedFlow: 460 } },
 ];
 
 const COMFOWELLS = [
@@ -459,16 +569,17 @@ function addRoom(type) {
   const id = Date.now() + Math.random();
   const defs = type === 'supply' ? SUPPLY_DEFAULTS : EXTRACT_DEFAULTS;
   const roomType = Object.keys(defs)[0];
-  const flow = defs[roomType];
   const arr = type === 'supply' ? supplyRooms : extractRooms;
-  arr.push({ id, roomType, flow });
+  arr.push({ id, name: roomType, roomType, area: 0, length: 8 });
   renderRooms(type);
+  scheduleAutosave();
 }
 
 function removeRoom(type, id) {
   if (type === 'supply') supplyRooms = supplyRooms.filter(r => r.id !== id);
   else extractRooms = extractRooms.filter(r => r.id !== id);
   renderRooms(type);
+  scheduleAutosave();
 }
 
 function renderRooms(type) {
@@ -477,8 +588,29 @@ function renderRooms(type) {
   const container = document.getElementById(type + 'Rooms');
   container.innerHTML = '';
   arr.forEach(room => {
-    const div = document.createElement('div');
-    div.className = 'room-row';
+    const card = document.createElement('div');
+    card.className = 'room-card';
+
+    // Row 1: name | remove
+    const r1 = document.createElement('div');
+    r1.className = 'room-card-r1';
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.value = room.name || room.roomType;
+    nameInp.placeholder = 'Room name';
+    nameInp.addEventListener('input', e => { room.name = e.target.value; scheduleAutosave(); });
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-rm'; btn.innerHTML = '×';
+    btn.addEventListener('click', () => removeRoom(type, room.id));
+
+    r1.appendChild(nameInp); r1.appendChild(btn);
+
+    // Row 2: type | length
+    const r2 = document.createElement('div');
+    r2.className = 'room-card-r2';
+
     const sel = document.createElement('select');
     Object.keys(defs).forEach(t => {
       const opt = document.createElement('option');
@@ -488,17 +620,28 @@ function renderRooms(type) {
     });
     sel.addEventListener('change', e => {
       room.roomType = e.target.value;
-      room.flow = defs[e.target.value] || room.flow;
-      renderRooms(type);
+      if (!room._nameEdited) { room.name = e.target.value; nameInp.value = e.target.value; }
+      scheduleAutosave();
     });
-    const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = 0; inp.value = room.flow;
-    inp.addEventListener('input', e => { room.flow = parseFloat(e.target.value) || 0; });
-    const btn = document.createElement('button');
-    btn.className = 'btn-rm'; btn.innerHTML = '×';
-    btn.addEventListener('click', () => removeRoom(type, room.id));
-    div.appendChild(sel); div.appendChild(inp); div.appendChild(btn);
-    container.appendChild(div);
+    nameInp.addEventListener('input', () => { room._nameEdited = true; });
+
+    const areaInp = document.createElement('input');
+    areaInp.type = 'number'; areaInp.min = 0; areaInp.step = 0.5;
+    areaInp.value = room.area !== undefined ? room.area : '';
+    areaInp.placeholder = 'Area m²';
+    areaInp.title = 'Floor area in m² (for air change rate)';
+    areaInp.addEventListener('input', e => { room.area = parseFloat(e.target.value) || 0; scheduleAutosave(); });
+
+    const lenInp = document.createElement('input');
+    lenInp.type = 'number'; lenInp.min = 0; lenInp.step = 0.5;
+    lenInp.value = room.length !== undefined ? room.length : 8;
+    lenInp.placeholder = 'Run m';
+    lenInp.title = 'Duct run length in metres';
+    lenInp.addEventListener('input', e => { room.length = parseFloat(e.target.value) || 0; scheduleAutosave(); });
+
+    r2.appendChild(sel); r2.appendChild(areaInp); r2.appendChild(lenInp);
+    card.appendChild(r1); card.appendChild(r2);
+    container.appendChild(card);
   });
 }
 
@@ -508,16 +651,70 @@ function seedIfEmpty() {
   if (supplyRooms.length > 0 || extractRooms.length > 0) return;
   const beds = parseInt(document.getElementById('bedrooms').value) || 0;
   if (!beds) return;
-  if (beds >= 1) { supplyRooms.push({ id: Date.now()+1, roomType: 'Master Bedroom', flow: 35 }); }
-  for (let i = 1; i < beds; i++) supplyRooms.push({ id: Date.now()+i+2, roomType: 'Single Bedroom', flow: 20 });
-  supplyRooms.push({ id: Date.now()+100, roomType: 'Living Room', flow: 40 });
-  extractRooms.push({ id: Date.now()+200, roomType: 'Kitchen', flow: 60 });
-  if (beds >= 2) extractRooms.push({ id: Date.now()+201, roomType: 'Ensuite', flow: 40 });
-  extractRooms.push({ id: Date.now()+202, roomType: 'Bathroom', flow: 40 });
-  if (beds >= 3) extractRooms.push({ id: Date.now()+203, roomType: 'WC', flow: 20 });
-  extractRooms.push({ id: Date.now()+204, roomType: 'Laundry', flow: 40 });
+  if (beds >= 1) supplyRooms.push({ id: Date.now()+1, name: 'Master Bedroom', roomType: 'Master Bedroom', length: 10, minDucts: 1 });
+  for (let i = 1; i < beds; i++) supplyRooms.push({ id: Date.now()+i+2, name: `Bedroom ${i+1}`, roomType: 'Single Bedroom', length: 8, minDucts: 1 });
+  supplyRooms.push({ id: Date.now()+100, name: 'Living Room', roomType: 'Living Room', length: 12, minDucts: 1 });
+  extractRooms.push({ id: Date.now()+200, name: 'Kitchen', roomType: 'Kitchen', length: 10, minDucts: 1 });
+  if (beds >= 2) extractRooms.push({ id: Date.now()+201, name: 'Ensuite', roomType: 'Ensuite', length: 8, minDucts: 1 });
+  extractRooms.push({ id: Date.now()+202, name: 'Bathroom', roomType: 'Bathroom', length: 8, minDucts: 1 });
+  if (beds >= 3) extractRooms.push({ id: Date.now()+203, name: 'WC', roomType: 'WC', length: 6, minDucts: 1 });
+  extractRooms.push({ id: Date.now()+204, name: 'Laundry', roomType: 'Laundry', length: 8, minDucts: 1 });
   renderRooms('supply'); renderRooms('extract');
 }
+
+// ══════════════════════════════════════════════════════
+// AUTOSAVE
+// ══════════════════════════════════════════════════════
+const SAVE_KEY = 'hh_mvhr_state';
+let _saveTimer = null;
+
+function scheduleAutosave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveState, 800);
+}
+
+const FIELD_IDS = ['bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize'];
+
+function saveState() {
+  const state = {};
+  FIELD_IDS.forEach(id => { const el = document.getElementById(id); if (el) state[id] = el.value; });
+  state.supplyRooms  = supplyRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
+  state.extractRooms = extractRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e) {}
+  showSaveBadge();
+}
+
+function loadState() {
+  let raw;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch(e) {}
+  if (!raw) return;
+  let state;
+  try { state = JSON.parse(raw); } catch(e) { return; }
+  FIELD_IDS.forEach(id => {
+    if (state[id] !== undefined) { const el = document.getElementById(id); if (el) el.value = state[id]; }
+  });
+  if (state.supplyRooms  && Array.isArray(state.supplyRooms))  supplyRooms  = state.supplyRooms;
+  if (state.extractRooms && Array.isArray(state.extractRooms)) extractRooms = state.extractRooms;
+  renderRooms('supply'); renderRooms('extract');
+  updateGrilleSize();
+}
+
+function showSaveBadge() {
+  const el = document.getElementById('saveBadge');
+  if (!el) return;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 2000);
+}
+
+// Wire autosave to all sidebar inputs
+document.addEventListener('DOMContentLoaded', () => {
+  FIELD_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', scheduleAutosave);
+  });
+  loadState();
+});
 
 // ══════════════════════════════════════════════════════
 // PHYSICS
@@ -550,6 +747,12 @@ function manifoldPressureLoss() { return 12; } // Pa, simplified
 function grillePressureLoss()   { return 15; } // Pa, external grille
 function silencerPressureLoss() { return 8;  } // Pa per silencer
 
+// Noise scaling: PHI method — 50×log10(Q_design/Q_rated)
+function noiseAtFlow(dB_rated, Q_rated, Q_design) {
+  if (!Q_rated || Q_design <= 0) return dB_rated;
+  return dB_rated + 50 * Math.log10(Q_design / Q_rated);
+}
+
 function selectComfoWell(ductCount) {
   for (const cw of COMFOWELLS) {
     if (ductCount <= cw.maxDucts) return cw;
@@ -557,6 +760,8 @@ function selectComfoWell(ductCount) {
   return COMFOWELLS[COMFOWELLS.length - 1];
 }
 
+// ductCountForRoom: 35 m³/h limit applies at normal flow.
+// At boost (×1.3), a single DN90 carries up to 45.5 m³/h ≈ 2 m/s — acceptable for intermittent boost.
 function ductCountForRoom(flow) {
   return Math.max(1, Math.ceil(flow / 35));
 }
@@ -572,47 +777,76 @@ function ductStatusPill(flowPerDuct) {
 // CALCULATE
 // ══════════════════════════════════════════════════════
 function calculate() {
-  const floorArea = parseFloat(document.getElementById('floorArea').value) || 0;
-  const bedSpaces  = parseFloat(document.getElementById('bedSpaces').value) || 0;
-  const avgLength  = parseFloat(document.getElementById('ductLength').value) || 8;
-  const bendsRun   = parseFloat(document.getElementById('bendsPerRun').value) || 2;
-  const extLength  = parseFloat(document.getElementById('externalLength').value) || 3;
+  const floorArea      = parseFloat(document.getElementById('floorArea').value) || 0;
+  const ceilHeight     = parseFloat(document.getElementById('ceilHeight').value) || 2.5;
+  const bedSpaces      = parseFloat(document.getElementById('bedSpaces').value) || 0;
+  const personsInput   = parseFloat(document.getElementById('persons').value) || 0;
+  const persons        = personsInput > 0 ? personsInput : bedSpaces; // default to bed spaces
+  const bendsRun       = parseFloat(document.getElementById('bendsPerRun').value) || 0;
+  const extSupplyLen   = parseFloat(document.getElementById('extSupplyLength').value) || 0;
+  const extExtractLen  = parseFloat(document.getElementById('extExtractLength').value) || 0;
+  const grilleType     = document.getElementById('grilleType').value;
+  const grilleSize     = grilleType === 'combi'
+    ? document.getElementById('combiSize').value
+    : document.getElementById('grilleSize').value;
 
-  // 1. Airflow
-  const byOcc   = bedSpaces * 30;
-  const byFloor = floorArea * 1;
-  const normal  = Math.max(byOcc, byFloor);
-  const low     = Math.round(normal * 0.70);
-  const boost   = Math.round(normal * 1.30);
-  const govMethod = byOcc >= byFloor
-    ? `Occupancy (${Math.round(byOcc)} m³/h)`
-    : `Floor area (${Math.round(byFloor)} m³/h)`;
+  // 1. Airflow — PHI/PHPP methodology (max of three criteria)
+  const byOcc          = persons * 30;                                         // Criterion 1: persons × 30 m³/h
+  const totalVolume    = floorArea * ceilHeight;
+  const byACH          = totalVolume * 0.3;                                    // Criterion 2: 0.3 ACH minimum
+  // Criterion 3: sum of raw extract room demands
+  const extractDemand  = extractRooms.reduce((s, r) => s + (EXTRACT_DEFAULTS[r.roomType] || 25), 0);
+  const normal         = Math.max(byOcc, byACH, extractDemand);
+  const low            = Math.round(normal * 0.70);
+  const boost          = Math.round(normal * 1.30);
 
-  // 2. Room duct counts
-  const totalSupplyFlow  = supplyRooms.reduce((s, r) => s + (r.flow || 0), 0);
-  const totalExtractBoost = extractRooms.reduce((s, r) => s + (r.flow || 0), 0);
-  // Normal extract scaled to match supply
-  const extractNormalScale = totalExtractBoost > 0 ? totalSupplyFlow / totalExtractBoost : 1;
+  // Identify governing criterion
+  const govMethod = normal === byOcc && byOcc >= byACH && byOcc >= extractDemand
+    ? `Occupancy — ${Math.round(persons)} persons × 30 m³/h = ${Math.round(byOcc)} m³/h`
+    : normal === extractDemand && extractDemand >= byOcc && extractDemand >= byACH
+    ? `Extract demand — sum of wet room defaults = ${Math.round(extractDemand)} m³/h`
+    : `Minimum ACH — ${floorArea}m² × ${ceilHeight}m × 0.3 ACH = ${Math.round(byACH)} m³/h`;
+
+  // 2. Proportional airflow distribution
+  // Supply: each room gets a share of design airflow proportional to its type weight
+  const totalSW = supplyRooms.reduce((s, r) => s + (SUPPLY_DEFAULTS[r.roomType] || 20), 0);
+  supplyRooms.forEach(r => {
+    r._flow = totalSW > 0 ? (SUPPLY_DEFAULTS[r.roomType] || 20) / totalSW * normal : 0;
+  });
+  // Extract: each room gets a share proportional to its type weight, sum = normal (balanced)
+  const totalEW = extractRooms.reduce((s, r) => s + (EXTRACT_DEFAULTS[r.roomType] || 25), 0);
+  extractRooms.forEach(r => {
+    r._flow = totalEW > 0 ? (EXTRACT_DEFAULTS[r.roomType] || 25) / totalEW * normal : 0;
+  });
+  const totalSupplyFlow   = normal;
+  const totalExtractNormal = normal; // always balanced by design
 
   // Supply ducts
   const supplyDuctRows = [];
   let sDuctIdx = 1;
   let totalSDucts = 0;
-  supplyRooms.forEach((room, ri) => {
-    const n = ductCountForRoom(room.flow);
-    const perDuct = room.flow / n;
+  let totalSupplyDuctM = 0;
+  const boostRatio = boost / normal;
+  supplyRooms.forEach(room => {
+    const rFlow = room._flow || 0;
+    const n = Math.max(1, Math.ceil(rFlow / 35));
+    const normalPerDuct = rFlow / n;
+    const boostPerDuct  = normalPerDuct * boostRatio;
+    const runLength = room.length || 0;
     totalSDucts += n;
+    totalSupplyDuctM += n * runLength;
     for (let i = 0; i < n; i++) {
       supplyDuctRows.push({
         id: `S${String(sDuctIdx++).padStart(2,'0')}`,
-        room: room.roomType,
+        room: room.name || room.roomType,
         type: 'Supply',
         dia: DUCT_D_MM,
-        length: avgLength,
+        length: runLength,
         bends: bendsRun,
-        flow: Math.round(perDuct * 10) / 10,
-        velocity: ductVelocity(perDuct),
-        dp: ductPressureLoss(perDuct, avgLength, bendsRun) + valvePressureLoss(perDuct),
+        flowNormal: Math.round(normalPerDuct * 10) / 10,
+        flow: Math.round(boostPerDuct * 10) / 10,          // boost = worst case
+        velocity: ductVelocity(boostPerDuct),               // velocity at boost
+        dp: ductPressureLoss(boostPerDuct, runLength, bendsRun) + valvePressureLoss(boostPerDuct),
       });
     }
   });
@@ -621,45 +855,45 @@ function calculate() {
   const extractDuctRows = [];
   let eDuctIdx = 1;
   let totalEDucts = 0;
-  extractRooms.forEach((room, ri) => {
-    const n = ductCountForRoom(room.flow);
-    const boostPerDuct = room.flow / n;
-    const normalPerDuct = boostPerDuct * extractNormalScale;
+  let totalExtractDuctM = 0;
+  extractRooms.forEach(room => {
+    const rFlow = room._flow || 0;
+    const n = Math.max(1, Math.ceil(rFlow / 35));
+    const normalPerDuct = rFlow / n;
+    const boostPerDuct  = normalPerDuct * boostRatio;
+    const runLength = room.length || 0;
     totalEDucts += n;
+    totalExtractDuctM += n * runLength;
     for (let i = 0; i < n; i++) {
       extractDuctRows.push({
         id: `E${String(eDuctIdx++).padStart(2,'0')}`,
-        room: room.roomType,
+        room: room.name || room.roomType,
         type: 'Extract',
         dia: DUCT_D_MM,
-        length: avgLength,
+        length: runLength,
         bends: bendsRun,
-        flow: Math.round(boostPerDuct * 10) / 10,
-        velocity: ductVelocity(boostPerDuct),
-        dp: ductPressureLoss(boostPerDuct, avgLength, bendsRun) + valvePressureLoss(boostPerDuct),
+        flowNormal: Math.round(normalPerDuct * 10) / 10,
+        flow: Math.round(boostPerDuct * 10) / 10,          // boost = worst case
+        velocity: ductVelocity(boostPerDuct),               // velocity at boost
+        dp: ductPressureLoss(boostPerDuct, runLength, bendsRun) + valvePressureLoss(boostPerDuct),
       });
     }
   });
 
-  // 3. System pressure (worst case duct + fixed losses)
+  // 3. System pressure (worst case duct + fixed losses, supply and extract sides separate)
   const maxSDp = supplyDuctRows.length > 0 ? Math.max(...supplyDuctRows.map(d => d.dp)) : 0;
   const maxEDp = extractDuctRows.length > 0 ? Math.max(...extractDuctRows.map(d => d.dp)) : 0;
+  const extSupplyDp  = ductPressureLoss(normal, extSupplyLen, 1) + grillePressureLoss();
+  const extExtractDp = ductPressureLoss(normal, extExtractLen, 1) + grillePressureLoss();
   const totalPressure = Math.round(
     maxSDp + maxEDp
     + manifoldPressureLoss() * 2
     + silencerPressureLoss() * 2
-    + grillePressureLoss() * 2
-    + ductPressureLoss(normal, extLength, 1) * 2
+    + extSupplyDp + extExtractDp
   );
 
-  // 4. Balance
-  const normalExtract = Math.round(totalSupplyFlow);
-  const balancePct = totalSupplyFlow > 0 ? Math.abs((normalExtract - totalSupplyFlow) / totalSupplyFlow * 100) : 0;
-  // (supply and extract are by definition equal in normal mode since we scale extracts)
-  // Real balance check: design total supply vs design total extract boost capacity
-  const boostImbalancePct = totalSupplyFlow > 0
-    ? Math.abs((totalExtractBoost - totalSupplyFlow) / totalSupplyFlow * 100)
-    : 0;
+  // 4. Balance — supply and extract are equal by design (proportional distribution)
+  const boostImbalancePct = 0; // always balanced: both sides get exactly normal at normal, boost at boost
 
   // 5. Unit selection
   let chosen = null;
@@ -668,26 +902,58 @@ function calculate() {
   }
   if (!chosen) chosen = UNITS[UNITS.length - 1];
 
-  // 6. Distribution boxes
+  // 6. Noise at design flow
+  const nd = chosen.noise;
+  const noiseDevice  = noiseAtFlow(nd.device,  nd.ratedFlow, normal).toFixed(1);
+  const noiseSupply  = noiseAtFlow(nd.supply,  nd.ratedFlow, normal).toFixed(1);
+  const noiseExtract = noiseAtFlow(nd.extract, nd.ratedFlow, normal).toFixed(1);
+  // PHI room targets (for reference — apply at terminal, not unit connection)
+  // Supply ≤25 dB(A), Extract ≤35 dB(A) — proxy is terminal velocity ≤2 m/s
+
+  // 6b. Distribution boxes
   const supplyBox  = selectComfoWell(totalSDucts);
   const extractBox = selectComfoWell(totalEDucts);
 
   // 7. BOM
-  const totalDuctM = (totalSDucts + totalEDucts) * avgLength + extLength * 2;
+  const totalRoomDuctM = Math.ceil(totalSupplyDuctM + totalExtractDuctM);
+  const isCombi = grilleType === 'combi';
+  const grilleDesc = isCombi
+    ? `Zehnder ComfoEdge Combi-Outwall ${grilleSize} — combined supply + extract`
+    : `Zehnder External Wall Grille ${grilleSize}`;
+  const grilleRecircNote = isCombi
+    ? (grilleSize === 'DN125' ? 'Recirculation <3% at 5 m/s wind' : 'Recirculation <5% at 5 m/s wind')
+    : 'Individual grilles — separate wall penetrations required';
+
   const bom = [
-    { item: 'MVHR Unit',            model: chosen.name,      qty: 1,    unit: 'each',  notes: `Connection: ${chosen.conn}` },
-    { item: 'Supply Manifold',      model: supplyBox.name,   qty: 1,    unit: 'each',  notes: `${supplyBox.conn} inlet · ${totalSDucts} ducts` },
-    { item: 'Extract Manifold',     model: extractBox.name,  qty: 1,    unit: 'each',  notes: `${extractBox.conn} inlet · ${totalEDucts} ducts` },
-    { item: '90mm ComfoTube Duct',  model: 'Ø90 semi-rigid', qty: Math.ceil(totalDuctM), unit: 'm', notes: `${totalSDucts + totalEDucts} runs × ~${avgLength}m avg + ${extLength}m×2 external` },
-    { item: 'Supply Room Valves',   model: 'Supply valve',   qty: totalSDucts, unit: 'each', notes: '1 per duct run' },
-    { item: 'Extract Room Valves',  model: 'Extract valve',  qty: totalEDucts, unit: 'each', notes: '1 per duct run' },
-    { item: 'O-rings / Connectors', model: 'Ø90 push-fit',  qty: (totalSDucts + totalEDucts) * 2, unit: 'each', notes: '2 per duct run' },
-    { item: 'Duct Joiners',         model: 'Ø90 straight',   qty: Math.ceil((totalSDucts + totalEDucts) / 2), unit: 'each', notes: 'Estimate 1 per 2 runs' },
-    { item: 'Silencer (supply)',     model: 'Inline silencer', qty: 1,  unit: 'each',  notes: 'On MVHR supply connection' },
-    { item: 'Silencer (extract)',    model: 'Inline silencer', qty: 1,  unit: 'each',  notes: 'On MVHR extract connection' },
-    { item: 'External Intake Cowl', model: 'Weather cowl',   qty: 1,   unit: 'each',  notes: 'Fresh air intake' },
-    { item: 'External Exhaust Cowl',model: 'Weather cowl',   qty: 1,   unit: 'each',  notes: 'Stale air exhaust' },
-    { item: 'Intake/Exhaust Duct',  model: 'Rigid insulated',qty: extLength * 2, unit: 'm', notes: `${extLength}m each side` },
+    { item: 'MVHR Unit',             model: chosen.name,         qty: 1,   unit: 'each', notes: `Connection: ${chosen.conn}` },
+    { item: 'Supply Manifold',       model: supplyBox.name,      qty: 1,   unit: 'each', notes: `${supplyBox.conn} inlet · ${totalSDucts} × 90mm outlets` },
+    { item: 'Extract Manifold',      model: extractBox.name,     qty: 1,   unit: 'each', notes: `${extractBox.conn} inlet · ${totalEDucts} × 90mm outlets` },
+    { item: '90mm ComfoTube (room)', model: 'Ø90 semi-rigid',    qty: totalRoomDuctM, unit: 'm', notes: `${totalSDucts} supply runs + ${totalEDucts} extract runs` },
+    { item: 'External Supply Duct',  model: 'ComfoPipe insulated', qty: extSupplyLen, unit: 'm', notes: `Outdoor air — supply side` },
+    { item: 'External Extract Duct', model: 'ComfoPipe insulated', qty: extExtractLen, unit: 'm', notes: `Exhaust air — extract side` },
+    { item: isCombi ? 'Combi External Grille' : 'Supply Grille', model: grilleDesc, qty: isCombi ? 1 : 1, unit: 'each', notes: grilleRecircNote },
+    ...(isCombi ? [] : [{ item: 'Extract Grille', model: `Zehnder External Wall Grille ${grilleSize}`, qty: 1, unit: 'each', notes: 'Separate extract wall penetration' }]),
+    // ComfoCase TVA terminal cases — 1×DN90 single or 2×DN90 twin per room
+    ...supplyRooms.map(room => {
+      const rFlow = room._flow || 0;
+      const n = Math.max(1, Math.ceil(rFlow / 35));
+      const isTwin = n >= 2;
+      return { item: `Supply Terminal — ${room.name || room.roomType}`,
+        model: isTwin ? 'ComfoCase TVA 2×DN90 (art. 990 326 148)' : 'ComfoCase TVA 1×DN90 (art. 990 326 146)',
+        qty: 1, unit: 'each', notes: `${Math.round(rFlow)} m³/h normal · ${Math.round(rFlow * boostRatio)} m³/h boost` };
+    }),
+    ...extractRooms.map(room => {
+      const rFlow = room._flow || 0;
+      const n = Math.max(1, Math.ceil(rFlow / 35));
+      const isTwin = n >= 2;
+      return { item: `Extract Terminal — ${room.name || room.roomType}`,
+        model: isTwin ? 'ComfoCase TVA 2×DN90 (art. 990 326 148)' : 'ComfoCase TVA 1×DN90 (art. 990 326 146)',
+        qty: 1, unit: 'each', notes: `${Math.round(rFlow)} m³/h normal · ${Math.round(rFlow * boostRatio)} m³/h boost` };
+    }),
+    { item: 'O-rings / Connectors',  model: 'Ø90 push-fit',      qty: (totalSDucts + totalEDucts) * 2, unit: 'each', notes: '2 per duct run' },
+    { item: 'Duct Joiners',          model: 'Ø90 straight',      qty: Math.ceil((totalSDucts + totalEDucts) / 2), unit: 'each', notes: 'Estimate 1 per 2 runs' },
+    { item: 'Silencer (supply)',      model: 'Inline silencer',   qty: 1,   unit: 'each', notes: 'MVHR supply connection' },
+    { item: 'Silencer (extract)',     model: 'Inline silencer',   qty: 1,   unit: 'each', notes: 'MVHR extract connection' },
   ];
 
   // 8. Warnings
@@ -696,21 +962,30 @@ function calculate() {
   if (loadPct > 85) warnings.push({ type: 'critical', icon: '🔴', text: `${chosen.name} is at ${loadPct.toFixed(0)}% of max design capacity. Select the next unit size.` });
   else if (loadPct > 80) warnings.push({ type: 'warn', icon: '⚠️', text: `${chosen.name} is at ${loadPct.toFixed(0)}% of capacity — near preferred upper limit of 80%. Consider stepping up.` });
   else if (loadPct < 40) warnings.push({ type: 'amber', icon: '💡', text: `${chosen.name} is at only ${loadPct.toFixed(0)}% of capacity — below preferred lower limit of 40%. Unit may be oversized.` });
-  if (boostImbalancePct > 10) warnings.push({ type: 'warn', icon: '⚠️', text: `Boost extract total (${Math.round(totalExtractBoost)} m³/h) differs from supply by ${boostImbalancePct.toFixed(1)}% — exceeds 10% target. Review room extract allocations.` });
-  else if (boostImbalancePct > 5) warnings.push({ type: 'amber', icon: '💡', text: `Boost extract differs from supply by ${boostImbalancePct.toFixed(1)}% — within tolerance but review before commissioning.` });
+  // Balance is guaranteed by proportional distribution — no imbalance warning needed
   if (totalPressure > 150) warnings.push({ type: 'critical', icon: '🔴', text: `Estimated system pressure ${totalPressure} Pa exceeds critical threshold of 150 Pa. Shorten duct runs or increase duct sizes.` });
   else if (totalPressure > 100) warnings.push({ type: 'warn', icon: '⚠️', text: `Estimated system pressure ${totalPressure} Pa exceeds 100 Pa target. Review duct layout and minimise bends.` });
   else if (totalPressure <= 80) warnings.push({ type: 'ok', icon: '✅', text: `Estimated system pressure ${totalPressure} Pa — excellent (target <80 Pa).` });
   else warnings.push({ type: 'ok', icon: '✅', text: `Estimated system pressure ${totalPressure} Pa — within 100 Pa target.` });
   supplyDuctRows.concat(extractDuctRows).forEach(d => {
-    if (d.flow > 45) warnings.push({ type: 'critical', icon: '🔴', text: `Duct ${d.id} (${d.room}) carries ${d.flow} m³/h — exceeds 45 m³/h limit for 90mm duct. Add an additional duct run.` });
+    if (d.flow > 45) warnings.push({ type: 'critical', icon: '🔴', text: `Duct ${d.id} (${d.room}) carries ${d.flow} m³/h at boost — exceeds 45 m³/h limit for 90mm duct. Add an additional duct run.` });
   });
   if (totalSDucts > supplyBox.maxDucts) warnings.push({ type: 'critical', icon: '🔴', text: `Supply duct count (${totalSDucts}) exceeds ${supplyBox.name} capacity (${supplyBox.maxDucts}). Use a larger manifold or split the system.` });
   if (totalEDucts > extractBox.maxDucts) warnings.push({ type: 'critical', icon: '🔴', text: `Extract duct count (${totalEDucts}) exceeds ${extractBox.name} capacity (${extractBox.maxDucts}). Use a larger manifold or split the system.` });
   if (normal === 0) warnings.push({ type: 'critical', icon: '🔴', text: 'Design airflow is zero. Enter floor area and/or bed spaces.' });
   if (supplyRooms.length === 0) warnings.push({ type: 'warn', icon: '⚠️', text: 'No supply rooms entered.' });
   if (extractRooms.length === 0) warnings.push({ type: 'warn', icon: '⚠️', text: 'No extract rooms entered.' });
-  warnings.push({ type: 'ok', icon: '✅', text: `Normal airflow ${Math.round(normal)} m³/h governed by ${govMethod}.` });
+  // Noise warnings
+  // Noise: warn only if terminal velocity is high (velocity is the reliable per-room noise proxy)
+  const highVelRooms = supplyDuctRows.concat(extractDuctRows).filter(d => d.velocity > 2);
+  if (highVelRooms.length > 0)
+    warnings.push({ type: 'warn', icon: '🔊', text: `${highVelRooms.length} duct run(s) exceed 2 m/s terminal velocity (${highVelRooms.map(d=>d.id).join(', ')}) — room noise may exceed PHI target. Add duct run or reduce flow.` });
+  else
+    warnings.push({ type: 'ok', icon: '🔇', text: `All terminal velocities ≤2 m/s — room noise expected within PHI targets of ≤25 dB(A) supply / ≤35 dB(A) extract.` });
+  warnings.push({ type: 'info', icon: 'ℹ️', text: `PHI certificate noise (${noiseSupply} dB(A) supply, ${noiseExtract} dB(A) extract at ${nd.ratedFlow} m³/h) is measured at the unit connection. Room terminal noise is lower due to duct attenuation and is not directly comparable to the ≤25/≤35 dB(A) room targets.` });
+  warnings.push({ type: 'ok', icon: '✅', text: `Design airflow ${Math.round(normal)} m³/h — ${govMethod}.` });
+  if (extractDemand > byOcc) warnings.push({ type: 'info', icon: 'ℹ️', text: `Extract demand (${Math.round(extractDemand)} m³/h) exceeds occupancy-based supply (${Math.round(byOcc)} m³/h) — extract demand is governing per PHI protocol.` });
+  if (byACH > byOcc && byACH > extractDemand) warnings.push({ type: 'amber', icon: '💡', text: `Minimum 0.3 ACH (${Math.round(byACH)} m³/h) is governing — building volume is large relative to occupancy. Consider adding persons or reviewing room count.` });
 
   // ══════════════════════════════════════════════════════
   // POPULATE UI
@@ -720,7 +995,22 @@ function calculate() {
   document.getElementById('sNormal').textContent = Math.round(normal);
   document.getElementById('sLow').textContent    = low;
   document.getElementById('sBoost').textContent  = boost;
-  document.getElementById('sMethod').textContent = govMethod;
+  document.getElementById('sMethod').textContent = '▲ Governing: ' + govMethod;
+
+  // PHI criteria cards
+  const govOcc = byOcc >= byACH && byOcc >= extractDemand && normal === byOcc;
+  const govExt = extractDemand >= byOcc && extractDemand >= byACH && normal === extractDemand;
+  const govACH = !govOcc && !govExt;
+  const govStyle  = 'background:var(--primary-light);border-color:var(--accent);';
+  const baseStyle = 'background:white;border-color:var(--border);';
+  document.getElementById('crit-occ').style.cssText  = (govOcc ? govStyle : baseStyle) + 'padding:8px;border-radius:7px;border-width:1.5px;border-style:solid';
+  document.getElementById('crit-ext').style.cssText  = (govExt ? govStyle : baseStyle) + 'padding:8px;border-radius:7px;border-width:1.5px;border-style:solid';
+  document.getElementById('crit-ach').style.cssText  = (govACH ? govStyle : baseStyle) + 'padding:8px;border-radius:7px;border-width:1.5px;border-style:solid';
+  document.getElementById('crit-occ-val').textContent  = Math.round(byOcc) + ' m³/h';
+  document.getElementById('crit-ext-val').textContent  = Math.round(extractDemand) + ' m³/h';
+  document.getElementById('crit-ach-val').textContent  = Math.round(byACH) + ' m³/h';
+  document.getElementById('crit-occ-sub').textContent  = `${Math.round(persons)} persons × 30`;
+  document.getElementById('crit-ach-sub').textContent  = `${floorArea}m² × ${ceilHeight}m × 0.3`;
 
   // Unit grid
   const grid = document.getElementById('unitGrid');
@@ -749,9 +1039,9 @@ function calculate() {
   });
 
   // Balance
-  document.getElementById('bSupply').textContent  = Math.round(totalSupplyFlow) + ' m³/h';
-  document.getElementById('bExtract').textContent = Math.round(totalSupplyFlow) + ' m³/h (scaled)';
-  document.getElementById('bDiff').textContent    = boostImbalancePct.toFixed(1) + '% (boost mode)';
+  document.getElementById('bSupply').textContent  = Math.round(normal) + ' m³/h';
+  document.getElementById('bExtract').textContent = Math.round(normal) + ' m³/h';
+  document.getElementById('bDiff').textContent    = '0.0% — balanced by design';
   const bStatusEl = document.getElementById('bStatus');
   if (boostImbalancePct <= 5)       { bStatusEl.innerHTML = '<span class="pill ok">✓ Balanced</span>'; }
   else if (boostImbalancePct <= 10) { bStatusEl.innerHTML = '<span class="pill warn">⚠ Review</span>'; }
@@ -770,55 +1060,90 @@ function calculate() {
   const pCls = totalPressure > 150 ? 'critical' : totalPressure > 100 ? 'warn' : 'ok';
   pEl.innerHTML = `<span class="pill ${pCls}">${totalPressure} Pa</span>`;
 
+  // Noise
+  // Noise display — informational only. PHI figures are at the unit connection, NOT room terminals.
+  // Room terminal noise will be lower after duct attenuation. The ≤25/≤35 dB(A) PHI targets
+  // apply at the terminal and cannot be verified from unit-level data alone.
+  document.getElementById('noiseDevice').innerHTML  = `<span style="color:var(--primary)">${noiseDevice}</span>`;
+  document.getElementById('noiseSupply').innerHTML  = `<span style="color:var(--primary)">${noiseSupply}</span>`;
+  document.getElementById('noiseExtract').innerHTML = `<span style="color:var(--primary)">${noiseExtract}</span>`;
+  document.getElementById('noiseRatedFlow').textContent = nd.ratedFlow;
+  document.getElementById('noiseAlert').innerHTML = `<div style="background:var(--info-bg);border:1px solid var(--info-border);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--primary-mid)">
+    ℹ️ These figures are scaled from PHI certificate data measured <strong>at the unit duct connections</strong>. Room terminal noise will be significantly lower due to duct attenuation. PHI room targets of ≤25 dB(A) supply / ≤35 dB(A) extract apply at the terminal and are typically met when duct velocity is ≤2 m/s (see Room Schedule).
+  </div>`;
+
   // Room Schedule
   const rsBody = document.getElementById('roomScheduleBody');
   rsBody.innerHTML = '';
   let rowIdx = 1;
   supplyRooms.forEach(room => {
-    const n = ductCountForRoom(room.flow);
-    const perDuct = room.flow / n;
-    const st = ductStatusPill(perDuct);
+    const rFlow = room._flow || 0;
+    const n = Math.max(1, Math.ceil(rFlow / 35));
+    const perDuct = rFlow / n;
+    const boostFlow = Math.round(rFlow * boostRatio * 10) / 10;
+    const st = ductStatusPill(boostFlow / n);
+    // Room noise: PHI supply noise scaled to per-duct flow at normal
+    const roomVol = (room.area || 0) * ceilHeight;
+    const ach = roomVol > 0 ? (rFlow / roomVol).toFixed(2) : null;
+    const achCls = ach ? (parseFloat(ach) < 0.3 ? 'warn' : 'ok') : '';
+    const termVel = ductVelocity(perDuct);
+    const velCls = termVel > 3 ? 'critical' : termVel > 2 ? 'warn' : 'ok';
+    const velLabel = termVel > 3 ? 'High' : termVel > 2 ? 'Moderate' : 'Good';
     const tr = document.createElement('tr');
     tr.className = 'supply-row';
-    tr.innerHTML = `<td>${rowIdx++}</td><td>${room.roomType}</td><td>Supply</td>
-      <td>${room.flow}</td><td>${Math.round(room.flow * boost / normal)}</td>
+    tr.innerHTML = `<td>${rowIdx++}</td><td>${room.name || room.roomType}</td><td>Supply</td>
+      <td>${Math.round(rFlow * 10) / 10}</td><td>${boostFlow}</td>
       <td>${n}</td><td>${(perDuct).toFixed(1)}</td>
-      <td><span class="pill ${st.cls}">${st.label}</span></td>`;
+      <td><span class="pill ${st.cls}">${st.label}</span></td>
+      <td>${ach ? `<span class="pill ${achCls}">${ach}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${termVel.toFixed(2)}</td>
+      <td><span class="pill ${velCls}">${velLabel}</span></td>`;
     rsBody.appendChild(tr);
   });
   extractRooms.forEach(room => {
-    const n = ductCountForRoom(room.flow);
-    const perDuct = room.flow / n;
-    const normalFlow = Math.round(room.flow * extractNormalScale);
-    const st = ductStatusPill(perDuct);
+    const rFlow = room._flow || 0;
+    const n = Math.max(1, Math.ceil(rFlow / 35));
+    const perDuct = rFlow / n;
+    const boostFlow = Math.round(rFlow * boostRatio * 10) / 10;
+    const st = ductStatusPill(boostFlow / n);
+    // Room noise: PHI extract noise scaled to per-duct flow at normal
+    const roomVol = (room.area || 0) * ceilHeight;
+    const ach = roomVol > 0 ? (rFlow / roomVol).toFixed(2) : null;
+    const achCls = ach ? (parseFloat(ach) < 0.5 ? 'warn' : 'ok') : '';
+    const termVel = ductVelocity(perDuct);
+    const velCls = termVel > 3 ? 'critical' : termVel > 2 ? 'warn' : 'ok';
+    const velLabel = termVel > 3 ? 'High' : termVel > 2 ? 'Moderate' : 'Good';
     const tr = document.createElement('tr');
     tr.className = 'extract-row';
-    tr.innerHTML = `<td>${rowIdx++}</td><td>${room.roomType}</td><td>Extract</td>
-      <td>${normalFlow}</td><td>${room.flow}</td>
+    tr.innerHTML = `<td>${rowIdx++}</td><td>${room.name || room.roomType}</td><td>Extract</td>
+      <td>${Math.round(rFlow * 10) / 10}</td><td>${boostFlow}</td>
       <td>${n}</td><td>${(perDuct).toFixed(1)}</td>
-      <td><span class="pill ${st.cls}">${st.label}</span></td>`;
+      <td><span class="pill ${st.cls}">${st.label}</span></td>
+      <td>${ach ? `<span class="pill ${achCls}">${ach}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${termVel.toFixed(2)}</td>
+      <td><span class="pill ${velCls}">${velLabel}</span></td>`;
     rsBody.appendChild(tr);
   });
   // Totals
-  const totalNormalExtract = Math.round(totalSupplyFlow);
   const trTot = document.createElement('tr');
   trTot.className = 'total-row';
   trTot.innerHTML = `<td colspan="3">Totals</td>
-    <td>↓${Math.round(totalSupplyFlow)} / ↑${totalNormalExtract}</td>
-    <td>↓${boost} / ↑${Math.round(totalExtractBoost)}</td>
-    <td>${totalSDucts + totalEDucts}</td><td></td><td></td>`;
+    <td>↓${Math.round(normal)} / ↑${Math.round(normal)}</td>
+    <td>↓${boost} / ↑${boost}</td>
+    <td>${totalSDucts + totalEDucts}</td><td></td><td></td><td></td><td></td><td></td>`; // 11 cols
   rsBody.appendChild(trTot);
 
   // Duct Schedule
   const dsBody = document.getElementById('ductScheduleBody');
   dsBody.innerHTML = '';
   supplyDuctRows.concat(extractDuctRows).forEach(d => {
-    const st = ductStatusPill(d.flow);
+    const st = ductStatusPill(d.flow);  // boost flow is worst case
     const vCls = d.velocity > 3 ? 'critical' : d.velocity > 2 ? 'warn' : 'ok';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td><strong>${d.id}</strong></td><td>${d.room}</td><td>${d.type}</td>
       <td>${d.dia}</td><td>${d.length}</td><td>${d.bends}</td>
-      <td>${d.flow}</td>
+      <td>${d.flowNormal}</td>
+      <td><strong>${d.flow}</strong></td>
       <td><span class="pill ${vCls}">${d.velocity.toFixed(2)}</span></td>
       <td>${Math.round(d.dp)}</td>
       <td><span class="pill ${st.cls}">${st.label}</span></td>`;
@@ -839,19 +1164,22 @@ function calculate() {
   commBody.innerHTML = '';
   let ci = 1;
   supplyRooms.forEach(room => {
+    const rFlow = room._flow || 0;
+    const boostFlow = Math.round(rFlow * boostRatio);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${ci++}</td><td>${room.roomType}</td><td>Supply</td>
-      <td>${room.flow}</td>
+    tr.innerHTML = `<td>${ci++}</td><td>${room.name || room.roomType}</td><td>Supply</td>
+      <td>${Math.round(rFlow)} / ${boostFlow} boost</td>
       <td style="color:var(--muted)">____</td>
       <td style="color:var(--muted)">____</td>
       <td style="color:var(--muted);font-size:12px">Adjust supply valve</td>`;
     commBody.appendChild(tr);
   });
   extractRooms.forEach(room => {
-    const normalFlow = Math.round(room.flow * extractNormalScale);
+    const rFlow = room._flow || 0;
+    const boostFlow = Math.round(rFlow * boostRatio);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${ci++}</td><td>${room.roomType}</td><td>Extract</td>
-      <td>${normalFlow} / ${room.flow} boost</td>
+    tr.innerHTML = `<td>${ci++}</td><td>${room.name || room.roomType}</td><td>Extract</td>
+      <td>${Math.round(rFlow)} / ${boostFlow} boost</td>
       <td style="color:var(--muted)">____</td>
       <td style="color:var(--muted)">____</td>
       <td style="color:var(--muted);font-size:12px">Adjust extract valve</td>`;
@@ -889,6 +1217,15 @@ function showTab(name) {
 }
 
 // ══════════════════════════════════════════════════════
+// GRILLE TOGGLE
+// ══════════════════════════════════════════════════════
+function updateGrilleSize() {
+  const isCombi = document.getElementById('grilleType').value === 'combi';
+  document.getElementById('grilleSizeField').style.display = isCombi ? 'none' : 'block';
+  document.getElementById('combiSizeField').style.display  = isCombi ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
 const AUTH_EMAIL = 'hello@hiperhaus.com.au';
@@ -919,6 +1256,169 @@ document.addEventListener('keydown', e => {
 // Check existing session
 if (sessionStorage.getItem(SESSION_KEY) === '1') {
   document.getElementById('loginOverlay').classList.add('hidden');
+}
+
+// ══════════════════════════════════════════════════════
+// PDF EXPORT
+// ══════════════════════════════════════════════════════
+function exportPDF() {
+  const btn = document.getElementById('pdfBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+
+  // Temporarily show all tab panels for capture
+  const panels = document.querySelectorAll('.tab-panel');
+  panels.forEach(p => p.style.display = 'block');
+
+  // Build a clean print container
+  const container = document.createElement('div');
+  container.style.cssText = 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;color:#111827;padding:0;';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'background:#1a4731;color:white;padding:16px 20px;margin-bottom:20px;border-radius:6px;';
+  hdr.innerHTML = `<div style="font-size:18px;font-weight:900;letter-spacing:-0.3px">MVHR Design Report</div>
+    <div style="font-size:11px;opacity:0.7;margin-top:2px">HiPer Haus · Generated ${new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })}</div>`;
+  container.appendChild(hdr);
+
+  // Clone each panel with a section title
+  const sectionOrder = ['tab-summary','tab-rooms','tab-ducts','tab-bom','tab-commission','tab-warnings'];
+  sectionOrder.forEach((id, i) => {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+
+    const section = document.createElement('div');
+    section.style.cssText = 'margin-bottom:24px;page-break-inside:avoid;';
+
+    // Section title
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;color:#2d6a4f;border-bottom:2px solid #d8f3dc;padding-bottom:5px;margin-bottom:12px;';
+    title.textContent = panel.dataset.title || id.replace('tab-','');
+    section.appendChild(title);
+
+    // Clone panel content
+    const clone = panel.cloneNode(true);
+    clone.style.display = 'block';
+    clone.style.cssText += ';display:block;';
+
+    // Clean up clone: remove emoji icons from alerts (they can render oddly)
+    clone.querySelectorAll('.alert-icon').forEach(el => el.style.display = 'none');
+
+    // Inline critical table styles so html2pdf picks them up
+    clone.querySelectorAll('table').forEach(t => {
+      t.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;';
+    });
+    clone.querySelectorAll('th').forEach(el => {
+      el.style.cssText = 'background:#f8fafc;padding:6px 8px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.3px;color:#6b7280;border-bottom:2px solid #dde3ec;';
+    });
+    clone.querySelectorAll('td').forEach(el => {
+      el.style.cssText = 'padding:6px 8px;border-bottom:1px solid #dde3ec;';
+    });
+    clone.querySelectorAll('tr.total-row td').forEach(el => {
+      el.style.cssText += 'font-weight:800;background:#f8fafc;';
+    });
+
+    // Style metric cards inline
+    clone.querySelectorAll('.metric').forEach(el => {
+      el.style.cssText = 'background:#f8fafc;border:1px solid #dde3ec;border-radius:7px;padding:10px 12px;display:inline-block;margin:4px;min-width:120px;vertical-align:top;';
+    });
+    clone.querySelectorAll('.metric.hl').forEach(el => {
+      el.style.cssText += 'background:#d8f3dc;border-color:#40916c;';
+    });
+    clone.querySelectorAll('.metric .mv').forEach(el => {
+      el.style.cssText = 'font-size:18px;font-weight:900;color:#1a4731;';
+    });
+    clone.querySelectorAll('.metric .ml').forEach(el => {
+      el.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;margin-bottom:2px;';
+    });
+    clone.querySelectorAll('.metric .mu').forEach(el => {
+      el.style.cssText = 'font-size:10px;color:#6b7280;';
+    });
+
+    // Unit cards
+    clone.querySelectorAll('.unit-card').forEach(el => {
+      const base = 'border:2px solid #dde3ec;border-radius:8px;padding:8px;text-align:center;display:inline-block;width:18%;margin:1%;vertical-align:top;';
+      if (el.classList.contains('recommended'))   el.style.cssText = base + 'border-color:#40916c;background:#d8f3dc;';
+      else if (el.classList.contains('near-max')) el.style.cssText = base + 'border-color:#d97706;background:#fffbeb;';
+      else if (el.classList.contains('suitable')) el.style.cssText = base + 'border-color:#74c69d;background:#d8f3dc;opacity:0.8;';
+      else if (el.classList.contains('too-small'))el.style.cssText = base + 'opacity:0.35;';
+      else el.style.cssText = base + 'opacity:0.6;';
+    });
+    clone.querySelectorAll('.uc-name').forEach(el => { el.style.cssText = 'font-size:10px;font-weight:800;margin-bottom:2px;'; });
+    clone.querySelectorAll('.uc-range').forEach(el => { el.style.cssText = 'font-size:9px;color:#6b7280;margin-bottom:4px;'; });
+    clone.querySelectorAll('.uc-pct').forEach(el => { el.style.cssText = 'font-size:16px;font-weight:900;color:#1a4731;'; });
+    clone.querySelectorAll('.uc-label').forEach(el => { el.style.cssText = 'font-size:8px;color:#6b7280;'; });
+    clone.querySelectorAll('.uc-badge').forEach(el => { el.style.cssText = 'display:inline-block;font-size:9px;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:4px;background:#40916c;color:white;'; });
+
+    // Pills
+    clone.querySelectorAll('.pill').forEach(el => {
+      const base = 'display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;';
+      if (el.classList.contains('ok'))       el.style.cssText = base + 'background:#d8f3dc;color:#1a4731;';
+      else if (el.classList.contains('warn'))el.style.cssText = base + 'background:#fff7ed;color:#c05621;';
+      else if (el.classList.contains('critical')) el.style.cssText = base + 'background:#fef2f2;color:#9b1c1c;';
+      else el.style.cssText = base + 'background:#eff6ff;color:#1e40af;';
+    });
+
+    // Alerts
+    clone.querySelectorAll('.alert').forEach(el => {
+      const base = 'padding:8px 12px;border-radius:6px;font-size:11px;margin-bottom:6px;border:1px solid;';
+      if (el.classList.contains('ok'))       el.style.cssText = base + 'background:#d8f3dc;border-color:#74c69d;color:#1a4731;';
+      else if (el.classList.contains('warn'))el.style.cssText = base + 'background:#fff7ed;border-color:#fed7aa;color:#7c2d12;';
+      else if (el.classList.contains('critical')) el.style.cssText = base + 'background:#fef2f2;border-color:#fecaca;color:#9b1c1c;';
+      else if (el.classList.contains('amber'))    el.style.cssText = base + 'background:#fffbeb;border-color:#fde68a;color:#78350f;';
+      else el.style.cssText = base + 'background:#eff6ff;border-color:#93c5fd;color:#1e40af;';
+    });
+
+    // Summary boxes
+    clone.querySelectorAll('.summary-box').forEach(el => {
+      el.style.cssText = 'background:#f8fafc;border:1px solid #dde3ec;border-radius:8px;padding:12px 14px;display:inline-block;width:48%;margin:1%;vertical-align:top;';
+    });
+    clone.querySelectorAll('.summary-box h3').forEach(el => {
+      el.style.cssText = 'font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:#2d6a4f;margin-bottom:8px;';
+    });
+    clone.querySelectorAll('.sb-row').forEach(el => {
+      el.style.cssText = 'display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #dde3ec;font-size:11px;';
+    });
+
+    // Hide balance bar (doesn't render well in PDF)
+    clone.querySelectorAll('.balance-wrap').forEach(el => el.style.display = 'none');
+
+    // Remove tbl-wrap overflow styling
+    clone.querySelectorAll('.tbl-wrap').forEach(el => el.style.overflow = 'visible');
+
+    // Remove scard info box excess
+    clone.querySelectorAll('.scard p').forEach(el => el.style.cssText = 'font-size:11px;color:#6b7280;margin-bottom:8px;');
+
+    section.appendChild(clone);
+    if (i < sectionOrder.length - 1) {
+      const br = document.createElement('div');
+      br.style.cssText = 'height:1px;background:#dde3ec;margin:16px 0;';
+      section.appendChild(br);
+    }
+    container.appendChild(section);
+  });
+
+  const opt = {
+    margin: [12, 10, 12, 10],
+    filename: `MVHR-Design-Report-${new Date().toISOString().slice(0,10)}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+  };
+
+  html2pdf().set(opt).from(container).save().then(() => {
+    // Restore tab visibility
+    panels.forEach(p => p.style.display = '');
+    showTab('summary');
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export PDF`;
+  }).catch(() => {
+    panels.forEach(p => p.style.display = '');
+    btn.disabled = false;
+    btn.textContent = 'Export PDF';
+    alert('PDF export failed. Try again.');
+  });
 }
 
 // ══════════════════════════════════════════════════════
