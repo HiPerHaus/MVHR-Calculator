@@ -148,6 +148,7 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .nav-tab .nav-label { font-size: 10px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+#tab-plan.active { display: flex; }
 
 /* ── Unit grid ── */
 .unit-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 18px; }
@@ -348,6 +349,18 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <div class="tab-panel" id="tab-project" style="padding:24px;max-width:820px;margin:0 auto">
 
   <div style="margin-bottom:18px">
+    <div class="section-title">Project Details</div>
+    <div class="grid2">
+      <div class="field"><label>Client Name</label><input type="text" id="clientName" placeholder="e.g. Smith Residence"></div>
+      <div class="field"><label>Project Address</label><input type="text" id="projectAddress" placeholder="e.g. 12 Oak St, Adelaide SA 5000"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Drawn By</label><input type="text" id="drawnBy" placeholder="e.g. J. Smith"></div>
+      <div class="field"><label>Date</label><input type="date" id="projectDate"></div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:18px">
     <div class="section-title">Project Basics</div>
     <div class="grid3">
       <div class="field"><label>Floor Area (m²)</label><input type="number" id="floorArea" min="0" placeholder="220"></div>
@@ -359,6 +372,36 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       <div class="field"><label>Persons</label><input type="number" id="persons" min="0" placeholder="auto"></div>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:2px">Persons defaults to bed spaces if blank. Governing flow = max(persons×30, extract demand, 0.3 ACH).</div>
+  </div>
+
+  <div>
+    <div class="section-title">Building Storeys</div>
+    <div class="grid3">
+      <div class="field">
+        <label>Number of storeys</label>
+        <select id="storeyCount" onchange="updateStoreyFields()">
+          <option value="1">Single storey</option>
+          <option value="2">2 storeys</option>
+          <option value="3">3 storeys</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>MVHR unit floor</label>
+        <select id="unitFloor">
+          <option value="0">Ground floor</option>
+          <option value="1">Level 1</option>
+          <option value="2">Level 2</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Structural allowance (m)</label>
+        <input type="number" id="structuralAllow" min="0" step="0.05" value="0.3" placeholder="0.3">
+      </div>
+    </div>
+    <div id="storeyHeightFields">
+      <!-- populated by updateStoreyFields() -->
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Inter-floor duct length = floor ceiling height + structural allowance per crossed floor level.</div>
   </div>
 
   <div>
@@ -521,8 +564,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <table>
           <thead>
             <tr>
-              <th>Duct ID</th><th>Room</th><th>Type</th>
-              <th>Dia (mm)</th><th>Length (m)</th><th>Bends</th>
+              <th>Duct ID</th><th>Room</th><th>Floor</th><th>Type</th>
+              <th>Dia (mm)</th><th>Run (m)</th><th>Inter-floor (m)</th><th>Bends</th>
               <th>Normal m³/h</th><th>Boost m³/h</th><th>Boost vel. m/s</th><th>Boost ΔP (Pa)</th><th>Status</th>
             </tr>
           </thead>
@@ -725,7 +768,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Plan Markup ── -->
-    <div class="tab-panel active" id="tab-plan" data-title="Plan Markup" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 112px)">
+    <div class="tab-panel active" id="tab-plan" data-title="Plan Markup" style="padding:0;flex-direction:column;height:calc(100vh - 112px)">
 
       <!-- Toolbar -->
       <div class="plan-toolbar">
@@ -747,6 +790,12 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <div class="plan-sep"></div>
         <button class="plan-btn" onclick="autoRouteDucts()" title="Auto-route ducts from unit to all rooms">⚡ Auto Route</button>
         <button class="plan-btn" onclick="clearPlanAnnotations()" title="Remove all markup">🗑 Clear</button>
+        <div class="plan-sep"></div>
+        <button class="plan-btn active" id="snapToggle" onclick="toggleSnap()" title="Snap to existing vertices, edges and right angles when drawing rooms">🔲 Snap</button>
+        <div class="plan-sep"></div>
+        <button class="plan-btn" onclick="planZoom(-0.1)" title="Zoom out">−</button>
+        <button class="plan-btn" id="zoomLabel" onclick="planZoom(0)" title="Reset zoom" style="min-width:44px;text-align:center">100%</button>
+        <button class="plan-btn" onclick="planZoom(0.1)" title="Zoom in">+</button>
         <span id="scaleDisplay" class="plan-scale-badge">No scale set</span>
         <span id="planCursor" class="plan-cursor-info"></span>
       </div>
@@ -762,8 +811,10 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
             <input type="file" id="planUpload2" accept=".pdf,image/*" style="display:none">
           </label>
         </div>
-        <canvas id="planCanvas" style="display:none"></canvas>
-        <canvas id="planOverlay" style="display:none;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+        <div id="planCanvasInner" style="position:relative;transform-origin:top left">
+          <canvas id="planCanvas" style="display:none"></canvas>
+          <canvas id="planOverlay" style="display:none;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+        </div>
       </div>
 
       <!-- Room picker popup -->
@@ -935,7 +986,51 @@ function renderRooms(type) {
 
     r3.appendChild(areaWrap); r3.appendChild(lenWrap);
 
-    card.appendChild(r1); card.appendChild(r2); card.appendChild(r3);
+    // Row 4: floor selector (only shown when multi-storey)
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    if (storeyCount > 1) {
+      const r4 = document.createElement('div');
+      r4.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px;align-items:end';
+
+      const floorWrap = document.createElement('div');
+      const floorLabel = document.createElement('label');
+      floorLabel.textContent = 'Floor';
+      floorLabel.style.cssText = 'display:block;font-size:11px;color:var(--muted);margin-bottom:2px;font-weight:600';
+      const floorSel = document.createElement('select');
+      floorSel.style.cssText = 'font-size:13px;padding:5px 8px;';
+      for (let f = 0; f < storeyCount; f++) {
+        const opt = document.createElement('option');
+        opt.value = f; opt.textContent = STOREY_NAMES[f];
+        if (f === (parseInt(room.floor) || 0)) opt.selected = true;
+        floorSel.appendChild(opt);
+      }
+      floorSel.addEventListener('change', e => {
+        room.floor = parseInt(e.target.value);
+        // Update inter-floor badge
+        const badge = r4.querySelector('.interfloor-badge');
+        if (badge) {
+          const extra = getInterFloorLength(room.floor);
+          badge.textContent = extra > 0 ? `+${extra}m inter-floor` : 'Same floor as unit';
+          badge.style.color = extra > 0 ? 'var(--amber)' : 'var(--muted)';
+        }
+        scheduleAutosave();
+      });
+      floorWrap.appendChild(floorLabel); floorWrap.appendChild(floorSel);
+
+      const badgeWrap = document.createElement('div');
+      const extra = getInterFloorLength(parseInt(room.floor) || 0);
+      const badge = document.createElement('div');
+      badge.className = 'interfloor-badge';
+      badge.style.cssText = 'font-size:10px;font-weight:700;padding:5px 0;';
+      badge.textContent = extra > 0 ? `+${extra}m inter-floor` : 'Same floor as unit';
+      badge.style.color = extra > 0 ? 'var(--amber)' : 'var(--muted)';
+      badgeWrap.appendChild(badge);
+
+      r4.appendChild(floorWrap); r4.appendChild(badgeWrap);
+      card.appendChild(r1); card.appendChild(r2); card.appendChild(r3); card.appendChild(r4);
+    } else {
+      card.appendChild(r1); card.appendChild(r2); card.appendChild(r3);
+    }
     container.appendChild(card);
   });
 }
@@ -966,22 +1061,42 @@ const SAVE_KEY     = 'hh_mvhr_state';       // legacy — kept for planState com
 let _saveTimer = null;
 let _currentProjectId = null;
 
-const FIELD_IDS = ['bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces'];
+const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2'];
 
 // ── Read / write project store ──
 function getProjects() {
   try { return JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) { return []; }
 }
 function putProjects(list) {
-  try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(list)); } catch(e) {}
+  // Strip imgData from planState before storing — images are kept in per-project keys
+  const slim = list.map(p => {
+    if (!p.planState) return p;
+    const { imgData, ...rest } = p.planState;
+    return { ...p, planState: rest };
+  });
+  try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(slim)); } catch(e) {
+    console.warn('MVHR: failed to save project list', e);
+  }
+}
+
+// Image storage — each project image gets its own key so the project list stays small
+const IMG_KEY_PREFIX = 'hh_mvhr_img_';
+function saveProjectImage(projectId, dataUrl) {
+  if (!dataUrl) { try { localStorage.removeItem(IMG_KEY_PREFIX + projectId); } catch(e) {} return; }
+  try { localStorage.setItem(IMG_KEY_PREFIX + projectId, dataUrl); } catch(e) {
+    console.warn('MVHR: floor plan image too large to cache locally — annotations still saved.');
+  }
+}
+function loadProjectImage(projectId) {
+  try { return localStorage.getItem(IMG_KEY_PREFIX + projectId) || null; } catch(e) { return null; }
 }
 
 // ── Collect current state into an object ──
 function collectState() {
   const state = {};
   FIELD_IDS.forEach(id => { const el = document.getElementById(id); if (el) state[id] = el.value; });
-  state.supplyRooms  = supplyRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
-  state.extractRooms = extractRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, _nameEdited: r._nameEdited }));
+  state.supplyRooms  = supplyRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, floor: r.floor||0, _nameEdited: r._nameEdited }));
+  state.extractRooms = extractRooms.map(r => ({ id: r.id, name: r.name, roomType: r.roomType, area: r.area, length: r.length, floor: r.floor||0, _nameEdited: r._nameEdited }));
   return state;
 }
 
@@ -995,24 +1110,39 @@ function applyState(state) {
   extractRooms = Array.isArray(state.extractRooms) ? state.extractRooms : [];
   renderRooms('supply'); renderRooms('extract');
   if (typeof updateGrilleSize === 'function') updateGrilleSize();
+  if (typeof updateStoreyFields === 'function') updateStoreyFields();
 }
 
 // ── Save current project ──
 function saveCurrentProject() {
   const projects = getProjects();
   const idx = projects.findIndex(p => p.id === _currentProjectId);
-  const state    = collectState();
-  // planState collected from the plan IIFE's savePlanState — read directly from localStorage
-  let planState = null;
-  try { planState = JSON.parse(localStorage.getItem('hh_mvhr_plan_v2')); } catch(e) {}
+  const state = collectState();
+
+  // Read planState from the live plan object (window.plan) — more reliable than localStorage
+  const p = window.plan;
+  const planState = p ? {
+    pxPerM:         p.pxPerM,
+    scaleLine:      p.scaleLine,
+    building:       p.building,
+    planRooms:      p.planRooms,
+    unitPos:        p.unitPos,
+    ports:          p.ports,
+    ductRoutes:     p.ductRoutes,
+    externalRoutes: p.externalRoutes,
+    // imgData excluded — stored in its own key below
+  } : null;
+
+  // Save image separately so it doesn't bloat the project list
+  if (p && p.imgData) saveProjectImage(_currentProjectId, p.imgData);
 
   if (idx >= 0) {
     projects[idx].state     = state;
     projects[idx].planState = planState;
     projects[idx].updatedAt = Date.now();
   } else {
-    const p = { id: _currentProjectId, name: 'Project', createdAt: Date.now(), updatedAt: Date.now(), state, planState };
-    projects.push(p);
+    const proj = { id: _currentProjectId, name: 'Project', createdAt: Date.now(), updatedAt: Date.now(), state, planState };
+    projects.push(proj);
   }
   putProjects(projects);
   flashProjBadge();
@@ -1026,6 +1156,7 @@ function newProject() {
   const projects = getProjects();
   projects.push({ id, name: 'New Project', createdAt: Date.now(), updatedAt: Date.now(), state: {}, planState: null });
   putProjects(projects);
+  saveProjectImage(id, null); // ensure no stale image for new project
   loadProject(id);
 }
 
@@ -1042,6 +1173,9 @@ function copyProject() {
   copy.createdAt = copy.updatedAt = Date.now();
   projects.push(copy);
   putProjects(projects);
+  // Copy the floor plan image to the new project's key
+  const srcImg = loadProjectImage(_currentProjectId);
+  if (srcImg) saveProjectImage(id, srcImg);
   loadProject(id);
 }
 
@@ -1061,9 +1195,13 @@ function loadProject(id) {
   applyState(p.state || {});
   // Clear calculated results
   clearResults();
-  // Restore plan state
+  // Restore plan state — write to localStorage then trigger plan reload
   try {
-    if (p.planState) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(p.planState));
+    // Merge imgData back from its separate key before writing to plan key
+    const planWithImg = p.planState ? { ...p.planState } : null;
+    const savedImg = loadProjectImage(id);
+    if (planWithImg && savedImg) planWithImg.imgData = savedImg;
+    if (planWithImg) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(planWithImg));
     else localStorage.removeItem('hh_mvhr_plan_v2');
   } catch(e) {}
   // Trigger plan reload
@@ -1181,6 +1319,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', scheduleAutosave);
   });
+  // Storey count change re-renders room cards with floor selectors
+  const scEl = document.getElementById('storeyCount');
+  if (scEl) scEl.addEventListener('change', () => {
+    updateStoreyFields();
+    renderRooms('supply'); renderRooms('extract');
+    scheduleAutosave();
+  });
+  const ufEl = document.getElementById('unitFloor');
+  if (ufEl) ufEl.addEventListener('change', () => {
+    renderRooms('supply'); renderRooms('extract'); // re-render to update inter-floor badges
+    scheduleAutosave();
+  });
+  // Default project date to today if blank
+  const pdEl = document.getElementById('projectDate');
+  if (pdEl && !pdEl.value) pdEl.value = new Date().toISOString().slice(0, 10);
   loadState();
 });
 
@@ -1300,26 +1453,29 @@ function calculate(silent) {
     const n = Math.max(1, Math.ceil(rFlow / 35));
     const normalPerDuct = rFlow / n;
     const boostPerDuct  = normalPerDuct * boostRatio;
-    const runLength = room.length || 0;
+    const interFloor = getInterFloorLength(room.floor || 0);
+    const runLength = (room.length || 0) + interFloor;
     totalSDucts += n;
     totalSupplyDuctM += n * runLength;
     for (let i = 0; i < n; i++) {
       supplyDuctRows.push({
         id: `S${String(sDuctIdx++).padStart(2,'0')}`,
         room: room.name || room.roomType,
+        floor: room.floor || 0,
+        interFloor,
         type: 'Supply',
         dia: DUCT_D_MM,
         length: runLength,
         bends: bendsRun,
         flowNormal: Math.round(normalPerDuct * 10) / 10,
-        flow: Math.round(boostPerDuct * 10) / 10,          // boost = worst case
-        velocity: ductVelocity(boostPerDuct),               // velocity at boost
+        flow: Math.round(boostPerDuct * 10) / 10,
+        velocity: ductVelocity(boostPerDuct),
         dp: ductPressureLoss(boostPerDuct, runLength, bendsRun) + valvePressureLoss(boostPerDuct),
       });
     }
   });
 
-  // Extract ducts (based on boost flow)
+  // Extract ducts
   const extractDuctRows = [];
   let eDuctIdx = 1;
   let totalEDucts = 0;
@@ -1329,20 +1485,23 @@ function calculate(silent) {
     const n = Math.max(1, Math.ceil(rFlow / 35));
     const normalPerDuct = rFlow / n;
     const boostPerDuct  = normalPerDuct * boostRatio;
-    const runLength = room.length || 0;
+    const interFloor = getInterFloorLength(room.floor || 0);
+    const runLength = (room.length || 0) + interFloor;
     totalEDucts += n;
     totalExtractDuctM += n * runLength;
     for (let i = 0; i < n; i++) {
       extractDuctRows.push({
         id: `E${String(eDuctIdx++).padStart(2,'0')}`,
         room: room.name || room.roomType,
+        floor: room.floor || 0,
+        interFloor,
         type: 'Extract',
         dia: DUCT_D_MM,
         length: runLength,
         bends: bendsRun,
         flowNormal: Math.round(normalPerDuct * 10) / 10,
-        flow: Math.round(boostPerDuct * 10) / 10,          // boost = worst case
-        velocity: ductVelocity(boostPerDuct),               // velocity at boost
+        flow: Math.round(boostPerDuct * 10) / 10,
+        velocity: ductVelocity(boostPerDuct),
         dp: ductPressureLoss(boostPerDuct, runLength, bendsRun) + valvePressureLoss(boostPerDuct),
       });
     }
@@ -1594,12 +1753,19 @@ function calculate(silent) {
   // Duct Schedule
   const dsBody = document.getElementById('ductScheduleBody');
   dsBody.innerHTML = '';
+  const storeyCountDs = parseInt(document.getElementById('storeyCount')?.value) || 1;
+  const floorNames = ['Ground', 'Level 1', 'Level 2', 'Level 3'];
   supplyDuctRows.concat(extractDuctRows).forEach(d => {
     const st = ductStatusPill(d.flow);  // boost flow is worst case
     const vCls = d.velocity > 3 ? 'critical' : d.velocity > 2 ? 'warn' : 'ok';
+    const floorLabel = storeyCountDs > 1 ? (floorNames[d.floor] || `L${d.floor}`) : '—';
+    const interFloorLabel = storeyCountDs > 1 && d.interFloor > 0
+      ? `<span style="color:var(--accent);font-weight:700">+${d.interFloor}</span>`
+      : storeyCountDs > 1 ? '<span style="color:var(--muted)">—</span>' : '—';
+    const roomRunLength = d.length - d.interFloor;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><strong>${d.id}</strong></td><td>${d.room}</td><td>${d.type}</td>
-      <td>${d.dia}</td><td>${d.length}</td><td>${d.bends}</td>
+    tr.innerHTML = `<td><strong>${d.id}</strong></td><td>${d.room}</td><td>${floorLabel}</td><td>${d.type}</td>
+      <td>${d.dia}</td><td>${roomRunLength.toFixed(1)}</td><td>${interFloorLabel}</td><td>${d.bends}</td>
       <td>${d.flowNormal}</td>
       <td><strong>${d.flow}</strong></td>
       <td><span class="pill ${vCls}">${d.velocity.toFixed(2)}</span></td>
@@ -1686,6 +1852,58 @@ function showTab(name) {
 }
 
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// MULTI-STOREY
+// ══════════════════════════════════════════════════════
+const STOREY_NAMES = ['Ground floor', 'Level 1', 'Level 2'];
+
+function updateStoreyFields() {
+  const n = parseInt(document.getElementById('storeyCount').value) || 1;
+  const container = document.getElementById('storeyHeightFields');
+  const unitSel = document.getElementById('unitFloor');
+  if (!container || !unitSel) return;
+
+  // Rebuild unit floor options
+  const curUnit = unitSel.value;
+  unitSel.innerHTML = STOREY_NAMES.slice(0, n)
+    .map((name, i) => `<option value="${i}" ${i == curUnit ? 'selected' : ''}>${name}</option>`).join('');
+
+  // Storey height inputs (one per floor)
+  if (n <= 1) { container.innerHTML = ''; return; }
+  const existing = {};
+  container.querySelectorAll('input').forEach(el => { existing[el.id] = el.value; });
+  const fields = Array.from({length: n}, (_, i) => {
+    const id = `storeyH${i}`;
+    const val = existing[id] || (i === 0 ? document.getElementById('ceilHeight')?.value || 2.7 : 2.7);
+    return `<div class="field"><label>${STOREY_NAMES[i]} ceiling height (m)</label>
+      <input type="number" id="${id}" min="1.5" step="0.05" value="${val}" placeholder="2.7" onchange="scheduleAutosave()">
+    </div>`;
+  });
+  const grid = document.createElement('div');
+  grid.className = 'grid3'; grid.style.marginTop = '6px';
+  grid.innerHTML = fields.join('');
+  container.innerHTML = '';
+  container.appendChild(grid);
+}
+
+// Returns extra duct length (m) for a room on `roomFloor` when unit is on `unitFloor`
+function getInterFloorLength(roomFloor) {
+  const unitFloor = parseInt(document.getElementById('unitFloor')?.value) || 0;
+  const structAllow = parseFloat(document.getElementById('structuralAllow')?.value) || 0.3;
+  const rf = parseInt(roomFloor) || 0;
+  if (rf === unitFloor) return 0;
+  let total = 0;
+  const dir = rf > unitFloor ? 1 : -1;
+  for (let f = unitFloor; f !== rf; f += dir) {
+    const floorIdx = dir > 0 ? f : f - 1; // which ceiling height to use
+    const hId = `storeyH${Math.max(0, floorIdx)}`;
+    const h = parseFloat(document.getElementById(hId)?.value)
+           || parseFloat(document.getElementById('ceilHeight')?.value) || 2.7;
+    total += h + structAllow;
+  }
+  return parseFloat(total.toFixed(2));
+}
+
 // GRILLE TOGGLE
 // ══════════════════════════════════════════════════════
 function updateGrilleSize() {
@@ -1746,8 +1964,15 @@ function exportPDF() {
   // Header
   const hdr = document.createElement('div');
   hdr.style.cssText = 'background:#1a4731;color:white;padding:16px 20px;margin-bottom:20px;border-radius:6px;';
+  const clientName    = document.getElementById('clientName')?.value.trim()    || '';
+  const projectAddr   = document.getElementById('projectAddress')?.value.trim() || '';
+  const drawnBy       = document.getElementById('drawnBy')?.value.trim()        || '';
+  const projectDate   = document.getElementById('projectDate')?.value           || '';
+  const dateLabel     = projectDate ? new Date(projectDate + 'T00:00').toLocaleDateString('en-AU', {day:'numeric',month:'long',year:'numeric'}) : new Date().toLocaleDateString('en-AU', {day:'numeric',month:'long',year:'numeric'});
   hdr.innerHTML = `<div style="font-size:18px;font-weight:900;letter-spacing:-0.3px">MVHR Design Report</div>
-    <div style="font-size:11px;opacity:0.7;margin-top:2px">HiPer Haus · Generated ${new Date().toLocaleDateString('en-AU', { day:'numeric', month:'long', year:'numeric' })}</div>`;
+    ${clientName ? `<div style="font-size:14px;font-weight:700;margin-top:4px">${clientName}</div>` : ''}
+    ${projectAddr ? `<div style="font-size:12px;opacity:0.85;margin-top:1px">${projectAddr}</div>` : ''}
+    <div style="font-size:11px;opacity:0.7;margin-top:4px">HiPer Haus · ${drawnBy ? 'Prepared by ' + drawnBy + ' · ' : ''}${dateLabel}</div>`;
   container.appendChild(hdr);
 
   // Clone each panel with a section title
@@ -1927,6 +2152,13 @@ addRoom('extract');
     _outletDragStart: null,
     hoverWp: null,        // {routeIdx, wpIdx}
     mousePos: {x:0,y:0},
+    zoom: 1.0,
+    snapEnabled: true,
+    _snapResult: null,  // last computed snap for drawing on overlay
+    editRoom: null,     // index into plan.planRooms currently being edited
+    editDrag: null,     // {vi} vertex index being dragged in edit mode
+    editHoverV: null,   // vertex index hovered in edit mode
+    editHoverE: null,   // edge index hovered in edit mode (for insert preview)
   };
 
   const PLAN_SAVE_KEY = 'hh_mvhr_plan_v2';
@@ -1936,6 +2168,145 @@ addRoom('extract');
   const overlay  = () => el('planOverlay');
   const baseCanvas = () => el('planCanvas');
 
+  // ── Snap toggle ──
+  window.toggleSnap = function() {
+    plan.snapEnabled = !plan.snapEnabled;
+    const btn = document.getElementById('snapToggle');
+    if (btn) btn.classList.toggle('active', plan.snapEnabled);
+  };
+
+  // ── Snap engine ──
+  const SNAP_VERTEX = 18;   // px — snap to existing vertex
+  const SNAP_EDGE   = 10;   // px — snap to nearest point on an edge
+  const SNAP_ORTHO  = 12;   // px — snap to H/V from last placed point
+
+  // Collect all geometry paths: building + all room paths
+  function allGeomPaths() {
+    const paths = [];
+    if (plan.building?.path?.length) paths.push(plan.building.path);
+    plan.planRooms.forEach(r => { if (r.path?.length) paths.push(r.path); });
+    // Also include the current in-progress path so you can close against yourself
+    if (plan.currentPath.length > 1) paths.push(plan.currentPath);
+    return paths;
+  }
+
+  // Returns {x, y, type:'vertex'|'edge'|'ortho'|null}
+  function applySnap(pt) {
+    if (!plan.snapEnabled) return { x: pt.x, y: pt.y, type: null };
+
+    const paths = allGeomPaths();
+
+    // 1. Vertex snap
+    let bestDist = SNAP_VERTEX;
+    let best = null;
+    for (const path of paths) {
+      for (const v of path) {
+        const d = Math.hypot(pt.x - v.x, pt.y - v.y);
+        if (d < bestDist) { bestDist = d; best = { x: v.x, y: v.y, type: 'vertex' }; }
+      }
+    }
+    if (best) return best;
+
+    // 2. Edge snap (closest point on any segment)
+    bestDist = SNAP_EDGE;
+    for (const path of paths) {
+      for (let i = 0; i < path.length; i++) {
+        const a = path[i], b = path[(i + 1) % path.length];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const lenSq = dx*dx + dy*dy;
+        if (lenSq === 0) continue;
+        let t = ((pt.x - a.x)*dx + (pt.y - a.y)*dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const ex = a.x + t*dx, ey = a.y + t*dy;
+        const d = Math.hypot(pt.x - ex, pt.y - ey);
+        if (d < bestDist) { bestDist = d; best = { x: ex, y: ey, type: 'edge' }; }
+      }
+    }
+    if (best) return best;
+
+    // 3. Orthogonal snap from last placed point
+    const last = plan.currentPath.length > 0 ? plan.currentPath[plan.currentPath.length - 1] : null;
+    if (last) {
+      const adx = Math.abs(pt.x - last.x);
+      const ady = Math.abs(pt.y - last.y);
+      if (adx < SNAP_ORTHO && adx < ady) return { x: last.x, y: pt.y, type: 'ortho' }; // vertical
+      if (ady < SNAP_ORTHO && ady < adx) return { x: pt.x, y: last.y, type: 'ortho' }; // horizontal
+    }
+
+    return { x: pt.x, y: pt.y, type: null };
+  }
+
+  // Draw snap indicator on the overlay ctx
+  function drawSnapIndicator(ctx, snap) {
+    if (!snap || !snap.type) return;
+    ctx.save();
+    if (snap.type === 'vertex') {
+      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(snap.x - 7, snap.y - 7, 14, 14);
+      ctx.stroke();
+    } else if (snap.type === 'edge') {
+      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(snap.x - 7, snap.y); ctx.lineTo(snap.x + 7, snap.y);
+      ctx.moveTo(snap.x, snap.y - 7); ctx.lineTo(snap.x, snap.y + 7);
+      ctx.stroke();
+    } else if (snap.type === 'ortho') {
+      ctx.strokeStyle = '#10b981'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+      const last = plan.currentPath[plan.currentPath.length - 1];
+      if (last) {
+        ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(snap.x, snap.y); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(snap.x, snap.y, 5, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── Room edit helpers ──
+  const EDIT_V_RADIUS = 10;  // px — vertex hit radius
+  const EDIT_E_DIST   = 8;   // px — edge hover threshold
+
+  function pointInPolygon(pt, path) {
+    let inside = false;
+    for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+      const xi = path[i].x, yi = path[i].y, xj = path[j].x, yj = path[j].y;
+      if (((yi > pt.y) !== (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi))
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  function findEditVertex(path, pt) {
+    for (let i = 0; i < path.length; i++)
+      if (Math.hypot(pt.x - path[i].x, pt.y - path[i].y) < EDIT_V_RADIUS) return i;
+    return -1;
+  }
+
+  // Returns {t, x, y, edge} for nearest edge within threshold, or null
+  function findEditEdge(path, pt) {
+    let best = null, bestD = EDIT_E_DIST;
+    for (let i = 0; i < path.length; i++) {
+      const a = path[i], b = path[(i + 1) % path.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const lenSq = dx*dx + dy*dy;
+      if (lenSq === 0) continue;
+      let t = ((pt.x - a.x)*dx + (pt.y - a.y)*dy) / lenSq;
+      t = Math.max(0.05, Math.min(0.95, t)); // avoid snapping to actual vertices
+      const ex = a.x + t*dx, ey = a.y + t*dy;
+      const d = Math.hypot(pt.x - ex, pt.y - ey);
+      if (d < bestD) { bestD = d; best = { edge: i, t, x: ex, y: ey }; }
+    }
+    return best;
+  }
+
+  function exitRoomEdit() {
+    plan.editRoom = null; plan.editDrag = null;
+    plan.editHoverV = null; plan.editHoverE = null;
+    redraw();
+  }
+
   // ── Tool selection ──
   window.setPlanTool = function(name) {
     plan.tool = plan.tool === name ? null : name;
@@ -1943,9 +2314,19 @@ addRoom('extract');
     if (plan.tool) { const b = el('tool-' + plan.tool); if (b) b.classList.add('active'); }
     plan.currentPath = [];
     plan.drag = null;
+    // Selecting a tool exits room edit mode
+    if (plan.tool) { plan.editRoom = null; plan.editDrag = null; plan.editHoverV = null; plan.editHoverE = null; }
     redraw();
     updateCursorHint();
   };
+
+  // Escape exits edit mode / cancels current path
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (plan.editRoom !== null) { exitRoomEdit(); return; }
+      if (plan.currentPath.length > 0) { plan.currentPath = []; plan._snapResult = null; redraw(); }
+    }
+  });
 
   function updateCursorHint() {
     const hints = {
@@ -2035,11 +2416,25 @@ addRoom('extract');
     updateCursorHint();
   }
 
-  // ── Canvas coords ──
+  // ── Canvas coords ── (divide by zoom so coordinates are in canvas-pixel space)
   function canvasXY(e) {
     const r = overlay().getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { x: (e.clientX - r.left) / plan.zoom, y: (e.clientY - r.top) / plan.zoom };
   }
+
+  // ── Zoom ──
+  window.planZoom = function(delta) {
+    if (delta === 0) {
+      plan.zoom = 1.0;
+    } else {
+      plan.zoom = Math.max(0.25, Math.min(4.0, plan.zoom + delta));
+    }
+    plan.zoom = Math.round(plan.zoom * 100) / 100;
+    const inner = document.getElementById('planCanvasInner');
+    if (inner) inner.style.transform = `scale(${plan.zoom})`;
+    const lbl = document.getElementById('zoomLabel');
+    if (lbl) lbl.textContent = Math.round(plan.zoom * 100) + '%';
+  };
 
   // ── Snap to first point for polygon closing ──
   function snapToFirst(pt) {
@@ -2147,23 +2542,79 @@ addRoom('extract');
         }
         redraw(); return;
       }
+      // Edit-room vertex/edge drag
+      if (plan.editRoom !== null && plan.editDrag !== null) {
+        const r = plan.planRooms[plan.editRoom];
+        if (r) {
+          r.path[plan.editDrag] = { x: pt.x, y: pt.y };
+          r.centroid = centroid(r.path);
+          r.areaM2 = polyAreaM2(r.path);
+          const sArr = r.pinType === 'supply' ? supplyRooms : extractRooms;
+          const sRoom = sArr.find(s => s.id === r.sidebarId);
+          if (sRoom) sRoom.area = r.areaM2;
+          redraw();
+        }
+        return;
+      }
+      // Edit-room hover (vertex or edge)
+      if (plan.editRoom !== null && !plan.tool) {
+        const r = plan.planRooms[plan.editRoom];
+        if (r) {
+          const vi = findEditVertex(r.path, pt);
+          const ei = vi < 0 ? findEditEdge(r.path, pt) : null;
+          plan.editHoverV = vi >= 0 ? vi : null;
+          plan.editHoverE = ei;
+          overlay().style.cursor = vi >= 0 ? 'move' : ei ? 'copy' : pointInPolygon(pt, r.path) ? 'default' : 'default';
+          redraw();
+        }
+        return;
+      }
       // Hover
       const oi = findOutlet(pt);
       const wp = oi < 0 ? findWaypoint(pt) : null;
       if (wp !== plan.hoverWp) plan.hoverWp = wp;
       overlay().style.cursor = (oi >= 0 || wp) ? 'grab' : (plan.tool ? 'crosshair' : findDuctSegment(pt) ? 'cell' : 'default');
-      if (plan.tool && POLYGON_TOOLS.includes(plan.tool) && plan.currentPath.length > 0) redraw();
-      else if (!plan.tool) redraw();
+      if (plan.tool && POLYGON_TOOLS.includes(plan.tool)) {
+        plan._snapResult = applySnap(pt);
+        redraw();
+      } else if (!plan.tool) {
+        plan._snapResult = null;
+        redraw();
+      }
     },
     mousedown(e) {
       if (plan.tool) return;
       const pt = canvasXY(e);
+      // Edit-room interactions
+      if (plan.editRoom !== null) {
+        const r = plan.planRooms[plan.editRoom];
+        if (r) {
+          const vi = findEditVertex(r.path, pt);
+          if (vi >= 0) { plan.editDrag = vi; overlay().style.cursor = 'grabbing'; return; }
+          // Click on edge → insert vertex and immediately drag it
+          const ei = findEditEdge(r.path, pt);
+          if (ei) {
+            r.path.splice(ei.edge + 1, 0, { x: ei.x, y: ei.y });
+            plan.editDrag = ei.edge + 1;
+            overlay().style.cursor = 'grabbing'; redraw(); return;
+          }
+          // Clicked outside room → exit edit
+          if (!pointInPolygon(pt, r.path)) { exitRoomEdit(); return; }
+        }
+        return;
+      }
       const oi = findOutlet(pt);
       if (oi >= 0) { plan.outletDrag = oi; plan._outletDragStart = pt; overlay().style.cursor = 'grabbing'; return; }
       const wp = findWaypoint(pt);
       if (wp) { plan.drag = wp; overlay().style.cursor = 'grabbing'; }
     },
     mouseup(e) {
+      if (plan.editDrag !== null) {
+        plan.editDrag = null;
+        overlay().style.cursor = 'default';
+        savePlanState(); scheduleAutosave(); scheduleAutoCalc();
+        return;
+      }
       if (plan.outletDrag != null) {
         const start = plan._outletDragStart;
         const pt = canvasXY(e);
@@ -2218,7 +2669,9 @@ addRoom('extract');
         syncExternalDucts();
         setPlanTool(null); redraw(); savePlanState();
       } else if (POLYGON_TOOLS.includes(plan.tool)) {
-        const snapped = snapToFirst(pt);
+        const snap = applySnap(pt);
+        const rawPt = { x: snap.x, y: snap.y };
+        const snapped = snapToFirst(rawPt);
         plan.currentPath.push(snapped);
         if (snapped === plan.currentPath[0] && plan.currentPath.length > 3) finishPolygon(e);
         else redraw();
@@ -2226,7 +2679,19 @@ addRoom('extract');
     },
     dblclick(e) {
       _lastClick = Date.now() + 1000;
-      if (POLYGON_TOOLS.includes(plan.tool) && plan.currentPath.length >= 3) finishPolygon(e);
+      if (POLYGON_TOOLS.includes(plan.tool) && plan.currentPath.length >= 3) { finishPolygon(e); return; }
+      if (plan.tool) return;
+      // Enter room edit mode
+      const pt = canvasXY(e);
+      // If already editing, check if double-click on same room — exit edit
+      if (plan.editRoom !== null) { exitRoomEdit(); return; }
+      for (let i = plan.planRooms.length - 1; i >= 0; i--) {
+        if (pointInPolygon(pt, plan.planRooms[i].path)) {
+          plan.editRoom = i;
+          plan.editHoverV = null; plan.editHoverE = null; plan.editDrag = null;
+          redraw(); return;
+        }
+      }
     },
   };
 
@@ -2270,7 +2735,9 @@ addRoom('extract');
     if (path.length > 1 && path[path.length-1] === path[0]) path.pop();
     plan.currentPath = [];
     const tool = plan.tool;
-    setPlanTool(null);
+    // Don't reset the tool — keep it active so the user can draw the next room immediately.
+    // Just clear the in-progress path and snap state.
+    plan._snapResult = null;
     const areaM2 = polyAreaM2(path);
     const c = centroid(path);
 
@@ -2300,6 +2767,15 @@ addRoom('extract');
     const defs = pinType === 'supply' ? SUPPLY_DEFAULTS : pinType === 'extract' ? EXTRACT_DEFAULTS : {'Hall/Corridor':0,'Stairwell':0,'Entry':0,'Other':0};
     el('roomDefTitle').textContent = isVthrough ? '↔ V-Through Zone' : pinType === 'supply' ? '🟢 Supply Room' : '🟠 Extract Room';
 
+    const rdStoreyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    const rdFloorNames = ['Ground floor', 'Level 1', 'Level 2', 'Level 3'];
+    const floorSelectHtml = rdStoreyCount > 1 ? `
+      <div style="margin-bottom:8px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">FLOOR</label>
+        <select id="rdFloor" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          ${Array.from({length: rdStoreyCount}, (_, i) => `<option value="${i}">${rdFloorNames[i] || 'Level '+i}</option>`).join('')}
+        </select>
+      </div>` : '';
     body.innerHTML = `
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
         Area: <strong>${areaM2 ? areaM2 + ' m²' : '(set scale first)'}</strong>
@@ -2314,6 +2790,7 @@ addRoom('extract');
         <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">ROOM NAME</label>
         <input id="rdName" type="text" placeholder="e.g. Master Bedroom" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
       </div>
+      ${floorSelectHtml}
       <button id="rdConfirmBtn"
         style="width:100%;background:var(--primary);color:white;border:none;border-radius:7px;padding:9px;font-size:13px;font-weight:700;cursor:pointer">
         Add Room ›
@@ -2350,19 +2827,20 @@ addRoom('extract');
     document.getElementById('roomDefPopup').style.display = 'none';
     const roomType = document.getElementById('rdType').value;
     const name     = document.getElementById('rdName').value.trim() || roomType;
+    const floorVal = parseInt(document.getElementById('rdFloor')?.value) || 0;
 
     const c = centroid(path);
     const id = Date.now() + Math.random();
 
     // Add to plan rooms
     const planRoom = { id, name, roomType, pinType, path, areaM2: parseFloat(areaM2)||0, centroid: c, sidebarId: null,
-      outletPos: { x: c.x, y: c.y }, outletType: 'ceiling' };
+      outletPos: { x: c.x, y: c.y }, outletType: 'ceiling', floor: floorVal };
     plan.planRooms.push(planRoom);
 
     if (pinType !== 'vthrough') {
       // Add to sidebar room list
       const arr = pinType === 'supply' ? supplyRooms : extractRooms;
-      const sidebarRoom = { id, name, roomType, area: parseFloat(areaM2)||0, length: 8 };
+      const sidebarRoom = { id, name, roomType, area: parseFloat(areaM2)||0, length: 8, floor: floorVal };
       arr.push(sidebarRoom);
       planRoom.sidebarId = id;
       renderRooms(pinType);
@@ -2372,6 +2850,8 @@ addRoom('extract');
     }
     redraw(); savePlanState();
     scheduleAutoCalc();
+    // Always stay on the plan tab — do not let autocalc or autosave navigate away
+    showTab('plan');
   }
 
   window.closePicker = function() { el('roomPicker').style.display = 'none'; };
@@ -2442,12 +2922,11 @@ addRoom('extract');
     clearTimeout(_autoCalcTimer);
     _autoCalcTimer = setTimeout(() => {
       if (supplyRooms.length > 0 || extractRooms.length > 0) {
-        const currentTab = document.querySelector('.nav-tab.active');
-        calculate(true); // silent = stay on current tab
-        if (currentTab) {
-          document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-          currentTab.classList.add('active');
-        }
+        // Snapshot the active tab name so we can restore it fully after calculate()
+        const activeNavTab = document.querySelector('.nav-tab.active');
+        const activeTabName = activeNavTab ? activeNavTab.id.replace('navtab-', '') : 'plan';
+        calculate(true); // silent = no tab switch
+        showTab(activeTabName); // fully restore: panel visibility + nav highlight
       }
     }, 600);
   }
@@ -2499,15 +2978,51 @@ addRoom('extract');
     if (plan.building) drawPoly(ctx, plan.building.path, 'rgba(30,60,40,0.08)', '#1a4731', 2, [], plan.building.areaM2 ? plan.building.areaM2 + ' m²' : '');
 
     // Plan rooms
-    plan.planRooms.forEach(r => {
+    plan.planRooms.forEach((r, ri) => {
       const col = r.pinType === 'supply' ? '#40916c' : r.pinType === 'extract' ? '#d97706' : '#6366f1';
       const fill= r.pinType === 'supply' ? 'rgba(64,145,108,0.12)' : r.pinType === 'extract' ? 'rgba(217,119,6,0.12)' : 'rgba(99,102,241,0.10)';
+      const isEditing = plan.editRoom === ri;
+      // Highlight outline when selected
+      drawPoly(ctx, r.path, fill, col, isEditing ? 2.5 : 1.5, isEditing ? [] : [], null);
+      if (isEditing) {
+        // Blue selection ring
+        ctx.save(); ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.setLineDash([5,3]);
+        ctx.beginPath(); r.path.forEach((v,i)=> i===0?ctx.moveTo(v.x,v.y):ctx.lineTo(v.x,v.y)); ctx.closePath();
+        ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+
+        // Edge hover insert preview
+        if (plan.editHoverE) {
+          const ep = plan.editHoverE;
+          ctx.save(); ctx.fillStyle = '#3b82f6'; ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(ep.x, ep.y, 6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+          // Plus symbol
+          ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(ep.x-3,ep.y); ctx.lineTo(ep.x+3,ep.y);
+          ctx.moveTo(ep.x,ep.y-3); ctx.lineTo(ep.x,ep.y+3); ctx.stroke();
+          ctx.restore();
+        }
+
+        // Vertex handles
+        r.path.forEach((v, vi) => {
+          const isHovered = plan.editHoverV === vi;
+          const isDragged = plan.editDrag === vi;
+          ctx.save();
+          ctx.fillStyle = isDragged ? '#1d4ed8' : isHovered ? '#3b82f6' : 'white';
+          ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(v.x, v.y, EDIT_V_RADIUS * 0.8, 0, Math.PI*2);
+          ctx.fill(); ctx.stroke(); ctx.restore();
+        });
+
+        // Edit mode hint
+        ctx.save(); ctx.font = '11px sans-serif'; ctx.fillStyle = '#3b82f6';
+        ctx.textAlign = 'center';
+        ctx.fillText('drag corners · click wall to add point · dbl-click to exit', r.centroid.x, r.centroid.y + 28);
+        ctx.restore();
+      }
       // find _flow
       const arr = r.pinType === 'supply' ? supplyRooms : r.pinType === 'extract' ? extractRooms : [];
       const sRoom = arr.find(s => s.id === r.sidebarId);
       const flowTxt = sRoom && sRoom._flow ? Math.round(sRoom._flow) + ' m³/h' : '';
-      const label = r.name + (flowTxt ? '\n' + flowTxt : '');
-      drawPoly(ctx, r.path, fill, col, 1.5, [], null);
       // centroid label with pill background
       const c = r.centroid;
       ctx.save(); ctx.textAlign = 'center';
@@ -2519,13 +3034,9 @@ addRoom('extract');
       const pw = Math.max(nw, fw) + 12;
       const ph = flowTxt ? 32 : 20;
       const px = c.x - pw/2, py = c.y - ph/2 - (flowTxt ? 4 : 0);
-      // pill background
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.beginPath();
-      ctx.roundRect(px, py, pw, ph, 5);
-      ctx.fill();
+      ctx.beginPath(); ctx.roundRect(px, py, pw, ph, 5); ctx.fill();
       ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
-      // name
       ctx.fillStyle = col; ctx.font = nameFont;
       ctx.fillText(r.name, c.x, py + 14);
       if (flowTxt) { ctx.font = flowFont; ctx.fillStyle = '#6b7280'; ctx.fillText(flowTxt, c.x, py + 26); }
@@ -2620,14 +3131,17 @@ addRoom('extract');
     if (plan.currentPath.length > 0) {
       const col = plan.tool === 'building' ? '#1a4731' : plan.tool === 'supply-room' ? '#40916c' : plan.tool === 'extract-room' ? '#d97706' : '#6366f1';
       for (let i = 1; i < plan.currentPath.length; i++) drawLine(ctx, plan.currentPath[i-1], plan.currentPath[i], col, 1.5);
-      // Preview line to mouse
-      if (plan.currentPath.length > 0 && plan.mousePos) drawLine(ctx, plan.currentPath[plan.currentPath.length-1], plan.mousePos, col, 1, [4,3]);
+      // Preview line to snapped mouse position
+      const previewPt = (plan._snapResult && plan._snapResult.type) ? plan._snapResult : plan.mousePos;
+      if (plan.currentPath.length > 0 && previewPt) drawLine(ctx, plan.currentPath[plan.currentPath.length-1], previewPt, col, 1, [4,3]);
       plan.currentPath.forEach((p, i) => drawDot(ctx, p, i===0 ? '#fff' : col, i===0 ? 6 : 4));
       if (plan.currentPath.length > 0) {
         ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(plan.currentPath[0].x, plan.currentPath[0].y, 10, 0, Math.PI*2);
         ctx.stroke(); ctx.restore(); // close-snap ring
       }
+      // Snap indicator
+      if (plan._snapResult) drawSnapIndicator(ctx, plan._snapResult);
     }
   }
 
