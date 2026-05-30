@@ -95,7 +95,9 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 /* ── Room cards ── */
 .room-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 9px; margin-bottom: 6px; background: var(--input-bg); }
 .room-card-r1 { display: grid; grid-template-columns: 1fr 26px; gap: 5px; align-items: center; margin-bottom: 5px; }
-.room-card-r2 { display: grid; grid-template-columns: 1fr 56px 56px; gap: 5px; align-items: center; }
+.room-card-r2 { margin-bottom: 5px; }
+.room-card-r3 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; align-items: center; }
+.room-card-r3 label, .room-card-r2-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; font-weight: 600; }
 .room-card input[type=text], .room-card input[type=number], .room-card select { margin: 0; font-size: 13px; padding: 5px 8px; }
 .room-duct-badge { font-size: 10px; font-weight: 800; color: var(--accent); text-align: center; white-space: nowrap; }
 .btn-rm { background: none; border: 1px solid var(--border); border-radius: 5px; width: 26px; height: 26px; cursor: pointer; color: var(--muted); font-size: 15px; display: flex; align-items: center; justify-content: center; }
@@ -591,25 +593,9 @@ function renderRooms(type) {
     const card = document.createElement('div');
     card.className = 'room-card';
 
-    // Row 1: name | remove
+    // Row 1: room type dropdown | remove button
     const r1 = document.createElement('div');
     r1.className = 'room-card-r1';
-
-    const nameInp = document.createElement('input');
-    nameInp.type = 'text';
-    nameInp.value = room.name || room.roomType;
-    nameInp.placeholder = 'Room name';
-    nameInp.addEventListener('input', e => { room.name = e.target.value; scheduleAutosave(); });
-
-    const btn = document.createElement('button');
-    btn.className = 'btn-rm'; btn.innerHTML = '×';
-    btn.addEventListener('click', () => removeRoom(type, room.id));
-
-    r1.appendChild(nameInp); r1.appendChild(btn);
-
-    // Row 2: type | length
-    const r2 = document.createElement('div');
-    r2.className = 'room-card-r2';
 
     const sel = document.createElement('select');
     Object.keys(defs).forEach(t => {
@@ -623,24 +609,61 @@ function renderRooms(type) {
       if (!room._nameEdited) { room.name = e.target.value; nameInp.value = e.target.value; }
       scheduleAutosave();
     });
-    nameInp.addEventListener('input', () => { room._nameEdited = true; });
 
+    const btn = document.createElement('button');
+    btn.className = 'btn-rm'; btn.innerHTML = '×';
+    btn.addEventListener('click', () => removeRoom(type, room.id));
+
+    r1.appendChild(sel); r1.appendChild(btn);
+
+    // Row 2: room name text input (full width)
+    const r2 = document.createElement('div');
+    r2.className = 'room-card-r2';
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text';
+    nameInp.style.width = '100%';
+    nameInp.value = room.name || room.roomType;
+    nameInp.placeholder = 'Room name';
+    nameInp.addEventListener('input', e => { room.name = e.target.value; room._nameEdited = true; scheduleAutosave(); });
+
+    r2.appendChild(nameInp);
+
+    // Wire dropdown to auto-update name if not manually edited
+    sel.addEventListener('change', e => {
+      if (!room._nameEdited) nameInp.value = e.target.value;
+    });
+
+    // Row 3: area m² | duct run length
+    const r3 = document.createElement('div');
+    r3.className = 'room-card-r3';
+
+    const areaWrap = document.createElement('div');
+    const areaLabel = document.createElement('label');
+    areaLabel.className = 'room-card-r3 label';
+    areaLabel.textContent = 'Area m²';
+    areaLabel.style.cssText = 'display:block;font-size:11px;color:var(--muted);margin-bottom:2px;font-weight:600';
     const areaInp = document.createElement('input');
     areaInp.type = 'number'; areaInp.min = 0; areaInp.step = 0.5;
-    areaInp.value = room.area !== undefined ? room.area : '';
-    areaInp.placeholder = 'Area m²';
-    areaInp.title = 'Floor area in m² (for air change rate)';
+    areaInp.value = room.area || '';
+    areaInp.placeholder = 'e.g. 14';
     areaInp.addEventListener('input', e => { room.area = parseFloat(e.target.value) || 0; scheduleAutosave(); });
+    areaWrap.appendChild(areaLabel); areaWrap.appendChild(areaInp);
 
+    const lenWrap = document.createElement('div');
+    const lenLabel = document.createElement('label');
+    lenLabel.textContent = 'Duct run m';
+    lenLabel.style.cssText = 'display:block;font-size:11px;color:var(--muted);margin-bottom:2px;font-weight:600';
     const lenInp = document.createElement('input');
     lenInp.type = 'number'; lenInp.min = 0; lenInp.step = 0.5;
     lenInp.value = room.length !== undefined ? room.length : 8;
-    lenInp.placeholder = 'Run m';
-    lenInp.title = 'Duct run length in metres';
+    lenInp.placeholder = 'e.g. 8';
     lenInp.addEventListener('input', e => { room.length = parseFloat(e.target.value) || 0; scheduleAutosave(); });
+    lenWrap.appendChild(lenLabel); lenWrap.appendChild(lenInp);
 
-    r2.appendChild(sel); r2.appendChild(areaInp); r2.appendChild(lenInp);
-    card.appendChild(r1); card.appendChild(r2);
+    r3.appendChild(areaWrap); r3.appendChild(lenWrap);
+
+    card.appendChild(r1); card.appendChild(r2); card.appendChild(r3);
     container.appendChild(card);
   });
 }
