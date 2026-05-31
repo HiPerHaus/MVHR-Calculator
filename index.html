@@ -3218,7 +3218,15 @@ window.signOut = async function() {
   if (_sb) await _sb.auth.signOut();
   _currentUser = null;
   _creditBalance = null;
-  document.getElementById('loginOverlay').classList.remove('hidden');
+  // Reset login form
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').className = 'login-error';
+  document.getElementById('loginSuccess')?.classList.remove('visible');
+  // Show login screen
+  const overlay = document.getElementById('loginOverlay');
+  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
   document.getElementById('creditBadge').style.display = 'none';
   document.getElementById('userMenuBtn').style.display = 'none';
   document.getElementById('logoutBtn').style.display = 'none';
@@ -3249,9 +3257,10 @@ if (_sb) {
       document.getElementById('userMenuBtn').style.display = '';
       document.getElementById('logoutBtn').style.display = '';
       document.getElementById('creditBadge').style.display = '';
-      // Load credit balance + projects
+      // Load credit balance + projects + unit database
       await refreshCreditBalance();
       await loadCloudProjects();
+      await syncUnitsFromSupabase();
       // Handle payment success redirect
       const params = new URLSearchParams(window.location.search);
       if (params.get('payment') === 'success') {
@@ -3281,6 +3290,70 @@ document.addEventListener('keydown', e => {
   const signupVisible = document.getElementById('signupFields').style.display !== 'none';
   if (signupVisible) attemptSignUp(); else attemptLogin();
 });
+
+// ══════════════════════════════════════════════════════
+// UNIT DB SYNC — fetch from Supabase into localStorage
+// ══════════════════════════════════════════════════════
+
+async function syncUnitsFromSupabase() {
+  if (!_sb || !_currentUser) return;
+
+  // Only re-sync if local DB is empty or older than 24h
+  const lastSync = localStorage.getItem('hh_mvhr_units_synced_at');
+  const localUnits = _loadUnitDB();
+  const stale = !lastSync || (Date.now() - parseInt(lastSync)) > 86400000;
+  if (localUnits.length > 0 && !stale) return;
+
+  try {
+    // Fetch all units in pages (Supabase default limit is 1000)
+    let allUnits = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await _sb
+        .from('mvhr_units')
+        .select('phi_cert_id,manufacturer,model,hr_eff,humidity_winter,hr_eff_cooling,humidity_summer,sfp,flow_min,flow_max,ext_pressure,fittings_dp,frost_protection,noise_extract,noise_supply,additional_info')
+        .order('phi_cert_id')
+        .range(from, from + pageSize - 1);
+      if (error || !data) break;
+      allUnits = allUnits.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    if (!allUnits.length) return;
+
+    // Map Supabase column names → app format
+    const mapped = allUnits.map(u => ({
+      id:              u.phi_cert_id,
+      hrEff:           u.hr_eff != null ? parseFloat(u.hr_eff) : null,
+      humidityWinter:  u.humidity_winter != null ? parseFloat(u.humidity_winter) : null,
+      hrEffCooling:    u.hr_eff_cooling != null ? parseFloat(u.hr_eff_cooling) : null,
+      humiditySummer:  u.humidity_summer != null ? parseFloat(u.humidity_summer) : null,
+      sfp:             u.sfp != null ? parseFloat(u.sfp) : null,
+      flowMin:         u.flow_min != null ? parseFloat(u.flow_min) : null,
+      flowMax:         u.flow_max != null ? parseFloat(u.flow_max) : null,
+      extPressure:     u.ext_pressure != null ? parseFloat(u.ext_pressure) : null,
+      fittingsDp:      u.fittings_dp,
+      frostProtection: u.frost_protection ? 'yes' : 'no',
+      noiseExtract:    u.noise_extract != null ? parseFloat(u.noise_extract) : null,
+      noiseSupply:     u.noise_supply != null ? parseFloat(u.noise_supply) : null,
+      additionalInfo:  u.additional_info,
+    }));
+
+    _saveUnitDB(mapped);
+    localStorage.setItem('hh_mvhr_units_synced_at', Date.now().toString());
+
+    // Refresh UI
+    updateUnitDbStatus();
+    renderUnitPicker();
+    renderMyUnitsList();
+    updateSelectedUnitCard();
+    showToast(`✓ Loaded ${mapped.length} certified MVHR units`);
+  } catch(e) {
+    console.warn('Unit DB sync failed:', e);
+  }
+}
 
 // ══════════════════════════════════════════════════════
 // CREDIT SYSTEM
