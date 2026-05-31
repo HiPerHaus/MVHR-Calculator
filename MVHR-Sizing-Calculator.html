@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MVHR Design Engine — HiPer Haus</title>
+<title>HiPer MVHR — HiPer Studio</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 /* ── Login overlay ── */
@@ -301,38 +301,43 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ LOGIN OVERLAY ═══ -->
 <div id="loginOverlay">
   <div class="login-box">
-    <div class="login-logo">HiPer Haus</div>
-    <div class="login-title">MVHR Design Engine</div>
+    <div class="login-logo" style="font-size:26px;font-weight:900;letter-spacing:-0.5px;color:var(--primary);margin-bottom:4px">HiPer Studio</div>
+    <div class="login-sub" style="margin-bottom:22px">HiPer MVHR · Sign in to continue</div>
 
     <!-- Tab switcher -->
-    <div style="display:flex;gap:0;margin-bottom:20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;overflow:hidden">
+    <div style="display:flex;gap:0;margin-bottom:20px;border:1.5px solid var(--border);border-radius:9px;overflow:hidden">
       <button id="tabSignIn" onclick="switchAuthTab('signin')"
-        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:rgba(255,255,255,0.9);color:#1a4731;transition:all 0.15s">
+        style="flex:1;padding:9px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:var(--primary);color:#fff;transition:all 0.15s">
         Sign In
       </button>
       <button id="tabSignUp" onclick="switchAuthTab('signup')"
-        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,0.7);transition:all 0.15s">
+        style="flex:1;padding:9px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:transparent;color:var(--muted);transition:all 0.15s">
         Create Account
       </button>
     </div>
 
     <div class="login-error" id="loginError" style="display:none"></div>
-    <div id="loginSuccess" style="display:none;background:rgba(255,255,255,0.15);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
+    <div id="loginSuccess" style="display:none;background:var(--ok-bg);color:#1a6832;border:1px solid var(--ok-border);border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
 
     <!-- Sign-in fields -->
     <div id="signinFields">
       <div class="login-field">
         <label>Email</label>
-        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
       </div>
       <div class="login-field">
         <label>Password</label>
         <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
       </div>
-      <button class="btn-login" id="btnSignIn" onclick="attemptLogin()">Sign In →</button>
-      <div style="text-align:center;margin-top:10px">
-        <a href="#" onclick="showForgotPassword()" style="font-size:12px;color:rgba(255,255,255,0.6);text-decoration:none">Forgot password?</a>
+      <!-- Remember me -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;color:var(--muted)">
+          <input type="checkbox" id="rememberMe" onchange="saveRememberMe()" style="width:15px;height:15px;accent-color:var(--primary)">
+          Remember me
+        </label>
+        <a href="#" onclick="showForgotPassword();return false" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:600">Forgot password?</a>
       </div>
+      <button class="btn-login" id="btnSignIn" onclick="attemptLogin()">Sign In →</button>
     </div>
 
     <!-- Sign-up fields -->
@@ -356,7 +361,20 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       <button class="btn-login" id="btnSignUp" onclick="attemptSignUp()">Create Account →</button>
     </div>
 
-    <div class="login-footer">HiPer Haus · MVHR Design Platform</div>
+    <!-- Forgot password fields -->
+    <div id="forgotFields" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Enter your email and we'll send a reset link.</div>
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="forgotEmail" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <button class="btn-login" onclick="submitForgotPassword()">Send Reset Link →</button>
+      <div style="text-align:center;margin-top:12px">
+        <a href="#" onclick="switchAuthTab('signin');return false" style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:600">← Back to sign in</a>
+      </div>
+    </div>
+
+    <div class="login-footer" style="margin-top:18px">© HiPer Studio</div>
   </div>
 </div>
 
@@ -365,7 +383,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <div style="background:var(--card);border-radius:18px;padding:0;max-width:600px;width:95%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.4);overflow:hidden">
     <!-- Header -->
     <div style="background:linear-gradient(135deg,var(--primary) 0%,var(--accent) 100%);padding:28px 32px 22px;color:white;flex-shrink:0">
-      <div style="font-size:11px;font-weight:800;letter-spacing:2px;opacity:0.7;text-transform:uppercase;margin-bottom:4px">Welcome to HiPer Haus</div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:2px;opacity:0.7;text-transform:uppercase;margin-bottom:4px">Welcome to HiPer Studio</div>
       <div style="font-size:22px;font-weight:900;margin-bottom:6px">Select your MVHR units</div>
       <div style="font-size:13px;opacity:0.85">Star the units you work with so they appear at the top when selecting a unit for a project. You can change this any time in Settings.</div>
     </div>
@@ -410,8 +428,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </div>
 
 <header>
-  <h1>MVHR Design Engine</h1>
-  <span>HiPer Haus · Passivhaus-aligned · Australian high-performance homes</span>
+  <h1>HiPer MVHR</h1>
+  <span>HiPer Studio · HiPer MVHR · Passivhaus-aligned</span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
     <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
     <button id="creditBadge" onclick="openBuyCredits()" title="Purchase credits"
@@ -803,14 +821,14 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </style>
 
       <div class="help-cover">
-        <h1>MVHR Design Engine — User Manual</h1>
-        <p>HiPer Haus · Passivhaus-aligned MVHR sizing for Australian high-performance homes</p>
+        <h1>HiPer MVHR — User Manual</h1>
+        <p>HiPer Studio · Passivhaus-aligned MVHR sizing for Australian high-performance homes</p>
       </div>
 
       <!-- Introduction -->
       <div class="help-section">
         <div class="help-h1">Introduction</div>
-        <p class="help-body">The HiPer Haus MVHR Design Engine is a browser-based tool for sizing and documenting Mechanical Ventilation with Heat Recovery (MVHR) systems. It follows the Passivhaus Institute (PHI) three-criteria method, selects an appropriate unit, sizes individual duct runs, and produces a complete commissioning schedule.</p>
+        <p class="help-body">The HiPer Studio HiPer MVHR is a browser-based tool for sizing and documenting Mechanical Ventilation with Heat Recovery (MVHR) systems. It follows the Passivhaus Institute (PHI) three-criteria method, selects an appropriate unit, sizes individual duct runs, and produces a complete commissioning schedule.</p>
         <p class="help-body">All work auto-saves to your browser as named projects. No internet connection is required once the page is loaded.</p>
         <div class="help-note">ℹ️ Projects are stored in this browser only. Export the PDF as a backup before closing.</div>
       </div>
@@ -937,7 +955,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         </table>
       </div>
 
-      <p style="font-size:11px;color:var(--muted);margin-top:20px">HiPer Haus MVHR Design Engine — Always have designs reviewed by a qualified mechanical engineer before installation.</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:20px">HiPer Studio HiPer MVHR — Always have designs reviewed by a qualified mechanical engineer before installation.</p>
     </div>
 
     <!-- ── Tab: Plan Markup ── -->
@@ -3112,15 +3130,37 @@ let _creditBalance = null;    // cached credit balance
 // ── Auth tab switcher ──
 window.switchAuthTab = function(tab) {
   const isSignIn = tab === 'signin';
-  document.getElementById('signinFields').style.display = isSignIn ? '' : 'none';
-  document.getElementById('signupFields').style.display = isSignIn ? 'none' : '';
-  document.getElementById('tabSignIn').style.background = isSignIn ? 'rgba(255,255,255,0.9)' : 'transparent';
-  document.getElementById('tabSignIn').style.color = isSignIn ? '#1a4731' : 'rgba(255,255,255,0.7)';
-  document.getElementById('tabSignUp').style.background = isSignIn ? 'transparent' : 'rgba(255,255,255,0.9)';
-  document.getElementById('tabSignUp').style.color = isSignIn ? 'rgba(255,255,255,0.7)' : '#1a4731';
-  document.getElementById('loginError').style.display = 'none';
-  document.getElementById('loginSuccess').style.display = 'none';
+  const isForgot = tab === 'forgot';
+  document.getElementById('signinFields').style.display  = isSignIn ? '' : 'none';
+  document.getElementById('signupFields').style.display  = tab === 'signup' ? '' : 'none';
+  document.getElementById('forgotFields').style.display  = isForgot ? '' : 'none';
+  document.getElementById('tabSignIn').style.background  = isSignIn ? 'var(--primary)' : 'transparent';
+  document.getElementById('tabSignIn').style.color       = isSignIn ? '#fff' : 'var(--muted)';
+  document.getElementById('tabSignUp').style.background  = tab === 'signup' ? 'var(--primary)' : 'transparent';
+  document.getElementById('tabSignUp').style.color       = tab === 'signup' ? '#fff' : 'var(--muted)';
+  document.getElementById('loginError').style.display    = 'none';
+  document.getElementById('loginSuccess').style.display  = 'none';
 };
+
+// ── Remember me ──
+window.saveRememberMe = function() {
+  const checked = document.getElementById('rememberMe').checked;
+  if (checked) {
+    localStorage.setItem('hh_remember_email', document.getElementById('loginEmail').value);
+  } else {
+    localStorage.removeItem('hh_remember_email');
+    localStorage.removeItem('hh_remember_pw');
+  }
+};
+
+// Load remembered credentials on page load
+(function loadRemembered() {
+  const email = localStorage.getItem('hh_remember_email');
+  if (email) {
+    document.getElementById('loginEmail').value = email;
+    document.getElementById('rememberMe').checked = true;
+  }
+})();
 
 function _setLoginError(msg) {
   const el = document.getElementById('loginError');
@@ -3163,6 +3203,13 @@ window.attemptLogin = async function() {
   const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
   _setBtnLoading('btnSignIn', false);
 
+  // Save remembered email
+  if (document.getElementById('rememberMe').checked) {
+    localStorage.setItem('hh_remember_email', email);
+  } else {
+    localStorage.removeItem('hh_remember_email');
+  }
+
   if (error) {
     _setLoginError(error.message || 'Sign in failed. Check your email and password.');
     document.getElementById('loginPassword').value = '';
@@ -3201,10 +3248,17 @@ window.attemptSignUp = async function() {
   // If email confirmation is off in Supabase, onAuthStateChange fires immediately
 };
 
-// ── Forgot password ──
-window.showForgotPassword = async function() {
+// ── Forgot password — show inline panel ──
+window.showForgotPassword = function() {
+  // Pre-fill email if already typed
   const email = document.getElementById('loginEmail').value.trim();
-  if (!email) { _setLoginError('Enter your email address above first.'); return; }
+  if (email) document.getElementById('forgotEmail').value = email;
+  switchAuthTab('forgot');
+};
+
+window.submitForgotPassword = async function() {
+  const email = document.getElementById('forgotEmail').value.trim();
+  if (!email) { _setLoginError('Enter your email address.'); return; }
   if (!_sb) return;
   const { error } = await _sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin + '/?reset=true'
@@ -3588,7 +3642,7 @@ async function exportPDF() {
   hdr.innerHTML = `<div style="font-size:18px;font-weight:900;letter-spacing:-0.3px">MVHR Design Report</div>
     ${clientName ? `<div style="font-size:14px;font-weight:700;margin-top:4px">${clientName}</div>` : ''}
     ${projectAddr ? `<div style="font-size:12px;opacity:0.85;margin-top:1px">${projectAddr}</div>` : ''}
-    <div style="font-size:11px;opacity:0.7;margin-top:4px">HiPer Haus · ${drawnBy ? 'Prepared by ' + drawnBy + ' · ' : ''}${dateLabel}</div>`;
+    <div style="font-size:11px;opacity:0.7;margin-top:4px">HiPer Studio · ${drawnBy ? 'Prepared by ' + drawnBy + ' · ' : ''}${dateLabel}</div>`;
   container.appendChild(hdr);
 
   // Clone each panel with a section title
