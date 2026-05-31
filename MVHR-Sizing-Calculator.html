@@ -2119,6 +2119,59 @@ function seedIfEmpty() {
 // ══════════════════════════════════════════════════════
 const PROJECTS_KEY = 'hh_mvhr_projects_v1';
 const SAVE_KEY     = 'hh_mvhr_state';       // legacy — kept for planState compat
+
+// ── IndexedDB image store (replaces localStorage for large floor plan images) ──
+const mvhrImageDB = (() => {
+  const DB_NAME = 'mvhr_plan_images', STORE = 'images', VERSION = 1;
+  let _dbPromise = null;
+  function openDB() {
+    if (_dbPromise) return _dbPromise;
+    _dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, VERSION);
+      req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = e => { _dbPromise = null; reject(e.target.error); };
+    });
+    return _dbPromise;
+  }
+  function get(key) {
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readonly').objectStore(STORE).get(key);
+      req.onsuccess = e => resolve(e.target.result || null);
+      req.onerror = e => reject(e.target.error);
+    })).catch(() => null);
+  }
+  function put(key, data) {
+    if (!data) return del(key);
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readwrite').objectStore(STORE).put(data, key);
+      req.onsuccess = () => resolve();
+      req.onerror = e => reject(e.target.error);
+    })).catch(e => console.warn('MVHR: IndexedDB write failed', e));
+  }
+  function del(key) {
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readwrite').objectStore(STORE).delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror = e => reject(e.target.error);
+    })).catch(() => {});
+  }
+  // One-time migration of existing localStorage image data to IndexedDB
+  function migrate() {
+    const migratable = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('hh_mvhr_img_') || k.startsWith('hh_mvhr_plan_v2_img_'))) migratable.push(k);
+    }
+    if (!migratable.length) return Promise.resolve();
+    return openDB().then(() => Promise.all(migratable.map(lsKey => {
+      const data = localStorage.getItem(lsKey);
+      if (!data) return;
+      return put(lsKey, data).then(() => { try { localStorage.removeItem(lsKey); } catch(e) {} });
+    }))).catch(e => console.warn('MVHR: image migration failed', e));
+  }
+  return { get, put, del, migrate };
+})();
 let _saveTimer = null;
 let _currentProjectId = null;
 
@@ -2140,16 +2193,13 @@ function putProjects(list) {
   }
 }
 
-// Image storage — each project image gets its own key so the project list stays small
+// Image storage — IndexedDB (no size limit vs localStorage's ~5 MB cap)
 const IMG_KEY_PREFIX = 'hh_mvhr_img_';
 function saveProjectImage(projectId, dataUrl) {
-  if (!dataUrl) { try { localStorage.removeItem(IMG_KEY_PREFIX + projectId); } catch(e) {} return; }
-  try { localStorage.setItem(IMG_KEY_PREFIX + projectId, dataUrl); } catch(e) {
-    console.warn('MVHR: floor plan image too large to cache locally — annotations still saved.');
-  }
+  mvhrImageDB.put(IMG_KEY_PREFIX + projectId, dataUrl || null);
 }
 function loadProjectImage(projectId) {
-  try { return localStorage.getItem(IMG_KEY_PREFIX + projectId) || null; } catch(e) { return null; }
+  return mvhrImageDB.get(IMG_KEY_PREFIX + projectId);
 }
 
 // ── Collect current state into an object ──
@@ -2222,7 +2272,7 @@ function newProject() {
 }
 
 // ── Copy project ──
-function copyProject() {
+async function copyProject() {
   saveCurrentProject();
   const projects = getProjects();
   const src = projects.find(p => p.id === _currentProjectId);
@@ -2235,7 +2285,7 @@ function copyProject() {
   projects.push(copy);
   putProjects(projects);
   // Copy the floor plan image to the new project's key
-  const srcImg = loadProjectImage(_currentProjectId);
+  const srcImg = await loadProjectImage(_currentProjectId);
   if (srcImg) saveProjectImage(id, srcImg);
   loadProject(id);
 }
@@ -2248,7 +2298,7 @@ function switchProject(id) {
 }
 
 // ── Load a project by id ──
-function loadProject(id) {
+async function loadProject(id) {
   const projects = getProjects();
   const p = projects.find(p => p.id === id);
   if (!p) return;
@@ -2260,7 +2310,7 @@ function loadProject(id) {
   try {
     // Merge imgData back from its separate key before writing to plan key
     const planWithImg = p.planState ? { ...p.planState } : null;
-    const savedImg = loadProjectImage(id);
+    const savedImg = await loadProjectImage(id);
     if (planWithImg && savedImg) planWithImg.imgData = savedImg;
     if (planWithImg) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(planWithImg));
     else localStorage.removeItem('hh_mvhr_plan_v2');
@@ -5175,11 +5225,9 @@ addRoom('extract');
         floorData: plan.floorData,    // per-floor {pxPerM, scaleLine} — imgData handled separately
         ductRisers: plan.ductRisers,
       };
-      // Store per-floor images separately to avoid localStorage size limit
+      // Store per-floor images in IndexedDB (no size limit)
       Object.entries(plan.floorData).forEach(([f, fd]) => {
-        if (fd?.imgData) {
-          try { localStorage.setItem(PLAN_SAVE_KEY + '_img_' + f, fd.imgData); } catch(e) {}
-        }
+        if (fd?.imgData) mvhrImageDB.put(PLAN_SAVE_KEY + '_img_' + f, fd.imgData);
       });
       // Don't embed imgData in main state blob
       const slim = { ...s, imgData: null };
@@ -5191,7 +5239,7 @@ addRoom('extract');
   }
 
   window.loadPlanState = loadPlanState;
-  function loadPlanState() {
+  async function loadPlanState() {
     let raw; try { raw = localStorage.getItem(PLAN_SAVE_KEY); } catch(e) {}
     if (!raw) return;
     let s; try { s = JSON.parse(raw); } catch(e) { return; }
@@ -5208,13 +5256,13 @@ addRoom('extract');
     if (s.externalRoutes) plan.externalRoutes = s.externalRoutes;
     if (s.ductRisers) plan.ductRisers = s.ductRisers;
     if (s.activeFloor !== undefined) plan.activeFloor = s.activeFloor;
-    // Restore per-floor data
+    // Restore per-floor data (images from IndexedDB)
     if (s.floorData) {
       plan.floorData = s.floorData;
-      Object.keys(s.floorData).forEach(f => {
-        const img = localStorage.getItem(PLAN_SAVE_KEY + '_img_' + f);
+      await Promise.all(Object.keys(s.floorData).map(async f => {
+        const img = await mvhrImageDB.get(PLAN_SAVE_KEY + '_img_' + f);
         if (img) { if (!plan.floorData[f]) plan.floorData[f] = {}; plan.floorData[f].imgData = img; }
-      });
+      }));
     }
     // Restore sidebar rooms from plan rooms
     if (s.planRooms && s.planRooms.length) {
@@ -5260,10 +5308,10 @@ addRoom('extract');
     }, 50);
   };
 
-  // Load on startup
+  // Load on startup — migrate any old localStorage images to IndexedDB first
   document.addEventListener('DOMContentLoaded', () => {
     showTab('plan');
-    setTimeout(loadPlanState, 200);
+    mvhrImageDB.migrate().then(() => setTimeout(loadPlanState, 200));
   });
 
 })();
