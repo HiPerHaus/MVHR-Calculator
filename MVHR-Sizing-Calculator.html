@@ -530,20 +530,20 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </header>
 
 <nav class="top-nav">
-  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Plan</span></div>
-  <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">🏗</span><span class="nav-label">Project</span></div>
+  <div class="nav-tab" id="navtab-projects" onclick="showTab('projects')"><span class="nav-icon">📁</span><span class="nav-label">Projects</span></div>
+  <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">📋</span><span class="nav-label">Details</span></div>
+  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Draw</span></div>
   <div class="nav-tab" id="navtab-summary" onclick="showTab('summary')"><span class="nav-icon">📊</span><span class="nav-label">Summary</span></div>
-  <div class="nav-tab" id="navtab-rooms" onclick="showTab('rooms')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></div>
-  <div class="nav-tab" id="navtab-ducts" onclick="showTab('ducts')"><span class="nav-icon">🔩</span><span class="nav-label">Ducts</span></div>
   <div class="nav-tab" id="navtab-bom" onclick="showTab('bom')"><span class="nav-icon">📋</span><span class="nav-label">BOM</span></div>
   <div class="nav-tab" id="navtab-commission" onclick="showTab('commission')"><span class="nav-icon">✅</span><span class="nav-label">Commission</span></div>
-  <div class="nav-tab" id="navtab-warnings" onclick="showTab('warnings')"><span class="nav-icon">⚠️</span><span class="nav-label">Warnings <span id="warnBadge"></span></span></div>
+  <div class="nav-tab" id="navtab-export" onclick="showTab('export')"><span class="nav-icon">📥</span><span class="nav-label">Export</span></div>
   <div class="nav-tab" id="navtab-help" onclick="showTab('help')"><span class="nav-icon">❓</span><span class="nav-label">Help</span></div>
-  <div class="nav-tab" id="navtab-settings" onclick="showTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></div>
+  <!-- Keep warnBadge in DOM for JS -->
+  <span id="warnBadge" style="display:none"></span>
 </nav>
 
 <!-- ═══ PROJECT BAR ═══ -->
-<div class="proj-bar">
+<div class="proj-bar" style="display:none">
   <select id="projSelect" onchange="switchProject(this.value)" title="Switch project"></select>
   <input id="projNameEdit" class="proj-name-edit" type="text" placeholder="Project name" title="Rename project">
   <button class="proj-btn" onclick="renameProject()" title="Rename current project">✏️ Rename</button>
@@ -601,6 +601,30 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         Cancel
       </button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ PROJECTS TAB ═══ -->
+<div class="tab-panel" id="tab-projects" style="padding:24px;max-width:680px;margin:0 auto">
+  <div class="section-title">My Projects</div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Current Project</label>
+      <select id="projSelectMain" onchange="switchProjectMain(this.value)"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:var(--input-bg);color:var(--text)"></select>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="proj-btn" onclick="renameProject()" style="flex:1">✏️ Rename</button>
+      <button class="proj-btn" onclick="copyProject()" style="flex:1">⧉ Copy Project</button>
+      <button class="proj-btn primary" onclick="saveCurrentProject()" style="flex:1">💾 Save</button>
+    </div>
+    <span class="proj-saved-badge" id="projSavedBadgeMain" style="text-align:center"></span>
+  </div>
+  <div style="border-top:1px solid var(--border);padding-top:20px">
+    <button onclick="newProject()"
+      style="width:100%;padding:16px 20px;background:var(--primary);color:#fff;border:none;border-radius:12px;cursor:pointer;text-align:left;font-size:15px;font-weight:800">
+      ＋ New Project <span style="font-size:12px;opacity:0.8;font-weight:400;margin-left:8px">Uses 10 credits</span>
+    </button>
   </div>
 </div>
 
@@ -773,6 +797,12 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <button class="btn-add" onclick="addRoom('extract')">+ Add extract room</button>
   </div>
 
+  <div style="margin-top:8px">
+    <div class="section-title">Suitable Units for This Project</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="suitableUnitsNote">Run the design calculation to see recommended units.</div>
+    <div id="suitableUnitsList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto"></div>
+  </div>
+
   <button class="btn-calc" onclick="calculate()">Run Design Calculation ›</button>
 
 </div><!-- /tab-project -->
@@ -780,12 +810,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ RESULTS TABS ═══ -->
 <div id="results">
 
-    <div class="pdf-toolbar">
-      <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export PDF
-      </button>
-    </div>
+    <!-- pdf-toolbar moved to tab-export -->
 
     <!-- ── Tab: Summary ── -->
     <div class="tab-panel" id="tab-summary" data-title="Design Summary">
@@ -854,6 +879,38 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
           <div class="sb-row"><span>Est. system pressure</span><span class="sb-val" id="dbPressure">—</span></div>
         </div>
       </div>
+
+      <div class="section-title" style="margin-top:20px">Design Warnings</div>
+      <div class="alert-list" id="alertList"></div>
+
+      <div class="section-title" style="margin-top:20px">Room Schedule</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Room</th><th>Type</th>
+              <th>Normal m³/h</th><th>Boost m³/h</th>
+              <th>Ducts</th><th>m³/h / duct</th><th>Duct status</th>
+              <th>ACH</th><th>Terminal m/s</th><th>Velocity</th>
+            </tr>
+          </thead>
+          <tbody id="roomScheduleBody2"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">Duct Schedule</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Duct ID</th><th>Room</th><th>Floor</th><th>Type</th>
+              <th>Dia (mm)</th><th>Run (m)</th><th>Inter-floor (m)</th><th>Bends</th>
+              <th>Normal m³/h</th><th>Boost m³/h</th><th>Boost vel. m/s</th><th>Boost ΔP (Pa)</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="ductScheduleBody2"></tbody>
+        </table>
+      </div>
     </div>
 
 
@@ -919,7 +976,18 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 
     <!-- ── Tab: Warnings ── -->
     <div class="tab-panel" id="tab-warnings" data-title="Design Warnings">
-      <div class="alert-list" id="alertList"></div>
+      <div class="alert-list" id="alertListWarnings"></div>
+    </div>
+
+    <!-- ── Tab: Export ── -->
+    <div class="tab-panel" id="tab-export" data-title="Export" style="padding:24px;max-width:680px;margin:0 auto">
+      <div class="section-title">Export Design Report</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Generate a full PDF design report including project details, airflow summary, room schedule, duct schedule, BOM, and commissioning sheet.</p>
+      <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()"
+        style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;font-size:15px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:10px;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export PDF Report
+      </button>
     </div>
 
     <!-- ── Tab: Help ── -->
@@ -2335,6 +2403,7 @@ const mvhrImageDB = (() => {
 })();
 let _saveTimer = null;
 let _currentProjectId = null;
+let _lastDesignFlow = 0;
 
 const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2'];
 
@@ -2648,6 +2717,7 @@ function renderProjSelect() {
   sel.innerHTML = projects.map(p =>
     `<option value="${p.id}" ${p.id === _currentProjectId ? 'selected' : ''}>${p.name}</option>`
   ).join('');
+  syncProjSelectMain();
 }
 
 // ── Rename ──
@@ -3049,6 +3119,7 @@ function calculate(silent) {
   document.getElementById('sLow').textContent    = low;
   document.getElementById('sBoost').textContent  = boost;
   document.getElementById('sMethod').textContent = '▲ Governing: ' + govMethod;
+  _lastDesignFlow = normal || 0; // capture for suitable units
 
   // PHI criteria cards
   const govOcc = byOcc >= byACH && byOcc >= extractDemand && normal === byOcc;
@@ -3250,6 +3321,8 @@ function calculate(silent) {
     alertList.appendChild(div);
   });
 
+  syncScheduleTables();
+  renderSuitableUnits(_lastDesignFlow);
   if (!silent) showTab('summary');
   else {
     // Ensure results div is visible for other tabs to work, but don't switch
@@ -3261,6 +3334,73 @@ function calculate(silent) {
 // ══════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════
+
+// ── Suitable units after calculation ──
+function renderSuitableUnits(designFlow) {
+  const note = document.getElementById('suitableUnitsNote');
+  const list = document.getElementById('suitableUnitsList');
+  if (!list) return;
+  if (!designFlow || designFlow <= 0) {
+    if (note) note.textContent = 'Run the design calculation to see recommended units.';
+    list.innerHTML = '';
+    return;
+  }
+  const units = _loadUnitDB().filter(u =>
+    u.flowMin != null && u.flowMax != null &&
+    u.flowMin <= designFlow && u.flowMax >= designFlow
+  ).sort((a, b) => (b.hrEff || 0) - (a.hrEff || 0)).slice(0, 8);
+
+  if (note) note.textContent = units.length
+    ? `${units.length} unit${units.length !== 1 ? 's' : ''} suitable for ${Math.round(designFlow)} m³/h design flow:`
+    : `No units in the database cover ${Math.round(designFlow)} m³/h — check your unit database.`;
+
+  const selected = _loadSelectedUnit();
+  list.innerHTML = units.map(u => {
+    const isSel = selected?.id === u.id;
+    return `<div onclick="selectUnit('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;
+        border:1.5px solid ${isSel ? 'var(--primary)' : 'var(--border)'};border-radius:9px;
+        background:${isSel ? 'rgba(var(--primary-rgb,45,106,79),0.06)' : 'var(--input-bg)'};cursor:pointer">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:${isSel ? 'var(--primary)' : 'var(--text)'}">
+          ${u.manufacturer ? u.manufacturer + ' ' : ''}${u.model || u.id}
+          ${isSel ? '<span style="font-size:11px;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px">Selected</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">
+          ${u.hrEff != null ? `♻ ${u.hrEff}% HR` : ''}
+          ${u.sfp != null ? ` · ⚡ ${u.sfp} Wh/m³` : ''}
+          ${u.flowMin != null && u.flowMax != null ? ` · 💨 ${u.flowMin}–${u.flowMax} m³/h` : ''}
+          ${u.humidityWinter ? ' · 💧 humidity' : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Sync schedule tables to summary tab ──
+function syncScheduleTables() {
+  const r = document.getElementById('roomScheduleBody');
+  const r2 = document.getElementById('roomScheduleBody2');
+  if (r && r2) r2.innerHTML = r.innerHTML;
+  const d = document.getElementById('ductScheduleBody');
+  const d2 = document.getElementById('ductScheduleBody2');
+  if (d && d2) d2.innerHTML = d.innerHTML;
+}
+
+// ── Sync project select in Projects tab ──
+function syncProjSelectMain() {
+  const src = document.getElementById('projSelect');
+  const dst = document.getElementById('projSelectMain');
+  if (!src || !dst) return;
+  dst.innerHTML = src.innerHTML;
+  dst.value = src.value;
+}
+
+function switchProjectMain(id) {
+  const src = document.getElementById('projSelect');
+  if (src) src.value = id;
+  switchProject(id);
+}
+
 function showTab(name) {
   // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -3275,9 +3415,11 @@ function showTab(name) {
   // #results div hosts the output tab panels — show it when on an output tab
   const results = document.getElementById('results');
   if (results) {
-    const outputTabs = ['summary','rooms','ducts','bom','commission','warnings','plan','help','settings'];
+    const outputTabs = ['summary','rooms','ducts','bom','commission','warnings','plan','help','settings','export'];
     results.style.display = outputTabs.includes(name) ? 'block' : 'none';
   }
+  // Sync select in Projects tab
+  if (name === 'projects') syncProjSelectMain();
 }
 
 // ══════════════════════════════════════════════════════
@@ -3628,9 +3770,9 @@ window.submitNewPassword = async function() {
 };
 
 // ── Sign out ──
-window.signOut = async function() {
+window.signOut = function() {
   toggleUserMenu(false);
-  if (_sb) await _sb.auth.signOut();
+  // Update UI immediately — don't await the network call
   _currentUser = null;
   _creditBalance = null;
   _appInitialized = false;
@@ -3644,8 +3786,11 @@ window.signOut = async function() {
   overlay.classList.remove('hidden');
   overlay.style.display = 'flex';
   document.getElementById('creditBadge').style.display = 'none';
+  document.getElementById('creditCount').textContent = '—';
   document.getElementById('userMenuBtn').style.display = 'none';
   document.getElementById('logoutBtn').style.display = 'none';
+  // Fire-and-forget — invalidate session in background, UI already updated
+  if (_sb) _sb.auth.signOut().catch(() => {});
 };
 
 // ── User menu ──
@@ -3819,15 +3964,25 @@ async function syncUnitsFromSupabase(force = false) {
 
 async function refreshCreditBalance() {
   if (!_sb || !_currentUser) return;
-  const { data, error } = await _sb
-    .from('profiles')
-    .select('credit_balance')
-    .eq('id', _currentUser.id)
-    .single();
-  if (!error && data) {
-    _creditBalance = data.credit_balance;
-    const el = document.getElementById('creditCount');
-    if (el) el.textContent = _creditBalance;
+  try {
+    // 8-second timeout so a slow/failed query never blocks the page
+    const queryPromise = _sb
+      .from('profiles')
+      .select('credit_balance')
+      .eq('id', _currentUser.id)
+      .single();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), 8000)
+    );
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+    if (error) { console.warn('refreshCreditBalance:', error.message); return; }
+    if (data) {
+      _creditBalance = data.credit_balance;
+      const el = document.getElementById('creditCount');
+      if (el) el.textContent = _creditBalance;
+    }
+  } catch (e) {
+    console.warn('refreshCreditBalance failed:', e.message);
   }
 }
 
