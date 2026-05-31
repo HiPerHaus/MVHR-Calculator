@@ -180,7 +180,7 @@ input:focus, select:focus { border-color: var(--accent); }
     <!-- Invite user card -->
     <div class="card" style="border-left:4px solid var(--accent)">
       <div class="card-title">Invite New User</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;max-width:680px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;align-items:end;max-width:1100px">
         <div>
           <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Email address</label>
           <input type="email" id="inviteEmail" placeholder="user@example.com" style="width:100%">
@@ -188,6 +188,16 @@ input:focus, select:focus { border-color: var(--accent); }
         <div>
           <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Full name (optional)</label>
           <input type="text" id="inviteFullName" placeholder="Jane Smith" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Company (optional)</label>
+          <input type="text" id="inviteCompany" placeholder="Acme MVHR Ltd" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Email template</label>
+          <select id="inviteTemplate" style="width:100%">
+            <option value="">Loading…</option>
+          </select>
         </div>
         <button class="btn btn-primary" onclick="sendInvite()" style="white-space:nowrap">✉ Send Invite</button>
       </div>
@@ -452,6 +462,7 @@ async function doLogin() {
   document.getElementById('headerRight').style.display = 'flex';
   document.getElementById('adminEmail').textContent = data.user.email;
   loadMembers();
+  loadInviteTemplateDropdown();
 }
 
 document.addEventListener('keydown', e => {
@@ -791,23 +802,41 @@ function fmtDateTime(iso) {
        + d.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
 }
 
+// ── Load email templates into invite dropdown ─────────────────
+async function loadInviteTemplateDropdown() {
+  try {
+    const { templates } = await api('GET', '/api/admin/email-templates');
+    const sel = document.getElementById('inviteTemplate');
+    sel.innerHTML = templates.map(t =>
+      `<option value="${t.slug}">${t.label}</option>`
+    ).join('');
+    if (!templates.length) sel.innerHTML = '<option value="">No templates</option>';
+  } catch(e) {
+    document.getElementById('inviteTemplate').innerHTML = '<option value="">Error loading</option>';
+  }
+}
+
 // ── Invite user ──────────────────────────────────────────────
 async function sendInvite() {
-  const email    = document.getElementById('inviteEmail').value.trim();
-  const fullName = document.getElementById('inviteFullName').value.trim();
-  const msgEl    = document.getElementById('inviteMsg');
+  const email        = document.getElementById('inviteEmail').value.trim();
+  const fullName     = document.getElementById('inviteFullName').value.trim();
+  const companyName  = document.getElementById('inviteCompany').value.trim();
+  const templateSlug = document.getElementById('inviteTemplate').value;
+  const msgEl        = document.getElementById('inviteMsg');
 
   if (!email) { msgEl.style.color='var(--critical)'; msgEl.textContent='Enter an email address.'; return; }
+  if (!templateSlug) { msgEl.style.color='var(--critical)'; msgEl.textContent='Select an email template.'; return; }
 
   msgEl.style.color = 'var(--muted)';
   msgEl.textContent = 'Sending invite…';
 
   try {
-    await api('POST', '/api/admin/invite-user', { email, fullName });
+    await api('POST', '/api/admin/invite-user', { email, fullName, companyName, templateSlug });
     msgEl.style.color = '#1a6832';
     msgEl.textContent = `✓ Invite sent to ${email}. They'll receive an email to set their password.`;
     document.getElementById('inviteEmail').value = '';
     document.getElementById('inviteFullName').value = '';
+    document.getElementById('inviteCompany').value = '';
     setTimeout(() => loadMembers(), 1500); // refresh list
   } catch(e) {
     msgEl.style.color = 'var(--critical)';

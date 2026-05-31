@@ -118,3 +118,19 @@ grant select on public.admin_members to authenticated;
 
 create policy "admin_members: admin only" on public.profiles
   for select using (public.is_admin());
+
+-- ── Zehnder unit name patch (run once to fix NULL manufacturer/model) ──────
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q350 ERV / Comfort Vent Q350 ERV' WHERE phi_cert_id='1006vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q350 HRV / Comfort Vent Q350 HRV' WHERE phi_cert_id='0956vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q450 ERV / Comfort Vent Q450 ERV' WHERE phi_cert_id='1007vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q450 HRV / Comfort Vent Q450 HRV' WHERE phi_cert_id='0954vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q600 ERV / Comfort Vent Q600 ERV' WHERE phi_cert_id='1008vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Q600 HRV / Comfort Vent Q600 HRV' WHERE phi_cert_id='0975vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir Flex 350'      WHERE phi_cert_id='2069vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir SL 330 E V'    WHERE phi_cert_id='0866vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir SL 330 S V'    WHERE phi_cert_id='0865vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='ComfoAir E 350 V'       WHERE phi_cert_id='1359vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='R+F Optiline RF 350 D KWL' WHERE phi_cert_id='1407vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='focus 200'              WHERE phi_cert_id='0300vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='novus 300'              WHERE phi_cert_id='0302vs03' AND manufacturer IS NULL;
+UPDATE public.mvhr_units SET manufacturer='Zehnder', model='novus F 300'            WHERE phi_cert_id='0304vs03' AND manufacturer IS NULL;

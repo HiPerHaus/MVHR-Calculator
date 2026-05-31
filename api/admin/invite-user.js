@@ -1,6 +1,6 @@
 // api/admin/invite-user.js
-// POST /api/admin/invite-user { email, fullName }
-// Sends a Supabase magic-link invite to the given email.
+// POST /api/admin/invite-user { email, fullName, templateSlug }
+// Sends a Supabase magic-link invite to the given email using the specified email template.
 // Admin only.
 
 import { createClient } from '@supabase/supabase-js';
@@ -29,15 +29,33 @@ export default async function handler(req, res) {
   const admin = await requireAdmin(req);
   if (!admin) return res.status(403).json({ error: 'Forbidden' });
 
-  const { email, fullName } = req.body;
-  if (!email?.trim()) return res.status(400).json({ error: 'email required' });
+  const { email, fullName, companyName, templateSlug } = req.body;
+  if (!email?.trim())        return res.status(400).json({ error: 'email required' });
+  if (!templateSlug?.trim()) return res.status(400).json({ error: 'templateSlug required' });
+
+  // Fetch the chosen email template
+  const { data: tpl, error: tplErr } = await supabase
+    .from('email_templates')
+    .select('slug, label, subject, body_html')
+    .eq('slug', templateSlug.trim())
+    .single();
+
+  if (tplErr || !tpl) return res.status(400).json({ error: `Template '${templateSlug}' not found` });
 
   // Derive redirect URL from the incoming request origin so invite links always
   // point at the real deployed app — with APP_URL as a fallback for local dev.
   const origin = req.headers.origin || req.headers.referer?.replace(/\/[^/]*$/, '') || process.env.APP_URL || '';
 
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email.trim(), {
-    data: { full_name: fullName?.trim() || '' },
+    data: {
+      full_name:     fullName?.trim() || '',
+      company_name:  companyName?.trim() || '',
+      email_subject: tpl.subject,
+      email_html:    tpl.body_html
+        .replace(/\{\{name\}\}/g,    fullName?.trim() || email.trim())
+        .replace(/\{\{email\}\}/g,   email.trim())
+        .replace(/\{\{company\}\}/g, companyName?.trim() || ''),
+    },
     redirectTo: origin,
   });
 
@@ -46,5 +64,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message });
   }
 
-  return res.status(200).json({ invited: data.user?.email });
+  return res.status(200).json({ invited: data.user?.email, template: tpl.slug });
 }

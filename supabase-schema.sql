@@ -25,11 +25,12 @@ create table public.profiles (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer as $$
 begin
-  insert into public.profiles (id, email, full_name)
+  insert into public.profiles (id, email, full_name, company_name)
   values (
     new.id,
     new.email,
-    coalesce(new.raw_user_meta_data->>'full_name', '')
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    coalesce(new.raw_user_meta_data->>'company_name', '')
   );
   return new;
 end;
@@ -67,9 +68,9 @@ create table public.credit_packages (
 
 -- Seed packages
 insert into public.credit_packages (name, credits, price_aud, sort_order) values
-  ('Starter',      10,  199.00, 1),
-  ('Professional', 50,  799.00, 2),
-  ('Business',     150, 1999.00, 3);
+  ('Single Design', 10,  349.00, 1),
+  ('Design Pack',   50,  1495.00, 2),
+  ('Studio Pack',   150, 3750.00, 3);
 
 
 -- ── Credit transactions ──────────────────────────────────────
@@ -78,7 +79,7 @@ create table public.credit_transactions (
   id                uuid primary key default uuid_generate_v4(),
   user_id           uuid not null references public.profiles(id) on delete cascade,
   delta             integer not null,            -- positive = credit, negative = spend
-  operation         text not null,               -- 'purchase' | 'basic_design' | 'pressure_loss' | ...
+  operation         text not null,               -- 'purchase' | 'basic_design' | 'redesign'
   description       text,
   project_id        uuid,                        -- nullable FK — set after projects table exists
   stripe_payment_id text,                        -- idempotency: prevent double-credit on webhook replay
@@ -145,17 +146,8 @@ create table public.operation_costs (
 );
 
 insert into public.operation_costs (operation, credits, label, level) values
-  ('basic_design',         5,  'Basic residential MVHR design',  1),
-  ('passive_house',        8,  'Passive House design',            2),
-  ('commercial',           15, 'Commercial project design',       3),
-  ('pressure_loss',        2,  'Pressure loss calculations',      2),
-  ('acoustic',             1,  'Acoustic calculations',           2),
-  ('commissioning_sheet',  1,  'Commissioning sheet',             2),
-  ('detailed_duct_sched',  2,  'Detailed duct schedule',          2),
-  ('semi_rigid_layout',    2,  'Semi-rigid duct layout',          2),
-  ('auto_duct_routing',    3,  'Auto duct routing',               3),
-  ('full_report_pack',     2,  'Full report pack',                2),
-  ('revision',             1,  'Revision after issue',            1);
+  ('basic_design',  10, 'Residential MVHR design',  1),
+  ('redesign',       2, 'Redesign',                 1);
 
 
 -- ============================================================
