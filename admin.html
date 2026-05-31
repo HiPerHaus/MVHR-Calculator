@@ -88,6 +88,48 @@ input:focus, select:focus { border-color: var(--accent); }
 
 /* ── Inline edit ── */
 .edit-cost-row input { width: 70px; }
+
+/* ── Email template editor ── */
+.tool-btn {
+  padding: 4px 9px; border: 1.5px solid var(--border); border-radius: 5px;
+  background: #fff; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text);
+  line-height: 1.4;
+}
+.tool-btn:hover { background: var(--primary-light, #d8f3dc); border-color: var(--accent); }
+.tool-btn:active { background: var(--accent); color: #fff; }
+.tpl-list-item {
+  padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+  font-size: 13px; transition: background .1s;
+}
+.tpl-list-item:last-child { border-bottom: none; }
+.tpl-list-item:hover { background: var(--input-bg); }
+.tpl-list-item.active { background: var(--primary-light, #d8f3dc); font-weight: 700; color: var(--primary); }
+.var-chip {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  background: #ede9fe; color: #5b21b6; font-size: 11px; font-weight: 700;
+  cursor: pointer; margin: 2px; border: 1px solid #c4b5fd;
+}
+.var-chip:hover { background: #5b21b6; color: #fff; }
+#tplEditor:focus { border-color: var(--accent); }
+#tplEditor h2 { font-size: 20px; margin: 14px 0 6px; }
+#tplEditor h3 { font-size: 16px; margin: 12px 0 4px; }
+#tplEditor p  { margin: 0 0 10px; }
+#tplEditor a  { color: var(--accent); }
+#tplEditor ul, #tplEditor ol { padding-left: 24px; margin: 8px 0; }
+
+/* ── Modals ── */
+.modal-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0,0,0,.5); align-items: center; justify-content: center;
+}
+.modal-backdrop.open { display: flex; }
+.modal-box {
+  background: #fff; border-radius: 14px; padding: 28px 30px;
+  width: 420px; max-width: 95vw; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.modal-title { font-size: 16px; font-weight: 900; margin-bottom: 6px; }
+.modal-sub   { font-size: 13px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
+.modal-footer { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
 </style>
 </head>
 <body>
@@ -127,6 +169,7 @@ input:focus, select:focus { border-color: var(--accent); }
   <button class="nav-btn active" onclick="showPanel('members')">👥 Members</button>
   <button class="nav-btn" onclick="showPanel('transactions')">📋 Transactions</button>
   <button class="nav-btn" onclick="showPanel('costs')">⚡ Operation Costs</button>
+  <button class="nav-btn" onclick="showPanel('emails')">✉ Email Templates</button>
 </nav>
 
 <main>
@@ -270,6 +313,92 @@ input:focus, select:focus { border-color: var(--accent); }
     </div>
   </div>
 
+  <!-- ═══ EMAIL TEMPLATES PANEL ═══ -->
+  <div id="panel-emails" class="panel">
+    <div style="display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:start">
+
+      <!-- Template list -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div class="card-title" style="margin:0">Templates</div>
+          <button class="btn btn-primary btn-sm" onclick="newTemplate()">+ New</button>
+        </div>
+        <div id="templateList" style="padding:8px 0"></div>
+      </div>
+
+      <!-- Editor -->
+      <div id="templateEditorWrap" style="display:none">
+        <div class="card" style="margin-bottom:0">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div class="card-title" style="margin:0" id="editorCardTitle">Edit Template</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-outline btn-sm" id="previewToggleBtn" onclick="togglePreview()">👁 Preview</button>
+              <button class="btn btn-primary btn-sm" onclick="saveTemplate()">💾 Save</button>
+              <button class="btn btn-sm" style="background:var(--critical-bg);color:var(--critical);border:1px solid #fecaca" onclick="deleteTemplate()">🗑</button>
+            </div>
+          </div>
+
+          <!-- Meta fields -->
+          <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:16px">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Template Name</label>
+              <input id="tplLabel" type="text" placeholder="e.g. Invite Email" style="width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Subject Line</label>
+              <input id="tplSubject" type="text" placeholder="Email subject…" style="width:100%">
+            </div>
+          </div>
+
+          <!-- Toolbar -->
+          <div id="editorToolbar" style="display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:var(--input-bg);border:1.5px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0">
+            <button class="tool-btn" title="Bold" onclick="fmt('bold')"><b>B</b></button>
+            <button class="tool-btn" title="Italic" onclick="fmt('italic')"><i>I</i></button>
+            <button class="tool-btn" title="Underline" onclick="fmt('underline')"><u>U</u></button>
+            <div style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch"></div>
+            <button class="tool-btn" title="Heading 1" onclick="fmtBlock('h2')">H1</button>
+            <button class="tool-btn" title="Heading 2" onclick="fmtBlock('h3')">H2</button>
+            <button class="tool-btn" title="Paragraph" onclick="fmtBlock('p')">¶</button>
+            <div style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch"></div>
+            <button class="tool-btn" title="Bulleted list" onclick="fmt('insertUnorderedList')">• List</button>
+            <button class="tool-btn" title="Numbered list" onclick="fmt('insertOrderedList')">1. List</button>
+            <div style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch"></div>
+            <button class="tool-btn" title="Align left" onclick="fmt('justifyLeft')">⬛ L</button>
+            <button class="tool-btn" title="Align center" onclick="fmt('justifyCenter')">⬛ C</button>
+            <button class="tool-btn" title="Align right" onclick="fmt('justifyRight')">⬛ R</button>
+            <div style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch"></div>
+            <button class="tool-btn" title="Insert link" onclick="insertLink()">🔗 Link</button>
+            <button class="tool-btn" title="Remove formatting" onclick="fmt('removeFormat')">✕ Format</button>
+            <div style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch"></div>
+            <!-- Variable chips -->
+            <span style="font-size:11px;font-weight:700;color:var(--muted);align-self:center;margin-left:4px">Insert:</span>
+            <span id="tplVarChips"></span>
+          </div>
+
+          <!-- Rich text editor area -->
+          <div id="tplEditor"
+            contenteditable="true"
+            style="min-height:320px;padding:16px;border:1.5px solid var(--border);border-radius:0 0 8px 8px;outline:none;font-size:14px;line-height:1.7;background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+            spellcheck="true"
+          ></div>
+
+          <!-- Preview pane (hidden by default) -->
+          <div id="tplPreview" style="display:none;margin-top:16px;border:1.5px solid var(--border);border-radius:8px;overflow:hidden">
+            <div style="padding:10px 14px;background:var(--input-bg);border-bottom:1px solid var(--border);font-size:12px;font-weight:700;color:var(--muted)">PREVIEW — variables shown as-is</div>
+            <div style="padding:24px 32px;background:#fff;max-width:600px;margin:0 auto" id="tplPreviewBody"></div>
+          </div>
+
+          <div id="templateMsg" style="margin-top:10px;font-size:13px;min-height:18px"></div>
+        </div>
+      </div>
+
+      <div id="templateEmptyState" style="color:var(--muted);font-size:13px;padding:28px 0">
+        Select a template to edit, or create a new one.
+      </div>
+
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -342,6 +471,7 @@ function showPanel(name) {
   event.currentTarget.classList.add('active');
   if (name === 'transactions' && document.getElementById('txTableBody').children[0]?.colSpan) loadTransactions();
   if (name === 'costs') loadCosts();
+  if (name === 'emails') loadEmailTemplates();
 }
 
 // ── API helper ────────────────────────────────────────────────
@@ -422,9 +552,11 @@ async function loadMembers() {
         <td style="font-size:12px;color:var(--muted)">${fmtDate(u.last_sign_in_at)}</td>
         <td style="font-size:12px;color:var(--muted)">${fmtDate(u.created_at)}</td>
         <td>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-outline btn-sm" onclick="openGift('${u.id}','${esc(u.email)}',${u.credit_balance})">⚡ Credits</button>
             <button class="btn btn-outline btn-sm" onclick="viewUserTx('${u.id}')">📋 History</button>
+            <button class="btn btn-outline btn-sm" onclick="openResetModal('${u.id}','${esc(u.email)}')">🔑 Password</button>
+            <button class="btn btn-sm" style="background:var(--critical-bg);color:var(--critical);border:1px solid #fecaca" onclick="openDeleteModal('${u.id}','${esc(u.email)}')">🗑 Delete</button>
           </div>
         </td>
       </tr>`).join('');
@@ -689,6 +821,289 @@ document.addEventListener('keydown', e => {
   const active = document.activeElement;
   if (active?.id === 'inviteEmail' || active?.id === 'inviteFullName') sendInvite();
 });
+
+// ══════════════════════════════════════════════════════════════
+// EMAIL TEMPLATES
+// ══════════════════════════════════════════════════════════════
+let _templates = [];
+let _activeTemplateId = null;
+let _previewOpen = false;
+
+async function loadEmailTemplates() {
+  const listEl = document.getElementById('templateList');
+  listEl.innerHTML = '<div style="padding:12px 16px;color:var(--muted);font-size:12px">Loading…</div>';
+  try {
+    const { templates } = await api('GET', '/api/admin/email-templates');
+    _templates = templates || [];
+    renderTemplateList();
+    if (_templates.length) selectTemplate(_templates[0].id);
+  } catch(e) {
+    listEl.innerHTML = `<div style="padding:12px;color:var(--critical);font-size:12px">${e.message}</div>`;
+  }
+}
+
+function renderTemplateList() {
+  const listEl = document.getElementById('templateList');
+  if (!_templates.length) {
+    listEl.innerHTML = '<div style="padding:12px 16px;color:var(--muted);font-size:12px">No templates yet.</div>';
+    return;
+  }
+  listEl.innerHTML = _templates.map(t => `
+    <div class="tpl-list-item ${t.id === _activeTemplateId ? 'active' : ''}" onclick="selectTemplate('${t.id}')">
+      <div style="font-weight:600">${esc(t.label)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(t.slug)}</div>
+    </div>`).join('');
+}
+
+function selectTemplate(id) {
+  const t = _templates.find(t => t.id === id);
+  if (!t) return;
+  _activeTemplateId = id;
+  document.getElementById('editorCardTitle').textContent = 'Edit Template';
+  document.getElementById('tplLabel').value = t.label;
+  document.getElementById('tplSubject').value = t.subject || '';
+  document.getElementById('tplEditor').innerHTML = t.body_html || '';
+  document.getElementById('templateMsg').textContent = '';
+  renderVarChips(t.variables || []);
+  showEditor(true);
+  renderTemplateList();
+  // Close preview if open
+  if (_previewOpen) togglePreview();
+}
+
+function newTemplate() {
+  _activeTemplateId = null;
+  document.getElementById('editorCardTitle').textContent = 'New Template';
+  document.getElementById('tplLabel').value = '';
+  document.getElementById('tplSubject').value = '';
+  document.getElementById('tplEditor').innerHTML = '<p></p>';
+  document.getElementById('templateMsg').textContent = '';
+  renderVarChips(['{{name}}', '{{email}}', '{{link}}']);
+  showEditor(true);
+  renderTemplateList();
+  document.getElementById('tplLabel').focus();
+}
+
+function showEditor(show) {
+  document.getElementById('templateEditorWrap').style.display = show ? '' : 'none';
+  document.getElementById('templateEmptyState').style.display = show ? 'none' : '';
+}
+
+function renderVarChips(variables) {
+  const container = document.getElementById('tplVarChips');
+  container.innerHTML = (variables || []).map(v =>
+    `<span class="var-chip" title="Click to insert" onclick="insertVar('${v}')">${v}</span>`
+  ).join('');
+}
+
+function insertVar(variable) {
+  document.getElementById('tplEditor').focus();
+  document.execCommand('insertText', false, variable);
+}
+
+// ── Rich text formatting commands ──
+function fmt(cmd, value) {
+  document.getElementById('tplEditor').focus();
+  document.execCommand(cmd, false, value || null);
+}
+
+function fmtBlock(tag) {
+  document.getElementById('tplEditor').focus();
+  document.execCommand('formatBlock', false, tag);
+}
+
+function insertLink() {
+  const url = prompt('URL:', 'https://');
+  if (!url) return;
+  document.getElementById('tplEditor').focus();
+  document.execCommand('createLink', false, url);
+}
+
+// ── Preview ──
+function togglePreview() {
+  _previewOpen = !_previewOpen;
+  document.getElementById('tplPreview').style.display = _previewOpen ? '' : 'none';
+  document.getElementById('previewToggleBtn').textContent = _previewOpen ? '✏ Edit' : '👁 Preview';
+  if (_previewOpen) {
+    document.getElementById('tplPreviewBody').innerHTML = document.getElementById('tplEditor').innerHTML;
+  }
+}
+
+// ── Save ──
+async function saveTemplate() {
+  const label    = document.getElementById('tplLabel').value.trim();
+  const subject  = document.getElementById('tplSubject').value.trim();
+  const body_html = document.getElementById('tplEditor').innerHTML;
+  const msgEl    = document.getElementById('templateMsg');
+
+  if (!label) { msgEl.style.color='var(--critical)'; msgEl.textContent='Template name is required.'; return; }
+
+  // Derive slug from label if creating new
+  const existing = _templates.find(t => t.id === _activeTemplateId);
+  const slug = existing?.slug || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+  msgEl.style.color = 'var(--muted)'; msgEl.textContent = 'Saving…';
+
+  try {
+    const { template } = await api('POST', '/api/admin/email-templates', {
+      id: _activeTemplateId || undefined,
+      slug, label, subject, body_html,
+    });
+    // Update local cache
+    const idx = _templates.findIndex(t => t.id === template.id);
+    if (idx >= 0) _templates[idx] = template;
+    else _templates.push(template);
+    _activeTemplateId = template.id;
+    msgEl.style.color = '#1a6832';
+    msgEl.textContent = '✓ Saved';
+    renderTemplateList();
+    setTimeout(() => { msgEl.textContent = ''; }, 2000);
+  } catch(e) {
+    msgEl.style.color = 'var(--critical)';
+    msgEl.textContent = e.message;
+  }
+}
+
+// ── Delete ──
+async function deleteTemplate() {
+  if (!_activeTemplateId) return;
+  const t = _templates.find(t => t.id === _activeTemplateId);
+  if (!confirm(`Delete template "${t?.label}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/admin/email-templates?id=${_activeTemplateId}`);
+    _templates = _templates.filter(t => t.id !== _activeTemplateId);
+    _activeTemplateId = null;
+    renderTemplateList();
+    showEditor(false);
+    if (_templates.length) selectTemplate(_templates[0].id);
+  } catch(e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+// ── Delete user ──────────────────────────────────────────────
+let _deleteUserId = null;
+
+function openDeleteModal(userId, email) {
+  _deleteUserId = userId;
+  document.getElementById('deleteUserEmail').textContent = email;
+  document.getElementById('deleteConfirmInput').value = '';
+  document.getElementById('deleteMsg').textContent = '';
+  document.getElementById('btnConfirmDelete').disabled = true;
+  document.getElementById('deleteModal').classList.add('open');
+  setTimeout(() => document.getElementById('deleteConfirmInput').focus(), 50);
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+  _deleteUserId = null;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('deleteConfirmInput').addEventListener('input', function() {
+    document.getElementById('btnConfirmDelete').disabled = this.value !== 'delete';
+  });
+});
+
+async function confirmDeleteUser() {
+  if (!_deleteUserId) return;
+  const btn = document.getElementById('btnConfirmDelete');
+  const msg = document.getElementById('deleteMsg');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    await api('POST', '/api/admin/delete-user', { userId: _deleteUserId });
+    closeDeleteModal();
+    loadMembers();
+  } catch(e) {
+    msg.style.color = 'var(--critical)';
+    msg.textContent = e.message;
+    btn.disabled = false; btn.textContent = 'Delete User';
+  }
+}
+
+// ── Reset / set password ──────────────────────────────────────
+let _resetUserId = null;
+
+function openResetModal(userId, email) {
+  _resetUserId = userId;
+  document.getElementById('resetUserEmail').textContent = email;
+  document.getElementById('resetPasswordInput').value = '';
+  document.getElementById('resetMsg').textContent = '';
+  document.getElementById('resetModal').classList.add('open');
+  setTimeout(() => document.getElementById('resetPasswordInput').focus(), 50);
+}
+
+function closeResetModal() {
+  document.getElementById('resetModal').classList.remove('open');
+  _resetUserId = null;
+}
+
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+  let pw = '';
+  for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  document.getElementById('resetPasswordInput').value = pw;
+  document.getElementById('resetPasswordInput').type = 'text';
+}
+
+async function submitResetPassword() {
+  if (!_resetUserId) return;
+  const password = document.getElementById('resetPasswordInput').value.trim();
+  const msg = document.getElementById('resetMsg');
+  if (password.length < 8) { msg.style.color='var(--critical)'; msg.textContent='Minimum 8 characters.'; return; }
+  const btn = document.getElementById('btnConfirmReset');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await api('POST', '/api/admin/reset-password', { userId: _resetUserId, password });
+    msg.style.color = '#1a6832';
+    msg.textContent = `✓ Temporary password set. User must change it on next login.`;
+    btn.textContent = '✓ Done';
+    setTimeout(closeResetModal, 1800);
+  } catch(e) {
+    msg.style.color = 'var(--critical)';
+    msg.textContent = e.message;
+    btn.disabled = false; btn.textContent = 'Set Password';
+  }
+}
 </script>
+
+<!-- Delete user modal -->
+<div id="deleteModal" class="modal-backdrop" onclick="if(event.target===this)closeDeleteModal()">
+  <div class="modal-box">
+    <div class="modal-title" style="color:var(--critical)">⚠ Delete User</div>
+    <div class="modal-sub">
+      You are about to permanently delete <strong id="deleteUserEmail"></strong>.<br>
+      This removes their account, profile, and all associated data. This cannot be undone.<br><br>
+      Type <strong>delete</strong> below to confirm.
+    </div>
+    <input id="deleteConfirmInput" type="text" placeholder="Type: delete" style="width:100%;margin-bottom:6px">
+    <div id="deleteMsg" style="font-size:12px;min-height:18px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
+      <button id="btnConfirmDelete" class="btn btn-danger" disabled onclick="confirmDeleteUser()">Delete User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset password modal -->
+<div id="resetModal" class="modal-backdrop" onclick="if(event.target===this)closeResetModal()">
+  <div class="modal-box">
+    <div class="modal-title">🔑 Set Temporary Password</div>
+    <div class="modal-sub">
+      Set a temporary password for <strong id="resetUserEmail"></strong>.<br>
+      The user will be required to change it on their next login.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <input id="resetPasswordInput" type="password" placeholder="New temporary password" style="flex:1">
+      <button class="btn btn-outline btn-sm" onclick="generateTempPassword()" title="Generate a random password">⚡ Generate</button>
+    </div>
+    <div id="resetMsg" style="font-size:12px;min-height:18px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeResetModal()">Cancel</button>
+      <button id="btnConfirmReset" class="btn btn-primary" onclick="submitResetPassword()">Set Password</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HiPer MVHR — HiPer Studio</title>
+<title>HiPer Studio</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 /* ── Login overlay ── */
@@ -302,7 +302,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <div id="loginOverlay">
   <div class="login-box">
     <div class="login-logo" style="font-size:26px;font-weight:900;letter-spacing:-0.5px;color:var(--primary);margin-bottom:4px">HiPer Studio</div>
-    <div class="login-sub" style="margin-bottom:22px">HiPer MVHR · Sign in to continue</div>
+    <div class="login-sub" style="margin-bottom:22px">Sign in to continue</div>
 
     <!-- Tab switcher -->
     <div style="display:flex;gap:0;margin-bottom:20px;border:1.5px solid var(--border);border-radius:9px;overflow:hidden">
@@ -3339,7 +3339,10 @@ window.submitNewPassword = async function() {
   if (pw.length < 8) { _setLoginError('Password must be at least 8 characters.'); return; }
   if (pw !== pw2)    { _setLoginError('Passwords do not match.'); return; }
   if (!_sb) return;
-  const { error } = await _sb.auth.updateUser({ password: pw });
+  const { error } = await _sb.auth.updateUser({
+    password: pw,
+    data: { must_change_password: false },
+  });
   if (error) {
     _setLoginError(error.message);
   } else {
@@ -3396,6 +3399,17 @@ if (_sb) {
       overlay.classList.remove('hidden');
       overlay.style.display = 'flex';
       switchAuthTab('reset');
+      return;
+    }
+    // Admin-set temporary password — force user to choose a new one before proceeding
+    if (session?.user?.user_metadata?.must_change_password && event === 'SIGNED_IN') {
+      _currentUser = session.user;
+      const overlay = document.getElementById('loginOverlay');
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+      switchAuthTab('reset');
+      const sub = document.querySelector('#resetFields .login-sub-text') || document.querySelector('#resetFields div');
+      if (sub) sub.textContent = 'Your password has been reset by an admin. Please choose a new password to continue.';
       return;
     }
     if (session?.user) {
