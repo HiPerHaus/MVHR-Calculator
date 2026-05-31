@@ -1189,65 +1189,95 @@ const CUSTOM_UNITS_KEY  = 'hh_mvhr_custom_v1';
 const MY_UNITS_KEY      = 'hh_mvhr_my_units_v1';
 const SELECTED_UNIT_KEY = 'hh_mvhr_sel_unit_v1';
 
-// ── Starter name map — PHI cert ID → { manufacturer, model }
-// Populated from publicly known PHI certified products.
-// Users can override by importing an xlsx or editing custom entries.
+// ── Confirmed name map — sourced directly from database.passivehouse.com
+// Only includes entries verified from the PHI online database.
+// Unidentified units show under "Unidentified" — use the 🏷 button to name them.
 const STARTER_NAMES = {
+  // FläktGroup
+  '0231vs03':{'manufacturer':'FläktGroup','model':'COM4mini CC20'},
   // Zehnder
-  '0913vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q150 B'},
-  '0914vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q250 B'},
-  '0915vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 B'},
-  '0916vs03':{'manufacturer':'Zehnder','model':'ComfoAir 200'},
-  '0917vs03':{'manufacturer':'Zehnder','model':'ComfoAir 350'},
-  '0918vs03':{'manufacturer':'Zehnder','model':'ComfoAir 550'},
-  '1813vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 ER'},
-  '1814vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 TR'},
-  '1815vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 ER'},
-  '2566vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 B'},
-  // Brink
-  '1569vs03':{'manufacturer':'Brink','model':'Flair 325 EH'},
-  '1570vs03':{'manufacturer':'Brink','model':'Flair 400 EH'},
-  '1841vs03':{'manufacturer':'Brink','model':'Renovent Excellent 300'},
-  '2307vs03':{'manufacturer':'Brink','model':'Renovent Sky 150'},
-  // Paul
-  '1134vs03':{'manufacturer':'Paul','model':'Novus 300'},
-  '1141vs03':{'manufacturer':'Paul','model':'Focus 200'},
-  '1142vs03':{'manufacturer':'Paul','model':'Santos 370 DC'},
-  // Stiebel Eltron
-  '0812vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 170'},
-  '1418vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 180 Plus'},
-  '1419vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 180 E Plus'},
-  // Nilan
-  '1924vs03':{'manufacturer':'Nilan','model':'VPL 15'},
-  // Vallox
-  '2088vs03':{'manufacturer':'Vallox','model':'ValloPlus 350 MV'},
-  // Systemair
-  '1420vs03':{'manufacturer':'Systemair','model':'VR 400/B EV'},
+  '0325vs03':{'manufacturer':'Zehnder','model':'ComfoAir160 ERV / ComfoD160 ERV'},
+  '0326vs03':{'manufacturer':'Zehnder','model':'ComfoAir160 HRV / ComfoD160 HRV'},
+  '0327vs03':{'manufacturer':'Zehnder','model':'ComfoAir200 / ComfoD250 / WHR920'},
+  '0328vs03':{'manufacturer':'Zehnder','model':'ComfoAir350 / ComfoD350 / WHR930'},
+  '0680vs03':{'manufacturer':'Zehnder','model':'CLIMOS F 200 (Comfort)'},
+  '0702vs03':{'manufacturer':'Zehnder','model':'ComfoAir180 (V) HRV / ComfoD180 (V) HRV'},
+  '1558vs03':{'manufacturer':'Zehnder','model':'ComfoAir 225'},
+  '2068vs03':{'manufacturer':'Zehnder','model':'ComfoAir Flex 250'},
+  '2099vs03':{'manufacturer':'Zehnder','model':'ComfoAir 225 ERV'},
+  '2100vs03':{'manufacturer':'Zehnder','model':'ComfoAir E350 ERV'},
+  '2281vs03':{'manufacturer':'Zehnder','model':'CAL-925'},
+  '2436vs03':{'manufacturer':'Zehnder','model':'Comfoair Fit 100'},
+  // Drexel und Weiss
+  '0482vs03':{'manufacturer':'Drexel und Weiss','model':'aerosilent bianco'},
+  '0704vs03':{'manufacturer':'Drexel und Weiss','model':'aerosilent stratos'},
+  '1068vs03':{'manufacturer':'Drexel und Weiss','model':'aerosilent exos'},
+  // Brink Climate Systems
+  '1285vs03':{'manufacturer':'Brink','model':'Flair 300 Enthalpie'},
+  '1286vs03':{'manufacturer':'Brink','model':'Flair 300'},
+  '1287vs03':{'manufacturer':'Brink','model':'Flair 325 Enthalpie'},
+  '1288vs03':{'manufacturer':'Brink','model':'Flair 325'},
+  '1362vs03':{'manufacturer':'Brink','model':'Flair 400'},
+  '1363vs03':{'manufacturer':'Brink','model':'Flair 400 Enthalpie'},
+  '1646vs03':{'manufacturer':'Brink','model':'Flair 200 NL'},
+  '1647vs03':{'manufacturer':'Brink','model':'Flair 225 EU'},
+  '1927vs03':{'manufacturer':'Brink','model':'Flair 450 EU'},
+  '1928vs03':{'manufacturer':'Brink','model':'Flair 600 EU'},
+  '1929vs03':{'manufacturer':'Brink','model':'Flair 450 NL'},
+  '1930vs03':{'manufacturer':'Brink','model':'Flair 600 NL'},
+  '2522vs03':{'manufacturer':'Brink','model':'Ease 200'},
+  '2523vs03':{'manufacturer':'Brink','model':'Ease 200 Enthalpy'},
+  // Bosch Thermotechnik
+  '1418vs03':{'manufacturer':'Bosch','model':'Vent V4000CC 100 / 120'},
+  '1419vs03':{'manufacturer':'Bosch','model':'Vent V4000CC 100 B / 120 B'},
+  '1813vs03':{'manufacturer':'Bosch','model':'V5001C 450'},
+  '1814vs03':{'manufacturer':'Bosch','model':'V5001C 450 E'},
+  '1815vs03':{'manufacturer':'Bosch','model':'V5001C 260'},
+  '1816vs03':{'manufacturer':'Bosch','model':'V5001C 260 E'},
+  // Buderus
+  '1420vs03':{'manufacturer':'Buderus','model':'Logavent HRV156-100 K / 120 K'},
+  '1421vs03':{'manufacturer':'Buderus','model':'Logavent HRV156-100 K B / 120 K B'},
+  '1817vs03':{'manufacturer':'Buderus','model':'Logavent HRV176-450'},
+  '1818vs03':{'manufacturer':'Buderus','model':'Logavent HRV176-450 E'},
+  '1819vs03':{'manufacturer':'Buderus','model':'Logavent HRV176-260'},
+  '1820vs03':{'manufacturer':'Buderus','model':'Logavent HRV176-260 E'},
   // Swegon
-  '2087vs03':{'manufacturer':'Swegon','model':'CASA R3'},
-  // Vaillant
-  '2003vs03':{'manufacturer':'Vaillant','model':'recoVAIR 350/4 E'},
-  '2004vs03':{'manufacturer':'Vaillant','model':'recoVAIR 450/4 E'},
-  // Dantherm
-  '1201vs03':{'manufacturer':'Dantherm','model':'HCV 300 P2'},
-  '1202vs03':{'manufacturer':'Dantherm','model':'HCV 450 P3'},
-  // Domekt / Komfovent
-  '1540vs03':{'manufacturer':'Komfovent','model':'Domekt R 200 V'},
-  '1541vs03':{'manufacturer':'Komfovent','model':'Domekt R 400 V'},
-  // Viessmann
-  '1760vs03':{'manufacturer':'Viessmann','model':'Vitovent 300-W'},
-  '1761vs03':{'manufacturer':'Viessmann','model':'Vitovent 300-C'},
-  // Aerauliqa
-  '1620vs03':{'manufacturer':'Aerauliqa','model':'QUANTUM-R 85'},
-  '1621vs03':{'manufacturer':'Aerauliqa','model':'QUANTUM-R 200'},
-  // Helios
-  '1800vs03':{'manufacturer':'Helios','model':'KWL EC 370 W Pro'},
-  '1801vs03':{'manufacturer':'Helios','model':'KWL EC 500 W Pro'},
-  // Maico
-  '1900vs03':{'manufacturer':'Maico','model':'WS 75 Powerbox'},
-  '1901vs03':{'manufacturer':'Maico','model':'WS 300 Flat'},
-  // Genvex
-  '0231vs03':{'manufacturer':'Genvex','model':'Combi 185 S'},
+  '1591vs03':{'manufacturer':'Swegon','model':'CASA R7 Genius'},
+  '2082vs03':{'manufacturer':'Swegon','model':'CASA R5 Genius'},
+  '2141vs03':{'manufacturer':'Swegon','model':'CASA R5 Genius Sorption'},
+  '2142vs03':{'manufacturer':'Swegon','model':'CASA R7 Genius Sorption'},
+  '2288vs03':{'manufacturer':'Swegon','model':'CASA R4-C'},
+  '2512vs07':{'manufacturer':'Swegon','model':'CASA R4-C'},
+  // Prolux Solutions (Avero)
+  '0985vs03':{'manufacturer':'Prolux Solutions','model':'Avero V460'},
+  '0986vs03':{'manufacturer':'Prolux Solutions','model':'Avero V370'},
+  '0987vs03':{'manufacturer':'Prolux Solutions','model':'Avero V280'},
+  '0988vs03':{'manufacturer':'Prolux Solutions','model':'Avero V180'},
+  '1049vs03':{'manufacturer':'Prolux Solutions','model':'Avero H170'},
+  // Thessla Green
+  '1580vs03':{'manufacturer':'Thessla Green','model':'AirPack 4 300h'},
+  '1581vs03':{'manufacturer':'Thessla Green','model':'AirPack 4 400h'},
+  '1582vs03':{'manufacturer':'Thessla Green','model':'AirPack 4 500h'},
+  // SODECA
+  '2070vs03':{'manufacturer':'SODECA','model':'AIRHOME-350/V'},
+  '2071vs04':{'manufacturer':'SODECA','model':'AIRHOME-350/V'},
+  '2434vs03':{'manufacturer':'SODECA','model':'AIRHOME-150'},
+  // Valsir
+  '2261vs03':{'manufacturer':'Valsir','model':'Ariosa HV 170 S'},
+  '2262vs03':{'manufacturer':'Valsir','model':'Ariosa HV 170 E'},
+  '2263vs03':{'manufacturer':'Valsir','model':'Ariosa HV 250 S'},
+  '2264vs03':{'manufacturer':'Valsir','model':'Ariosa HV 250 E'},
+  '2484vs03':{'manufacturer':'Valsir','model':'Ariosa HV 330 S'},
+  '2485vs03':{'manufacturer':'Valsir','model':'Ariosa HV 330 E'},
+  // Vasco Group
+  '2194vs03':{'manufacturer':'Vasco Group','model':'225 Compact LE'},
+  // Soler & Palau
+  '1367vs03':{'manufacturer':'Soler & Palau','model':'ALTAIR 120 H'},
+  // REC Indovent
+  '0920vs03':{'manufacturer':'REC Indovent','model':'Blue 4'},
+  // BIG MAGIC
+  '2566vs03':{'manufacturer':'BIG MAGIC','model':'Big Magic'},
+  // User-supplied overrides are stored in localStorage and merged at runtime
 };
 
 function _loadUnitDB() {
@@ -1278,20 +1308,35 @@ function _saveSelectedUnit(unit) {
   } catch(e) {}
 }
 
+// User-saved name overrides (persisted so users can identify unlabelled units)
+const USER_NAMES_KEY = 'hh_mvhr_user_names_v1';
+function _loadUserNames() { try { return JSON.parse(localStorage.getItem(USER_NAMES_KEY)) || {}; } catch(e) { return {}; } }
+function _saveUserNames(m) { try { localStorage.setItem(USER_NAMES_KEY, JSON.stringify(m)); } catch(e) {} }
+
+// Resolve manufacturer + model for a PHI unit, checking user overrides first
+function _resolveName(u) {
+  const userNames = _loadUserNames();
+  const override = userNames[u.id];
+  if (override) return { manufacturer: override.manufacturer, model: override.model };
+  const starter = STARTER_NAMES[u.id];
+  if (starter) return { manufacturer: starter.manufacturer, model: starter.model };
+  return { manufacturer: null, model: null };
+}
+
 // Build full unit list: PHI db + customs, with names resolved
 function getAllUnits() {
   const phiUnits = _loadUnitDB();
   const customs  = _loadCustomUnits();
   return [
-    ...phiUnits.map(u => ({
-      ...u,
-      manufacturer: (STARTER_NAMES[u.id]?.manufacturer) || u.manufacturer || 'Unknown',
-      model: (STARTER_NAMES[u.id]?.model) || u.model || u.id,
-      source: 'phi',
-    })),
+    ...phiUnits.map(u => {
+      const name = _resolveName(u);
+      return { ...u, manufacturer: name.manufacturer, model: name.model, source: 'phi' };
+    }),
     ...customs.map(u => ({ ...u, source: 'custom' })),
   ];
 }
+
+const UNIDENTIFIED_GROUP = '⚠ Unidentified';
 
 function getGroupedUnits(filter = {}) {
   let units = getAllUnits();
@@ -1309,22 +1354,41 @@ function getGroupedUnits(filter = {}) {
   if (filter.humidity) units = units.filter(u => u.humidityWinter);
   if (filter.maxFlow)  units = units.filter(u => u.flowMax <= parseInt(filter.maxFlow));
 
-  // Sort: custom first, then by manufacturer + model
+  // Sort named units alphabetically; unidentified by cert ID
   units.sort((a, b) => {
+    const aName = a.manufacturer ? a.manufacturer + a.model : null;
+    const bName = b.manufacturer ? b.manufacturer + b.model : null;
     if (a.source === 'custom' && b.source !== 'custom') return -1;
     if (b.source === 'custom' && a.source !== 'custom') return 1;
-    return (a.manufacturer + a.model).localeCompare(b.manufacturer + b.model);
+    if (aName && !bName) return -1;
+    if (!aName && bName) return 1;
+    if (aName && bName) return aName.localeCompare(bName);
+    return (a.id || '').localeCompare(b.id || '');
   });
 
-  // Group by manufacturer
+  // Group by manufacturer; unidentified units go to their own group
   const groups = {};
   units.forEach(u => {
-    const mfr = u.manufacturer || 'Unknown';
+    const mfr = u.manufacturer || UNIDENTIFIED_GROUP;
     if (!groups[mfr]) groups[mfr] = [];
     groups[mfr].push(u);
   });
   return groups;
+
 }
+
+// Quick-name an unidentified unit from the picker
+window.quickNameUnit = function(unitId) {
+  const mfr   = prompt('Manufacturer name for ' + unitId + ':');
+  if (!mfr) return;
+  const model = prompt('Model name:') || unitId;
+  const userNames = _loadUserNames();
+  userNames[unitId] = { manufacturer: mfr.trim(), model: model.trim() };
+  _saveUserNames(userNames);
+  renderUnitPicker();
+  renderMyUnitsList();
+  showToast(`✓ Named ${unitId} as ${mfr} ${model}`);
+};
 
 // ── Import PHI xlsx via SheetJS ──
 window.importUnitDatabase = function(input) {
@@ -1453,8 +1517,10 @@ window.renderUnitPicker = function() {
           title="${isMy ? 'Remove from My Units' : 'Add to My Units'}"
           style="background:none;border:none;font-size:16px;cursor:pointer;flex-shrink:0;opacity:${isMy ? 1 : 0.25};color:${isMy ? '#f59e0b' : 'var(--muted)'}">★</button>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:${isSel ? '800' : '600'};color:${isSel ? 'var(--primary)' : 'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-            ${u.model || u.id}${isCustom ? ' <span style="font-size:10px;background:#e0f2fe;color:#0369a1;border-radius:4px;padding:1px 5px">custom</span>' : ''}
+          <div style="font-size:13px;font-weight:${isSel ? '800' : '600'};color:${isSel ? 'var(--primary)' : u.manufacturer ? 'var(--text)' : 'var(--muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${u.model || u.id}
+            ${isCustom ? '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;border-radius:4px;padding:1px 5px;margin-left:4px">custom</span>' : ''}
+            ${!u.manufacturer && !isCustom ? `<span style="font-size:10px;color:var(--muted);margin-left:4px">${u.id}</span>` : ''}
           </div>
           <div style="font-size:11px;color:var(--muted)">
             ${u.hrEff != null ? `♻ ${u.hrEff}%` : ''}
@@ -1464,16 +1530,25 @@ window.renderUnitPicker = function() {
             ${u.frostProtection === 'yes' ? ' · ❄ frost' : ''}
           </div>
         </div>
-        ${isCustom ? `<button onclick="event.stopPropagation();openCustomUnitForm('${u.id}')" title="Edit" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">✏</button>
-          <button onclick="event.stopPropagation();deleteCustomUnit('${u.id}')" title="Delete" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">🗑</button>` : ''}
+        ${isCustom
+          ? `<button onclick="event.stopPropagation();openCustomUnitForm('${u.id}')" title="Edit" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">✏</button>
+             <button onclick="event.stopPropagation();deleteCustomUnit('${u.id}')" title="Delete" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">🗑</button>`
+          : !u.manufacturer
+          ? `<button onclick="event.stopPropagation();quickNameUnit('${u.id}')" title="Identify this unit" style="background:none;border:1px solid var(--border);border-radius:5px;font-size:11px;cursor:pointer;color:var(--muted);padding:2px 7px;white-space:nowrap">🏷 Name</button>`
+          : ''}
       </div>`;
     }).join('');
 
+    const isUnidentified = mfr === UNIDENTIFIED_GROUP;
+    const headerNote = isUnidentified
+      ? `<div style="padding:4px 12px 6px;font-size:11px;color:var(--muted)">These units have no confirmed name in our database. Click 🏷 to identify one, or search PHI cert ID at <a href="https://database.passivehouse.com/en/components/list/ventilation_small" target="_blank" style="color:var(--primary)">database.passivehouse.com</a>.</div>`
+      : '';
     return `<div>
       <div style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;
-        color:var(--muted);background:var(--input-bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1">
+        color:${isUnidentified ? 'var(--amber,#d97706)' : 'var(--muted)'};background:var(--input-bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1">
         ${mfr} <span style="font-weight:400">(${units.length})</span>
       </div>
+      ${headerNote}
       ${rows}
     </div>`;
   }).join('<div style="height:1px;background:var(--border)"></div>');
