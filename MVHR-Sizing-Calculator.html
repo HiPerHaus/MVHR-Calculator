@@ -374,6 +374,20 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </div>
     </div>
 
+    <!-- Set new password (after clicking magic/reset link) -->
+    <div id="resetFields" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Choose a new password for your account.</div>
+      <div class="login-field">
+        <label>New Password</label>
+        <input type="password" id="resetPassword" placeholder="8+ characters" autocomplete="new-password">
+      </div>
+      <div class="login-field">
+        <label>Confirm Password</label>
+        <input type="password" id="resetPasswordConfirm" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button class="btn-login" onclick="submitNewPassword()">Set Password →</button>
+    </div>
+
     <div class="login-footer" style="margin-top:18px">© HiPer Studio</div>
   </div>
 </div>
@@ -3181,9 +3195,11 @@ let _creditBalance = null;    // cached credit balance
 window.switchAuthTab = function(tab) {
   const isSignIn = tab === 'signin';
   const isForgot = tab === 'forgot';
+  const isReset  = tab === 'reset';
   document.getElementById('signinFields').style.display  = isSignIn ? '' : 'none';
   document.getElementById('signupFields').style.display  = tab === 'signup' ? '' : 'none';
   document.getElementById('forgotFields').style.display  = isForgot ? '' : 'none';
+  document.getElementById('resetFields').style.display   = isReset  ? '' : 'none';
   document.getElementById('tabSignIn').style.background  = isSignIn ? 'var(--primary)' : 'transparent';
   document.getElementById('tabSignIn').style.color       = isSignIn ? '#fff' : 'var(--muted)';
   document.getElementById('tabSignUp').style.background  = tab === 'signup' ? 'var(--primary)' : 'transparent';
@@ -3311,10 +3327,31 @@ window.submitForgotPassword = async function() {
   if (!email) { _setLoginError('Enter your email address.'); return; }
   if (!_sb) return;
   const { error } = await _sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/?reset=true'
+    redirectTo: window.location.origin + window.location.pathname
   });
   if (error) _setLoginError(error.message);
   else _setLoginSuccess(`✓ Password reset email sent to ${email}`);
+};
+
+window.submitNewPassword = async function() {
+  const pw  = document.getElementById('resetPassword').value;
+  const pw2 = document.getElementById('resetPasswordConfirm').value;
+  if (pw.length < 8) { _setLoginError('Password must be at least 8 characters.'); return; }
+  if (pw !== pw2)    { _setLoginError('Passwords do not match.'); return; }
+  if (!_sb) return;
+  const { error } = await _sb.auth.updateUser({ password: pw });
+  if (error) {
+    _setLoginError(error.message);
+  } else {
+    _setLoginSuccess('✓ Password updated. You are now signed in.');
+    document.getElementById('resetPassword').value = '';
+    document.getElementById('resetPasswordConfirm').value = '';
+    // Clean up URL and dismiss overlay after a short delay
+    history.replaceState({}, '', window.location.pathname);
+    setTimeout(() => {
+      document.getElementById('loginOverlay').classList.add('hidden');
+    }, 1200);
+  }
 };
 
 // ── Sign out ──
@@ -3352,6 +3389,15 @@ document.addEventListener('click', e => {
 // ── Auth state change — single source of truth ──
 if (_sb) {
   _sb.auth.onAuthStateChange(async (event, session) => {
+    // Magic link / reset link clicked — show password update panel instead of logging in
+    if (event === 'PASSWORD_RECOVERY') {
+      _currentUser = session.user;
+      const overlay = document.getElementById('loginOverlay');
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+      switchAuthTab('reset');
+      return;
+    }
     if (session?.user) {
       _currentUser = session.user;
       document.getElementById('loginOverlay').classList.add('hidden');

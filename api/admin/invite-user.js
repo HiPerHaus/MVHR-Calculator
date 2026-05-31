@@ -32,9 +32,13 @@ export default async function handler(req, res) {
   const { email, fullName } = req.body;
   if (!email?.trim()) return res.status(400).json({ error: 'email required' });
 
+  // Derive redirect URL from the incoming request origin so invite links always
+  // point at the real deployed app — with APP_URL as a fallback for local dev.
+  const origin = req.headers.origin || req.headers.referer?.replace(/\/[^/]*$/, '') || process.env.APP_URL || '';
+
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email.trim(), {
     data: { full_name: fullName?.trim() || '' },
-    redirectTo: process.env.APP_URL || 'https://your-app.vercel.app',
+    redirectTo: origin,
   });
 
   if (error) {
