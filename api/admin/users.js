@@ -1,7 +1,6 @@
 // api/admin/users.js
 // GET /api/admin/users?page=0&limit=50&q=email_search
-// Returns: { users: [...], total: N }
-// Admin only — verified via is_admin flag in profiles table.
+// Returns: { users: [...], pending: [...], total: N }
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -33,7 +32,34 @@ export default async function handler(req, res) {
   const limit = Math.min(100, parseInt(req.query.limit || '50'));
   const q     = (req.query.q || '').trim().toLowerCase();
 
-  // Fetch from profiles (service role bypasses RLS)
+  // Fetch all auth users to get invite/sign-in status
+  let authUsers = [];
+  try {
+    let authPage = 1;
+    while (true) {
+      const { data: authData } = await supabase.auth.admin.listUsers({ page: authPage, perPage: 1000 });
+      if (!authData?.users?.length) break;
+      authUsers = authUsers.concat(authData.users);
+      if (authData.users.length < 1000) break;
+      authPage++;
+    }
+  } catch(e) { /* non-fatal */ }
+
+  // Build auth lookup map
+  const authMap = {};
+  authUsers.forEach(u => { authMap[u.id] = u; });
+
+  // Pending = invited but never signed in (email_confirmed_at null OR last_sign_in_at null)
+  const pending = authUsers
+    .filter(u => u.invited_at && !u.last_sign_in_at)
+    .map(u => ({
+      id:         u.id,
+      email:      u.email,
+      invited_at: u.invited_at,
+    }))
+    .filter(u => !q || u.email?.toLowerCase().includes(q));
+
+  // Active profiles
   let query = supabase
     .from('profiles')
     .select('id, email, full_name, company_name, credit_balance, plan_type, is_admin, created_at', { count: 'exact' })
@@ -50,23 +76,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Query failed' });
   }
 
-  // Enrich: last sign-in from auth.users via admin API
-  // Supabase Admin API: listUsers (paginates by 50 default)
-  // We batch-match by IDs to avoid N+1
-  let lastSignIn = {};
-  try {
-    const ids = (users || []).map(u => u.id);
-    // Use auth.admin.listUsers and match
-    const { data: authData } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    (authData?.users || []).forEach(u => {
-      if (ids.includes(u.id)) lastSignIn[u.id] = u.last_sign_in_at;
-    });
-  } catch(e) { /* non-fatal */ }
-
   const enriched = (users || []).map(u => ({
     ...u,
-    last_sign_in_at: lastSignIn[u.id] || null,
+    last_sign_in_at: authMap[u.id]?.last_sign_in_at || null,
   }));
 
-  return res.status(200).json({ users: enriched, total: count ?? 0 });
+  return res.status(200).json({ users: enriched, pending, total: count ?? 0 });
 }

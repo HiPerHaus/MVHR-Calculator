@@ -183,6 +183,21 @@ input:focus, select:focus { border-color: var(--accent); }
       </div>
     </div>
 
+    <!-- Pending Invites -->
+    <div class="card" id="pendingCard" style="display:none">
+      <div class="card-title">⏳ Pending Invites</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Invited</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="pendingTableBody"></tbody>
+      </table>
+    </div>
+
     <!-- Gift / Adjust Credits -->
     <div class="card" id="giftCard" style="display:none">
       <div class="card-title" id="giftCardTitle">Gift / Adjust Credits</div>
@@ -284,26 +299,40 @@ let _token = null;
 
 // ── Auth ──────────────────────────────────────────────────────
 async function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass  = document.getElementById('loginPassword').value;
-  const errEl = document.getElementById('loginError');
+  const email  = document.getElementById('loginEmail').value.trim();
+  const pass   = document.getElementById('loginPassword').value;
+  const errEl  = document.getElementById('loginError');
+  const btn    = document.querySelector('.btn-login');
   errEl.className = 'login-error';
+  btn.disabled = true; btn.textContent = 'Signing in…';
 
   const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Sign In';
+
   if (error) {
     errEl.textContent = error.message;
     errEl.className = 'login-error visible';
     return;
   }
-  // Verify admin
-  const { data: profile } = await _sb
+
+  // Check admin flag
+  const { data: profile, error: profileErr } = await _sb
     .from('profiles').select('is_admin').eq('id', data.user.id).single();
-  if (!profile?.is_admin) {
+
+  if (profileErr) {
     await _sb.auth.signOut();
-    errEl.textContent = 'Access denied — admin only.';
+    errEl.textContent = 'Could not load profile. Make sure the database schema has been applied.';
     errEl.className = 'login-error visible';
     return;
   }
+
+  if (!profile?.is_admin) {
+    await _sb.auth.signOut();
+    errEl.textContent = 'Access denied. Run this in Supabase SQL Editor: UPDATE public.profiles SET is_admin = true WHERE email = \'' + email + '\';';
+    errEl.className = 'login-error visible';
+    return;
+  }
+
   _token = data.session.access_token;
   document.getElementById('loginOverlay').classList.add('hidden');
   document.getElementById('headerRight').style.display = 'flex';
@@ -362,7 +391,30 @@ async function loadMembers() {
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
 
   try {
-    const { users, total } = await api('GET', '/api/admin/users?' + params);
+    const { users, pending, total } = await api('GET', '/api/admin/users?' + params);
+
+    // ── Pending invites section ──
+    const pendingCard = document.getElementById('pendingCard');
+    const pendingBody = document.getElementById('pendingTableBody');
+    if (pending?.length) {
+      pendingCard.style.display = '';
+      pendingBody.innerHTML = pending.map(u => `
+        <tr>
+          <td style="font-weight:600">${esc(u.email)}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmtDateTime(u.invited_at)}</td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-outline btn-sm" onclick="resendInvite('${u.id}','${esc(u.email)}',this)">↩ Resend</button>
+              <button class="btn btn-sm" onclick="cancelInvite('${u.id}','${esc(u.email)}',this)"
+                style="background:var(--critical-bg);color:var(--critical);border:1px solid #fecaca">✕ Cancel</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    } else {
+      pendingCard.style.display = 'none';
+    }
+
+    // ── Active members ──
     document.getElementById('memberTotal').textContent = `${total.toLocaleString()} members`;
     document.getElementById('memberPageLabel').textContent = `Page ${memberPage + 1}`;
     document.getElementById('memberPrevBtn').disabled = memberPage === 0;
@@ -376,7 +428,7 @@ async function loadMembers() {
     tbody.innerHTML = users.map(u => `
       <tr>
         <td>
-          ${u.email || '—'}
+          ${esc(u.email) || '—'}
           ${u.is_admin ? '<span class="badge badge-admin" style="margin-left:6px">admin</span>' : ''}
         </td>
         <td style="color:var(--muted)">
@@ -398,6 +450,32 @@ async function loadMembers() {
       </tr>`).join('');
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="7" style="color:var(--critical);padding:14px">${e.message}</td></tr>`;
+  }
+}
+
+// ── Cancel / Resend invite ──
+async function cancelInvite(userId, email, btn) {
+  if (!confirm(`Cancel invite for ${email}?`)) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await api('POST', '/api/admin/cancel-invite', { userId });
+    loadMembers();
+  } catch(e) {
+    alert('Failed: ' + e.message);
+    btn.disabled = false; btn.textContent = '✕ Cancel';
+  }
+}
+
+async function resendInvite(userId, email, btn) {
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await api('POST', '/api/admin/cancel-invite', { userId, email, resend: true });
+    btn.textContent = '✓ Sent';
+    btn.style.color = '#1a6832';
+    setTimeout(() => loadMembers(), 1500);
+  } catch(e) {
+    alert('Failed: ' + e.message);
+    btn.disabled = false; btn.textContent = '↩ Resend';
   }
 }
 
