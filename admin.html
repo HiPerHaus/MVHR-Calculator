@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — HiPer Haus MVHR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --warn-bg: #fff7ed; --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d; --amber: #d97706; --amber-bg: #fffbeb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box { background: #fff; border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; }
+.login-title { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 20px; }
+.login-field { margin-bottom: 14px; }
+.login-field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+.login-field input { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+.login-field input:focus { border-color: var(--accent); }
+.btn-login { width: 100%; background: var(--primary); color: #fff; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.btn-login:hover { background: var(--accent); }
+.login-error { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 12px; display: none; }
+.login-error.visible { display: block; }
+
+/* ── Layout ── */
+header { background: var(--primary); color: #fff; padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+header h1 { font-size: 18px; font-weight: 900; }
+header span { font-size: 12px; opacity: .65; }
+.admin-badge { background: var(--amber); color: #fff; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 20px; letter-spacing: .5px; }
+#headerRight { display: none; align-items: center; gap: 14px; }
+
+nav { background: #fff; border-bottom: 1px solid var(--border); display: flex; gap: 2px; padding: 0 20px; }
+.nav-btn { padding: 13px 18px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; transition: .15s; }
+.nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+main { padding: 24px; max-width: 1100px; margin: 0 auto; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── Cards ── */
+.card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 20px 22px; margin-bottom: 18px; }
+.card-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--accent); margin-bottom: 14px; }
+
+/* ── Table ── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 8px 12px; border-bottom: 2px solid var(--border); }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--input-bg); }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.badge-green { background: var(--ok-bg); color: #1a6832; }
+.badge-amber { background: var(--amber-bg); color: var(--amber); }
+.badge-admin { background: #ede9fe; color: #5b21b6; }
+
+/* ── Form elements ── */
+input, select, textarea { padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--input-bg); color: var(--text); }
+input:focus, select:focus { border-color: var(--accent); }
+.btn { padding: 9px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--accent); }
+.btn-danger  { background: var(--critical); color: #fff; }
+.btn-outline { background: #fff; border: 1.5px solid var(--border); color: var(--text); }
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+
+/* ── Search bar ── */
+.search-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.search-row input { flex: 1; }
+
+/* ── Transaction delta ── */
+.delta-pos { color: #1a6832; font-weight: 700; }
+.delta-neg { color: var(--critical); font-weight: 700; }
+
+/* ── Pagination ── */
+.pager { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+/* ── Inline edit ── */
+.edit-cost-row input { width: 70px; }
+</style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Haus</div>
+    <div class="login-title">Admin Panel</div>
+    <div id="loginError" class="login-error"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="admin@example.com">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header>
+  <div style="display:flex;align-items:center;gap:14px">
+    <h1>HiPer Haus Admin</h1>
+    <span class="admin-badge">⚙ ADMIN</span>
+  </div>
+  <div id="headerRight">
+    <span id="adminEmail" style="font-size:13px;opacity:.8"></span>
+    <button class="btn btn-outline btn-sm" onclick="doSignOut()" style="color:white;border-color:rgba(255,255,255,.4)">Sign out</button>
+  </div>
+</header>
+
+<!-- Nav -->
+<nav>
+  <button class="nav-btn active" onclick="showPanel('members')">👥 Members</button>
+  <button class="nav-btn" onclick="showPanel('transactions')">📋 Transactions</button>
+  <button class="nav-btn" onclick="showPanel('costs')">⚡ Operation Costs</button>
+</nav>
+
+<main>
+
+  <!-- ═══ MEMBERS PANEL ═══ -->
+  <div id="panel-members" class="panel active">
+    <div class="card">
+      <div class="card-title">Members</div>
+      <div class="search-row">
+        <input type="search" id="memberSearch" placeholder="Search by email, name or company…" oninput="debounceMembers()">
+        <button class="btn btn-outline btn-sm" onclick="loadMembers()">↺ Refresh</button>
+        <span id="memberTotal" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name / Company</th>
+              <th>Plan</th>
+              <th style="text-align:right">Credits</th>
+              <th>Last Active</th>
+              <th>Joined</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="memberTableBody">
+            <tr><td colspan="7" style="text-align:center;padding:28px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button class="btn btn-outline btn-sm" id="memberPrevBtn" onclick="memberPage--; loadMembers()" disabled>← Prev</button>
+        <span id="memberPageLabel">Page 1</span>
+        <button class="btn btn-outline btn-sm" id="memberNextBtn" onclick="memberPage++; loadMembers()">Next →</button>
+      </div>
+    </div>
+
+    <!-- Gift / Adjust Credits -->
+    <div class="card" id="giftCard" style="display:none">
+      <div class="card-title" id="giftCardTitle">Gift / Adjust Credits</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">User</label>
+          <div id="giftUserDisplay" style="font-size:13px;font-weight:600;padding:9px 12px;background:var(--input-bg);border-radius:8px;border:1.5px solid var(--border)"></div>
+          <input type="hidden" id="giftUserId">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Current Balance</label>
+          <div id="giftCurrentBalance" style="font-size:24px;font-weight:900;color:var(--primary);padding:5px 0"></div>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Amount (+/−)</label>
+          <input type="number" id="giftAmount" placeholder="e.g. 10 or -5" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Note (optional)</label>
+          <input type="text" id="giftNote" placeholder="Reason for adjustment" style="width:100%">
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" onclick="submitGift()">Apply Credit Adjustment</button>
+        <button class="btn btn-outline" onclick="closeGiftCard()">Cancel</button>
+        <span id="giftMsg" style="font-size:13px"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TRANSACTIONS PANEL ═══ -->
+  <div id="panel-transactions" class="panel">
+    <div class="card">
+      <div class="card-title">Credit Transactions</div>
+      <div class="search-row">
+        <input type="text" id="txUserFilter" placeholder="Filter by user ID (paste from member list)…" style="flex:1">
+        <button class="btn btn-primary btn-sm" onclick="txPage=0;loadTransactions()">Filter</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('txUserFilter').value='';txPage=0;loadTransactions()">Clear</button>
+        <span id="txTotal" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>User</th>
+              <th>Operation</th>
+              <th>Description</th>
+              <th>Source</th>
+              <th style="text-align:right">Δ Credits</th>
+            </tr>
+          </thead>
+          <tbody id="txTableBody">
+            <tr><td colspan="6" style="text-align:center;padding:28px;color:var(--muted)">Select a panel to load data</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button class="btn btn-outline btn-sm" id="txPrevBtn" onclick="txPage--;loadTransactions()" disabled>← Prev</button>
+        <span id="txPageLabel">Page 1</span>
+        <button class="btn btn-outline btn-sm" id="txNextBtn" onclick="txPage++;loadTransactions()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ OPERATION COSTS PANEL ═══ -->
+  <div id="panel-costs" class="panel">
+    <div class="card">
+      <div class="card-title">Operation Costs</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Edit the credit cost for each operation. Changes take effect immediately for new operations — existing sessions recalculate on next action.</p>
+      <table class="data-table" id="costsTable">
+        <thead>
+          <tr>
+            <th>Operation key</th>
+            <th>Label</th>
+            <th>Level</th>
+            <th style="text-align:right">Credits</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="costsTableBody">
+          <tr><td colspan="5" style="text-align:center;padding:28px;color:var(--muted)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// Config — replace with your real Supabase values
+// ══════════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON = 'YOUR-ANON-KEY';
+
+const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let _token = null;
+
+// ── Auth ──────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.className = 'login-error';
+
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.className = 'login-error visible';
+    return;
+  }
+  // Verify admin
+  const { data: profile } = await _sb
+    .from('profiles').select('is_admin').eq('id', data.user.id).single();
+  if (!profile?.is_admin) {
+    await _sb.auth.signOut();
+    errEl.textContent = 'Access denied — admin only.';
+    errEl.className = 'login-error visible';
+    return;
+  }
+  _token = data.session.access_token;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('headerRight').style.display = 'flex';
+  document.getElementById('adminEmail').textContent = data.user.email;
+  loadMembers();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) doLogin();
+});
+
+async function doSignOut() {
+  await _sb.auth.signOut();
+  location.reload();
+}
+
+// ── Navigation ────────────────────────────────────────────────
+function showPanel(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'transactions' && document.getElementById('txTableBody').children[0]?.colSpan) loadTransactions();
+  if (name === 'costs') loadCosts();
+}
+
+// ── API helper ────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || res.statusText);
+  return json;
+}
+
+// ══════════════════════════════════════════════════════════════
+// MEMBERS
+// ══════════════════════════════════════════════════════════════
+let memberPage = 0;
+let memberDebounce = null;
+function debounceMembers() {
+  clearTimeout(memberDebounce);
+  memberDebounce = setTimeout(() => { memberPage = 0; loadMembers(); }, 350);
+}
+
+async function loadMembers() {
+  const q = document.getElementById('memberSearch')?.value || '';
+  const params = new URLSearchParams({ page: memberPage, limit: 50 });
+  if (q) params.set('q', q);
+
+  const tbody = document.getElementById('memberTableBody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const { users, total } = await api('GET', '/api/admin/users?' + params);
+    document.getElementById('memberTotal').textContent = `${total.toLocaleString()} members`;
+    document.getElementById('memberPageLabel').textContent = `Page ${memberPage + 1}`;
+    document.getElementById('memberPrevBtn').disabled = memberPage === 0;
+    document.getElementById('memberNextBtn').disabled = (memberPage + 1) * 50 >= total;
+
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--muted)">No members found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td>
+          ${u.email || '—'}
+          ${u.is_admin ? '<span class="badge badge-admin" style="margin-left:6px">admin</span>' : ''}
+        </td>
+        <td style="color:var(--muted)">
+          ${u.full_name ? `<div style="font-weight:600;color:var(--text)">${esc(u.full_name)}</div>` : ''}
+          ${u.company_name ? `<div style="font-size:12px">${esc(u.company_name)}</div>` : ''}
+        </td>
+        <td><span class="badge ${u.plan_type === 'credit_only' ? 'badge-amber' : 'badge-green'}">${u.plan_type}</span></td>
+        <td style="text-align:right;font-weight:800;font-size:15px;color:${u.credit_balance < 5 ? 'var(--critical)' : 'var(--primary)'}">
+          ${u.credit_balance}
+        </td>
+        <td style="font-size:12px;color:var(--muted)">${fmtDate(u.last_sign_in_at)}</td>
+        <td style="font-size:12px;color:var(--muted)">${fmtDate(u.created_at)}</td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="openGift('${u.id}','${esc(u.email)}',${u.credit_balance})">⚡ Credits</button>
+            <button class="btn btn-outline btn-sm" onclick="viewUserTx('${u.id}')">📋 History</button>
+          </div>
+        </td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--critical);padding:14px">${e.message}</td></tr>`;
+  }
+}
+
+// ── Gift / Adjust ──
+function openGift(userId, email, balance) {
+  document.getElementById('giftCard').style.display = '';
+  document.getElementById('giftUserId').value = userId;
+  document.getElementById('giftUserDisplay').textContent = email;
+  document.getElementById('giftCurrentBalance').textContent = balance + ' credits';
+  document.getElementById('giftAmount').value = '';
+  document.getElementById('giftNote').value = '';
+  document.getElementById('giftMsg').textContent = '';
+  document.getElementById('giftCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeGiftCard() {
+  document.getElementById('giftCard').style.display = 'none';
+}
+
+async function submitGift() {
+  const userId  = document.getElementById('giftUserId').value;
+  const amount  = parseInt(document.getElementById('giftAmount').value);
+  const note    = document.getElementById('giftNote').value.trim();
+  const msgEl   = document.getElementById('giftMsg');
+
+  if (!userId || isNaN(amount) || amount === 0) {
+    msgEl.style.color = 'var(--critical)';
+    msgEl.textContent = 'Enter a non-zero amount.';
+    return;
+  }
+
+  msgEl.style.color = 'var(--muted)';
+  msgEl.textContent = 'Applying…';
+
+  try {
+    const { new_balance } = await api('POST', '/api/admin/gift-credits', { userId, amount, note });
+    msgEl.style.color = '#1a6832';
+    msgEl.textContent = `✓ Done. New balance: ${new_balance} credits.`;
+    document.getElementById('giftCurrentBalance').textContent = new_balance + ' credits';
+    loadMembers(); // refresh table
+  } catch(e) {
+    msgEl.style.color = 'var(--critical)';
+    msgEl.textContent = e.message;
+  }
+}
+
+// ── View user transactions ──
+function viewUserTx(userId) {
+  document.getElementById('txUserFilter').value = userId;
+  txPage = 0;
+  // Switch to transactions tab
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-transactions').classList.add('active');
+  document.querySelectorAll('.nav-btn')[1].classList.add('active');
+  loadTransactions();
+}
+
+// ══════════════════════════════════════════════════════════════
+// TRANSACTIONS
+// ══════════════════════════════════════════════════════════════
+let txPage = 0;
+
+async function loadTransactions() {
+  const userId = document.getElementById('txUserFilter').value.trim();
+  const params = new URLSearchParams({ page: txPage, limit: 50 });
+  if (userId) params.set('userId', userId);
+
+  const tbody = document.getElementById('txTableBody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const { transactions, total } = await api('GET', '/api/admin/transactions?' + params);
+    document.getElementById('txTotal').textContent = `${total.toLocaleString()} transactions`;
+    document.getElementById('txPageLabel').textContent = `Page ${txPage + 1}`;
+    document.getElementById('txPrevBtn').disabled = txPage === 0;
+    document.getElementById('txNextBtn').disabled = (txPage + 1) * 50 >= total;
+
+    // Enrich with email lookup (batch from current member search if available)
+    if (!transactions.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:28px;color:var(--muted)">No transactions</td></tr>';
+      return;
+    }
+
+    // Fetch user emails for display (small batch from profiles)
+    const ids = [...new Set(transactions.map(t => t.user_id))];
+    let emailMap = {};
+    try {
+      const { data: profiles } = await _sb.from('profiles').select('id,email').in('id', ids);
+      (profiles || []).forEach(p => emailMap[p.id] = p.email);
+    } catch(e) {}
+
+    tbody.innerHTML = transactions.map(t => `
+      <tr>
+        <td style="font-size:12px;white-space:nowrap">${fmtDateTime(t.created_at)}</td>
+        <td style="font-size:12px;color:var(--muted)">${emailMap[t.user_id] || t.user_id.slice(0,8)+'…'}</td>
+        <td><code style="font-size:11px;background:var(--input-bg);padding:2px 6px;border-radius:4px">${t.operation}</code></td>
+        <td style="font-size:12px;color:var(--muted)">${t.description || '—'}</td>
+        <td><span class="badge ${t.source === 'admin' ? 'badge-admin' : t.source === 'user_purchase' ? 'badge-green' : 'badge-amber'}">${t.source}</span></td>
+        <td style="text-align:right" class="${t.delta > 0 ? 'delta-pos' : 'delta-neg'}">${t.delta > 0 ? '+' : ''}${t.delta}</td>
+      </tr>`).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--critical);padding:14px">${e.message}</td></tr>`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// OPERATION COSTS
+// ══════════════════════════════════════════════════════════════
+let _costs = [];
+
+async function loadCosts() {
+  const tbody = document.getElementById('costsTableBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+
+  try {
+    const { costs } = await api('GET', '/api/admin/operation-costs');
+    _costs = costs;
+    renderCostsTable();
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--critical);padding:14px">${e.message}</td></tr>`;
+  }
+}
+
+function renderCostsTable() {
+  const levelLabels = { 1: 'Core', 2: 'Engineering', 3: 'Premium' };
+  const levelColors = { 1: 'badge-green', 2: 'badge-amber', 3: 'badge-admin' };
+  document.getElementById('costsTableBody').innerHTML = _costs.map(c => `
+    <tr id="cost-row-${c.operation}">
+      <td><code style="font-size:12px;background:var(--input-bg);padding:2px 7px;border-radius:4px">${c.operation}</code></td>
+      <td>
+        <span id="cost-label-${c.operation}">${esc(c.label)}</span>
+        <input id="cost-label-input-${c.operation}" value="${esc(c.label)}" style="display:none;width:220px">
+      </td>
+      <td><span class="badge ${levelColors[c.level] || 'badge-amber'}">${levelLabels[c.level] || c.level}</span></td>
+      <td style="text-align:right">
+        <strong id="cost-val-${c.operation}" style="font-size:16px;color:var(--primary)">${c.credits}</strong>
+        <input type="number" id="cost-input-${c.operation}" value="${c.credits}" style="display:none;width:70px;text-align:right">
+        <span style="font-size:11px;color:var(--muted);margin-left:3px">cr</span>
+      </td>
+      <td style="text-align:right">
+        <button class="btn btn-outline btn-sm" id="cost-edit-btn-${c.operation}" onclick="startEditCost('${c.operation}')">Edit</button>
+        <button class="btn btn-primary btn-sm" id="cost-save-btn-${c.operation}" onclick="saveCost('${c.operation}')" style="display:none">Save</button>
+        <button class="btn btn-outline btn-sm" id="cost-cancel-btn-${c.operation}" onclick="cancelEditCost('${c.operation}')" style="display:none">Cancel</button>
+      </td>
+    </tr>`).join('');
+}
+
+function startEditCost(op) {
+  document.getElementById(`cost-val-${op}`).style.display = 'none';
+  document.getElementById(`cost-input-${op}`).style.display = '';
+  document.getElementById(`cost-label-${op}`).style.display = 'none';
+  document.getElementById(`cost-label-input-${op}`).style.display = '';
+  document.getElementById(`cost-edit-btn-${op}`).style.display = 'none';
+  document.getElementById(`cost-save-btn-${op}`).style.display = '';
+  document.getElementById(`cost-cancel-btn-${op}`).style.display = '';
+}
+
+function cancelEditCost(op) {
+  renderCostsTable();
+}
+
+async function saveCost(op) {
+  const credits = parseInt(document.getElementById(`cost-input-${op}`).value);
+  const label   = document.getElementById(`cost-label-input-${op}`).value.trim();
+  const btn     = document.getElementById(`cost-save-btn-${op}`);
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    await api('POST', '/api/admin/operation-costs', { operation: op, credits, label });
+    // Update local cache
+    const idx = _costs.findIndex(c => c.operation === op);
+    if (idx >= 0) { _costs[idx].credits = credits; _costs[idx].label = label; }
+    renderCostsTable();
+  } catch(e) {
+    btn.textContent = 'Save';
+    btn.disabled = false;
+    alert('Save failed: ' + e.message);
+  }
+}
+
+// ── Utilities ─────────────────────────────────────────────────
+function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-AU', { day:'2-digit', month:'short', year:'2-digit' });
+}
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-AU', { day:'2-digit', month:'short' }) + ' '
+       + d.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+}
+</script>
+</body>
+</html>

@@ -360,6 +360,40 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   </div>
 </div>
 
+<!-- ═══ ONBOARDING MODAL — first login unit selection ═══ -->
+<div id="onboardingModal" style="display:none;position:fixed;inset:0;background:rgba(13,43,29,0.82);z-index:9500;align-items:center;justify-content:center">
+  <div style="background:var(--card);border-radius:18px;padding:0;max-width:600px;width:95%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.4);overflow:hidden">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,var(--primary) 0%,var(--accent) 100%);padding:28px 32px 22px;color:white;flex-shrink:0">
+      <div style="font-size:11px;font-weight:800;letter-spacing:2px;opacity:0.7;text-transform:uppercase;margin-bottom:4px">Welcome to HiPer Haus</div>
+      <div style="font-size:22px;font-weight:900;margin-bottom:6px">Select your MVHR units</div>
+      <div style="font-size:13px;opacity:0.85">Star the units you work with so they appear at the top when selecting a unit for a project. You can change this any time in Settings.</div>
+    </div>
+    <!-- Search -->
+    <div style="padding:16px 20px 10px;flex-shrink:0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="onboardSearch" type="search" placeholder="Search by manufacturer or model…"
+          oninput="renderOnboardingList()"
+          style="flex:1;padding:9px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;outline:none;color:var(--text)">
+        <div id="onboardCount" style="font-size:12px;color:var(--muted);white-space:nowrap"></div>
+      </div>
+      <div id="onboardNoDB" style="display:none;margin-top:10px;padding:10px 14px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:8px;font-size:12px;color:var(--amber)">
+        <strong>No PHI unit database imported yet.</strong> Import it in Settings → Unit Database after setup, then come back to star your units.
+      </div>
+    </div>
+    <!-- Unit list -->
+    <div id="onboardList" style="flex:1;overflow-y:auto;min-height:0"></div>
+    <!-- Footer -->
+    <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--card)">
+      <div style="font-size:12px;color:var(--muted)"><span id="onboardStarCount">0</span> units starred</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button onclick="closeOnboarding()" style="background:none;border:none;font-size:13px;color:var(--muted);cursor:pointer;text-decoration:underline">Skip for now</button>
+        <button onclick="closeOnboarding()" style="background:var(--primary);color:white;border:none;border-radius:9px;padding:10px 24px;font-size:14px;font-weight:800;cursor:pointer">Get Started →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ BUY CREDITS MODAL ═══ -->
 <div id="buyCreditsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:8000;align-items:center;justify-content:center">
   <div style="background:var(--card);border-radius:16px;padding:32px;max-width:520px;width:92%;box-shadow:0 12px 60px rgba(0,0,0,0.3)">
@@ -1188,6 +1222,7 @@ const UNIT_DB_KEY       = 'hh_mvhr_units_v1';
 const CUSTOM_UNITS_KEY  = 'hh_mvhr_custom_v1';
 const MY_UNITS_KEY      = 'hh_mvhr_my_units_v1';
 const SELECTED_UNIT_KEY = 'hh_mvhr_sel_unit_v1';
+const ONBOARDED_KEY     = 'hh_mvhr_onboarded_v1';
 
 // ── Confirmed name map — sourced directly from database.passivehouse.com
 // Only includes entries verified from the PHI online database.
@@ -1552,6 +1587,114 @@ window.renderUnitPicker = function() {
       ${rows}
     </div>`;
   }).join('<div style="height:1px;background:var(--border)"></div>');
+};
+
+// ══════════════════════════════════════════════════════
+// ONBOARDING — first-login unit selection
+// ══════════════════════════════════════════════════════
+
+window.showOnboarding = function() {
+  const modal = document.getElementById('onboardingModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  renderOnboardingList();
+};
+
+window.closeOnboarding = function() {
+  const modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'none';
+  try { localStorage.setItem(ONBOARDED_KEY, '1'); } catch(e) {}
+  // Refresh main unit picker to reflect any new stars
+  renderUnitPicker();
+  renderMyUnitsList();
+};
+
+window.renderOnboardingList = function() {
+  const listEl  = document.getElementById('onboardList');
+  const countEl = document.getElementById('onboardCount');
+  const noDBEl  = document.getElementById('onboardNoDB');
+  const starEl  = document.getElementById('onboardStarCount');
+  if (!listEl) return;
+
+  const q       = (document.getElementById('onboardSearch')?.value || '').toLowerCase();
+  const myUnits = _loadMyUnits();
+  const all     = getAllUnits();
+
+  // Show "no database" notice if only custom/empty
+  const hasPHI = all.some(u => u.source === 'phi');
+  if (noDBEl) noDBEl.style.display = hasPHI ? 'none' : '';
+
+  // Filter
+  const filtered = all.filter(u => {
+    if (!q) return true;
+    const name = `${u.manufacturer || ''} ${u.model || ''} ${u.id}`.toLowerCase();
+    return name.includes(q);
+  });
+
+  // Group by manufacturer (same logic as main picker)
+  const groups = {};
+  filtered.forEach(u => {
+    const mfr = u.manufacturer || UNIDENTIFIED_GROUP;
+    if (!groups[mfr]) groups[mfr] = [];
+    groups[mfr].push(u);
+  });
+
+  // Sort: identified manufacturers alpha, unidentified last
+  const mfrs = Object.keys(groups).sort((a, b) => {
+    if (a === UNIDENTIFIED_GROUP) return 1;
+    if (b === UNIDENTIFIED_GROUP) return -1;
+    return a.localeCompare(b);
+  });
+
+  if (countEl) countEl.textContent = `${filtered.length} unit${filtered.length !== 1 ? 's' : ''}`;
+  if (starEl)  starEl.textContent  = myUnits.length;
+
+  if (!mfrs.length) {
+    listEl.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">No units match your search.</div>';
+    return;
+  }
+
+  listEl.innerHTML = mfrs.map(mfr => {
+    const units = groups[mfr];
+    const isUnidentified = mfr === UNIDENTIFIED_GROUP;
+    const rows = units.map(u => {
+      const isMy = myUnits.includes(u.id);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;
+          border-bottom:1px solid var(--border);transition:background 0.1s"
+        onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background=''"
+        onclick="onboardToggleStar('${u.id}')">
+        <span style="font-size:18px;color:${isMy ? '#f59e0b' : 'var(--border)'};flex-shrink:0;transition:color 0.1s">${isMy ? '★' : '☆'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:${u.manufacturer ? 'var(--text)' : 'var(--muted)'}">
+            ${u.model || u.id}
+            ${!u.manufacturer && u.source !== 'custom' ? `<span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:4px">${u.id}</span>` : ''}
+          </div>
+          <div style="font-size:11px;color:var(--muted)">
+            ${u.hrEff  != null ? `♻ ${u.hrEff}%` : ''}
+            ${u.sfp    != null ? ` · ⚡ ${u.sfp} Wh/m³` : ''}
+            ${u.flowMax != null ? ` · 💨 up to ${u.flowMax} m³/h` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div>
+      <div style="padding:5px 16px;font-size:10px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;
+        color:${isUnidentified ? 'var(--amber)' : 'var(--muted)'};background:var(--input-bg);
+        border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1">
+        ${mfr} <span style="font-weight:400;font-size:10px">(${units.length})</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
+};
+
+window.onboardToggleStar = function(unitId) {
+  const myUnits = _loadMyUnits();
+  const idx = myUnits.indexOf(unitId);
+  if (idx === -1) myUnits.push(unitId); else myUnits.splice(idx, 1);
+  _saveMyUnits(myUnits);
+  renderOnboardingList();
 };
 
 // ── Select / deselect unit ──
@@ -3108,6 +3251,11 @@ if (_sb) {
         history.replaceState({}, '', '/');
         await refreshCreditBalance();
         showToast('✓ Credits added to your account!');
+      }
+      // First-login onboarding
+      const isOnboarded = localStorage.getItem(ONBOARDED_KEY);
+      if (!isOnboarded && event === 'SIGNED_IN') {
+        setTimeout(() => showOnboarding(), 400);
       }
     } else {
       _currentUser = null;
