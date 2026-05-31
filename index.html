@@ -148,7 +148,7 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .nav-tab .nav-label { font-size: 10px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
-#tab-plan.active { display: flex; }
+#tab-plan.active { display: flex; position: relative; }
 
 /* ── Unit grid ── */
 .unit-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 18px; }
@@ -293,6 +293,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 .room-picker-item .ri-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -301,25 +302,99 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <div class="login-box">
     <div class="login-logo">HiPer Haus</div>
     <div class="login-title">MVHR Design Engine</div>
-    <div class="login-sub">Sign in to continue</div>
-    <div class="login-error" id="loginError">Incorrect email or password. Please try again.</div>
-    <div class="login-field">
-      <label>Email</label>
-      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+
+    <!-- Tab switcher -->
+    <div style="display:flex;gap:0;margin-bottom:20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;overflow:hidden">
+      <button id="tabSignIn" onclick="switchAuthTab('signin')"
+        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:rgba(255,255,255,0.9);color:#1a4731;transition:all 0.15s">
+        Sign In
+      </button>
+      <button id="tabSignUp" onclick="switchAuthTab('signup')"
+        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,0.7);transition:all 0.15s">
+        Create Account
+      </button>
     </div>
-    <div class="login-field">
-      <label>Password</label>
-      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+
+    <div class="login-error" id="loginError" style="display:none"></div>
+    <div id="loginSuccess" style="display:none;background:rgba(255,255,255,0.15);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
+
+    <!-- Sign-in fields -->
+    <div id="signinFields">
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-login" id="btnSignIn" onclick="attemptLogin()">Sign In →</button>
+      <div style="text-align:center;margin-top:10px">
+        <a href="#" onclick="showForgotPassword()" style="font-size:12px;color:rgba(255,255,255,0.6);text-decoration:none">Forgot password?</a>
+      </div>
     </div>
-    <button class="btn-login" onclick="attemptLogin()">Sign In →</button>
+
+    <!-- Sign-up fields -->
+    <div id="signupFields" style="display:none">
+      <div class="login-field">
+        <label>Full Name</label>
+        <input type="text" id="signupName" placeholder="Jane Smith" autocomplete="name">
+      </div>
+      <div class="login-field">
+        <label>Company (optional)</label>
+        <input type="text" id="signupCompany" placeholder="Smith HVAC Pty Ltd">
+      </div>
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="signupEmail" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="signupPassword" placeholder="8+ characters" autocomplete="new-password">
+      </div>
+      <button class="btn-login" id="btnSignUp" onclick="attemptSignUp()">Create Account →</button>
+    </div>
+
     <div class="login-footer">HiPer Haus · MVHR Design Platform</div>
+  </div>
+</div>
+
+<!-- ═══ BUY CREDITS MODAL ═══ -->
+<div id="buyCreditsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:8000;align-items:center;justify-content:center">
+  <div style="background:var(--card);border-radius:16px;padding:32px;max-width:520px;width:92%;box-shadow:0 12px 60px rgba(0,0,0,0.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:20px;font-weight:800;color:var(--primary)">⚡ Purchase Credits</div>
+      <button onclick="closeBuyCredits()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div id="buyCreditReason" style="font-size:13px;color:var(--muted);margin-bottom:20px"></div>
+    <div id="creditPackageList" style="display:flex;flex-direction:column;gap:10px">
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">Loading packages…</div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:var(--muted);text-align:center">Credits never expire · Secure checkout via Stripe</div>
   </div>
 </div>
 
 <header>
   <h1>MVHR Design Engine</h1>
   <span>HiPer Haus · Passivhaus-aligned · Australian high-performance homes</span>
-  <span id="saveBadge" style="margin-left:auto;font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+    <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
+    <button id="creditBadge" onclick="openBuyCredits()" title="Purchase credits"
+      style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:4px 12px;border-radius:20px;cursor:pointer;letter-spacing:0.3px;transition:background 0.15s"
+      onmouseover="this.style.background='rgba(255,255,255,0.25)'"
+      onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+      ⚡ <span id="creditCount">—</span> credits
+    </button>
+    <button id="userMenuBtn" onclick="toggleUserMenu()" title="Account"
+      style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 12px;border-radius:20px;cursor:pointer">
+      👤 <span id="userEmailDisplay"></span>
+    </button>
+    <div id="userMenu" style="display:none;position:absolute;top:56px;right:16px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px;min-width:180px;box-shadow:0 6px 24px rgba(0,0,0,0.15);z-index:1000">
+      <div style="padding:8px 10px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:4px" id="userMenuEmail"></div>
+      <button onclick="openBuyCredits()" style="width:100%;text-align:left;padding:8px 10px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-radius:6px;color:var(--text)" onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background='none'">⚡ Buy Credits</button>
+      <button onclick="signOut()" style="width:100%;text-align:left;padding:8px 10px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-radius:6px;color:var(--text)" onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background='none'">↩ Sign Out</button>
+    </div>
+  </div>
 </header>
 
 <nav class="top-nav">
@@ -795,6 +870,13 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <div class="plan-sep"></div>
         <button class="plan-btn active" id="snapToggle" onclick="toggleSnap()" title="Snap to existing vertices, edges and right angles when drawing rooms">🔲 Snap</button>
         <div class="plan-sep"></div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--muted)">
+          🏢
+          <button class="plan-btn" onclick="adjustPlanStoreys(-1)" title="Remove a storey" style="min-width:26px;padding:0 6px">−</button>
+          <span id="planStoreyLabel" style="min-width:60px;text-align:center;color:var(--primary)">1 Storey</span>
+          <button class="plan-btn" onclick="adjustPlanStoreys(1)"  title="Add a storey"    style="min-width:26px;padding:0 6px">+</button>
+        </div>
+        <div class="plan-sep"></div>
         <button class="plan-btn" onclick="planZoom(-0.1)" title="Zoom out">−</button>
         <button class="plan-btn" id="zoomLabel" onclick="planZoom(0)" title="Reset zoom" style="min-width:44px;text-align:center">100%</button>
         <button class="plan-btn" onclick="planZoom(0.1)" title="Zoom in">+</button>
@@ -823,6 +905,17 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <div id="planCanvasInner" style="position:relative;transform-origin:top left">
           <canvas id="planCanvas" style="display:none"></canvas>
           <canvas id="planOverlay" style="display:none;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+        </div>
+      </div>
+
+      <!-- Floor picker modal — shown on plan upload when storeys > 1 -->
+      <div id="floorPickerModal" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:200;align-items:center;justify-content:center">
+        <div style="background:var(--card);border-radius:14px;padding:28px 32px;max-width:360px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,0.25);text-align:center">
+          <div style="font-size:22px;margin-bottom:8px">📐</div>
+          <div style="font-size:16px;font-weight:800;color:var(--primary);margin-bottom:6px">Which level is this floor plan?</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Each storey gets its own plan image</div>
+          <div id="floorPickerBtns" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button onclick="cancelFloorPick()" style="margin-top:16px;font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline">Cancel</button>
         </div>
       </div>
 
@@ -2114,40 +2207,401 @@ function updateGrilleSize() {
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
-const AUTH_EMAIL = 'hello@hiperhaus.com.au';
-const AUTH_PASS  = 'Test1234MVHR!';
-const SESSION_KEY = 'hh_mvhr_auth';
+// ══════════════════════════════════════════════════════
+// SUPABASE — CONFIG
+// Replace these with your project values from:
+// Supabase Dashboard → Project Settings → API
+// ══════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON = 'YOUR-ANON-KEY';
 
-function attemptLogin() {
-  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-  const pass   = document.getElementById('loginPassword').value;
-  if (email === AUTH_EMAIL && pass === AUTH_PASS) {
-    sessionStorage.setItem(SESSION_KEY, '1');
+// Initialise client (falls back gracefully if keys not yet configured)
+let _sb = null;
+try {
+  _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: { persistSession: true, autoRefreshToken: true }
+  });
+} catch(e) { console.warn('Supabase not configured yet — running in local-only mode'); }
+
+let _currentUser = null;      // supabase User object
+let _creditBalance = null;    // cached credit balance
+
+// ── Auth tab switcher ──
+window.switchAuthTab = function(tab) {
+  const isSignIn = tab === 'signin';
+  document.getElementById('signinFields').style.display = isSignIn ? '' : 'none';
+  document.getElementById('signupFields').style.display = isSignIn ? 'none' : '';
+  document.getElementById('tabSignIn').style.background = isSignIn ? 'rgba(255,255,255,0.9)' : 'transparent';
+  document.getElementById('tabSignIn').style.color = isSignIn ? '#1a4731' : 'rgba(255,255,255,0.7)';
+  document.getElementById('tabSignUp').style.background = isSignIn ? 'transparent' : 'rgba(255,255,255,0.9)';
+  document.getElementById('tabSignUp').style.color = isSignIn ? 'rgba(255,255,255,0.7)' : '#1a4731';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginSuccess').style.display = 'none';
+};
+
+function _setLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.background = 'rgba(220,38,38,0.2)';
+  el.style.color = '#fff';
+  el.style.borderRadius = '8px';
+  el.style.padding = '10px 14px';
+  el.style.fontSize = '13px';
+  el.style.marginBottom = '14px';
+}
+
+function _setLoginSuccess(msg) {
+  const el = document.getElementById('loginSuccess');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function _setBtnLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.style.opacity = loading ? '0.6' : '1';
+}
+
+// ── Sign in ──
+window.attemptLogin = async function() {
+  if (!_sb) {
+    // Local-only fallback (dev / unconfigured)
     document.getElementById('loginOverlay').classList.add('hidden');
-    document.getElementById('loginError').classList.remove('visible');
-  } else {
-    document.getElementById('loginError').classList.add('visible');
+    return;
+  }
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  if (!email || !pass) { _setLoginError('Please enter your email and password.'); return; }
+  _setBtnLoading('btnSignIn', true);
+  _setLoginError('');
+
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  _setBtnLoading('btnSignIn', false);
+
+  if (error) {
+    _setLoginError(error.message || 'Sign in failed. Check your email and password.');
     document.getElementById('loginPassword').value = '';
     document.getElementById('loginPassword').focus();
   }
-}
+  // onAuthStateChange handles the rest
+};
 
-// Allow Enter key to submit
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) {
-    attemptLogin();
+// ── Sign up ──
+window.attemptSignUp = async function() {
+  if (!_sb) return;
+  const name    = document.getElementById('signupName').value.trim();
+  const company = document.getElementById('signupCompany').value.trim();
+  const email   = document.getElementById('signupEmail').value.trim();
+  const pass    = document.getElementById('signupPassword').value;
+
+  if (!name || !email || !pass) { _setLoginError('Please fill in all required fields.'); return; }
+  if (pass.length < 8) { _setLoginError('Password must be at least 8 characters.'); return; }
+
+  _setBtnLoading('btnSignUp', true);
+  _setLoginError('');
+
+  const { data, error } = await _sb.auth.signUp({
+    email, password: pass,
+    options: { data: { full_name: name, company_name: company } }
+  });
+  _setBtnLoading('btnSignUp', false);
+
+  if (error) {
+    _setLoginError(error.message || 'Sign up failed.');
+  } else if (data.user && !data.session) {
+    // Email confirmation required
+    _setLoginSuccess('✓ Account created! Check your email to confirm your address, then sign in.');
+    switchAuthTab('signin');
+  }
+  // If email confirmation is off in Supabase, onAuthStateChange fires immediately
+};
+
+// ── Forgot password ──
+window.showForgotPassword = async function() {
+  const email = document.getElementById('loginEmail').value.trim();
+  if (!email) { _setLoginError('Enter your email address above first.'); return; }
+  if (!_sb) return;
+  const { error } = await _sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/?reset=true'
+  });
+  if (error) _setLoginError(error.message);
+  else _setLoginSuccess(`✓ Password reset email sent to ${email}`);
+};
+
+// ── Sign out ──
+window.signOut = async function() {
+  toggleUserMenu(false);
+  if (_sb) await _sb.auth.signOut();
+  _currentUser = null;
+  _creditBalance = null;
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('creditBadge').style.display = 'none';
+  document.getElementById('userMenuBtn').style.display = 'none';
+};
+
+// ── User menu ──
+let _userMenuOpen = false;
+window.toggleUserMenu = function(forceClose) {
+  _userMenuOpen = forceClose === false ? false : !_userMenuOpen;
+  document.getElementById('userMenu').style.display = _userMenuOpen ? 'block' : 'none';
+};
+document.addEventListener('click', e => {
+  if (_userMenuOpen && !e.target.closest('#userMenuBtn') && !e.target.closest('#userMenu')) {
+    toggleUserMenu(false);
   }
 });
 
-// Check existing session
-if (sessionStorage.getItem(SESSION_KEY) === '1') {
-  document.getElementById('loginOverlay').classList.add('hidden');
+// ── Auth state change — single source of truth ──
+if (_sb) {
+  _sb.auth.onAuthStateChange(async (event, session) => {
+    if (session?.user) {
+      _currentUser = session.user;
+      document.getElementById('loginOverlay').classList.add('hidden');
+      // Show header controls
+      const emailShort = session.user.email.split('@')[0];
+      document.getElementById('userEmailDisplay').textContent = emailShort;
+      document.getElementById('userMenuEmail').textContent = session.user.email;
+      document.getElementById('userMenuBtn').style.display = '';
+      document.getElementById('creditBadge').style.display = '';
+      // Load credit balance + projects
+      await refreshCreditBalance();
+      await loadCloudProjects();
+      // Handle payment success redirect
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('payment') === 'success') {
+        history.replaceState({}, '', '/');
+        await refreshCreditBalance();
+        showToast('✓ Credits added to your account!');
+      }
+    } else {
+      _currentUser = null;
+      if (!document.getElementById('loginOverlay').classList.contains('hidden') === false) {
+        // Already hidden — means we just signed out
+      }
+    }
+  });
+}
+
+// Enter key on login fields
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const overlay = document.getElementById('loginOverlay');
+  if (overlay.classList.contains('hidden')) return;
+  const signupVisible = document.getElementById('signupFields').style.display !== 'none';
+  if (signupVisible) attemptSignUp(); else attemptLogin();
+});
+
+// ══════════════════════════════════════════════════════
+// CREDIT SYSTEM
+// ══════════════════════════════════════════════════════
+
+async function refreshCreditBalance() {
+  if (!_sb || !_currentUser) return;
+  const { data, error } = await _sb
+    .from('profiles')
+    .select('credit_balance')
+    .eq('id', _currentUser.id)
+    .single();
+  if (!error && data) {
+    _creditBalance = data.credit_balance;
+    const el = document.getElementById('creditCount');
+    if (el) el.textContent = _creditBalance;
+  }
+}
+
+// consumeCredits — call before any credit-gated operation
+// Returns true if OK to proceed, false if insufficient / error
+window.consumeCredits = async function(operation, projectId) {
+  if (!_sb || !_currentUser) return true; // offline / dev mode — allow
+
+  const token = (await _sb.auth.getSession()).data.session?.access_token;
+  if (!token) return false;
+
+  const res = await fetch('/api/credits/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ operation, projectId }),
+  });
+
+  if (res.ok) {
+    const { new_balance } = await res.json();
+    _creditBalance = new_balance;
+    document.getElementById('creditCount').textContent = new_balance;
+    return true;
+  }
+
+  if (res.status === 402) {
+    const { balance, required } = await res.json();
+    openBuyCredits(`This action costs ${required} credits — you have ${balance}.`);
+    return false;
+  }
+
+  console.error('consumeCredits error:', res.status);
+  return false;
+};
+
+// ── Buy Credits modal ──
+window.openBuyCredits = async function(reason) {
+  document.getElementById('buyCreditReason').textContent = reason || '';
+  document.getElementById('buyCreditsModal').style.display = 'flex';
+  toggleUserMenu(false);
+
+  if (!_sb) return;
+  const { data: pkgs } = await _sb
+    .from('credit_packages')
+    .select('*')
+    .eq('active', true)
+    .order('sort_order');
+
+  const list = document.getElementById('creditPackageList');
+  if (!pkgs || !pkgs.length) {
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No packages available yet.</div>';
+    return;
+  }
+
+  list.innerHTML = pkgs.map(p => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid var(--border);border-radius:10px;gap:12px">
+      <div>
+        <div style="font-size:15px;font-weight:800;color:var(--primary)">${p.name}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">
+          <strong>${p.credits}</strong> credits · $${(p.price_aud / p.credits).toFixed(2)}/credit
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;font-weight:800;color:var(--text)">$${parseFloat(p.price_aud).toFixed(0)}</div>
+        <button onclick="startCheckout('${p.id}')"
+          style="margin-top:6px;padding:6px 16px;font-size:12px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:7px;cursor:pointer">
+          Buy
+        </button>
+      </div>
+    </div>
+  `).join('');
+};
+
+window.closeBuyCredits = function() {
+  document.getElementById('buyCreditsModal').style.display = 'none';
+};
+
+window.startCheckout = async function(packageId) {
+  if (!_sb || !_currentUser) return;
+  const token = (await _sb.auth.getSession()).data.session?.access_token;
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '…';
+
+  const res = await fetch('/api/stripe/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ packageId }),
+  });
+
+  if (res.ok) {
+    const { url } = await res.json();
+    window.location.href = url;
+  } else {
+    btn.disabled = false; btn.textContent = 'Buy';
+    alert('Checkout error — please try again.');
+  }
+};
+
+// ══════════════════════════════════════════════════════
+// CLOUD PROJECT STORAGE
+// Wraps the existing localStorage functions with Supabase sync
+// localStorage remains as offline cache; Supabase is the source of truth when online
+// ══════════════════════════════════════════════════════
+
+async function loadCloudProjects() {
+  if (!_sb || !_currentUser) return;
+
+  const { data, error } = await _sb
+    .from('projects')
+    .select('id, name, storey_count, updated_at, state_json, plan_state_json')
+    .eq('user_id', _currentUser.id)
+    .order('updated_at', { ascending: false });
+
+  if (error) { console.error('loadCloudProjects:', error); return; }
+  if (!data || !data.length) return;
+
+  // Merge cloud projects into local project list
+  // Cloud wins on conflict (same id)
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) {}
+
+  const merged = [...data.map(p => ({
+    id: p.id,
+    name: p.name,
+    createdAt: new Date(p.updated_at).getTime(),
+    updatedAt: new Date(p.updated_at).getTime(),
+    state: p.state_json,
+    planState: p.plan_state_json,
+  }))];
+
+  // Add any local-only projects not yet in cloud
+  local.forEach(lp => {
+    if (!merged.find(m => m.id === lp.id)) merged.push(lp);
+  });
+
+  try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(merged)); } catch(e) {}
+  renderProjectList();
+
+  if (!_currentProjectId && merged.length) {
+    loadProject(merged[0].id);
+  }
+}
+
+// Override saveCurrentProject to also push to Supabase
+const _origSaveCurrentProject = window.saveCurrentProject;
+window.saveCurrentProject = async function() {
+  // Save to localStorage first (existing function)
+  if (typeof _origSaveCurrentProject === 'function') _origSaveCurrentProject();
+
+  if (!_sb || !_currentUser || !_currentProjectId) return;
+
+  // Get the project we just saved from localStorage
+  let projects = [];
+  try { projects = JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) {}
+  const p = projects.find(x => x.id === _currentProjectId);
+  if (!p) return;
+
+  const { error } = await _sb.from('projects').upsert({
+    id:             _currentProjectId,
+    user_id:        _currentUser.id,
+    name:           p.name || 'Untitled',
+    state_json:     p.state,
+    plan_state_json: p.planState ? { ...p.planState, imgData: null } : null,
+    storey_count:   parseInt(document.getElementById('storeyCount')?.value) || 1,
+    updated_at:     new Date().toISOString(),
+  }, { onConflict: 'id' });
+
+  if (error) console.error('Cloud save error:', error);
+};
+
+// Simple toast notification
+function showToast(msg, duration = 3000) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a4731;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity 0.25s;pointer-events:none';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, duration);
 }
 
 // ══════════════════════════════════════════════════════
 // PDF EXPORT
 // ══════════════════════════════════════════════════════
-function exportPDF() {
+async function exportPDF() {
+  // Gate behind credits when user is signed in
+  if (_currentUser) {
+    const ok = await consumeCredits('full_report_pack', _currentProjectId);
+    if (!ok) return;
+  }
+
   const btn = document.getElementById('pdfBtn');
   btn.disabled = true;
   btn.textContent = 'Generating…';
@@ -2424,61 +2878,105 @@ addRoom('extract');
     const tabs = el('floorTabs');
     const hint = el('floorHint');
     const riserBtn = el('tool-riser');
+    const storeyLbl = document.getElementById('planStoreyLabel');
+
+    // Keep plan toolbar storey label in sync
+    if (storeyLbl) storeyLbl.textContent = storeyCount === 1 ? '1 Storey' : `${storeyCount} Storeys`;
 
     if (storeyCount <= 1) {
       if (bar) bar.style.display = 'none';
       if (riserBtn) riserBtn.style.display = 'none';
+      // Make sure activeFloor is 0
+      if (plan.activeFloor !== 0) { plan.activeFloor = 0; redraw(); }
       return;
     }
+
     if (bar) bar.style.display = 'flex';
     if (tabs) {
       tabs.innerHTML = '';
       for (let f = 0; f < storeyCount; f++) {
+        const isActive = f === plan.activeFloor;
+        const hasImage = plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData);
         const btn = document.createElement('button');
-        btn.className = 'plan-btn' + (f === plan.activeFloor ? ' active' : '');
-        btn.textContent = FLOOR_NAMES[f] || `Level ${f}`;
-        btn.title = `Switch to ${FLOOR_NAMES[f] || `Level ${f}`} — upload a separate plan image for each storey`;
+        btn.style.cssText = `padding:5px 16px;font-size:12px;font-weight:${isActive ? '800' : '600'};
+          border:2px solid ${isActive ? 'var(--primary)' : 'var(--border)'};
+          background:${isActive ? 'var(--primary)' : 'var(--card)'};
+          color:${isActive ? '#fff' : 'var(--text)'};
+          border-radius:7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;
+          box-shadow:${isActive ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'}`;
+        btn.title = `View ${FLOOR_NAMES[f] || `Level ${f}`}${hasImage ? ' ✓ plan uploaded' : ' — no plan uploaded yet'}`;
+        // Floor name + image dot
+        btn.innerHTML = `${FLOOR_NAMES[f] || `Level ${f}`}${hasImage ? ' <span style="color:' + (isActive ? 'rgba(255,255,255,0.85)' : 'var(--success,#16a34a)') + ';font-size:10px">●</span>' : ''}`;
         btn.onclick = () => switchFloor(f);
-
-        // Upload trigger for this floor
-        const uploadLbl = document.createElement('label');
-        uploadLbl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;margin-left:2px;cursor:pointer;font-size:11px;color:var(--muted)';
-        uploadLbl.title = `Upload floor plan for ${FLOOR_NAMES[f] || `Level ${f}`}`;
-        const inp = document.createElement('input');
-        inp.type = 'file'; inp.accept = '.pdf,image/*'; inp.style.display = 'none';
-        inp.dataset.floor = f;
-        inp.addEventListener('change', e => {
-          const targetFloor = parseInt(e.target.dataset.floor);
-          // Switch to that floor first, then let the normal upload handler process it
-          if (plan.activeFloor !== targetFloor) {
-            _saveActiveFloorData();
-            plan.activeFloor = targetFloor;
-            updateFloorBar();
-          }
-          handlePlanFileUpload(e.target.files[0]);
-        });
-        uploadLbl.appendChild(inp);
-        uploadLbl.appendChild(document.createTextNode('📄'));
-
-        const wrap = document.createElement('span');
-        wrap.style.cssText = 'display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden';
-        btn.style.border = 'none'; btn.style.borderRadius = '0';
-        uploadLbl.style.cssText += ';padding:4px 6px;background:var(--input-bg);border-left:1px solid var(--border)';
-        wrap.appendChild(btn); wrap.appendChild(uploadLbl);
-        tabs.appendChild(wrap);
-
-        // Dot indicator if this floor has an image
-        if (plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData)) {
-          btn.style.fontWeight = '800';
-        }
+        tabs.appendChild(btn);
       }
     }
-    // Show riser button only on upper floors
+
+    // Riser button only on upper floors
     if (riserBtn) riserBtn.style.display = plan.activeFloor > 0 ? 'inline-flex' : 'none';
     if (hint) hint.textContent = plan.activeFloor > 0
-      ? 'Use ↕ Riser to mark where ducts penetrate the floor slab from below'
-      : '';
+      ? `Viewing ${FLOOR_NAMES[plan.activeFloor] || `Level ${plan.activeFloor}`} — use ↕ Riser to mark slab penetrations`
+      : `Viewing ${FLOOR_NAMES[0]} — switch floors above to draw each level`;
   };
+
+  // ── Storey count control on plan toolbar ──
+  window.adjustPlanStoreys = function(delta) {
+    const sel = document.getElementById('storeyCount');
+    if (!sel) return;
+    const cur = parseInt(sel.value) || 1;
+    const next = Math.max(1, Math.min(4, cur + delta));
+    if (next === cur) return;
+    sel.value = next;
+    // Fire change so updateStoreyFields + updateFloorBar both run
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    // If we reduced storeys below activeFloor, switch back to ground
+    if (plan.activeFloor >= next) switchFloor(0);
+  };
+
+  // ── Floor picker modal (shown when uploading and storeys > 1) ──
+  let _pendingUploadFile = null;
+
+  window.cancelFloorPick = function() {
+    _pendingUploadFile = null;
+    const modal = el('floorPickerModal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  function showFloorPicker(file) {
+    _pendingUploadFile = file;
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    const modal = el('floorPickerModal');
+    const btns  = el('floorPickerBtns');
+    if (!modal || !btns) { _loadPlanFile(file, plan.activeFloor); return; }
+    btns.innerHTML = '';
+    for (let f = 0; f < storeyCount; f++) {
+      const hasImg = plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData);
+      const b = document.createElement('button');
+      b.style.cssText = 'padding:10px 16px;font-size:14px;font-weight:700;border-radius:8px;border:2px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px';
+      b.innerHTML = `<span>${FLOOR_NAMES[f] || `Level ${f}`}</span>${hasImg ? '<span style="font-size:11px;color:var(--muted)">replace existing</span>' : '<span style="font-size:11px;color:var(--success,#16a34a)">no plan yet</span>'}`;
+      b.onmouseover = () => b.style.borderColor = 'var(--primary)';
+      b.onmouseout  = () => b.style.borderColor = 'var(--border)';
+      b.onclick = () => {
+        modal.style.display = 'none';
+        _loadPlanFile(_pendingUploadFile, f);
+        _pendingUploadFile = null;
+      };
+      btns.appendChild(b);
+    }
+    modal.style.display = 'flex';
+  }
+
+  function _loadPlanFile(file, targetFloor) {
+    if (!file) return;
+    // Switch to target floor first
+    if (plan.activeFloor !== targetFloor) {
+      _saveActiveFloorData();
+      plan.activeFloor = targetFloor;
+      updateFloorBar();
+    }
+    if (file.type === 'application/pdf') loadPDF(file);
+    else loadImage(file);
+  }
 
   // ── Snap toggle ──
   window.toggleSnap = function() {
@@ -2661,19 +3159,24 @@ addRoom('extract');
     inp.addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
-      if (file.type === 'application/pdf') loadPDF(file);
-      else loadImage(file);
+      const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+      if (storeyCount > 1) {
+        showFloorPicker(file);
+      } else {
+        _loadPlanFile(file, 0);
+      }
       inp.value = '';
     });
   }
   setupUpload('planUpload');
   setupUpload('planUpload2');
 
-  // Exposed so per-floor upload inputs in updateFloorBar() can call it
+  // Exposed for external callers (kept for compatibility)
   window.handlePlanFileUpload = function(file) {
     if (!file) return;
-    if (file.type === 'application/pdf') loadPDF(file);
-    else loadImage(file);
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    if (storeyCount > 1) showFloorPicker(file);
+    else _loadPlanFile(file, 0);
   };
 
   function loadImage(file) {
