@@ -1172,6 +1172,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
             <input type="file" id="unitDbImport" accept=".xlsx,.xls" style="display:none" onchange="importUnitDatabase(this)">
           </label>
           <button class="plan-btn" onclick="clearUnitDatabase()" style="padding:9px 18px">🗑 Clear database</button>
+          <button class="plan-btn" onclick="syncUnitsFromSupabase(true).then(()=>showToast('✓ Sync complete'))" style="padding:9px 18px">☁ Re-sync from server</button>
         </div>
 
         <div style="margin-top:20px">
@@ -3260,7 +3261,7 @@ if (_sb) {
       // Load credit balance + projects + unit database
       await refreshCreditBalance();
       await loadCloudProjects();
-      await syncUnitsFromSupabase();
+      await syncUnitsFromSupabase(true); // always sync on login
       // Handle payment success redirect
       const params = new URLSearchParams(window.location.search);
       if (params.get('payment') === 'success') {
@@ -3295,14 +3296,14 @@ document.addEventListener('keydown', e => {
 // UNIT DB SYNC — fetch from Supabase into localStorage
 // ══════════════════════════════════════════════════════
 
-async function syncUnitsFromSupabase() {
+async function syncUnitsFromSupabase(force = false) {
   if (!_sb || !_currentUser) return;
 
-  // Only re-sync if local DB is empty or older than 24h
+  // Re-sync if: forced, local DB empty, or older than 24h
   const lastSync = localStorage.getItem('hh_mvhr_units_synced_at');
   const localUnits = _loadUnitDB();
   const stale = !lastSync || (Date.now() - parseInt(lastSync)) > 86400000;
-  if (localUnits.length > 0 && !stale) return;
+  if (!force && localUnits.length > 0 && !stale) return;
 
   try {
     // Fetch all units in pages (Supabase default limit is 1000)
