@@ -24,6 +24,13 @@ export default async function handler(req, res) {
   const { operation, projectId } = req.body;
   if (!operation) return res.status(400).json({ error: 'operation required' });
 
+  // Guard against local/unsynced project IDs (e.g. "proj_...") which are not UUIDs
+  function isUuid(value) {
+    return typeof value === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+  const safeProjectId = isUuid(projectId) ? projectId : null;
+
   // Look up cost
   const { data: opCost, error: opErr } = await supabase
     .from('operation_costs')
@@ -38,7 +45,7 @@ export default async function handler(req, res) {
     p_user_id:    user.id,
     p_amount:     opCost.credits,
     p_operation:  operation,
-    p_project_id: projectId || null,
+    p_project_id: safeProjectId,
   });
 
   if (deductErr) {
