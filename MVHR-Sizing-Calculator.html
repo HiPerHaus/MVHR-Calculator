@@ -148,7 +148,7 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .nav-tab .nav-label { font-size: 10px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
-#tab-plan.active { display: flex; }
+#tab-plan.active { display: flex; position: relative; }
 
 /* ── Unit grid ── */
 .unit-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 18px; }
@@ -293,6 +293,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 .room-picker-item .ri-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -301,25 +303,99 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <div class="login-box">
     <div class="login-logo">HiPer Haus</div>
     <div class="login-title">MVHR Design Engine</div>
-    <div class="login-sub">Sign in to continue</div>
-    <div class="login-error" id="loginError">Incorrect email or password. Please try again.</div>
-    <div class="login-field">
-      <label>Email</label>
-      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+
+    <!-- Tab switcher -->
+    <div style="display:flex;gap:0;margin-bottom:20px;border:1px solid rgba(255,255,255,0.2);border-radius:8px;overflow:hidden">
+      <button id="tabSignIn" onclick="switchAuthTab('signin')"
+        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:rgba(255,255,255,0.9);color:#1a4731;transition:all 0.15s">
+        Sign In
+      </button>
+      <button id="tabSignUp" onclick="switchAuthTab('signup')"
+        style="flex:1;padding:8px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,0.7);transition:all 0.15s">
+        Create Account
+      </button>
     </div>
-    <div class="login-field">
-      <label>Password</label>
-      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+
+    <div class="login-error" id="loginError" style="display:none"></div>
+    <div id="loginSuccess" style="display:none;background:rgba(255,255,255,0.15);color:#fff;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
+
+    <!-- Sign-in fields -->
+    <div id="signinFields">
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-login" id="btnSignIn" onclick="attemptLogin()">Sign In →</button>
+      <div style="text-align:center;margin-top:10px">
+        <a href="#" onclick="showForgotPassword()" style="font-size:12px;color:rgba(255,255,255,0.6);text-decoration:none">Forgot password?</a>
+      </div>
     </div>
-    <button class="btn-login" onclick="attemptLogin()">Sign In →</button>
+
+    <!-- Sign-up fields -->
+    <div id="signupFields" style="display:none">
+      <div class="login-field">
+        <label>Full Name</label>
+        <input type="text" id="signupName" placeholder="Jane Smith" autocomplete="name">
+      </div>
+      <div class="login-field">
+        <label>Company (optional)</label>
+        <input type="text" id="signupCompany" placeholder="Smith HVAC Pty Ltd">
+      </div>
+      <div class="login-field">
+        <label>Email</label>
+        <input type="email" id="signupEmail" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="login-field">
+        <label>Password</label>
+        <input type="password" id="signupPassword" placeholder="8+ characters" autocomplete="new-password">
+      </div>
+      <button class="btn-login" id="btnSignUp" onclick="attemptSignUp()">Create Account →</button>
+    </div>
+
     <div class="login-footer">HiPer Haus · MVHR Design Platform</div>
+  </div>
+</div>
+
+<!-- ═══ BUY CREDITS MODAL ═══ -->
+<div id="buyCreditsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:8000;align-items:center;justify-content:center">
+  <div style="background:var(--card);border-radius:16px;padding:32px;max-width:520px;width:92%;box-shadow:0 12px 60px rgba(0,0,0,0.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:20px;font-weight:800;color:var(--primary)">⚡ Purchase Credits</div>
+      <button onclick="closeBuyCredits()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <div id="buyCreditReason" style="font-size:13px;color:var(--muted);margin-bottom:20px"></div>
+    <div id="creditPackageList" style="display:flex;flex-direction:column;gap:10px">
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">Loading packages…</div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:var(--muted);text-align:center">Credits never expire · Secure checkout via Stripe</div>
   </div>
 </div>
 
 <header>
   <h1>MVHR Design Engine</h1>
   <span>HiPer Haus · Passivhaus-aligned · Australian high-performance homes</span>
-  <span id="saveBadge" style="margin-left:auto;font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+    <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
+    <button id="creditBadge" onclick="openBuyCredits()" title="Purchase credits"
+      style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:4px 12px;border-radius:20px;cursor:pointer;letter-spacing:0.3px;transition:background 0.15s"
+      onmouseover="this.style.background='rgba(255,255,255,0.25)'"
+      onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+      ⚡ <span id="creditCount">—</span> credits
+    </button>
+    <button id="userMenuBtn" onclick="toggleUserMenu()" title="Account"
+      style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 12px;border-radius:20px;cursor:pointer">
+      👤 <span id="userEmailDisplay"></span>
+    </button>
+    <div id="userMenu" style="display:none;position:absolute;top:56px;right:16px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px;min-width:180px;box-shadow:0 6px 24px rgba(0,0,0,0.15);z-index:1000">
+      <div style="padding:8px 10px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:4px" id="userMenuEmail"></div>
+      <button onclick="openBuyCredits()" style="width:100%;text-align:left;padding:8px 10px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-radius:6px;color:var(--text)" onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background='none'">⚡ Buy Credits</button>
+      <button onclick="signOut()" style="width:100%;text-align:left;padding:8px 10px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-radius:6px;color:var(--text)" onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background='none'">↩ Sign Out</button>
+    </div>
+  </div>
 </header>
 
 <nav class="top-nav">
@@ -409,6 +485,63 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <div class="section-title">Duct Settings</div>
     <div class="grid2">
       <div class="field"><label>Bends per run</label><input type="number" id="bendsPerRun" min="0" value="0" placeholder="0"></div>
+    </div>
+  </div>
+
+  <!-- ─── MVHR Unit Picker ─── -->
+  <div>
+    <div class="section-title">MVHR Unit Selection</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      Select the unit you are designing for. The database is pre-loaded with PHI-certified units — import an updated list in Settings.
+    </div>
+
+    <!-- Selected unit card -->
+    <div id="selectedUnitCard" style="display:none;background:var(--input-bg);border:2px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+        <div>
+          <div style="font-size:13px;font-weight:800;color:var(--primary)" id="sucName">—</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="sucId"></div>
+        </div>
+        <button onclick="clearUnitSelection()" title="Clear selection" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);flex-shrink:0">✕</button>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px">
+        <span>♻ <strong id="sucHR">—</strong>% HR</span>
+        <span>⚡ <strong id="sucSFP">—</strong> Wh/m³</span>
+        <span>💨 <strong id="sucMin">—</strong>–<strong id="sucMax">—</strong> m³/h</span>
+        <span>🔊 Supply <strong id="sucNS">—</strong> dB(A)</span>
+        <span>🔊 Extract <strong id="sucNE">—</strong> dB(A)</span>
+        <span id="sucFrost" style="color:var(--accent)"></span>
+        <span id="sucHumidity" style="color:#0ea5e9"></span>
+      </div>
+    </div>
+
+    <!-- Search + filter controls -->
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+      <input id="unitSearch" type="text" placeholder="Search manufacturer or model…" oninput="renderUnitPicker()"
+        style="flex:1;min-width:180px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--input-bg);color:var(--text)">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="myUnitsOnly" onchange="renderUnitPicker()"> My units only
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="humidityOnly" onchange="renderUnitPicker()"> Humidity recovery
+      </label>
+      <select id="unitFlowFilter" onchange="renderUnitPicker()"
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--input-bg);color:var(--text)">
+        <option value="">All flows</option>
+        <option value="150">Up to 150 m³/h</option>
+        <option value="300">Up to 300 m³/h</option>
+        <option value="450">Up to 450 m³/h</option>
+        <option value="600">Up to 600 m³/h</option>
+      </select>
+    </div>
+
+    <!-- Scrollable unit list -->
+    <div id="unitPickerList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--input-bg)">
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Loading units…</div>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+      <span id="unitPickerCount" style="font-size:11px;color:var(--muted)"></span>
+      <button onclick="openCustomUnitForm(null)" class="btn-add" style="margin-left:auto">+ Add custom unit</button>
     </div>
   </div>
 
@@ -795,6 +928,13 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <div class="plan-sep"></div>
         <button class="plan-btn active" id="snapToggle" onclick="toggleSnap()" title="Snap to existing vertices, edges and right angles when drawing rooms">🔲 Snap</button>
         <div class="plan-sep"></div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--muted)">
+          🏢
+          <button class="plan-btn" onclick="adjustPlanStoreys(-1)" title="Remove a storey" style="min-width:26px;padding:0 6px">−</button>
+          <span id="planStoreyLabel" style="min-width:60px;text-align:center;color:var(--primary)">1 Storey</span>
+          <button class="plan-btn" onclick="adjustPlanStoreys(1)"  title="Add a storey"    style="min-width:26px;padding:0 6px">+</button>
+        </div>
+        <div class="plan-sep"></div>
         <button class="plan-btn" onclick="planZoom(-0.1)" title="Zoom out">−</button>
         <button class="plan-btn" id="zoomLabel" onclick="planZoom(0)" title="Reset zoom" style="min-width:44px;text-align:center">100%</button>
         <button class="plan-btn" onclick="planZoom(0.1)" title="Zoom in">+</button>
@@ -823,6 +963,89 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <div id="planCanvasInner" style="position:relative;transform-origin:top left">
           <canvas id="planCanvas" style="display:none"></canvas>
           <canvas id="planOverlay" style="display:none;position:absolute;top:0;left:0;cursor:crosshair"></canvas>
+        </div>
+      </div>
+
+      <!-- Floor picker modal — shown on plan upload when storeys > 1 -->
+      <div id="floorPickerModal" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:200;align-items:center;justify-content:center">
+        <div style="background:var(--card);border-radius:14px;padding:28px 32px;max-width:360px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,0.25);text-align:center">
+          <div style="font-size:22px;margin-bottom:8px">📐</div>
+          <div style="font-size:16px;font-weight:800;color:var(--primary);margin-bottom:6px">Which level is this floor plan?</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Each storey gets its own plan image</div>
+          <div id="floorPickerBtns" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button onclick="cancelFloorPick()" style="margin-top:16px;font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Custom unit form modal -->
+      <div id="customUnitModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;align-items:center;justify-content:center;overflow-y:auto">
+        <div style="background:var(--card);border-radius:14px;padding:28px 32px;max-width:500px;width:92%;margin:20px auto;box-shadow:0 8px 40px rgba(0,0,0,0.2)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+            <div style="font-size:16px;font-weight:800;color:var(--primary)" id="customUnitModalTitle">Add Custom Unit</div>
+            <button onclick="closeCustomUnitForm()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="field" style="grid-column:1/-1">
+              <label>Manufacturer *</label>
+              <input type="text" id="cu-manufacturer" placeholder="e.g. Zehnder">
+            </div>
+            <div class="field" style="grid-column:1/-1">
+              <label>Model name *</label>
+              <input type="text" id="cu-model" placeholder="e.g. ComfoAir Q350">
+            </div>
+            <div class="field">
+              <label>HR efficiency (%)</label>
+              <input type="number" id="cu-hrEff" min="50" max="100" step="0.1" placeholder="e.g. 86">
+            </div>
+            <div class="field">
+              <label>Specific fan power (Wh/m³)</label>
+              <input type="number" id="cu-sfp" min="0" max="1" step="0.01" placeholder="e.g. 0.36">
+            </div>
+            <div class="field">
+              <label>Min airflow (m³/h)</label>
+              <input type="number" id="cu-flowMin" min="0" placeholder="e.g. 50">
+            </div>
+            <div class="field">
+              <label>Max airflow (m³/h) *</label>
+              <input type="number" id="cu-flowMax" min="10" placeholder="e.g. 350">
+            </div>
+            <div class="field">
+              <label>Supply noise dB(A)</label>
+              <input type="number" id="cu-noiseSupply" min="0" max="100" step="0.1" placeholder="e.g. 52">
+            </div>
+            <div class="field">
+              <label>Extract noise dB(A)</label>
+              <input type="number" id="cu-noiseExtract" min="0" max="100" step="0.1" placeholder="e.g. 44">
+            </div>
+            <div class="field">
+              <label>Connection size</label>
+              <input type="text" id="cu-conn" placeholder="e.g. 180mm or 4×125mm">
+            </div>
+            <div class="field">
+              <label>Frost protection</label>
+              <select id="cu-frost">
+                <option value="yes">Required</option>
+                <option value="no">Not required</option>
+                <option value="">Unknown</option>
+              </select>
+            </div>
+            <div class="field" style="grid-column:1/-1">
+              <label>Humidity recovery?</label>
+              <select id="cu-humidity">
+                <option value="">No / not tested</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div class="field" style="grid-column:1/-1">
+              <label>Notes / model number</label>
+              <input type="text" id="cu-notes" placeholder="e.g. art. 471 05 000, includes bypass">
+            </div>
+          </div>
+          <input type="hidden" id="cu-editId">
+          <div style="display:flex;gap:10px;margin-top:20px">
+            <button class="btn-calc" onclick="saveCustomUnit()" style="flex:1;padding:10px">Save Unit</button>
+            <button class="plan-btn" onclick="closeCustomUnitForm()" style="padding:10px 20px">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -892,6 +1115,40 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
         <span id="settingsSavedMsg" style="font-size:12px;color:var(--accent);font-weight:700;display:none">✓ Saved</span>
       </div>
 
+      <!-- ─── MVHR Unit Database ─── -->
+      <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
+        <div class="section-title">MVHR Unit Database</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+          Import the PHI certified components update file (<code>PHPP10_ventilation_*.xlsx</code>) to update the unit database.
+          Download the latest version from <a href="https://passivehouse.com/04_phpp/04_phpp.htm" target="_blank" style="color:var(--primary)">passivehouse.com</a>.
+        </div>
+
+        <div id="unitDbStatus" style="background:var(--input-bg);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px">
+          Loading…
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <label class="btn-calc" style="width:auto;padding:9px 22px;cursor:pointer;display:inline-flex;align-items:center;gap:8px">
+            📥 Import PHI xlsx
+            <input type="file" id="unitDbImport" accept=".xlsx,.xls" style="display:none" onchange="importUnitDatabase(this)">
+          </label>
+          <button class="plan-btn" onclick="clearUnitDatabase()" style="padding:9px 18px">🗑 Clear database</button>
+        </div>
+
+        <div style="margin-top:20px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">My Units (favourited for quick access)</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Units you star in the Project tab appear here. Use this to keep only the equipment you actually supply.</div>
+          <div id="myUnitsList" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto"></div>
+        </div>
+
+        <div style="margin-top:20px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">Custom Units</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Units you've added manually that aren't in the PHI database.</div>
+          <div id="customUnitsList" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto"></div>
+          <button onclick="openCustomUnitForm(null)" class="btn-add" style="margin-top:8px">+ Add custom unit</button>
+        </div>
+      </div>
+
     </div>
 
   </div><!-- /results -->
@@ -923,6 +1180,471 @@ const PHPP_EXTRACT_DEFAULTS = {
 const PHPP_GLOBAL = { perPerson: 30, minACH: 0.3 };
 
 const SETTINGS_KEY = 'hh_mvhr_settings_v1';
+
+// ══════════════════════════════════════════════════════
+// MVHR UNIT DATABASE
+// ══════════════════════════════════════════════════════
+const UNIT_DB_KEY       = 'hh_mvhr_units_v1';
+const CUSTOM_UNITS_KEY  = 'hh_mvhr_custom_v1';
+const MY_UNITS_KEY      = 'hh_mvhr_my_units_v1';
+const SELECTED_UNIT_KEY = 'hh_mvhr_sel_unit_v1';
+
+// ── Starter name map — PHI cert ID → { manufacturer, model }
+// Populated from publicly known PHI certified products.
+// Users can override by importing an xlsx or editing custom entries.
+const STARTER_NAMES = {
+  // Zehnder
+  '0913vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q150 B'},
+  '0914vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q250 B'},
+  '0915vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 B'},
+  '0916vs03':{'manufacturer':'Zehnder','model':'ComfoAir 200'},
+  '0917vs03':{'manufacturer':'Zehnder','model':'ComfoAir 350'},
+  '0918vs03':{'manufacturer':'Zehnder','model':'ComfoAir 550'},
+  '1813vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 ER'},
+  '1814vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 TR'},
+  '1815vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 ER'},
+  '2566vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 B'},
+  // Brink
+  '1569vs03':{'manufacturer':'Brink','model':'Flair 325 EH'},
+  '1570vs03':{'manufacturer':'Brink','model':'Flair 400 EH'},
+  '1841vs03':{'manufacturer':'Brink','model':'Renovent Excellent 300'},
+  '2307vs03':{'manufacturer':'Brink','model':'Renovent Sky 150'},
+  // Paul
+  '1134vs03':{'manufacturer':'Paul','model':'Novus 300'},
+  '1141vs03':{'manufacturer':'Paul','model':'Focus 200'},
+  '1142vs03':{'manufacturer':'Paul','model':'Santos 370 DC'},
+  // Stiebel Eltron
+  '0812vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 170'},
+  '1418vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 180 Plus'},
+  '1419vs03':{'manufacturer':'Stiebel Eltron','model':'LWZ 180 E Plus'},
+  // Nilan
+  '1924vs03':{'manufacturer':'Nilan','model':'VPL 15'},
+  // Vallox
+  '2088vs03':{'manufacturer':'Vallox','model':'ValloPlus 350 MV'},
+  // Systemair
+  '1420vs03':{'manufacturer':'Systemair','model':'VR 400/B EV'},
+  // Swegon
+  '2087vs03':{'manufacturer':'Swegon','model':'CASA R3'},
+  // Vaillant
+  '2003vs03':{'manufacturer':'Vaillant','model':'recoVAIR 350/4 E'},
+  '2004vs03':{'manufacturer':'Vaillant','model':'recoVAIR 450/4 E'},
+  // Dantherm
+  '1201vs03':{'manufacturer':'Dantherm','model':'HCV 300 P2'},
+  '1202vs03':{'manufacturer':'Dantherm','model':'HCV 450 P3'},
+  // Domekt / Komfovent
+  '1540vs03':{'manufacturer':'Komfovent','model':'Domekt R 200 V'},
+  '1541vs03':{'manufacturer':'Komfovent','model':'Domekt R 400 V'},
+  // Viessmann
+  '1760vs03':{'manufacturer':'Viessmann','model':'Vitovent 300-W'},
+  '1761vs03':{'manufacturer':'Viessmann','model':'Vitovent 300-C'},
+  // Aerauliqa
+  '1620vs03':{'manufacturer':'Aerauliqa','model':'QUANTUM-R 85'},
+  '1621vs03':{'manufacturer':'Aerauliqa','model':'QUANTUM-R 200'},
+  // Helios
+  '1800vs03':{'manufacturer':'Helios','model':'KWL EC 370 W Pro'},
+  '1801vs03':{'manufacturer':'Helios','model':'KWL EC 500 W Pro'},
+  // Maico
+  '1900vs03':{'manufacturer':'Maico','model':'WS 75 Powerbox'},
+  '1901vs03':{'manufacturer':'Maico','model':'WS 300 Flat'},
+  // Genvex
+  '0231vs03':{'manufacturer':'Genvex','model':'Combi 185 S'},
+};
+
+function _loadUnitDB() {
+  try { return JSON.parse(localStorage.getItem(UNIT_DB_KEY)) || []; } catch(e) { return []; }
+}
+function _saveUnitDB(units) {
+  try { localStorage.setItem(UNIT_DB_KEY, JSON.stringify(units)); } catch(e) {}
+}
+function _loadCustomUnits() {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_UNITS_KEY)) || []; } catch(e) { return []; }
+}
+function _saveCustomUnits(units) {
+  try { localStorage.setItem(CUSTOM_UNITS_KEY, JSON.stringify(units)); } catch(e) {}
+}
+function _loadMyUnits() {
+  try { return JSON.parse(localStorage.getItem(MY_UNITS_KEY)) || []; } catch(e) { return []; }
+}
+function _saveMyUnits(ids) {
+  try { localStorage.setItem(MY_UNITS_KEY, JSON.stringify(ids)); } catch(e) {}
+}
+function _loadSelectedUnit() {
+  try { return JSON.parse(localStorage.getItem(SELECTED_UNIT_KEY)); } catch(e) { return null; }
+}
+function _saveSelectedUnit(unit) {
+  try {
+    if (unit) localStorage.setItem(SELECTED_UNIT_KEY, JSON.stringify(unit));
+    else localStorage.removeItem(SELECTED_UNIT_KEY);
+  } catch(e) {}
+}
+
+// Build full unit list: PHI db + customs, with names resolved
+function getAllUnits() {
+  const phiUnits = _loadUnitDB();
+  const customs  = _loadCustomUnits();
+  return [
+    ...phiUnits.map(u => ({
+      ...u,
+      manufacturer: (STARTER_NAMES[u.id]?.manufacturer) || u.manufacturer || 'Unknown',
+      model: (STARTER_NAMES[u.id]?.model) || u.model || u.id,
+      source: 'phi',
+    })),
+    ...customs.map(u => ({ ...u, source: 'custom' })),
+  ];
+}
+
+function getGroupedUnits(filter = {}) {
+  let units = getAllUnits();
+  const myUnits = _loadMyUnits();
+
+  if (filter.myOnly) units = units.filter(u => myUnits.includes(u.id));
+  if (filter.search) {
+    const q = filter.search.toLowerCase();
+    units = units.filter(u =>
+      (u.manufacturer || '').toLowerCase().includes(q) ||
+      (u.model || '').toLowerCase().includes(q) ||
+      (u.id || '').toLowerCase().includes(q)
+    );
+  }
+  if (filter.humidity) units = units.filter(u => u.humidityWinter);
+  if (filter.maxFlow)  units = units.filter(u => u.flowMax <= parseInt(filter.maxFlow));
+
+  // Sort: custom first, then by manufacturer + model
+  units.sort((a, b) => {
+    if (a.source === 'custom' && b.source !== 'custom') return -1;
+    if (b.source === 'custom' && a.source !== 'custom') return 1;
+    return (a.manufacturer + a.model).localeCompare(b.manufacturer + b.model);
+  });
+
+  // Group by manufacturer
+  const groups = {};
+  units.forEach(u => {
+    const mfr = u.manufacturer || 'Unknown';
+    if (!groups[mfr]) groups[mfr] = [];
+    groups[mfr].push(u);
+  });
+  return groups;
+}
+
+// ── Import PHI xlsx via SheetJS ──
+window.importUnitDatabase = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+      // Find header row (row with 'ID')
+      let headerRow = -1;
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i] && rows[i][0] === 'ID') { headerRow = i; break; }
+      }
+      if (headerRow === -1) { alert('Could not find header row — is this a PHPP ventilation component file?'); return; }
+
+      const units = [];
+      let currentClimate = 'cool-temperate';
+      for (let i = headerRow + 2; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const desc = row[1] ? String(row[1]) : '';
+        if (desc.includes('☀☀☀')) { currentClimate = 'very-hot'; continue; }
+        if (desc.includes('❆☀'))  { currentClimate = 'cool-temperate'; continue; }
+        if (!row[0] || !String(row[0]).match(/\d+vs\d+/i)) continue;
+
+        const id = String(row[0]).trim();
+        units.push({
+          id,
+          manufacturer: STARTER_NAMES[id]?.manufacturer || '',
+          model:        STARTER_NAMES[id]?.model || '',
+          climate:      currentClimate,
+          hrEff:        row[2] != null ? parseFloat(row[2]) : null,
+          humidityWinter: row[3] != null ? parseFloat(row[3]) : null,
+          hrEffCooling:   row[4] != null ? parseFloat(row[4]) : null,
+          humiditySummer: row[5] != null ? parseFloat(row[5]) : null,
+          sfp:          row[6] != null ? parseFloat(row[6]) : null,
+          flowMin:      row[7] != null ? parseFloat(row[7]) : null,
+          flowMax:      row[8] != null ? parseFloat(row[8]) : null,
+          extPressure:  row[9] != null ? parseFloat(row[9]) : null,
+          fittingsDp:   row[10] != null ? String(row[10]) : null,
+          frostProtection: row[11] != null ? String(row[11]).toLowerCase() : null,
+          noiseLimit:   row[12] != null ? String(row[12]) : null,
+          noiseSupply:  row[13] != null ? parseFloat(row[13]) : null,
+          noiseExtract: row[14] != null ? parseFloat(row[14]) : null,
+        });
+      }
+
+      _saveUnitDB(units);
+      input.value = '';
+      updateUnitDbStatus();
+      renderUnitPicker();
+      renderMyUnitsList();
+      showToast(`✓ Imported ${units.length} certified units`);
+    } catch(err) {
+      console.error(err);
+      alert('Import failed: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+window.clearUnitDatabase = function() {
+  if (!confirm('Clear all imported PHI units? Custom units and My Units are kept.')) return;
+  localStorage.removeItem(UNIT_DB_KEY);
+  updateUnitDbStatus();
+  renderUnitPicker();
+  showToast('Database cleared');
+};
+
+// ── DB status display ──
+function updateUnitDbStatus() {
+  const el = document.getElementById('unitDbStatus');
+  if (!el) return;
+  const units = _loadUnitDB();
+  const customs = _loadCustomUnits();
+  const myUnits = _loadMyUnits();
+  if (!units.length) {
+    el.innerHTML = `<span style="color:var(--muted)">No PHI database imported yet — using built-in fallback units.</span>
+      <span style="color:var(--muted);font-size:11px;display:block;margin-top:3px">${customs.length} custom unit${customs.length !== 1 ? 's' : ''} defined.</span>`;
+  } else {
+    const named = units.filter(u => STARTER_NAMES[u.id]).length;
+    el.innerHTML = `<strong style="color:var(--primary)">${units.length}</strong> PHI-certified units loaded
+      · <strong>${named}</strong> named · <strong>${customs.length}</strong> custom
+      · <strong>${myUnits.length}</strong> in My Units`;
+  }
+}
+
+// ── Unit picker rendering ──
+window.renderUnitPicker = function() {
+  const list = document.getElementById('unitPickerList');
+  if (!list) return;
+  const search   = document.getElementById('unitSearch')?.value || '';
+  const myOnly   = document.getElementById('myUnitsOnly')?.checked;
+  const humidity = document.getElementById('humidityOnly')?.checked;
+  const maxFlow  = document.getElementById('unitFlowFilter')?.value;
+  const myUnits  = _loadMyUnits();
+  const selected = _loadSelectedUnit();
+  const groups   = getGroupedUnits({ search, myOnly, humidity, maxFlow: maxFlow || null });
+
+  const mfrs = Object.keys(groups);
+  if (!mfrs.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No units match your filters.</div>';
+    document.getElementById('unitPickerCount').textContent = '';
+    return;
+  }
+
+  const totalCount = mfrs.reduce((s, m) => s + groups[m].length, 0);
+  document.getElementById('unitPickerCount').textContent = `${totalCount} unit${totalCount !== 1 ? 's' : ''}`;
+
+  list.innerHTML = mfrs.map(mfr => {
+    const units = groups[mfr];
+    const rows = units.map(u => {
+      const isSel  = selected?.id === u.id;
+      const isMy   = myUnits.includes(u.id);
+      const isCustom = u.source === 'custom';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
+          background:${isSel ? 'rgba(var(--primary-rgb,45,106,79),0.08)' : 'transparent'};
+          border-left:3px solid ${isSel ? 'var(--primary)' : 'transparent'};
+          cursor:pointer;transition:background 0.1s"
+        onclick="selectUnit('${u.id}')" title="${u.id}">
+        <button onclick="event.stopPropagation();toggleMyUnit('${u.id}')"
+          title="${isMy ? 'Remove from My Units' : 'Add to My Units'}"
+          style="background:none;border:none;font-size:16px;cursor:pointer;flex-shrink:0;opacity:${isMy ? 1 : 0.25};color:${isMy ? '#f59e0b' : 'var(--muted)'}">★</button>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:${isSel ? '800' : '600'};color:${isSel ? 'var(--primary)' : 'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${u.model || u.id}${isCustom ? ' <span style="font-size:10px;background:#e0f2fe;color:#0369a1;border-radius:4px;padding:1px 5px">custom</span>' : ''}
+          </div>
+          <div style="font-size:11px;color:var(--muted)">
+            ${u.hrEff != null ? `♻ ${u.hrEff}%` : ''}
+            ${u.sfp  != null ? ` · ⚡ ${u.sfp} Wh/m³` : ''}
+            ${u.flowMax != null ? ` · 💨 up to ${u.flowMax} m³/h` : ''}
+            ${u.humidityWinter ? ' · 💧 humidity' : ''}
+            ${u.frostProtection === 'yes' ? ' · ❄ frost' : ''}
+          </div>
+        </div>
+        ${isCustom ? `<button onclick="event.stopPropagation();openCustomUnitForm('${u.id}')" title="Edit" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">✏</button>
+          <button onclick="event.stopPropagation();deleteCustomUnit('${u.id}')" title="Delete" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted);padding:2px 4px">🗑</button>` : ''}
+      </div>`;
+    }).join('');
+
+    return `<div>
+      <div style="padding:6px 12px;font-size:11px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;
+        color:var(--muted);background:var(--input-bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1">
+        ${mfr} <span style="font-weight:400">(${units.length})</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('<div style="height:1px;background:var(--border)"></div>');
+};
+
+// ── Select / deselect unit ──
+window.selectUnit = function(unitId) {
+  const unit = getAllUnits().find(u => u.id === unitId);
+  if (!unit) return;
+  _saveSelectedUnit(unit);
+  renderUnitPicker();
+  updateSelectedUnitCard();
+  scheduleAutosave();
+};
+
+window.clearUnitSelection = function() {
+  _saveSelectedUnit(null);
+  renderUnitPicker();
+  updateSelectedUnitCard();
+  scheduleAutosave();
+};
+
+function updateSelectedUnitCard() {
+  const unit = _loadSelectedUnit();
+  const card = document.getElementById('selectedUnitCard');
+  if (!card) return;
+  if (!unit) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('sucName').textContent = `${unit.manufacturer || ''} ${unit.model || unit.id}`.trim();
+  document.getElementById('sucId').textContent = unit.source === 'phi' ? `PHI cert: ${unit.id}` : 'Custom unit';
+  document.getElementById('sucHR').textContent  = unit.hrEff  != null ? unit.hrEff : '—';
+  document.getElementById('sucSFP').textContent = unit.sfp    != null ? unit.sfp   : '—';
+  document.getElementById('sucMin').textContent = unit.flowMin != null ? unit.flowMin : '—';
+  document.getElementById('sucMax').textContent = unit.flowMax != null ? unit.flowMax : '—';
+  document.getElementById('sucNS').textContent  = unit.noiseSupply  != null ? unit.noiseSupply  : '—';
+  document.getElementById('sucNE').textContent  = unit.noiseExtract != null ? unit.noiseExtract : '—';
+  document.getElementById('sucFrost').textContent    = unit.frostProtection === 'yes' ? '❄ Frost protection required' : '';
+  document.getElementById('sucHumidity').textContent = unit.humidityWinter ? '💧 Humidity recovery' : '';
+}
+
+// ── Star / My Units ──
+window.toggleMyUnit = function(unitId) {
+  const myUnits = _loadMyUnits();
+  const idx = myUnits.indexOf(unitId);
+  if (idx === -1) myUnits.push(unitId); else myUnits.splice(idx, 1);
+  _saveMyUnits(myUnits);
+  renderUnitPicker();
+  renderMyUnitsList();
+};
+
+function renderMyUnitsList() {
+  const el = document.getElementById('myUnitsList');
+  if (!el) return;
+  const myUnits = _loadMyUnits();
+  const allUnits = getAllUnits();
+  const units = myUnits.map(id => allUnits.find(u => u.id === id)).filter(Boolean);
+  if (!units.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">No units starred yet. Star units in the Project tab to add them here.</div>';
+    return;
+  }
+  el.innerHTML = units.map(u => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--input-bg);border-radius:8px">
+      <div style="flex:1;font-size:13px;font-weight:600">${u.manufacturer} ${u.model || u.id}</div>
+      <div style="font-size:11px;color:var(--muted)">${u.flowMax ? `up to ${u.flowMax} m³/h` : ''}</div>
+      <button onclick="toggleMyUnit('${u.id}')" style="background:none;border:none;font-size:14px;cursor:pointer;color:#f59e0b" title="Remove">★</button>
+    </div>`).join('');
+}
+
+// ── Custom unit form ──
+window.openCustomUnitForm = function(editId) {
+  const modal = document.getElementById('customUnitModal');
+  modal.style.display = 'flex';
+  document.getElementById('customUnitModalTitle').textContent = editId ? 'Edit Custom Unit' : 'Add Custom Unit';
+  document.getElementById('cu-editId').value = editId || '';
+  if (editId) {
+    const u = _loadCustomUnits().find(x => x.id === editId);
+    if (u) {
+      document.getElementById('cu-manufacturer').value = u.manufacturer || '';
+      document.getElementById('cu-model').value        = u.model || '';
+      document.getElementById('cu-hrEff').value        = u.hrEff || '';
+      document.getElementById('cu-sfp').value          = u.sfp || '';
+      document.getElementById('cu-flowMin').value      = u.flowMin || '';
+      document.getElementById('cu-flowMax').value      = u.flowMax || '';
+      document.getElementById('cu-noiseSupply').value  = u.noiseSupply || '';
+      document.getElementById('cu-noiseExtract').value = u.noiseExtract || '';
+      document.getElementById('cu-conn').value         = u.conn || '';
+      document.getElementById('cu-frost').value        = u.frostProtection || '';
+      document.getElementById('cu-humidity').value     = u.humidityWinter ? 'yes' : '';
+      document.getElementById('cu-notes').value        = u.notes || '';
+    }
+  } else {
+    ['cu-manufacturer','cu-model','cu-hrEff','cu-sfp','cu-flowMin','cu-flowMax',
+     'cu-noiseSupply','cu-noiseExtract','cu-conn','cu-notes'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('cu-frost').value   = 'yes';
+    document.getElementById('cu-humidity').value = '';
+  }
+};
+
+window.closeCustomUnitForm = function() {
+  document.getElementById('customUnitModal').style.display = 'none';
+};
+
+window.saveCustomUnit = function() {
+  const mfr   = document.getElementById('cu-manufacturer').value.trim();
+  const model = document.getElementById('cu-model').value.trim();
+  const maxFlow = parseFloat(document.getElementById('cu-flowMax').value);
+  if (!mfr || !model) { alert('Manufacturer and model name are required.'); return; }
+  if (!maxFlow) { alert('Max airflow is required.'); return; }
+
+  const editId = document.getElementById('cu-editId').value;
+  const id = editId || 'custom_' + Date.now();
+  const unit = {
+    id, manufacturer: mfr, model,
+    source: 'custom',
+    hrEff:          parseFloat(document.getElementById('cu-hrEff').value) || null,
+    sfp:            parseFloat(document.getElementById('cu-sfp').value) || null,
+    flowMin:        parseFloat(document.getElementById('cu-flowMin').value) || null,
+    flowMax:        maxFlow,
+    noiseSupply:    parseFloat(document.getElementById('cu-noiseSupply').value) || null,
+    noiseExtract:   parseFloat(document.getElementById('cu-noiseExtract').value) || null,
+    conn:           document.getElementById('cu-conn').value.trim() || null,
+    frostProtection: document.getElementById('cu-frost').value || null,
+    humidityWinter: document.getElementById('cu-humidity').value === 'yes' ? true : null,
+    notes:          document.getElementById('cu-notes').value.trim() || null,
+  };
+
+  const customs = _loadCustomUnits();
+  const idx = customs.findIndex(c => c.id === id);
+  if (idx >= 0) customs[idx] = unit; else customs.push(unit);
+  _saveCustomUnits(customs);
+  closeCustomUnitForm();
+  renderUnitPicker();
+  renderMyUnitsList();
+  renderCustomUnitsList();
+  updateUnitDbStatus();
+  showToast(`✓ ${editId ? 'Updated' : 'Added'} ${mfr} ${model}`);
+};
+
+window.deleteCustomUnit = function(id) {
+  if (!confirm('Delete this custom unit?')) return;
+  const customs = _loadCustomUnits().filter(c => c.id !== id);
+  _saveCustomUnits(customs);
+  if (_loadSelectedUnit()?.id === id) _saveSelectedUnit(null);
+  const myUnits = _loadMyUnits().filter(x => x !== id);
+  _saveMyUnits(myUnits);
+  renderUnitPicker();
+  renderCustomUnitsList();
+  updateSelectedUnitCard();
+  updateUnitDbStatus();
+};
+
+function renderCustomUnitsList() {
+  const el = document.getElementById('customUnitsList');
+  if (!el) return;
+  const customs = _loadCustomUnits();
+  if (!customs.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">No custom units added yet.</div>';
+    return;
+  }
+  el.innerHTML = customs.map(u => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--input-bg);border-radius:8px">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${u.manufacturer} ${u.model}</div>
+        <div style="font-size:11px;color:var(--muted)">${u.flowMax ? `up to ${u.flowMax} m³/h` : ''}${u.hrEff ? ` · ${u.hrEff}% HR` : ''}</div>
+      </div>
+      <button onclick="openCustomUnitForm('${u.id}')" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted)" title="Edit">✏</button>
+      <button onclick="deleteCustomUnit('${u.id}')" style="background:none;border:none;font-size:13px;cursor:pointer;color:var(--muted)" title="Delete">🗑</button>
+    </div>`).join('');
+}
 
 function loadSettings() {
   try {
@@ -1434,6 +2156,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load settings into UI
   loadSettingsIntoUI();
   loadState();
+  // Init unit picker
+  updateUnitDbStatus();
+  renderUnitPicker();
+  renderMyUnitsList();
+  renderCustomUnitsList();
+  updateSelectedUnitCard();
 });
 
 // ══════════════════════════════════════════════════════
@@ -1622,11 +2350,34 @@ function calculate(silent) {
   const boostImbalancePct = 0; // always balanced: both sides get exactly normal at normal, boost at boost
 
   // 5. Unit selection
+  // Prefer the user-selected PHI unit; fall back to hardcoded UNITS table
+  const _selUnit = _loadSelectedUnit();
   let chosen = null;
-  for (const u of UNITS) {
-    if (normal <= u.maxDesign) { chosen = u; break; }
+  if (_selUnit) {
+    // Use the selected unit directly — adapt to the shape expected by the rest of calculate()
+    chosen = {
+      name:      `${_selUnit.manufacturer || ''} ${_selUnit.model || _selUnit.id}`.trim(),
+      maxDesign: _selUnit.flowMax || 9999,
+      nomMin:    _selUnit.flowMin || 0,
+      nomMax:    _selUnit.flowMax || 9999,
+      conn:      _selUnit.conn || '—',
+      hrEff:     _selUnit.hrEff,
+      sfp:       _selUnit.sfp,
+      phiId:     _selUnit.id,
+      source:    _selUnit.source,
+      noise: {
+        device:    _selUnit.noiseSupply || 50,    // approximate — use supply as proxy
+        supply:    _selUnit.noiseSupply || 50,
+        extract:   _selUnit.noiseExtract || 50,
+        ratedFlow: _selUnit.flowMax || normal,
+      },
+    };
+  } else {
+    for (const u of UNITS) {
+      if (normal <= u.maxDesign) { chosen = u; break; }
+    }
+    if (!chosen) chosen = UNITS[UNITS.length - 1];
   }
-  if (!chosen) chosen = UNITS[UNITS.length - 1];
 
   // 6. Noise at design flow
   const nd = chosen.noise;
@@ -1651,7 +2402,8 @@ function calculate(silent) {
     : 'Individual grilles — separate wall penetrations required';
 
   const bom = [
-    { item: 'MVHR Unit',             model: chosen.name,         qty: 1,   unit: 'each', notes: `Connection: ${chosen.conn}` },
+    { item: 'MVHR Unit', model: chosen.name, qty: 1, unit: 'each',
+      notes: [chosen.conn ? `Connection: ${chosen.conn}` : '', chosen.phiId ? `PHI cert: ${chosen.phiId}` : '', chosen.hrEff ? `HR: ${chosen.hrEff}%` : '', chosen.sfp ? `SFP: ${chosen.sfp} Wh/m³` : ''].filter(Boolean).join(' · ') },
     { item: 'Supply Manifold',       model: supplyBox.name,      qty: 1,   unit: 'each', notes: `${supplyBox.conn} inlet · ${totalSDucts} × 90mm outlets` },
     { item: 'Extract Manifold',      model: extractBox.name,     qty: 1,   unit: 'each', notes: `${extractBox.conn} inlet · ${totalEDucts} × 90mm outlets` },
     { item: '90mm ComfoTube (room)', model: 'Ø90 semi-rigid',    qty: totalRoomDuctM, unit: 'm', notes: `${totalSDucts} supply runs + ${totalEDucts} extract runs` },
@@ -2114,40 +2866,401 @@ function updateGrilleSize() {
 // ══════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════
-const AUTH_EMAIL = 'hello@hiperhaus.com.au';
-const AUTH_PASS  = 'Test1234MVHR!';
-const SESSION_KEY = 'hh_mvhr_auth';
+// ══════════════════════════════════════════════════════
+// SUPABASE — CONFIG
+// Replace these with your project values from:
+// Supabase Dashboard → Project Settings → API
+// ══════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
 
-function attemptLogin() {
-  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-  const pass   = document.getElementById('loginPassword').value;
-  if (email === AUTH_EMAIL && pass === AUTH_PASS) {
-    sessionStorage.setItem(SESSION_KEY, '1');
+// Initialise client (falls back gracefully if keys not yet configured)
+let _sb = null;
+try {
+  _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: { persistSession: true, autoRefreshToken: true }
+  });
+} catch(e) { console.warn('Supabase not configured yet — running in local-only mode'); }
+
+let _currentUser = null;      // supabase User object
+let _creditBalance = null;    // cached credit balance
+
+// ── Auth tab switcher ──
+window.switchAuthTab = function(tab) {
+  const isSignIn = tab === 'signin';
+  document.getElementById('signinFields').style.display = isSignIn ? '' : 'none';
+  document.getElementById('signupFields').style.display = isSignIn ? 'none' : '';
+  document.getElementById('tabSignIn').style.background = isSignIn ? 'rgba(255,255,255,0.9)' : 'transparent';
+  document.getElementById('tabSignIn').style.color = isSignIn ? '#1a4731' : 'rgba(255,255,255,0.7)';
+  document.getElementById('tabSignUp').style.background = isSignIn ? 'transparent' : 'rgba(255,255,255,0.9)';
+  document.getElementById('tabSignUp').style.color = isSignIn ? 'rgba(255,255,255,0.7)' : '#1a4731';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginSuccess').style.display = 'none';
+};
+
+function _setLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+  el.style.background = 'rgba(220,38,38,0.2)';
+  el.style.color = '#fff';
+  el.style.borderRadius = '8px';
+  el.style.padding = '10px 14px';
+  el.style.fontSize = '13px';
+  el.style.marginBottom = '14px';
+}
+
+function _setLoginSuccess(msg) {
+  const el = document.getElementById('loginSuccess');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function _setBtnLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.style.opacity = loading ? '0.6' : '1';
+}
+
+// ── Sign in ──
+window.attemptLogin = async function() {
+  if (!_sb) {
+    // Local-only fallback (dev / unconfigured)
     document.getElementById('loginOverlay').classList.add('hidden');
-    document.getElementById('loginError').classList.remove('visible');
-  } else {
-    document.getElementById('loginError').classList.add('visible');
+    return;
+  }
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  if (!email || !pass) { _setLoginError('Please enter your email and password.'); return; }
+  _setBtnLoading('btnSignIn', true);
+  _setLoginError('');
+
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  _setBtnLoading('btnSignIn', false);
+
+  if (error) {
+    _setLoginError(error.message || 'Sign in failed. Check your email and password.');
     document.getElementById('loginPassword').value = '';
     document.getElementById('loginPassword').focus();
   }
-}
+  // onAuthStateChange handles the rest
+};
 
-// Allow Enter key to submit
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) {
-    attemptLogin();
+// ── Sign up ──
+window.attemptSignUp = async function() {
+  if (!_sb) return;
+  const name    = document.getElementById('signupName').value.trim();
+  const company = document.getElementById('signupCompany').value.trim();
+  const email   = document.getElementById('signupEmail').value.trim();
+  const pass    = document.getElementById('signupPassword').value;
+
+  if (!name || !email || !pass) { _setLoginError('Please fill in all required fields.'); return; }
+  if (pass.length < 8) { _setLoginError('Password must be at least 8 characters.'); return; }
+
+  _setBtnLoading('btnSignUp', true);
+  _setLoginError('');
+
+  const { data, error } = await _sb.auth.signUp({
+    email, password: pass,
+    options: { data: { full_name: name, company_name: company } }
+  });
+  _setBtnLoading('btnSignUp', false);
+
+  if (error) {
+    _setLoginError(error.message || 'Sign up failed.');
+  } else if (data.user && !data.session) {
+    // Email confirmation required
+    _setLoginSuccess('✓ Account created! Check your email to confirm your address, then sign in.');
+    switchAuthTab('signin');
+  }
+  // If email confirmation is off in Supabase, onAuthStateChange fires immediately
+};
+
+// ── Forgot password ──
+window.showForgotPassword = async function() {
+  const email = document.getElementById('loginEmail').value.trim();
+  if (!email) { _setLoginError('Enter your email address above first.'); return; }
+  if (!_sb) return;
+  const { error } = await _sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/?reset=true'
+  });
+  if (error) _setLoginError(error.message);
+  else _setLoginSuccess(`✓ Password reset email sent to ${email}`);
+};
+
+// ── Sign out ──
+window.signOut = async function() {
+  toggleUserMenu(false);
+  if (_sb) await _sb.auth.signOut();
+  _currentUser = null;
+  _creditBalance = null;
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('creditBadge').style.display = 'none';
+  document.getElementById('userMenuBtn').style.display = 'none';
+};
+
+// ── User menu ──
+let _userMenuOpen = false;
+window.toggleUserMenu = function(forceClose) {
+  _userMenuOpen = forceClose === false ? false : !_userMenuOpen;
+  document.getElementById('userMenu').style.display = _userMenuOpen ? 'block' : 'none';
+};
+document.addEventListener('click', e => {
+  if (_userMenuOpen && !e.target.closest('#userMenuBtn') && !e.target.closest('#userMenu')) {
+    toggleUserMenu(false);
   }
 });
 
-// Check existing session
-if (sessionStorage.getItem(SESSION_KEY) === '1') {
-  document.getElementById('loginOverlay').classList.add('hidden');
+// ── Auth state change — single source of truth ──
+if (_sb) {
+  _sb.auth.onAuthStateChange(async (event, session) => {
+    if (session?.user) {
+      _currentUser = session.user;
+      document.getElementById('loginOverlay').classList.add('hidden');
+      // Show header controls
+      const emailShort = session.user.email.split('@')[0];
+      document.getElementById('userEmailDisplay').textContent = emailShort;
+      document.getElementById('userMenuEmail').textContent = session.user.email;
+      document.getElementById('userMenuBtn').style.display = '';
+      document.getElementById('creditBadge').style.display = '';
+      // Load credit balance + projects
+      await refreshCreditBalance();
+      await loadCloudProjects();
+      // Handle payment success redirect
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('payment') === 'success') {
+        history.replaceState({}, '', '/');
+        await refreshCreditBalance();
+        showToast('✓ Credits added to your account!');
+      }
+    } else {
+      _currentUser = null;
+      if (!document.getElementById('loginOverlay').classList.contains('hidden') === false) {
+        // Already hidden — means we just signed out
+      }
+    }
+  });
+}
+
+// Enter key on login fields
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const overlay = document.getElementById('loginOverlay');
+  if (overlay.classList.contains('hidden')) return;
+  const signupVisible = document.getElementById('signupFields').style.display !== 'none';
+  if (signupVisible) attemptSignUp(); else attemptLogin();
+});
+
+// ══════════════════════════════════════════════════════
+// CREDIT SYSTEM
+// ══════════════════════════════════════════════════════
+
+async function refreshCreditBalance() {
+  if (!_sb || !_currentUser) return;
+  const { data, error } = await _sb
+    .from('profiles')
+    .select('credit_balance')
+    .eq('id', _currentUser.id)
+    .single();
+  if (!error && data) {
+    _creditBalance = data.credit_balance;
+    const el = document.getElementById('creditCount');
+    if (el) el.textContent = _creditBalance;
+  }
+}
+
+// consumeCredits — call before any credit-gated operation
+// Returns true if OK to proceed, false if insufficient / error
+window.consumeCredits = async function(operation, projectId) {
+  if (!_sb || !_currentUser) return true; // offline / dev mode — allow
+
+  const token = (await _sb.auth.getSession()).data.session?.access_token;
+  if (!token) return false;
+
+  const res = await fetch('/api/credits/consume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ operation, projectId }),
+  });
+
+  if (res.ok) {
+    const { new_balance } = await res.json();
+    _creditBalance = new_balance;
+    document.getElementById('creditCount').textContent = new_balance;
+    return true;
+  }
+
+  if (res.status === 402) {
+    const { balance, required } = await res.json();
+    openBuyCredits(`This action costs ${required} credits — you have ${balance}.`);
+    return false;
+  }
+
+  console.error('consumeCredits error:', res.status);
+  return false;
+};
+
+// ── Buy Credits modal ──
+window.openBuyCredits = async function(reason) {
+  document.getElementById('buyCreditReason').textContent = reason || '';
+  document.getElementById('buyCreditsModal').style.display = 'flex';
+  toggleUserMenu(false);
+
+  if (!_sb) return;
+  const { data: pkgs } = await _sb
+    .from('credit_packages')
+    .select('*')
+    .eq('active', true)
+    .order('sort_order');
+
+  const list = document.getElementById('creditPackageList');
+  if (!pkgs || !pkgs.length) {
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No packages available yet.</div>';
+    return;
+  }
+
+  list.innerHTML = pkgs.map(p => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid var(--border);border-radius:10px;gap:12px">
+      <div>
+        <div style="font-size:15px;font-weight:800;color:var(--primary)">${p.name}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">
+          <strong>${p.credits}</strong> credits · $${(p.price_aud / p.credits).toFixed(2)}/credit
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:18px;font-weight:800;color:var(--text)">$${parseFloat(p.price_aud).toFixed(0)}</div>
+        <button onclick="startCheckout('${p.id}')"
+          style="margin-top:6px;padding:6px 16px;font-size:12px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:7px;cursor:pointer">
+          Buy
+        </button>
+      </div>
+    </div>
+  `).join('');
+};
+
+window.closeBuyCredits = function() {
+  document.getElementById('buyCreditsModal').style.display = 'none';
+};
+
+window.startCheckout = async function(packageId) {
+  if (!_sb || !_currentUser) return;
+  const token = (await _sb.auth.getSession()).data.session?.access_token;
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '…';
+
+  const res = await fetch('/api/stripe/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ packageId }),
+  });
+
+  if (res.ok) {
+    const { url } = await res.json();
+    window.location.href = url;
+  } else {
+    btn.disabled = false; btn.textContent = 'Buy';
+    alert('Checkout error — please try again.');
+  }
+};
+
+// ══════════════════════════════════════════════════════
+// CLOUD PROJECT STORAGE
+// Wraps the existing localStorage functions with Supabase sync
+// localStorage remains as offline cache; Supabase is the source of truth when online
+// ══════════════════════════════════════════════════════
+
+async function loadCloudProjects() {
+  if (!_sb || !_currentUser) return;
+
+  const { data, error } = await _sb
+    .from('projects')
+    .select('id, name, storey_count, updated_at, state_json, plan_state_json')
+    .eq('user_id', _currentUser.id)
+    .order('updated_at', { ascending: false });
+
+  if (error) { console.error('loadCloudProjects:', error); return; }
+  if (!data || !data.length) return;
+
+  // Merge cloud projects into local project list
+  // Cloud wins on conflict (same id)
+  let local = [];
+  try { local = JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) {}
+
+  const merged = [...data.map(p => ({
+    id: p.id,
+    name: p.name,
+    createdAt: new Date(p.updated_at).getTime(),
+    updatedAt: new Date(p.updated_at).getTime(),
+    state: p.state_json,
+    planState: p.plan_state_json,
+  }))];
+
+  // Add any local-only projects not yet in cloud
+  local.forEach(lp => {
+    if (!merged.find(m => m.id === lp.id)) merged.push(lp);
+  });
+
+  try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(merged)); } catch(e) {}
+  renderProjectList();
+
+  if (!_currentProjectId && merged.length) {
+    loadProject(merged[0].id);
+  }
+}
+
+// Override saveCurrentProject to also push to Supabase
+const _origSaveCurrentProject = window.saveCurrentProject;
+window.saveCurrentProject = async function() {
+  // Save to localStorage first (existing function)
+  if (typeof _origSaveCurrentProject === 'function') _origSaveCurrentProject();
+
+  if (!_sb || !_currentUser || !_currentProjectId) return;
+
+  // Get the project we just saved from localStorage
+  let projects = [];
+  try { projects = JSON.parse(localStorage.getItem(PROJECTS_KEY)) || []; } catch(e) {}
+  const p = projects.find(x => x.id === _currentProjectId);
+  if (!p) return;
+
+  const { error } = await _sb.from('projects').upsert({
+    id:             _currentProjectId,
+    user_id:        _currentUser.id,
+    name:           p.name || 'Untitled',
+    state_json:     p.state,
+    plan_state_json: p.planState ? { ...p.planState, imgData: null } : null,
+    storey_count:   parseInt(document.getElementById('storeyCount')?.value) || 1,
+    updated_at:     new Date().toISOString(),
+  }, { onConflict: 'id' });
+
+  if (error) console.error('Cloud save error:', error);
+};
+
+// Simple toast notification
+function showToast(msg, duration = 3000) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a4731;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity 0.25s;pointer-events:none';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, duration);
 }
 
 // ══════════════════════════════════════════════════════
 // PDF EXPORT
 // ══════════════════════════════════════════════════════
-function exportPDF() {
+async function exportPDF() {
+  // Gate behind credits when user is signed in
+  if (_currentUser) {
+    const ok = await consumeCredits('full_report_pack', _currentProjectId);
+    if (!ok) return;
+  }
+
   const btn = document.getElementById('pdfBtn');
   btn.disabled = true;
   btn.textContent = 'Generating…';
@@ -2424,61 +3537,105 @@ addRoom('extract');
     const tabs = el('floorTabs');
     const hint = el('floorHint');
     const riserBtn = el('tool-riser');
+    const storeyLbl = document.getElementById('planStoreyLabel');
+
+    // Keep plan toolbar storey label in sync
+    if (storeyLbl) storeyLbl.textContent = storeyCount === 1 ? '1 Storey' : `${storeyCount} Storeys`;
 
     if (storeyCount <= 1) {
       if (bar) bar.style.display = 'none';
       if (riserBtn) riserBtn.style.display = 'none';
+      // Make sure activeFloor is 0
+      if (plan.activeFloor !== 0) { plan.activeFloor = 0; redraw(); }
       return;
     }
+
     if (bar) bar.style.display = 'flex';
     if (tabs) {
       tabs.innerHTML = '';
       for (let f = 0; f < storeyCount; f++) {
+        const isActive = f === plan.activeFloor;
+        const hasImage = plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData);
         const btn = document.createElement('button');
-        btn.className = 'plan-btn' + (f === plan.activeFloor ? ' active' : '');
-        btn.textContent = FLOOR_NAMES[f] || `Level ${f}`;
-        btn.title = `Switch to ${FLOOR_NAMES[f] || `Level ${f}`} — upload a separate plan image for each storey`;
+        btn.style.cssText = `padding:5px 16px;font-size:12px;font-weight:${isActive ? '800' : '600'};
+          border:2px solid ${isActive ? 'var(--primary)' : 'var(--border)'};
+          background:${isActive ? 'var(--primary)' : 'var(--card)'};
+          color:${isActive ? '#fff' : 'var(--text)'};
+          border-radius:7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;
+          box-shadow:${isActive ? '0 2px 8px rgba(0,0,0,0.15)' : 'none'}`;
+        btn.title = `View ${FLOOR_NAMES[f] || `Level ${f}`}${hasImage ? ' ✓ plan uploaded' : ' — no plan uploaded yet'}`;
+        // Floor name + image dot
+        btn.innerHTML = `${FLOOR_NAMES[f] || `Level ${f}`}${hasImage ? ' <span style="color:' + (isActive ? 'rgba(255,255,255,0.85)' : 'var(--success,#16a34a)') + ';font-size:10px">●</span>' : ''}`;
         btn.onclick = () => switchFloor(f);
-
-        // Upload trigger for this floor
-        const uploadLbl = document.createElement('label');
-        uploadLbl.style.cssText = 'display:inline-flex;align-items:center;gap:3px;margin-left:2px;cursor:pointer;font-size:11px;color:var(--muted)';
-        uploadLbl.title = `Upload floor plan for ${FLOOR_NAMES[f] || `Level ${f}`}`;
-        const inp = document.createElement('input');
-        inp.type = 'file'; inp.accept = '.pdf,image/*'; inp.style.display = 'none';
-        inp.dataset.floor = f;
-        inp.addEventListener('change', e => {
-          const targetFloor = parseInt(e.target.dataset.floor);
-          // Switch to that floor first, then let the normal upload handler process it
-          if (plan.activeFloor !== targetFloor) {
-            _saveActiveFloorData();
-            plan.activeFloor = targetFloor;
-            updateFloorBar();
-          }
-          handlePlanFileUpload(e.target.files[0]);
-        });
-        uploadLbl.appendChild(inp);
-        uploadLbl.appendChild(document.createTextNode('📄'));
-
-        const wrap = document.createElement('span');
-        wrap.style.cssText = 'display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden';
-        btn.style.border = 'none'; btn.style.borderRadius = '0';
-        uploadLbl.style.cssText += ';padding:4px 6px;background:var(--input-bg);border-left:1px solid var(--border)';
-        wrap.appendChild(btn); wrap.appendChild(uploadLbl);
-        tabs.appendChild(wrap);
-
-        // Dot indicator if this floor has an image
-        if (plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData)) {
-          btn.style.fontWeight = '800';
-        }
+        tabs.appendChild(btn);
       }
     }
-    // Show riser button only on upper floors
+
+    // Riser button only on upper floors
     if (riserBtn) riserBtn.style.display = plan.activeFloor > 0 ? 'inline-flex' : 'none';
     if (hint) hint.textContent = plan.activeFloor > 0
-      ? 'Use ↕ Riser to mark where ducts penetrate the floor slab from below'
-      : '';
+      ? `Viewing ${FLOOR_NAMES[plan.activeFloor] || `Level ${plan.activeFloor}`} — use ↕ Riser to mark slab penetrations`
+      : `Viewing ${FLOOR_NAMES[0]} — switch floors above to draw each level`;
   };
+
+  // ── Storey count control on plan toolbar ──
+  window.adjustPlanStoreys = function(delta) {
+    const sel = document.getElementById('storeyCount');
+    if (!sel) return;
+    const cur = parseInt(sel.value) || 1;
+    const next = Math.max(1, Math.min(4, cur + delta));
+    if (next === cur) return;
+    sel.value = next;
+    // Fire change so updateStoreyFields + updateFloorBar both run
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    // If we reduced storeys below activeFloor, switch back to ground
+    if (plan.activeFloor >= next) switchFloor(0);
+  };
+
+  // ── Floor picker modal (shown when uploading and storeys > 1) ──
+  let _pendingUploadFile = null;
+
+  window.cancelFloorPick = function() {
+    _pendingUploadFile = null;
+    const modal = el('floorPickerModal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  function showFloorPicker(file) {
+    _pendingUploadFile = file;
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    const modal = el('floorPickerModal');
+    const btns  = el('floorPickerBtns');
+    if (!modal || !btns) { _loadPlanFile(file, plan.activeFloor); return; }
+    btns.innerHTML = '';
+    for (let f = 0; f < storeyCount; f++) {
+      const hasImg = plan.floorData[f]?.imgData || (f === plan.activeFloor && plan.imgData);
+      const b = document.createElement('button');
+      b.style.cssText = 'padding:10px 16px;font-size:14px;font-weight:700;border-radius:8px;border:2px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px';
+      b.innerHTML = `<span>${FLOOR_NAMES[f] || `Level ${f}`}</span>${hasImg ? '<span style="font-size:11px;color:var(--muted)">replace existing</span>' : '<span style="font-size:11px;color:var(--success,#16a34a)">no plan yet</span>'}`;
+      b.onmouseover = () => b.style.borderColor = 'var(--primary)';
+      b.onmouseout  = () => b.style.borderColor = 'var(--border)';
+      b.onclick = () => {
+        modal.style.display = 'none';
+        _loadPlanFile(_pendingUploadFile, f);
+        _pendingUploadFile = null;
+      };
+      btns.appendChild(b);
+    }
+    modal.style.display = 'flex';
+  }
+
+  function _loadPlanFile(file, targetFloor) {
+    if (!file) return;
+    // Switch to target floor first
+    if (plan.activeFloor !== targetFloor) {
+      _saveActiveFloorData();
+      plan.activeFloor = targetFloor;
+      updateFloorBar();
+    }
+    if (file.type === 'application/pdf') loadPDF(file);
+    else loadImage(file);
+  }
 
   // ── Snap toggle ──
   window.toggleSnap = function() {
@@ -2661,19 +3818,24 @@ addRoom('extract');
     inp.addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
-      if (file.type === 'application/pdf') loadPDF(file);
-      else loadImage(file);
+      const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+      if (storeyCount > 1) {
+        showFloorPicker(file);
+      } else {
+        _loadPlanFile(file, 0);
+      }
       inp.value = '';
     });
   }
   setupUpload('planUpload');
   setupUpload('planUpload2');
 
-  // Exposed so per-floor upload inputs in updateFloorBar() can call it
+  // Exposed for external callers (kept for compatibility)
   window.handlePlanFileUpload = function(file) {
     if (!file) return;
-    if (file.type === 'application/pdf') loadPDF(file);
-    else loadImage(file);
+    const storeyCount = parseInt(document.getElementById('storeyCount')?.value) || 1;
+    if (storeyCount > 1) showFloorPicker(file);
+    else _loadPlanFile(file, 0);
   };
 
   function loadImage(file) {
