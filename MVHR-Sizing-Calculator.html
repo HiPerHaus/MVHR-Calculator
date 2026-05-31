@@ -424,6 +424,11 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 12px;border-radius:20px;cursor:pointer">
       👤 <span id="userEmailDisplay"></span>
     </button>
+    <button id="logoutBtn" onclick="signOut()" title="Sign out"
+      style="display:none;font-size:12px;font-weight:700;background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.8);border:1px solid rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;cursor:pointer;transition:background 0.15s"
+      onmouseover="this.style.background='rgba(255,0,0,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+      ↩ Sign out
+    </button>
     <div id="userMenu" style="display:none;position:absolute;top:56px;right:16px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px;min-width:180px;box-shadow:0 6px 24px rgba(0,0,0,0.15);z-index:1000">
       <div style="padding:8px 10px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:4px" id="userMenuEmail"></div>
       <button onclick="openBuyCredits()" style="width:100%;text-align:left;padding:8px 10px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-radius:6px;color:var(--text)" onmouseover="this.style.background='var(--input-bg)'" onmouseout="this.style.background='none'">⚡ Buy Credits</button>
@@ -3216,6 +3221,7 @@ window.signOut = async function() {
   document.getElementById('loginOverlay').classList.remove('hidden');
   document.getElementById('creditBadge').style.display = 'none';
   document.getElementById('userMenuBtn').style.display = 'none';
+  document.getElementById('logoutBtn').style.display = 'none';
 };
 
 // ── User menu ──
@@ -3241,6 +3247,7 @@ if (_sb) {
       document.getElementById('userEmailDisplay').textContent = emailShort;
       document.getElementById('userMenuEmail').textContent = session.user.email;
       document.getElementById('userMenuBtn').style.display = '';
+      document.getElementById('logoutBtn').style.display = '';
       document.getElementById('creditBadge').style.display = '';
       // Load credit balance + projects
       await refreshCreditBalance();
