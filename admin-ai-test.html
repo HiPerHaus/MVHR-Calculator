@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — AI Plan Analysis Test</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --warn-bg: #fff7ed; --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d; --amber: #d97706; --amber-bg: #fffbeb;
+  --conf-green: #166534; --conf-green-bg: #dcfce7;
+  --conf-amber: #92400e; --conf-amber-bg: #fef3c7;
+  --conf-red: #9b1c1c; --conf-red-bg: #fee2e2;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box { background: #fff; border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.login-field { margin-bottom: 14px; }
+.login-field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+.login-field input { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+.login-field input:focus { border-color: var(--accent); }
+.btn-login { width: 100%; background: var(--primary); color: #fff; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.btn-login:hover { background: var(--accent); }
+.login-error { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 12px; display: none; }
+.login-error.visible { display: block; }
+
+/* ── Layout ── */
+header { background: var(--primary); color: #fff; padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+header h1 { font-size: 18px; font-weight: 900; }
+.admin-badge { background: var(--amber); color: #fff; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 20px; letter-spacing: .5px; }
+.test-badge { background: #7c3aed; color: #fff; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 20px; letter-spacing: .5px; }
+#headerRight { display: none; align-items: center; gap: 14px; }
+
+main { padding: 24px; max-width: 960px; margin: 0 auto; }
+
+/* ── Cards ── */
+.card { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 20px 22px; margin-bottom: 18px; }
+.card-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--accent); margin-bottom: 14px; }
+
+/* ── Form elements ── */
+input, select { padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--input-bg); color: var(--text); }
+input:focus, select:focus { border-color: var(--accent); }
+.btn { padding: 9px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: background .15s; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent); }
+.btn-outline { background: #fff; border: 1.5px solid var(--border); color: var(--text); }
+.btn-outline:hover { background: var(--input-bg); }
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Table ── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 8px 12px; border-bottom: 2px solid var(--border); }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--input-bg); }
+
+/* ── Upload area ── */
+.upload-area {
+  border: 2px dashed var(--border); border-radius: 10px; padding: 32px 24px;
+  text-align: center; cursor: pointer; transition: all .15s; background: var(--input-bg);
+}
+.upload-area:hover, .upload-area.drag-over { border-color: var(--accent); background: var(--primary-light); }
+.upload-area input[type="file"] { display: none; }
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* ── Status bar ── */
+.status-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; background: var(--input-bg); border: 1px solid var(--border); font-size: 13px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.idle    { background: var(--muted); }
+.status-dot.active  { background: var(--amber); animation: pulse 1s infinite; }
+.status-dot.success { background: var(--accent); }
+.status-dot.error   { background: var(--critical); }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+
+/* ── Summary grid ── */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.summary-item { background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.summary-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 4px; }
+.summary-value { font-size: 16px; font-weight: 800; color: var(--primary); word-break: break-all; }
+.summary-value.mono { font-size: 12px; font-family: monospace; }
+
+/* ── Confidence badges ── */
+.conf-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.conf-green { background: var(--conf-green-bg); color: var(--conf-green); }
+.conf-amber { background: var(--conf-amber-bg); color: var(--conf-amber); }
+.conf-red   { background: var(--conf-red-bg); color: var(--conf-red); }
+
+/* ── Warnings list ── */
+.warn-item { background: var(--warn-bg); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: 0 6px 6px 0; font-size: 12px; color: var(--warn); margin-bottom: 6px; }
+
+/* ── Raw JSON panel ── */
+details { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+details summary {
+  padding: 13px 18px; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--text);
+  background: var(--input-bg); user-select: none; list-style: none; display: flex; align-items: center; justify-content: space-between;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: '▼'; font-size: 11px; color: var(--muted); transition: transform .2s; }
+details[open] summary::after { transform: rotate(180deg); }
+details summary:hover { background: var(--primary-light); }
+.json-block {
+  background: #1e2830; color: #a8d8b9; font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 12px; line-height: 1.6; padding: 18px 20px; overflow: auto; max-height: 480px;
+  white-space: pre; tab-size: 2;
+}
+.details-actions { padding: 10px 18px; background: var(--input-bg); border-top: 1px solid var(--border); display: flex; gap: 8px; }
+
+/* ── Copy / Log ID row ── */
+.copy-row { display: flex; align-items: center; gap: 8px; }
+.copy-row .summary-value { flex: 1; }
+
+/* ── Error box ── */
+.error-box { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 8px; padding: 12px 16px; font-size: 13px; }
+
+/* ── Section dividers ── */
+.section-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 18px 0 8px; }
+
+/* ── Table totals row ── */
+.table-total { font-size: 12px; font-weight: 700; color: var(--muted); padding: 8px 12px; border-top: 2px solid var(--border); }
+
+/* ── Elapsed time ── */
+#elapsed { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div style="margin-bottom:6px"><img src="logo.svg" alt="HiPer Studio" style="height:40px;width:auto;max-width:100%;display:block;margin:0 auto" onerror="this.style.display='none'"></div>
+    <div style="font-size:13px;font-weight:800;color:var(--accent);letter-spacing:0.5px;text-align:center;margin-bottom:16px">HiPer MVHR · Admin</div>
+    <div id="loginError" class="login-error"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="admin@example.com">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword">
+    </div>
+    <button class="btn-login" id="loginBtn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header>
+  <div style="display:flex;align-items:center;gap:14px">
+    <img src="logo.svg" alt="HiPer Studio" style="height:26px;width:auto;max-width:180px;filter:brightness(0) invert(1);margin-right:4px" onerror="this.style.display='none'">
+    <span style="font-size:13px;opacity:0.7;font-weight:600">HiPer MVHR · Admin</span>
+    <span class="admin-badge">⚙ ADMIN</span>
+    <span class="test-badge">🧪 AI TEST</span>
+  </div>
+  <div id="headerRight">
+    <span id="adminEmail" style="font-size:13px;opacity:.8"></span>
+    <button class="btn btn-outline btn-sm" onclick="doSignOut()" style="color:white;border-color:rgba(255,255,255,.4)">Sign out</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Section 1: Upload ── -->
+  <div class="card" style="border-left:4px solid var(--accent)">
+    <div class="card-title">AI Plan Analysis Test</div>
+
+    <label class="upload-area" id="uploadArea" for="fileInput">
+      <div class="upload-icon">📄</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Drop a floor plan here or click to browse</div>
+      <div class="upload-hint">Accepts PDF, PNG, JPG, JPEG</div>
+      <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onchange="onFileSelected(this)">
+    </label>
+
+    <div id="selectedFile" style="display:none;margin-top:12px;padding:10px 14px;background:var(--primary-light);border:1px solid var(--ok-border);border-radius:8px;font-size:13px">
+      <span style="font-weight:700;color:var(--primary)">Selected file:</span>
+      <span id="selectedFileName" style="margin-left:8px;font-weight:600"></span>
+      <span id="selectedFileSize" style="margin-left:8px;color:var(--muted);font-size:12px"></span>
+    </div>
+
+    <div id="fileError" class="error-box" style="display:none;margin-top:12px"></div>
+
+    <div style="margin-top:16px;display:flex;align-items:center;gap:14px">
+      <button class="btn btn-primary" id="analyseBtn" onclick="analysePlan()" disabled>
+        🔍 Analyse Plan
+      </button>
+      <button class="btn btn-outline btn-sm" id="clearBtn" onclick="clearAll()" style="display:none">✕ Clear</button>
+    </div>
+  </div>
+
+  <!-- ── Section 2: Processing Status ── -->
+  <div class="card" id="statusCard">
+    <div class="card-title">Processing Status</div>
+    <div class="status-row">
+      <div class="status-dot idle" id="statusDot"></div>
+      <div style="flex:1">
+        <span id="statusText" style="font-weight:600">Idle — select a file to begin</span>
+      </div>
+      <span id="elapsed"></span>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Summary ── -->
+  <div class="card" id="summaryCard" style="display:none">
+    <div class="card-title">Analysis Summary</div>
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="summary-label">Model Used</div>
+        <div class="summary-value mono" id="sumModel">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Credits Deducted</div>
+        <div class="summary-value" id="sumCredits">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Input Tokens</div>
+        <div class="summary-value" id="sumInputTokens">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Output Tokens</div>
+        <div class="summary-value" id="sumOutputTokens">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Climate Zone</div>
+        <div class="summary-value" id="sumClimateZone">—</div>
+      </div>
+      <div class="summary-item" style="position:relative">
+        <div class="summary-label">Log ID</div>
+        <div class="copy-row">
+          <div class="summary-value mono" id="sumLogId">—</div>
+          <button class="btn btn-outline btn-sm" id="copyLogIdBtn" onclick="copyText('sumLogId','copyLogIdBtn')" title="Copy Log ID">⎘</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Warnings -->
+    <div id="warningsSection" style="display:none;margin-top:16px">
+      <div class="section-label">⚠ Warnings</div>
+      <div id="warningsList"></div>
+    </div>
+  </div>
+
+  <!-- ── Section 4: Room Analysis ── -->
+  <div class="card" id="roomsCard" style="display:none">
+    <div class="card-title">Room Analysis</div>
+
+    <!-- Supply Rooms -->
+    <div class="section-label">Supply Rooms</div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="supplyTable">
+        <thead>
+          <tr>
+            <th>Room</th>
+            <th>Type</th>
+            <th>Area m²</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody id="supplyBody">
+          <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-total" id="supplyTotal"></div>
+
+    <!-- Extract Rooms -->
+    <div class="section-label" style="margin-top:20px">Extract Rooms</div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="extractTable">
+        <thead>
+          <tr>
+            <th>Room</th>
+            <th>Type</th>
+            <th>Area m²</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody id="extractBody">
+          <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-total" id="extractTotal"></div>
+  </div>
+
+  <!-- ── Section 5: Raw JSON ── -->
+  <div id="rawCard" style="display:none;margin-bottom:18px">
+    <details id="rawDetails">
+      <summary>Raw AI Response</summary>
+      <div class="details-actions">
+        <button class="btn btn-outline btn-sm" id="copyJsonBtn" onclick="copyRawJson()">⎘ Copy JSON</button>
+        <button class="btn btn-outline btn-sm" onclick="downloadJson()">⬇ Download JSON</button>
+      </div>
+      <pre class="json-block" id="rawJson"></pre>
+    </details>
+  </div>
+
+</main>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// Config — same Supabase instance as admin.html
+// ══════════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+
+const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let _token = null;
+let _selectedFile = null;
+let _lastResult = null;
+let _elapsedInterval = null;
+let _startTime = null;
+
+// ── Auth ──────────────────────────────────────────────────────
+async function doLogin() {
+  const email  = document.getElementById('loginEmail').value.trim();
+  const pass   = document.getElementById('loginPassword').value;
+  const errEl  = document.getElementById('loginError');
+  const btn    = document.getElementById('loginBtn');
+  errEl.className = 'login-error';
+  btn.disabled = true; btn.textContent = 'Signing in…';
+
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = 'Sign In';
+
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.className = 'login-error visible';
+    return;
+  }
+
+  const { data: profile, error: profileErr } = await _sb
+    .from('profiles').select('is_admin').eq('id', data.user.id).single();
+
+  if (profileErr || !profile?.is_admin) {
+    await _sb.auth.signOut();
+    errEl.textContent = profileErr
+      ? 'Could not verify admin access: ' + profileErr.message
+      : 'Access denied — account is not marked as admin.';
+    errEl.className = 'login-error visible';
+    return;
+  }
+
+  _token = data.session.access_token;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('headerRight').style.display = 'flex';
+  document.getElementById('adminEmail').textContent = data.user.email;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) doLogin();
+});
+
+async function doSignOut() {
+  await _sb.auth.signOut();
+  location.reload();
+}
+
+// ── File selection ─────────────────────────────────────────────
+const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+const ALLOWED_EXTS  = ['.pdf', '.png', '.jpg', '.jpeg'];
+
+function onFileSelected(input) {
+  const file = input.files?.[0];
+  setFile(file);
+}
+
+function setFile(file) {
+  const errEl = document.getElementById('fileError');
+  errEl.style.display = 'none';
+
+  if (!file) return;
+
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  const ok  = ALLOWED_TYPES.includes(file.type) || ALLOWED_EXTS.includes(ext);
+
+  if (!ok) {
+    errEl.textContent = 'Please upload a PDF or image file.';
+    errEl.style.display = '';
+    document.getElementById('analyseBtn').disabled = true;
+    document.getElementById('selectedFile').style.display = 'none';
+    _selectedFile = null;
+    return;
+  }
+
+  _selectedFile = file;
+  document.getElementById('selectedFileName').textContent = file.name;
+  document.getElementById('selectedFileSize').textContent = formatBytes(file.size);
+  document.getElementById('selectedFile').style.display = '';
+  document.getElementById('analyseBtn').disabled = false;
+  document.getElementById('clearBtn').style.display = '';
+  resetResults();
+}
+
+// ── Drag & Drop ───────────────────────────────────────────────
+const uploadArea = document.getElementById('uploadArea');
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+uploadArea.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadArea.classList.remove('drag-over');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) setFile(file);
+});
+
+// ── Main analyse function ─────────────────────────────────────
+async function analysePlan() {
+  if (!_selectedFile) return;
+
+  setStatus('active', 'Uploading…');
+  startTimer();
+
+  document.getElementById('analyseBtn').disabled = true;
+  document.getElementById('fileError').style.display = 'none';
+  resetResults();
+
+  try {
+    // Convert to base64
+    setStatus('active', 'Reading file…');
+    const base64 = await fileToBase64(_selectedFile);
+
+    setStatus('active', 'Calling Claude…');
+    const res = await fetch('/api/ai/analyse-plan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + _token,
+      },
+      body: JSON.stringify({ imageData: base64 }),
+    });
+
+    setStatus('active', 'Parsing response…');
+    let data;
+    try {
+      data = await res.json();
+    } catch(e) {
+      throw new Error('API returned non-JSON response (status ' + res.status + ')');
+    }
+
+    if (!res.ok) {
+      const msg = data?.error || res.statusText;
+      if (res.status === 402 || msg?.toLowerCase().includes('credit')) {
+        throw new Error('Insufficient credits available.');
+      } else if (res.status === 422 || msg?.toLowerCase().includes('invalid')) {
+        throw new Error('AI model returned an invalid response.');
+      } else {
+        throw new Error('Request failed: ' + msg);
+      }
+    }
+
+    setStatus('active', 'Saving result…');
+    _lastResult = data;
+
+    // Small delay to show "Saving result…" status
+    await sleep(300);
+
+    setStatus('success', 'Completed');
+    stopTimer();
+    renderResults(data);
+
+  } catch(e) {
+    stopTimer();
+    setStatus('error', 'Failed');
+    showError(e.message);
+  } finally {
+    document.getElementById('analyseBtn').disabled = false;
+  }
+}
+
+// ── Render results ────────────────────────────────────────────
+function renderResults(data) {
+  // Summary
+  document.getElementById('sumModel').textContent        = data.model || '—';
+  document.getElementById('sumCredits').textContent      = data.creditsDeducted != null ? data.creditsDeducted : '—';
+  document.getElementById('sumInputTokens').textContent  = data.inputTokens != null ? data.inputTokens.toLocaleString() : '—';
+  document.getElementById('sumOutputTokens').textContent = data.outputTokens != null ? data.outputTokens.toLocaleString() : '—';
+  document.getElementById('sumClimateZone').textContent  = data.climateZone || '—';
+  document.getElementById('sumLogId').textContent        = data.logId || '—';
+
+  document.getElementById('summaryCard').style.display = '';
+
+  // Warnings
+  const warnings = data.warnings || [];
+  const warnSection = document.getElementById('warningsSection');
+  const warnList    = document.getElementById('warningsList');
+  if (warnings.length) {
+    warnList.innerHTML = warnings.map(w => `<div class="warn-item">${esc(String(w))}</div>`).join('');
+    warnSection.style.display = '';
+  } else {
+    warnSection.style.display = 'none';
+  }
+
+  // Rooms
+  const supplyRooms  = data.supplyRooms  || data.supply_rooms  || [];
+  const extractRooms = data.extractRooms || data.extract_rooms || [];
+
+  document.getElementById('supplyBody').innerHTML  = renderRoomRows(supplyRooms)  || emptyRow();
+  document.getElementById('extractBody').innerHTML = renderRoomRows(extractRooms) || emptyRow();
+  document.getElementById('supplyTotal').textContent  = `Total: ${supplyRooms.length} supply room${supplyRooms.length !== 1 ? 's' : ''}`;
+  document.getElementById('extractTotal').textContent = `Total: ${extractRooms.length} extract room${extractRooms.length !== 1 ? 's' : ''}`;
+  document.getElementById('roomsCard').style.display = '';
+
+  // Raw JSON
+  document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
+  document.getElementById('rawCard').style.display = '';
+}
+
+function renderRoomRows(rooms) {
+  if (!rooms || !rooms.length) return '';
+  return rooms.map(r => {
+    const name  = esc(r.name || r.room || '—');
+    const type  = esc(r.type || r.roomType || '—');
+    const area  = r.area != null ? Number(r.area).toFixed(1) : '—';
+    const conf  = r.confidence != null ? Number(r.confidence) : null;
+    const confBadge = conf != null ? `<span class="conf-badge ${confClass(conf)}">${(conf * 100).toFixed(0)}%</span>` : '—';
+    return `<tr>
+      <td>${name}</td>
+      <td>${type}</td>
+      <td>${area}</td>
+      <td>${confBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function confClass(c) {
+  if (c >= 0.9)  return 'conf-green';
+  if (c >= 0.7)  return 'conf-amber';
+  return 'conf-red';
+}
+
+function emptyRow() {
+  return '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+}
+
+// ── Status helpers ────────────────────────────────────────────
+function setStatus(state, text) {
+  const dot  = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.className  = 'status-dot ' + state;
+  label.textContent = text;
+}
+
+function startTimer() {
+  _startTime = Date.now();
+  document.getElementById('elapsed').textContent = '0.0s';
+  _elapsedInterval = setInterval(() => {
+    const s = ((Date.now() - _startTime) / 1000).toFixed(1);
+    document.getElementById('elapsed').textContent = s + 's';
+  }, 100);
+}
+
+function stopTimer() {
+  clearInterval(_elapsedInterval);
+}
+
+// ── Clear & reset ─────────────────────────────────────────────
+function clearAll() {
+  _selectedFile = null;
+  _lastResult   = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('selectedFile').style.display = 'none';
+  document.getElementById('fileError').style.display = 'none';
+  document.getElementById('analyseBtn').disabled = true;
+  document.getElementById('clearBtn').style.display = 'none';
+  setStatus('idle', 'Idle — select a file to begin');
+  document.getElementById('elapsed').textContent = '';
+  resetResults();
+}
+
+function resetResults() {
+  document.getElementById('summaryCard').style.display = 'none';
+  document.getElementById('roomsCard').style.display   = 'none';
+  document.getElementById('rawCard').style.display     = 'none';
+}
+
+function showError(msg) {
+  const errEl = document.getElementById('fileError');
+  errEl.textContent = msg;
+  errEl.style.display = '';
+}
+
+// ── Copy helpers ──────────────────────────────────────────────
+async function copyText(elementId, btnId) {
+  const text = document.getElementById(elementId)?.textContent || '';
+  if (!text || text === '—') return;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById(btnId);
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = orig, 1500); }
+  } catch(e) {}
+}
+
+async function copyRawJson() {
+  const text = document.getElementById('rawJson')?.textContent || '';
+  const btn  = document.getElementById('copyJsonBtn');
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = orig, 1500); }
+  } catch(e) {}
+}
+
+function downloadJson() {
+  if (!_lastResult) return;
+  const blob = new Blob([JSON.stringify(_lastResult, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href     = url;
+  a.download = `ai-plan-analysis-${ts}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Utilities ─────────────────────────────────────────────────
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => {
+      // Strip the data URL prefix: "data:image/png;base64,..."
+      const result = reader.result;
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024)       return bytes + ' B';
+  if (bytes < 1048576)    return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
