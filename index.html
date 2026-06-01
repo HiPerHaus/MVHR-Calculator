@@ -4071,7 +4071,11 @@ async function refreshCreditBalance() {
 // consumeCredits — call before any credit-gated operation
 // Returns true if OK to proceed, false if insufficient / error
 window.consumeCredits = async function(operation, projectId) {
-  if (!_sb || !_currentUser) return true; // offline / dev mode — allow
+  if (!_sb || !_currentUser) {
+    console.error('consumeCredits: Supabase client or user not initialised — denying operation.');
+    alert('Authentication error. Please refresh the page and sign in again before continuing.');
+    return false; // SECURITY: must default-deny, never default-allow
+  }
 
   try {
     const token = (await _sb.auth.getSession()).data.session?.access_token;

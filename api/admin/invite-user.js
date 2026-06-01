@@ -4,11 +4,15 @@
 // Admin only.
 
 import { createClient } from '@supabase/supabase-js';
+import { rateLimit, applyRateLimit } from '../../lib/rate-limit.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// 10 invites per hour per IP
+const inviteLimiter = rateLimit({ windowMs: 3_600_000, max: 10 });
 
 async function requireAdmin(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -25,6 +29,8 @@ async function requireAdmin(req) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+
+  if (!applyRateLimit(req, res, { limiter: inviteLimiter })) return;
 
   const admin = await requireAdmin(req);
   if (!admin) return res.status(403).json({ error: 'Forbidden' });
