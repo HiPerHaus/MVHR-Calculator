@@ -5,7 +5,10 @@
 // room list ready to populate the MVHR design form.
 //
 // Request body (multipart/form-data OR JSON):
-//   projectId   uuid     required — the project this floor plan belongs to
+//   projectId   uuid     required unless testMode=true
+//   testMode    boolean  optional — when true, requires admin auth; projectId becomes optional;
+//                         credits still deducted; plan_analysis_log still written;
+//                         projects.ai_analysis_json NOT updated if projectId is absent
 //   floorIndex  integer  optional — 0 = ground floor (default)
 //   imageData   string   optional — base64-encoded image (if sending inline)
 //   imageUrl    string   optional — signed Supabase Storage URL (alternative to imageData)
@@ -144,6 +147,7 @@ export default async function handler(req, res) {
   // ── Parse body ──────────────────────────────────────────────
   const {
     projectId,
+    testMode     = false,
     floorIndex   = 0,
     imageData,      // base64 string
     imageUrl,       // signed Storage URL
@@ -151,9 +155,22 @@ export default async function handler(req, res) {
     climateZone: clientClimateZone,
   } = req.body ?? {};
 
-  if (!isUuid(projectId)) {
-    return res.status(400).json({ error: 'Valid projectId (UUID) required' });
+  // In testMode, require admin auth; otherwise projectId is mandatory
+  if (testMode) {
+    const { data: adminProfile } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single();
+    if (!adminProfile?.is_admin) {
+      return res.status(403).json({ error: 'Admin access required for testMode' });
+    }
+  } else {
+    if (!isUuid(projectId)) {
+      return res.status(400).json({ error: 'Valid projectId (UUID) required' });
+    }
   }
+
   if (!imageData && !imageUrl) {
     return res.status(400).json({ error: 'Provide imageData (base64) or imageUrl' });
   }
@@ -164,15 +181,18 @@ export default async function handler(req, res) {
   const validMimeTypes = ['image/png','image/jpeg','image/jpg','image/webp','image/gif'];
   const safeMimeType = validMimeTypes.includes(mimeType) ? mimeType : 'image/png';
 
-  // ── Verify project belongs to caller ───────────────────────
-  const { data: project, error: projErr } = await supabase
-    .from('projects')
-    .select('id, user_id, storey_count')
-    .eq('id', projectId)
-    .single();
+  // ── Verify project belongs to caller (skipped in testMode with no projectId) ──
+  if (isUuid(projectId)) {
+    const { data: project, error: projErr } = await supabase
+      .from('projects')
+      .select('id, user_id, storey_count')
+      .eq('id', projectId)
+      .single();
 
-  if (projErr || !project) return res.status(404).json({ error: 'Project not found' });
-  if (project.user_id !== user.id) return res.status(403).json({ error: 'Forbidden' });
+    if (projErr || !project) return res.status(404).json({ error: 'Project not found' });
+    // In testMode admins may inspect any project; outside testMode enforce ownership
+    if (!testMode && project.user_id !== user.id) return res.status(403).json({ error: 'Forbidden' });
+  }
 
   // ── Determine credit cost ───────────────────────────────────
   const operation = 'ai_plan_analysis';
@@ -269,7 +289,7 @@ export default async function handler(req, res) {
 
     // Log failure — no credits deducted
     await supabase.from('plan_analysis_log').insert({
-      project_id:   projectId,
+      ...(isUuid(projectId) ? { project_id: projectId } : {}),
       user_id:      user.id,
       floor_index:  floorIndex,
       credits_deducted: 0,
@@ -294,7 +314,7 @@ export default async function handler(req, res) {
   } catch (e) {
     // Log failure — no credits deducted
     await supabase.from('plan_analysis_log').insert({
-      project_id:   projectId,
+      ...(isUuid(projectId) ? { project_id: projectId } : {}),
       user_id:      user.id,
       floor_index:  floorIndex,
       credits_deducted: 0,
@@ -340,7 +360,7 @@ export default async function handler(req, res) {
     p_user_id:     user.id,
     p_amount:      creditCost,
     p_operation:   operation,
-    p_project_id:  projectId,
+    p_project_id:  isUuid(projectId) ? projectId : null,
     p_description: opCost?.label ?? 'AI floor plan analysis',
   });
 
@@ -358,19 +378,22 @@ export default async function handler(req, res) {
   }
 
   // ── Persist analysis to projects.ai_analysis_json ───────────
-  await supabase
-    .from('projects')
-    .update({
-      ai_analysis_json: analysisJson,
-      ...(resolvedClimateZone ? { climate_zone: resolvedClimateZone } : {}),
-    })
-    .eq('id', projectId);
+  // Skipped in testMode when no projectId is supplied
+  if (isUuid(projectId)) {
+    await supabase
+      .from('projects')
+      .update({
+        ai_analysis_json: analysisJson,
+        ...(resolvedClimateZone ? { climate_zone: resolvedClimateZone } : {}),
+      })
+      .eq('id', projectId);
+  }
 
   // ── Write audit log ─────────────────────────────────────────
   const { data: logRow } = await supabase
     .from('plan_analysis_log')
     .insert({
-      project_id:        projectId,
+      ...(isUuid(projectId) ? { project_id: projectId } : {}),
       user_id:           user.id,
       floor_index:       floorIndex,
       credits_deducted:  deductErr ? 0 : creditCost,
@@ -381,6 +404,7 @@ export default async function handler(req, res) {
       parsed_rooms:      analysisJson,
       climate_zone:      resolvedClimateZone,
       status:            'ok',
+      ...(testMode ? { test_mode: true } : {}),
     })
     .select('id')
     .single();
