@@ -374,6 +374,20 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       </div>
     </div>
 
+    <!-- Set new password (after clicking magic/reset link) -->
+    <div id="resetFields" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Choose a new password for your account.</div>
+      <div class="login-field">
+        <label>New Password</label>
+        <input type="password" id="resetPassword" placeholder="8+ characters" autocomplete="new-password">
+      </div>
+      <div class="login-field">
+        <label>Confirm Password</label>
+        <input type="password" id="resetPasswordConfirm" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button class="btn-login" onclick="submitNewPassword()">Set Password →</button>
+    </div>
+
     <div class="login-footer" style="margin-top:18px">© HiPer Studio</div>
   </div>
 </div>
@@ -488,8 +502,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </div>
 
 <header>
-  <h1>HiPer Studio</h1>
-  <span style="font-size:15px;opacity:0.85;font-weight:500;letter-spacing:0.1px">HiPer MVHR</span>
+  <h1>HiPer MVHR</h1>
+  <span>HiPer Studio · HiPer MVHR · Passivhaus-aligned</span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
     <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
     <button id="creditBadge" onclick="openBuyCredits()" title="Purchase credits"
@@ -516,27 +530,102 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </header>
 
 <nav class="top-nav">
-  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Plan</span></div>
-  <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">🏗</span><span class="nav-label">Project</span></div>
+  <div class="nav-tab" id="navtab-projects" onclick="showTab('projects')"><span class="nav-icon">📁</span><span class="nav-label">Projects</span></div>
+  <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">📋</span><span class="nav-label">Details</span></div>
+  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Draw</span></div>
   <div class="nav-tab" id="navtab-summary" onclick="showTab('summary')"><span class="nav-icon">📊</span><span class="nav-label">Summary</span></div>
-  <div class="nav-tab" id="navtab-rooms" onclick="showTab('rooms')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></div>
-  <div class="nav-tab" id="navtab-ducts" onclick="showTab('ducts')"><span class="nav-icon">🔩</span><span class="nav-label">Ducts</span></div>
   <div class="nav-tab" id="navtab-bom" onclick="showTab('bom')"><span class="nav-icon">📋</span><span class="nav-label">BOM</span></div>
   <div class="nav-tab" id="navtab-commission" onclick="showTab('commission')"><span class="nav-icon">✅</span><span class="nav-label">Commission</span></div>
-  <div class="nav-tab" id="navtab-warnings" onclick="showTab('warnings')"><span class="nav-icon">⚠️</span><span class="nav-label">Warnings <span id="warnBadge"></span></span></div>
+  <div class="nav-tab" id="navtab-export" onclick="showTab('export')"><span class="nav-icon">📥</span><span class="nav-label">Export</span></div>
   <div class="nav-tab" id="navtab-help" onclick="showTab('help')"><span class="nav-icon">❓</span><span class="nav-label">Help</span></div>
-  <div class="nav-tab" id="navtab-settings" onclick="showTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></div>
+  <!-- Keep warnBadge in DOM for JS -->
+  <span id="warnBadge" style="display:none"></span>
 </nav>
 
 <!-- ═══ PROJECT BAR ═══ -->
-<div class="proj-bar">
+<div class="proj-bar" style="display:none">
   <select id="projSelect" onchange="switchProject(this.value)" title="Switch project"></select>
   <input id="projNameEdit" class="proj-name-edit" type="text" placeholder="Project name" title="Rename project">
   <button class="proj-btn" onclick="renameProject()" title="Rename current project">✏️ Rename</button>
-  <button class="proj-btn" onclick="newProject()">＋ New Project</button>
   <button class="proj-btn" onclick="copyProject()">⧉ Copy</button>
   <button class="proj-btn primary" onclick="saveCurrentProject()">💾 Save</button>
+  <button class="proj-btn" onclick="newProject()">＋ New Project</button>
   <span class="proj-saved-badge" id="projSavedBadge">✓ Saved</span>
+</div>
+
+<!-- ═══ NEW PROJECT MODAL ═══ -->
+<div id="newProjectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--card);border-radius:16px;padding:28px;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,0.18);margin:16px">
+    <div style="font-size:18px;font-weight:800;color:var(--primary);margin-bottom:4px">＋ New Project</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Enter project details to get started — uses 10 credits</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="field" style="margin:0">
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Job Name <span style="font-weight:400;text-transform:none">(optional — defaults to address)</span></label>
+        <input type="text" id="npJobName" placeholder="e.g. Smith Residence" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--input-bg);color:var(--text);box-sizing:border-box;margin-top:4px">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Project Address <span style="color:var(--accent)">*</span></label>
+        <input type="text" id="npAddress" placeholder="e.g. 12 Oak St, Adelaide SA 5000" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--input-bg);color:var(--text);box-sizing:border-box;margin-top:4px">
+      </div>
+      <div class="field" style="margin:0">
+        <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Client Name</label>
+        <input type="text" id="npClientName" placeholder="e.g. John Smith" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--input-bg);color:var(--text);box-sizing:border-box;margin-top:4px">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button id="npConfirmBtn" onclick="confirmNewProject()"
+        style="flex:1;padding:11px;font-size:14px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:9px;cursor:pointer">
+        Create Project · 10 credits
+      </button>
+      <button onclick="closeNewProjectModal()"
+        style="padding:11px 18px;font-size:14px;font-weight:600;background:none;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;color:var(--muted)">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ COPY PROJECT CONFIRM MODAL ═══ -->
+<div id="copyProjectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--card);border-radius:16px;padding:28px;width:100%;max-width:380px;box-shadow:0 8px 40px rgba(0,0,0,0.18);margin:16px">
+    <div style="font-size:18px;font-weight:800;color:var(--primary);margin-bottom:8px">⧉ Copy Project</div>
+    <div style="font-size:14px;color:var(--text);margin-bottom:6px">This will duplicate <strong id="copyProjectName"></strong> with all rooms, inputs, and the floor plan.</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">A new project uses <strong>10 credits</strong>. You currently have <strong id="copyProjectCredits"></strong> credits.</div>
+    <div style="display:flex;gap:10px">
+      <button id="copyConfirmBtn" onclick="confirmCopyProject()"
+        style="flex:1;padding:11px;font-size:14px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:9px;cursor:pointer">
+        Copy · 10 credits
+      </button>
+      <button onclick="closeCopyProjectModal()"
+        style="padding:11px 18px;font-size:14px;font-weight:600;background:none;border:1.5px solid var(--border);border-radius:9px;cursor:pointer;color:var(--muted)">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PROJECTS TAB ═══ -->
+<div class="tab-panel" id="tab-projects" style="padding:24px;max-width:680px;margin:0 auto">
+  <div class="section-title">My Projects</div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+    <div>
+      <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Current Project</label>
+      <select id="projSelectMain" onchange="switchProjectMain(this.value)"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:var(--input-bg);color:var(--text)"></select>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="proj-btn" onclick="renameProject()" style="flex:1">✏️ Rename</button>
+      <button class="proj-btn" onclick="copyProject()" style="flex:1">⧉ Copy Project</button>
+      <button class="proj-btn primary" onclick="saveCurrentProject()" style="flex:1">💾 Save</button>
+    </div>
+    <span class="proj-saved-badge" id="projSavedBadgeMain" style="text-align:center"></span>
+  </div>
+  <div style="border-top:1px solid var(--border);padding-top:20px">
+    <button onclick="newProject()"
+      style="width:100%;padding:16px 20px;background:var(--primary);color:#fff;border:none;border-radius:12px;cursor:pointer;text-align:left;font-size:15px;font-weight:800">
+      ＋ New Project <span style="font-size:12px;opacity:0.8;font-weight:400;margin-left:8px">Uses 10 credits</span>
+    </button>
+  </div>
 </div>
 
 <!-- ═══ PROJECT INPUTS TAB ═══ -->
@@ -708,6 +797,12 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <button class="btn-add" onclick="addRoom('extract')">+ Add extract room</button>
   </div>
 
+  <div style="margin-top:8px">
+    <div class="section-title">Suitable Units for This Project</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="suitableUnitsNote">Run the design calculation to see recommended units.</div>
+    <div id="suitableUnitsList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto"></div>
+  </div>
+
   <button class="btn-calc" onclick="calculate()">Run Design Calculation ›</button>
 
 </div><!-- /tab-project -->
@@ -715,12 +810,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ RESULTS TABS ═══ -->
 <div id="results">
 
-    <div class="pdf-toolbar">
-      <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Export PDF
-      </button>
-    </div>
+    <!-- pdf-toolbar moved to tab-export -->
 
     <!-- ── Tab: Summary ── -->
     <div class="tab-panel" id="tab-summary" data-title="Design Summary">
@@ -789,6 +879,38 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
           <div class="sb-row"><span>Est. system pressure</span><span class="sb-val" id="dbPressure">—</span></div>
         </div>
       </div>
+
+      <div class="section-title" style="margin-top:20px">Design Warnings</div>
+      <div class="alert-list" id="alertList"></div>
+
+      <div class="section-title" style="margin-top:20px">Room Schedule</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Room</th><th>Type</th>
+              <th>Normal m³/h</th><th>Boost m³/h</th>
+              <th>Ducts</th><th>m³/h / duct</th><th>Duct status</th>
+              <th>ACH</th><th>Terminal m/s</th><th>Velocity</th>
+            </tr>
+          </thead>
+          <tbody id="roomScheduleBody2"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">Duct Schedule</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Duct ID</th><th>Room</th><th>Floor</th><th>Type</th>
+              <th>Dia (mm)</th><th>Run (m)</th><th>Inter-floor (m)</th><th>Bends</th>
+              <th>Normal m³/h</th><th>Boost m³/h</th><th>Boost vel. m/s</th><th>Boost ΔP (Pa)</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="ductScheduleBody2"></tbody>
+        </table>
+      </div>
     </div>
 
 
@@ -854,7 +976,18 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 
     <!-- ── Tab: Warnings ── -->
     <div class="tab-panel" id="tab-warnings" data-title="Design Warnings">
-      <div class="alert-list" id="alertList"></div>
+      <div class="alert-list" id="alertListWarnings"></div>
+    </div>
+
+    <!-- ── Tab: Export ── -->
+    <div class="tab-panel" id="tab-export" data-title="Export" style="padding:24px;max-width:680px;margin:0 auto">
+      <div class="section-title">Export Design Report</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Generate a full PDF design report including project details, airflow summary, room schedule, duct schedule, BOM, and commissioning sheet.</p>
+      <button class="btn-pdf" id="pdfBtn" onclick="exportPDF()"
+        style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;font-size:15px;font-weight:700;background:var(--primary);color:#fff;border:none;border-radius:10px;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export PDF Report
+      </button>
     </div>
 
     <!-- ── Tab: Help ── -->
@@ -1363,20 +1496,6 @@ const STARTER_NAMES = {
   '2100vs03':{'manufacturer':'Zehnder','model':'ComfoAir E350 ERV'},
   '2281vs03':{'manufacturer':'Zehnder','model':'CAL-925'},
   '2436vs03':{'manufacturer':'Zehnder','model':'Comfoair Fit 100'},
-  '0956vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 HRV / Comfort Vent Q350 HRV'},
-  '1006vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q350 ERV / Comfort Vent Q350 ERV'},
-  '0954vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q450 HRV / Comfort Vent Q450 HRV'},
-  '1007vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q450 ERV / Comfort Vent Q450 ERV'},
-  '0975vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 HRV / Comfort Vent Q600 HRV'},
-  '1008vs03':{'manufacturer':'Zehnder','model':'ComfoAir Q600 ERV / Comfort Vent Q600 ERV'},
-  '2069vs03':{'manufacturer':'Zehnder','model':'ComfoAir Flex 350'},
-  '0866vs03':{'manufacturer':'Zehnder','model':'ComfoAir SL 330 E V'},
-  '0865vs03':{'manufacturer':'Zehnder','model':'ComfoAir SL 330 S V'},
-  '1359vs03':{'manufacturer':'Zehnder','model':'ComfoAir E 350 V'},
-  '1407vs03':{'manufacturer':'Zehnder','model':'R+F Optiline RF 350 D KWL'},
-  '0300vs03':{'manufacturer':'Zehnder','model':'focus 200'},
-  '0302vs03':{'manufacturer':'Zehnder','model':'novus 300'},
-  '0304vs03':{'manufacturer':'Zehnder','model':'novus F 300'},
   // Drexel und Weiss
   '0482vs03':{'manufacturer':'Drexel und Weiss','model':'aerosilent bianco'},
   '0704vs03':{'manufacturer':'Drexel und Weiss','model':'aerosilent stratos'},
@@ -2229,8 +2348,62 @@ function seedIfEmpty() {
 // ══════════════════════════════════════════════════════
 const PROJECTS_KEY = 'hh_mvhr_projects_v1';
 const SAVE_KEY     = 'hh_mvhr_state';       // legacy — kept for planState compat
+
+// ── IndexedDB image store (replaces localStorage for large floor plan images) ──
+const mvhrImageDB = (() => {
+  const DB_NAME = 'mvhr_plan_images', STORE = 'images', VERSION = 1;
+  let _dbPromise = null;
+  function openDB() {
+    if (_dbPromise) return _dbPromise;
+    _dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, VERSION);
+      req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = e => { _dbPromise = null; reject(e.target.error); };
+    });
+    return _dbPromise;
+  }
+  function get(key) {
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readonly').objectStore(STORE).get(key);
+      req.onsuccess = e => resolve(e.target.result || null);
+      req.onerror = e => reject(e.target.error);
+    })).catch(() => null);
+  }
+  function put(key, data) {
+    if (!data) return del(key);
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readwrite').objectStore(STORE).put(data, key);
+      req.onsuccess = () => resolve();
+      req.onerror = e => reject(e.target.error);
+    })).catch(e => console.warn('MVHR: IndexedDB write failed', e));
+  }
+  function del(key) {
+    return openDB().then(db => new Promise((resolve, reject) => {
+      const req = db.transaction(STORE,'readwrite').objectStore(STORE).delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror = e => reject(e.target.error);
+    })).catch(() => {});
+  }
+  // One-time migration of existing localStorage image data to IndexedDB
+  function migrate() {
+    const migratable = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('hh_mvhr_img_') || k.startsWith('hh_mvhr_plan_v2_img_'))) migratable.push(k);
+    }
+    if (!migratable.length) return Promise.resolve();
+    return openDB().then(() => Promise.all(migratable.map(lsKey => {
+      const data = localStorage.getItem(lsKey);
+      if (!data) return;
+      return put(lsKey, data).then(() => { try { localStorage.removeItem(lsKey); } catch(e) {} });
+    }))).catch(e => console.warn('MVHR: image migration failed', e));
+  }
+  return { get, put, del, migrate };
+})();
 let _saveTimer = null;
 let _currentProjectId = null;
+let _lastDesignFlow = 0;
 
 const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2'];
 
@@ -2250,16 +2423,13 @@ function putProjects(list) {
   }
 }
 
-// Image storage — each project image gets its own key so the project list stays small
+// Image storage — IndexedDB (no size limit vs localStorage's ~5 MB cap)
 const IMG_KEY_PREFIX = 'hh_mvhr_img_';
 function saveProjectImage(projectId, dataUrl) {
-  if (!dataUrl) { try { localStorage.removeItem(IMG_KEY_PREFIX + projectId); } catch(e) {} return; }
-  try { localStorage.setItem(IMG_KEY_PREFIX + projectId, dataUrl); } catch(e) {
-    console.warn('MVHR: floor plan image too large to cache locally — annotations still saved.');
-  }
+  mvhrImageDB.put(IMG_KEY_PREFIX + projectId, dataUrl || null);
 }
 function loadProjectImage(projectId) {
-  try { return localStorage.getItem(IMG_KEY_PREFIX + projectId) || null; } catch(e) { return null; }
+  return mvhrImageDB.get(IMG_KEY_PREFIX + projectId);
 }
 
 // ── Collect current state into an object ──
@@ -2320,18 +2490,58 @@ function saveCurrentProject() {
   renderProjSelect();
 }
 
-// ── New project ──
+// ── New project modal ──
 function newProject() {
-  // Credit gate handled by landingNewProject() when called from landing.
-  // Direct toolbar call goes through the same gate.
-  landingNewProject();
+  // From proj-bar: show modal (credits consumed on confirm)
+  document.getElementById('npJobName').value = '';
+  document.getElementById('npAddress').value = '';
+  document.getElementById('npClientName').value = '';
+  document.getElementById('newProjectModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('npAddress').focus(), 50);
 }
 
-async function _createNewProject() {
+function closeNewProjectModal() {
+  document.getElementById('newProjectModal').style.display = 'none';
+}
+
+async function confirmNewProject() {
+  const jobName    = document.getElementById('npJobName').value.trim();
+  const address    = document.getElementById('npAddress').value.trim();
+  const clientName = document.getElementById('npClientName').value.trim();
+
+  if (!address) {
+    document.getElementById('npAddress').focus();
+    document.getElementById('npAddress').style.borderColor = 'var(--danger, #e53e3e)';
+    return;
+  }
+  document.getElementById('npAddress').style.borderColor = '';
+
+  const btn = document.getElementById('npConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Checking credits…';
+
+  if (_currentUser) {
+    const tempId = 'proj_' + Date.now();
+    const ok = await consumeCredits('basic_design', tempId);
+    if (!ok) {
+      btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
+      return;
+    }
+  }
+
+  closeNewProjectModal();
+  const projectName = jobName || address;
+  await _createNewProject(projectName, address, clientName);
+  btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
+}
+
+async function _createNewProject(name = 'New Project', address = '', clientName = '') {
   saveCurrentProject();
   const id = 'proj_' + Date.now();
   const projects = getProjects();
-  projects.push({ id, name: 'New Project', createdAt: Date.now(), updatedAt: Date.now(), state: {}, planState: null });
+  const initialState = {};
+  if (address)    initialState.projectAddress = address;
+  if (clientName) initialState.clientName     = clientName;
+  projects.push({ id, name, createdAt: Date.now(), updatedAt: Date.now(), state: initialState, planState: null });
   putProjects(projects);
   saveProjectImage(id, null);
   loadProject(id);
@@ -2341,7 +2551,6 @@ async function _createNewProject() {
 function showLanding() {
   const overlay = document.getElementById('landingOverlay');
   if (overlay) overlay.style.display = 'flex';
-  // Reset open-project section
   const list = document.getElementById('landingProjectList');
   if (list) list.style.display = 'none';
 }
@@ -2352,22 +2561,13 @@ function hideLanding() {
 }
 
 async function landingNewProject() {
-  const btn = document.getElementById('landingNewBtn');
-  if (btn) { btn.disabled = true; btn.querySelector('div').textContent = 'Checking credits…'; }
-
-  if (_currentUser) {
-    // Temporarily use a placeholder id for the credit check; real id assigned after
-    const tempId = 'proj_' + Date.now();
-    const ok = await consumeCredits('basic_design', tempId);
-    if (!ok) {
-      if (btn) { btn.disabled = false; btn.querySelector('div').textContent = '＋ Create New Project'; }
-      return;
-    }
-  }
-
+  // Show the new project details modal; credit charge + project creation happens on confirm
   hideLanding();
-  await _createNewProject();
-  if (btn) { btn.disabled = false; btn.querySelector('div').textContent = '＋ Create New Project'; }
+  document.getElementById('npJobName').value = '';
+  document.getElementById('npAddress').value = '';
+  document.getElementById('npClientName').value = '';
+  document.getElementById('newProjectModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('npAddress').focus(), 50);
 }
 
 function landingShowProjects() {
@@ -2400,17 +2600,45 @@ function copyProject() {
   const projects = getProjects();
   const src = projects.find(p => p.id === _currentProjectId);
   if (!src) return;
+  document.getElementById('copyProjectName').textContent = src.name || 'this project';
+  document.getElementById('copyProjectCredits').textContent = _creditBalance ?? '—';
+  document.getElementById('copyProjectModal').style.display = 'flex';
+}
+
+function closeCopyProjectModal() {
+  document.getElementById('copyProjectModal').style.display = 'none';
+}
+
+async function confirmCopyProject() {
+  const btn = document.getElementById('copyConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Checking credits…';
+
+  if (_currentUser) {
+    const tempId = 'proj_' + Date.now();
+    const ok = await consumeCredits('basic_design', tempId);
+    if (!ok) {
+      btn.disabled = false; btn.textContent = 'Copy · 10 credits';
+      return;
+    }
+  }
+
+  closeCopyProjectModal();
+  const projects = getProjects();
+  const src = projects.find(p => p.id === _currentProjectId);
+  if (!src) { btn.disabled = false; btn.textContent = 'Copy · 10 credits'; return; }
+
   const id = 'proj_' + Date.now();
   const copy = JSON.parse(JSON.stringify(src));
   copy.id = id;
-  copy.name = src.name + ' (Copy)';
+  copy.name = (src.name || 'Project') + ' (Copy)';
   copy.createdAt = copy.updatedAt = Date.now();
   projects.push(copy);
   putProjects(projects);
-  // Copy the floor plan image to the new project's key
-  const srcImg = loadProjectImage(_currentProjectId);
+  // Copy the floor plan image
+  const srcImg = await loadProjectImage(_currentProjectId);
   if (srcImg) saveProjectImage(id, srcImg);
   loadProject(id);
+  btn.disabled = false; btn.textContent = 'Copy · 10 credits';
 }
 
 // ── Switch project from dropdown ──
@@ -2421,7 +2649,7 @@ function switchProject(id) {
 }
 
 // ── Load a project by id ──
-function loadProject(id) {
+async function loadProject(id) {
   const projects = getProjects();
   const p = projects.find(p => p.id === id);
   if (!p) return;
@@ -2433,7 +2661,7 @@ function loadProject(id) {
   try {
     // Merge imgData back from its separate key before writing to plan key
     const planWithImg = p.planState ? { ...p.planState } : null;
-    const savedImg = loadProjectImage(id);
+    const savedImg = await loadProjectImage(id);
     if (planWithImg && savedImg) planWithImg.imgData = savedImg;
     if (planWithImg) localStorage.setItem('hh_mvhr_plan_v2', JSON.stringify(planWithImg));
     else localStorage.removeItem('hh_mvhr_plan_v2');
@@ -2489,6 +2717,7 @@ function renderProjSelect() {
   sel.innerHTML = projects.map(p =>
     `<option value="${p.id}" ${p.id === _currentProjectId ? 'selected' : ''}>${p.name}</option>`
   ).join('');
+  syncProjSelectMain();
 }
 
 // ── Rename ──
@@ -2890,6 +3119,7 @@ function calculate(silent) {
   document.getElementById('sLow').textContent    = low;
   document.getElementById('sBoost').textContent  = boost;
   document.getElementById('sMethod').textContent = '▲ Governing: ' + govMethod;
+  _lastDesignFlow = normal || 0; // capture for suitable units
 
   // PHI criteria cards
   const govOcc = byOcc >= byACH && byOcc >= extractDemand && normal === byOcc;
@@ -3091,6 +3321,8 @@ function calculate(silent) {
     alertList.appendChild(div);
   });
 
+  syncScheduleTables();
+  renderSuitableUnits(_lastDesignFlow);
   if (!silent) showTab('summary');
   else {
     // Ensure results div is visible for other tabs to work, but don't switch
@@ -3102,6 +3334,73 @@ function calculate(silent) {
 // ══════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════
+
+// ── Suitable units after calculation ──
+function renderSuitableUnits(designFlow) {
+  const note = document.getElementById('suitableUnitsNote');
+  const list = document.getElementById('suitableUnitsList');
+  if (!list) return;
+  if (!designFlow || designFlow <= 0) {
+    if (note) note.textContent = 'Run the design calculation to see recommended units.';
+    list.innerHTML = '';
+    return;
+  }
+  const units = _loadUnitDB().filter(u =>
+    u.flowMin != null && u.flowMax != null &&
+    u.flowMin <= designFlow && u.flowMax >= designFlow
+  ).sort((a, b) => (b.hrEff || 0) - (a.hrEff || 0)).slice(0, 8);
+
+  if (note) note.textContent = units.length
+    ? `${units.length} unit${units.length !== 1 ? 's' : ''} suitable for ${Math.round(designFlow)} m³/h design flow:`
+    : `No units in the database cover ${Math.round(designFlow)} m³/h — check your unit database.`;
+
+  const selected = _loadSelectedUnit();
+  list.innerHTML = units.map(u => {
+    const isSel = selected?.id === u.id;
+    return `<div onclick="selectUnit('${u.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;
+        border:1.5px solid ${isSel ? 'var(--primary)' : 'var(--border)'};border-radius:9px;
+        background:${isSel ? 'rgba(var(--primary-rgb,45,106,79),0.06)' : 'var(--input-bg)'};cursor:pointer">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:${isSel ? 'var(--primary)' : 'var(--text)'}">
+          ${u.manufacturer ? u.manufacturer + ' ' : ''}${u.model || u.id}
+          ${isSel ? '<span style="font-size:11px;background:var(--primary);color:#fff;border-radius:4px;padding:1px 6px;margin-left:6px">Selected</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">
+          ${u.hrEff != null ? `♻ ${u.hrEff}% HR` : ''}
+          ${u.sfp != null ? ` · ⚡ ${u.sfp} Wh/m³` : ''}
+          ${u.flowMin != null && u.flowMax != null ? ` · 💨 ${u.flowMin}–${u.flowMax} m³/h` : ''}
+          ${u.humidityWinter ? ' · 💧 humidity' : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Sync schedule tables to summary tab ──
+function syncScheduleTables() {
+  const r = document.getElementById('roomScheduleBody');
+  const r2 = document.getElementById('roomScheduleBody2');
+  if (r && r2) r2.innerHTML = r.innerHTML;
+  const d = document.getElementById('ductScheduleBody');
+  const d2 = document.getElementById('ductScheduleBody2');
+  if (d && d2) d2.innerHTML = d.innerHTML;
+}
+
+// ── Sync project select in Projects tab ──
+function syncProjSelectMain() {
+  const src = document.getElementById('projSelect');
+  const dst = document.getElementById('projSelectMain');
+  if (!src || !dst) return;
+  dst.innerHTML = src.innerHTML;
+  dst.value = src.value;
+}
+
+function switchProjectMain(id) {
+  const src = document.getElementById('projSelect');
+  if (src) src.value = id;
+  switchProject(id);
+}
+
 function showTab(name) {
   // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -3116,9 +3415,11 @@ function showTab(name) {
   // #results div hosts the output tab panels — show it when on an output tab
   const results = document.getElementById('results');
   if (results) {
-    const outputTabs = ['summary','rooms','ducts','bom','commission','warnings','plan','help','settings'];
+    const outputTabs = ['summary','rooms','ducts','bom','commission','warnings','plan','help','settings','export'];
     results.style.display = outputTabs.includes(name) ? 'block' : 'none';
   }
+  // Sync select in Projects tab
+  if (name === 'projects') syncProjSelectMain();
 }
 
 // ══════════════════════════════════════════════════════
@@ -3306,9 +3607,11 @@ let _creditBalance = null;    // cached credit balance
 window.switchAuthTab = function(tab) {
   const isSignIn = tab === 'signin';
   const isForgot = tab === 'forgot';
+  const isReset  = tab === 'reset';
   document.getElementById('signinFields').style.display  = isSignIn ? '' : 'none';
   document.getElementById('signupFields').style.display  = tab === 'signup' ? '' : 'none';
   document.getElementById('forgotFields').style.display  = isForgot ? '' : 'none';
+  document.getElementById('resetFields').style.display   = isReset  ? '' : 'none';
   document.getElementById('tabSignIn').style.background  = isSignIn ? 'var(--primary)' : 'transparent';
   document.getElementById('tabSignIn').style.color       = isSignIn ? '#fff' : 'var(--muted)';
   document.getElementById('tabSignUp').style.background  = tab === 'signup' ? 'var(--primary)' : 'transparent';
@@ -3436,18 +3739,43 @@ window.submitForgotPassword = async function() {
   if (!email) { _setLoginError('Enter your email address.'); return; }
   if (!_sb) return;
   const { error } = await _sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/?reset=true'
+    redirectTo: window.location.origin + window.location.pathname
   });
   if (error) _setLoginError(error.message);
   else _setLoginSuccess(`✓ Password reset email sent to ${email}`);
 };
 
+window.submitNewPassword = async function() {
+  const pw  = document.getElementById('resetPassword').value;
+  const pw2 = document.getElementById('resetPasswordConfirm').value;
+  if (pw.length < 8) { _setLoginError('Password must be at least 8 characters.'); return; }
+  if (pw !== pw2)    { _setLoginError('Passwords do not match.'); return; }
+  if (!_sb) return;
+  const { error } = await _sb.auth.updateUser({
+    password: pw,
+    data: { must_change_password: false },
+  });
+  if (error) {
+    _setLoginError(error.message);
+  } else {
+    _setLoginSuccess('✓ Password updated. You are now signed in.');
+    document.getElementById('resetPassword').value = '';
+    document.getElementById('resetPasswordConfirm').value = '';
+    // Clean up URL and dismiss overlay after a short delay
+    history.replaceState({}, '', window.location.pathname);
+    setTimeout(() => {
+      document.getElementById('loginOverlay').classList.add('hidden');
+    }, 1200);
+  }
+};
+
 // ── Sign out ──
-window.signOut = async function() {
+window.signOut = function() {
   toggleUserMenu(false);
-  if (_sb) await _sb.auth.signOut();
+  // Update UI immediately — don't await the network call
   _currentUser = null;
   _creditBalance = null;
+  _appInitialized = false;
   // Reset login form
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPassword').value = '';
@@ -3458,8 +3786,11 @@ window.signOut = async function() {
   overlay.classList.remove('hidden');
   overlay.style.display = 'flex';
   document.getElementById('creditBadge').style.display = 'none';
+  document.getElementById('creditCount').textContent = '—';
   document.getElementById('userMenuBtn').style.display = 'none';
   document.getElementById('logoutBtn').style.display = 'none';
+  // Fire-and-forget — invalidate session in background, UI already updated
+  if (_sb) _sb.auth.signOut().catch(() => {});
 };
 
 // ── User menu ──
@@ -3475,8 +3806,29 @@ document.addEventListener('click', e => {
 });
 
 // ── Auth state change — single source of truth ──
+let _appInitialized = false;
 if (_sb) {
   _sb.auth.onAuthStateChange(async (event, session) => {
+    // Magic link / reset link clicked — show password update panel instead of logging in
+    if (event === 'PASSWORD_RECOVERY') {
+      _currentUser = session.user;
+      const overlay = document.getElementById('loginOverlay');
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+      switchAuthTab('reset');
+      return;
+    }
+    // Admin-set temporary password — force user to choose a new one before proceeding
+    if (session?.user?.user_metadata?.must_change_password && event === 'SIGNED_IN') {
+      _currentUser = session.user;
+      const overlay = document.getElementById('loginOverlay');
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+      switchAuthTab('reset');
+      const sub = document.querySelector('#resetFields .login-sub-text') || document.querySelector('#resetFields div');
+      if (sub) sub.textContent = 'Your password has been reset by an admin. Please choose a new password to continue.';
+      return;
+    }
     if (session?.user) {
       _currentUser = session.user;
       document.getElementById('loginOverlay').classList.add('hidden');
@@ -3487,10 +3839,14 @@ if (_sb) {
       document.getElementById('userMenuBtn').style.display = '';
       document.getElementById('logoutBtn').style.display = '';
       document.getElementById('creditBadge').style.display = '';
-      // Load credit balance + projects + unit database
+      // Load credit balance on every auth event (keeps balance fresh after token refresh)
       await refreshCreditBalance();
-      await loadCloudProjects();
-      await syncUnitsFromSupabase(true); // always sync on login
+      // Heavy init only runs once per page load — not on every token refresh
+      if (!_appInitialized) {
+        _appInitialized = true;
+        await loadCloudProjects();
+        await syncUnitsFromSupabase(); // respects 24h cache — no force
+      }
       // Handle payment success redirect
       const params = new URLSearchParams(window.location.search);
       if (params.get('payment') === 'success') {
@@ -3501,30 +3857,7 @@ if (_sb) {
       // First-login onboarding
       const isOnboarded = localStorage.getItem(ONBOARDED_KEY);
       if (!isOnboarded && event === 'SIGNED_IN') {
-        // Pre-star default Zehnder units
-        const existingMyUnits = _loadMyUnits();
-        if (!existingMyUnits.length) {
-          _saveMyUnits(['0956vs03','0954vs03','0975vs03','2069vs03','0702vs03','0327vs03']);
-        }
-        // Pre-populate default custom units
-        const existingCustom = _loadCustomUnits();
-        if (!existingCustom.length) {
-          _saveCustomUnits([
-            { id:'custom_altair120',    source:'custom', manufacturer:'Aerauliqa', model:'Altair 120',    hrEff:null, sfp:null, flowMin:0,  flowMax:102,  noiseSupply:49.6, noiseExtract:51.7, conn:'', frostProtection:'', humidityRecovery:'', notes:'Device: 52.5 dB(A)' },
-            { id:'custom_aerofresh300', source:'custom', manufacturer:'Aerofresh', model:'Aerofresh 300', hrEff:null, sfp:null, flowMin:0,  flowMax:280,  noiseSupply:65.6, noiseExtract:58.4, conn:'4×125mm', frostProtection:'', humidityRecovery:'', notes:'Device: 50.1 dB(A)' },
-            { id:'custom_aerofresh450', source:'custom', manufacturer:'Aerofresh', model:'Aerofresh 450', hrEff:null, sfp:null, flowMin:0,  flowMax:370,  noiseSupply:65.7, noiseExtract:50.7, conn:'4×160mm', frostProtection:'', humidityRecovery:'', notes:'Device: 50.2 dB(A)' },
-            { id:'custom_aerofresh600', source:'custom', manufacturer:'Aerofresh', model:'Aerofresh 600', hrEff:null, sfp:null, flowMin:0,  flowMax:490,  noiseSupply:70.5, noiseExtract:55.8, conn:'', frostProtection:'', humidityRecovery:'', notes:'Device: 58.9 dB(A)' },
-          ]);
-        }
-        // Delay onboarding until disclaimer is accepted
-        const showOnboardingWhenReady = () => {
-          if (!localStorage.getItem(DISCLAIMER_KEY)) {
-            setTimeout(showOnboardingWhenReady, 300);
-          } else {
-            setTimeout(() => showOnboarding(), 400);
-          }
-        };
-        showOnboardingWhenReady();
+        setTimeout(() => showOnboarding(), 400);
       }
     } else {
       _currentUser = null;
@@ -3534,6 +3867,23 @@ if (_sb) {
     }
   });
 }
+
+// Escape closes new-project and copy-project modals
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('newProjectModal')?.style.display === 'flex')  closeNewProjectModal();
+  if (document.getElementById('copyProjectModal')?.style.display === 'flex') closeCopyProjectModal();
+});
+
+// Enter submits new-project modal when address field is focused
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (document.getElementById('newProjectModal')?.style.display === 'flex' &&
+      ['npJobName','npAddress','npClientName'].includes(document.activeElement?.id)) {
+    confirmNewProject();
+    return;
+  }
+});
 
 // Enter key on login fields
 document.addEventListener('keydown', e => {
@@ -3614,15 +3964,25 @@ async function syncUnitsFromSupabase(force = false) {
 
 async function refreshCreditBalance() {
   if (!_sb || !_currentUser) return;
-  const { data, error } = await _sb
-    .from('profiles')
-    .select('credit_balance')
-    .eq('id', _currentUser.id)
-    .single();
-  if (!error && data) {
-    _creditBalance = data.credit_balance;
-    const el = document.getElementById('creditCount');
-    if (el) el.textContent = _creditBalance;
+  try {
+    // 8-second timeout so a slow/failed query never blocks the page
+    const queryPromise = _sb
+      .from('profiles')
+      .select('credit_balance')
+      .eq('id', _currentUser.id)
+      .single();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), 8000)
+    );
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+    if (error) { console.warn('refreshCreditBalance:', error.message); return; }
+    if (data) {
+      _creditBalance = data.credit_balance;
+      const el = document.getElementById('creditCount');
+      if (el) el.textContent = _creditBalance;
+    }
+  } catch (e) {
+    console.warn('refreshCreditBalance failed:', e.message);
   }
 }
 
@@ -3813,7 +4173,6 @@ function showToast(msg, duration = 3000) {
 // PDF EXPORT
 // ══════════════════════════════════════════════════════
 async function exportPDF() {
-
   const btn = document.getElementById('pdfBtn');
   btn.disabled = true;
   btn.textContent = 'Generating…';
@@ -5370,11 +5729,9 @@ addRoom('extract');
         floorData: plan.floorData,    // per-floor {pxPerM, scaleLine} — imgData handled separately
         ductRisers: plan.ductRisers,
       };
-      // Store per-floor images separately to avoid localStorage size limit
+      // Store per-floor images in IndexedDB (no size limit)
       Object.entries(plan.floorData).forEach(([f, fd]) => {
-        if (fd?.imgData) {
-          try { localStorage.setItem(PLAN_SAVE_KEY + '_img_' + f, fd.imgData); } catch(e) {}
-        }
+        if (fd?.imgData) mvhrImageDB.put(PLAN_SAVE_KEY + '_img_' + f, fd.imgData);
       });
       // Don't embed imgData in main state blob
       const slim = { ...s, imgData: null };
@@ -5386,7 +5743,7 @@ addRoom('extract');
   }
 
   window.loadPlanState = loadPlanState;
-  function loadPlanState() {
+  async function loadPlanState() {
     let raw; try { raw = localStorage.getItem(PLAN_SAVE_KEY); } catch(e) {}
     if (!raw) return;
     let s; try { s = JSON.parse(raw); } catch(e) { return; }
@@ -5403,13 +5760,13 @@ addRoom('extract');
     if (s.externalRoutes) plan.externalRoutes = s.externalRoutes;
     if (s.ductRisers) plan.ductRisers = s.ductRisers;
     if (s.activeFloor !== undefined) plan.activeFloor = s.activeFloor;
-    // Restore per-floor data
+    // Restore per-floor data (images from IndexedDB)
     if (s.floorData) {
       plan.floorData = s.floorData;
-      Object.keys(s.floorData).forEach(f => {
-        const img = localStorage.getItem(PLAN_SAVE_KEY + '_img_' + f);
+      await Promise.all(Object.keys(s.floorData).map(async f => {
+        const img = await mvhrImageDB.get(PLAN_SAVE_KEY + '_img_' + f);
         if (img) { if (!plan.floorData[f]) plan.floorData[f] = {}; plan.floorData[f].imgData = img; }
-      });
+      }));
     }
     // Restore sidebar rooms from plan rooms
     if (s.planRooms && s.planRooms.length) {
@@ -5455,10 +5812,10 @@ addRoom('extract');
     }, 50);
   };
 
-  // Load on startup
+  // Load on startup — migrate any old localStorage images to IndexedDB first
   document.addEventListener('DOMContentLoaded', () => {
     showTab('plan');
-    setTimeout(loadPlanState, 200);
+    mvhrImageDB.migrate().then(() => setTimeout(loadPlanState, 200));
   });
 
 })();
