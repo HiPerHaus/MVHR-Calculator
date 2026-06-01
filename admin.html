@@ -505,7 +505,7 @@ function showPanel(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('panel-' + name).classList.add('active');
   event.currentTarget.classList.add('active');
-  if (name === 'transactions' && document.getElementById('txTableBody').children[0]?.colSpan) loadTransactions();
+  if (name === 'transactions') { txPage = 0; loadTransactions(); }
   if (name === 'costs') loadCosts();
   if (name === 'emails') loadEmailTemplates();
 }

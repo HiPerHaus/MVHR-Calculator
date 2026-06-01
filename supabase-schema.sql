@@ -238,9 +238,15 @@ begin
 
   -- Record transaction
   insert into public.credit_transactions
-    (user_id, delta, operation, project_id, source)
+    (user_id, delta, operation, description, project_id, source)
   values
-    (p_user_id, -p_amount, p_operation, p_project_id, 'user_purchase');
+    (p_user_id, -p_amount, p_operation,
+     case p_operation
+       when 'basic_design' then 'Residential MVHR Design'
+       when 'redesign'     then 'Project Redesign'
+       else p_operation
+     end,
+     p_project_id, 'user_purchase');
 
   return v_balance - p_amount;
 end;

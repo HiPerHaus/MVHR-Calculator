@@ -2542,7 +2542,7 @@ async function confirmNewProject() {
     await _createNewProject(projectName, address, clientName, jobName);
   } catch(e) {
     console.error('confirmNewProject error:', e);
-    alert('Something went wrong creating the project. Please try again.');
+    alert('Project creation error: ' + (e?.message || String(e)));
   } finally {
     btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
   }
@@ -2688,7 +2688,7 @@ async function loadProject(id, preferTab = null) {
   }
   renderProjSelect();
   // Open to preferTab if specified, otherwise Details for new/empty projects, Summary for existing ones
-  const addrFilled = document.getElementById('projectAddress')?.value.trim() || document.getElementById('jobName')?.value.trim();
+  const addrFilled = (document.getElementById('projectAddress')?.value || '').trim() || (document.getElementById('jobName')?.value || '').trim();
   const targetTab = preferTab || (addrFilled ? 'summary' : 'project');
   // If target is locked (e.g. summary with no rooms), fall back to Details
   const targetEl = document.getElementById('navtab-' + targetTab);
@@ -3428,7 +3428,7 @@ let _calcDone = false;
 
 function updateTabLocks() {
   const hasProject   = !!_currentProjectId;
-  const detailsDone  = hasProject && (document.getElementById('projectAddress')?.value.trim() || document.getElementById('jobName')?.value.trim());
+  const detailsDone  = hasProject && ((document.getElementById('projectAddress')?.value || '').trim() || (document.getElementById('jobName')?.value || '').trim());
   const hasRooms     = (supplyRooms.length + extractRooms.length) > 0;
   const calcDone     = _calcDone;
 
