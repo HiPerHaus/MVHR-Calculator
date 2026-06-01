@@ -248,6 +248,14 @@ details summary:hover { background: var(--primary-light); }
         <div class="summary-label">Climate Zone</div>
         <div class="summary-value" id="sumClimateZone">—</div>
       </div>
+      <div class="summary-item">
+        <div class="summary-label">Total Floor Area</div>
+        <div class="summary-value" id="sumFloorArea">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Area Confidence</div>
+        <div class="summary-value" id="sumAreaConf">—</div>
+      </div>
       <div class="summary-item" style="position:relative">
         <div class="summary-label">Log ID</div>
         <div class="copy-row">
@@ -256,6 +264,9 @@ details summary:hover { background: var(--primary-light); }
         </div>
       </div>
     </div>
+
+    <!-- Log error (shown only when logError is non-null) -->
+    <div id="logErrorBox" class="error-box" style="display:none;margin-top:12px"></div>
 
     <!-- Warnings -->
     <div id="warningsSection" style="display:none;margin-top:16px">
@@ -277,11 +288,13 @@ details summary:hover { background: var(--primary-light); }
             <th>Room</th>
             <th>Type</th>
             <th>Area m²</th>
+            <th>Airflow L/s</th>
+            <th>Outlets</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="supplyBody">
-          <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -296,18 +309,51 @@ details summary:hover { background: var(--primary-light); }
             <th>Room</th>
             <th>Type</th>
             <th>Area m²</th>
+            <th>Airflow L/s</th>
+            <th>Outlets</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="extractBody">
-          <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
     <div class="table-total" id="extractTotal"></div>
   </div>
 
-  <!-- ── Section 5: Raw JSON ── -->
+  <!-- ── Section 5: MVHR Schedule ── -->
+  <div class="card" id="scheduleCard" style="display:none">
+    <div class="card-title">Draft MVHR Schedule</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+      <div class="summary-item">
+        <div class="summary-label">Total Supply Airflow</div>
+        <div class="summary-value" id="schSupplyAirflow">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Total Extract Airflow</div>
+        <div class="summary-value" id="schExtractAirflow">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Supply Valves</div>
+        <div class="summary-value" id="schSupplyValves">—</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Extract Valves</div>
+        <div class="summary-value" id="schExtractValves">—</div>
+      </div>
+      <div class="summary-item" style="border-left:3px solid var(--accent)">
+        <div class="summary-label">Design Airflow</div>
+        <div class="summary-value" id="schDesignAirflow">—</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s (max supply/extract, rounded up to 10)</div>
+      </div>
+    </div>
+    <div id="scheduleBalanceNote" style="font-size:12px;color:var(--muted)"></div>
+  </div>
+
+  <!-- ── Section 6: Raw JSON ── -->
   <div id="rawCard" style="display:none;margin-bottom:18px">
     <details id="rawDetails">
       <summary>Raw AI Response</summary>
@@ -507,6 +553,23 @@ function renderResults(data) {
   document.getElementById('sumClimateZone').textContent  = data.climateZone || '—';
   document.getElementById('sumLogId').textContent        = data.logId || '—';
 
+  // Floor area
+  document.getElementById('sumFloorArea').textContent =
+    data.totalInternalFloorArea != null ? data.totalInternalFloorArea.toFixed(1) + ' m²' : '—';
+  document.getElementById('sumAreaConf').textContent =
+    data.floorAreaConfidence != null
+      ? (data.floorAreaConfidence * 100).toFixed(0) + '%'
+      : '—';
+
+  // Log error
+  const logErrBox = document.getElementById('logErrorBox');
+  if (data.logError) {
+    logErrBox.textContent = '⚠ Log insert failed: ' + data.logError;
+    logErrBox.style.display = '';
+  } else {
+    logErrBox.style.display = 'none';
+  }
+
   document.getElementById('summaryCard').style.display = '';
 
   // Warnings
@@ -530,6 +593,29 @@ function renderResults(data) {
   document.getElementById('extractTotal').textContent = `Total: ${extractRooms.length} extract room${extractRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('roomsCard').style.display = '';
 
+  // MVHR Schedule
+  const totalSupplyAirflow  = supplyRooms.reduce((s, r) => s + (r.recommendedAirflow  || 0), 0);
+  const totalExtractAirflow = extractRooms.reduce((s, r) => s + (r.recommendedAirflow || 0), 0);
+  const totalSupplyValves   = supplyRooms.reduce((s, r) => s + (r.recommendedOutlets  || 0), 0);
+  const totalExtractValves  = extractRooms.reduce((s, r) => s + (r.recommendedOutlets || 0), 0);
+  const designAirflow       = Math.ceil(Math.max(totalSupplyAirflow, totalExtractAirflow) / 10) * 10;
+
+  document.getElementById('schSupplyAirflow').textContent  = totalSupplyAirflow  || '—';
+  document.getElementById('schExtractAirflow').textContent = totalExtractAirflow || '—';
+  document.getElementById('schSupplyValves').textContent   = totalSupplyValves   || '—';
+  document.getElementById('schExtractValves').textContent  = totalExtractValves  || '—';
+  document.getElementById('schDesignAirflow').textContent  = designAirflow       || '—';
+
+  const diff = Math.abs(totalSupplyAirflow - totalExtractAirflow);
+  const pct  = totalSupplyAirflow > 0
+    ? ((diff / Math.max(totalSupplyAirflow, totalExtractAirflow)) * 100).toFixed(0)
+    : null;
+  document.getElementById('scheduleBalanceNote').textContent = pct != null
+    ? `Supply / extract imbalance: ${diff} L/s (${pct}%). Target < 10% for balanced MVHR.`
+    : '';
+
+  document.getElementById('scheduleCard').style.display = '';
+
   // Raw JSON
   document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
   document.getElementById('rawCard').style.display = '';
@@ -538,15 +624,22 @@ function renderResults(data) {
 function renderRoomRows(rooms) {
   if (!rooms || !rooms.length) return '';
   return rooms.map(r => {
-    const name  = esc(r.name || r.room || '—');
-    const type  = esc(r.type || r.roomType || '—');
-    const area  = r.area != null ? Number(r.area).toFixed(1) : '—';
-    const conf  = r.confidence != null ? Number(r.confidence) : null;
-    const confBadge = conf != null ? `<span class="conf-badge ${confClass(conf)}">${(conf * 100).toFixed(0)}%</span>` : '—';
+    const name     = esc(r.name || r.room || '—');
+    const type     = esc(r.roomType || r.type || '—');
+    const area     = r.area != null ? Number(r.area).toFixed(1) : '—';
+    const airflow  = r.recommendedAirflow != null ? r.recommendedAirflow : '—';
+    const outlets  = r.recommendedOutlets != null ? r.recommendedOutlets : '—';
+    const conf     = r.confidence != null ? Number(r.confidence) : null;
+    const confBadge = conf != null
+      ? `<span class="conf-badge ${confClass(conf)}">${(conf * 100).toFixed(0)}%</span>`
+      : '—';
+    const openTag  = r.openPlan ? ' <span class="badge" style="background:#ede9fe;color:#5b21b6;font-size:10px">open plan</span>' : '';
     return `<tr>
-      <td>${name}</td>
+      <td>${name}${openTag}</td>
       <td>${type}</td>
       <td>${area}</td>
+      <td style="font-weight:700">${airflow}</td>
+      <td>${outlets}</td>
       <td>${confBadge}</td>
     </tr>`;
   }).join('');
@@ -559,7 +652,7 @@ function confClass(c) {
 }
 
 function emptyRow() {
-  return '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+  return '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
 }
 
 // ── Status helpers ────────────────────────────────────────────
@@ -598,9 +691,10 @@ function clearAll() {
 }
 
 function resetResults() {
-  document.getElementById('summaryCard').style.display = 'none';
-  document.getElementById('roomsCard').style.display   = 'none';
-  document.getElementById('rawCard').style.display     = 'none';
+  document.getElementById('summaryCard').style.display  = 'none';
+  document.getElementById('roomsCard').style.display    = 'none';
+  document.getElementById('scheduleCard').style.display = 'none';
+  document.getElementById('rawCard').style.display      = 'none';
 }
 
 function showError(msg) {
