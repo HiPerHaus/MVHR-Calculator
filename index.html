@@ -304,7 +304,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <div id="loginOverlay">
   <div class="login-box">
     <div style="margin-bottom:6px">
-      <img src="logo.svg" alt="HiPer Studio" style="height:44px;display:block;margin:0 auto">
+      <img src="logo.svg" alt="HiPer Studio" style="height:44px;width:auto;max-width:100%;display:block;margin:0 auto">
     </div>
     <div style="font-size:15px;font-weight:800;color:var(--primary);letter-spacing:0.5px;margin-bottom:20px;text-align:center">HiPer MVHR</div>
 
@@ -460,7 +460,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ LANDING SCREEN ═══ -->
 <div id="landingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:7000;align-items:center;justify-content:center">
   <div style="background:var(--card);border-radius:20px;padding:40px 36px;max-width:480px;width:92%;box-shadow:0 16px 64px rgba(0,0,0,0.35);text-align:center">
-    <div style="margin-bottom:4px"><img src="logo.svg" alt="HiPer Studio" style="height:36px;display:block;margin:0 auto"></div>
+    <div style="margin-bottom:4px"><img src="logo.svg" alt="HiPer Studio" style="height:36px;width:auto;max-width:100%;display:block;margin:0 auto"></div>
     <div style="font-size:14px;font-weight:800;color:var(--primary);letter-spacing:0.5px;margin-bottom:28px">HiPer MVHR</div>
 
     <button id="landingNewBtn" onclick="landingNewProject()"
@@ -506,7 +506,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </div>
 
 <header>
-  <img src="logo.svg" alt="HiPer Studio" style="height:28px;filter:brightness(0) invert(1)">
+  <img src="logo.svg" alt="HiPer Studio" style="height:28px;width:auto;max-width:200px;filter:brightness(0) invert(1)">
   <span style="font-size:12px;opacity:0.65;margin-left:2px">HiPer MVHR</span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
     <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
@@ -2525,19 +2525,25 @@ async function confirmNewProject() {
   const btn = document.getElementById('npConfirmBtn');
   btn.disabled = true; btn.textContent = 'Checking credits…';
 
-  if (_currentUser) {
-    const tempId = 'proj_' + Date.now();
-    const ok = await consumeCredits('basic_design', tempId);
-    if (!ok) {
-      btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
-      return;
+  try {
+    if (_currentUser) {
+      const tempId = 'proj_' + Date.now();
+      const ok = await consumeCredits('basic_design', tempId);
+      if (!ok) {
+        btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
+        return;
+      }
     }
-  }
 
-  closeNewProjectModal();
-  const projectName = jobName || address;
-  await _createNewProject(projectName, address, clientName, jobName);
-  btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
+    closeNewProjectModal();
+    const projectName = jobName || address;
+    await _createNewProject(projectName, address, clientName, jobName);
+  } catch(e) {
+    console.error('confirmNewProject error:', e);
+    alert('Something went wrong creating the project. Please try again.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
+  }
 }
 
 async function _createNewProject(name = 'New Project', address = '', clientName = '', jobName = '') {
@@ -4039,14 +4045,22 @@ async function refreshCreditBalance() {
       setTimeout(() => reject(new Error('timeout')), 8000)
     );
     const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
-    if (error) { console.warn('refreshCreditBalance:', error.message); return; }
+    if (error) {
+      console.warn('refreshCreditBalance query error:', error.code, error.message);
+      // Show 0 so badge is not stuck on —
+      const el = document.getElementById('creditCount');
+      if (el && el.textContent === '—') el.textContent = '0';
+      return;
+    }
     if (data) {
-      _creditBalance = data.credit_balance;
+      _creditBalance = data.credit_balance ?? 0;
       const el = document.getElementById('creditCount');
       if (el) el.textContent = _creditBalance;
     }
   } catch (e) {
     console.warn('refreshCreditBalance failed:', e.message);
+    const el = document.getElementById('creditCount');
+    if (el && el.textContent === '—') el.textContent = '0';
   }
 }
 
@@ -4055,30 +4069,39 @@ async function refreshCreditBalance() {
 window.consumeCredits = async function(operation, projectId) {
   if (!_sb || !_currentUser) return true; // offline / dev mode — allow
 
-  const token = (await _sb.auth.getSession()).data.session?.access_token;
-  if (!token) return false;
+  try {
+    const token = (await _sb.auth.getSession()).data.session?.access_token;
+    if (!token) return false;
 
-  const res = await fetch('/api/credits/consume', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-    body: JSON.stringify({ operation, projectId }),
-  });
+    const res = await fetch('/api/credits/consume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ operation, projectId }),
+    });
 
-  if (res.ok) {
-    const { new_balance } = await res.json();
-    _creditBalance = new_balance;
-    document.getElementById('creditCount').textContent = new_balance;
-    return true;
-  }
+    if (res.ok) {
+      const { new_balance } = await res.json();
+      _creditBalance = new_balance;
+      document.getElementById('creditCount').textContent = new_balance;
+      return true;
+    }
 
-  if (res.status === 402) {
-    const { balance, required } = await res.json();
-    openBuyCredits(`This action costs ${required} credits — you have ${balance}.`);
+    if (res.status === 402) {
+      const body = await res.json().catch(() => ({}));
+      openBuyCredits(`This action costs ${body.required ?? '?'} credits — you have ${body.balance ?? 0}.`);
+      return false;
+    }
+
+    // Try to extract error detail for debugging
+    const errBody = await res.json().catch(() => null);
+    console.error('consumeCredits error:', res.status, errBody);
+    alert(`Could not process credits (${res.status}${errBody?.error ? ': ' + errBody.error : ''}). Please try again or contact support.`);
+    return false;
+  } catch (e) {
+    console.error('consumeCredits threw:', e);
+    alert('Could not reach the credits server. Check your connection and try again.');
     return false;
   }
-
-  console.error('consumeCredits error:', res.status);
-  return false;
 };
 
 // ── Buy Credits modal ──
