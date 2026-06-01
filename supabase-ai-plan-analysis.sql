@@ -107,16 +107,28 @@ end $$;
 alter table public.plan_analysis_log
   add column if not exists test_mode boolean not null default false;
 
+-- ── 6. Stage 2 recovery tracking ────────────────────────────
+-- recovery_mode:      true when Stage 1 returned empty rooms and Stage 2 recovered them.
+-- fallback_generated: true when both Stage 1 and Stage 2 failed and a generic room
+--                     schedule was generated from floor area estimates.
+alter table public.plan_analysis_log
+  add column if not exists recovery_mode      boolean not null default false,
+  add column if not exists fallback_generated boolean not null default false;
+
 comment on column public.plan_analysis_log.project_id is
   'NULL when the row was created by an admin test run (testMode=true) without an associated project.';
 comment on column public.plan_analysis_log.test_mode is
   'true = admin test run via /admin-ai-test.html; false = normal production call.';
+comment on column public.plan_analysis_log.recovery_mode is
+  'true = Stage 1 returned empty rooms but Stage 2 recovery pass succeeded.';
+comment on column public.plan_analysis_log.fallback_generated is
+  'true = both AI passes failed; room schedule was generated from floor area estimates only.';
 
 
 -- ── Done ─────────────────────────────────────────────────────
 -- Verify with:
 --   select column_name, is_nullable from information_schema.columns
---     where table_name='plan_analysis_log' and column_name in ('project_id','test_mode');
---   -- project_id should show is_nullable=YES
+--     where table_name='plan_analysis_log'
+--     and column_name in ('project_id','test_mode','recovery_mode','fallback_generated');
 --   select * from plan_analysis_log limit 0;
 --   select * from operation_costs where operation like 'ai_%';

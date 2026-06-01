@@ -166,106 +166,169 @@ function validateRoom(raw, floorIndex) {
   };
 }
 
+// Generate a plausible generic room schedule when AI returns empty arrays.
+// Rooms are sized proportionally from estimated floor area.
+// All confidence values are set to 0.3 to flag these as estimates.
+function generateGenericRooms(floorArea, floorIndex) {
+  const fa = floorArea > 0 ? floorArea : 150;
+
+  let template;
+  if (fa < 110) {
+    template = [
+      { name: 'Master Bedroom',  roomType: 'Master Bedroom', area: Math.round(fa * 0.13), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 2',       roomType: 'Single Bedroom',  area: Math.round(fa * 0.09), ventilationClassification: 'supply'   },
+      { name: 'Living / Dining', roomType: 'Living Room',     area: Math.round(fa * 0.22), ventilationClassification: 'supply',  openPlan: true },
+      { name: 'Kitchen',         roomType: 'Kitchen',          area: Math.round(fa * 0.09), ventilationClassification: 'extract'  },
+      { name: 'Bathroom',        roomType: 'Bathroom',         area: Math.round(fa * 0.07), ventilationClassification: 'extract'  },
+      { name: 'Laundry',         roomType: 'Laundry',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
+      { name: 'Hallway',         roomType: 'Hallway',          area: Math.round(fa * 0.09), ventilationClassification: 'transfer' },
+    ];
+  } else if (fa < 200) {
+    template = [
+      { name: 'Master Bedroom', roomType: 'Master Bedroom', area: Math.round(fa * 0.12), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 2',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.09), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 3',      roomType: 'Single Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
+      { name: 'Living Room',    roomType: 'Living Room',     area: Math.round(fa * 0.14), ventilationClassification: 'supply'   },
+      { name: 'Dining Room',    roomType: 'Dining Room',     area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
+      { name: 'Kitchen',        roomType: 'Kitchen',          area: Math.round(fa * 0.09), ventilationClassification: 'extract'  },
+      { name: 'Ensuite',        roomType: 'Ensuite',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
+      { name: 'Bathroom',       roomType: 'Bathroom',         area: Math.round(fa * 0.05), ventilationClassification: 'extract'  },
+      { name: 'Laundry',        roomType: 'Laundry',          area: Math.round(fa * 0.03), ventilationClassification: 'extract'  },
+      { name: 'WC',             roomType: 'WC',               area: Math.round(fa * 0.02), ventilationClassification: 'extract'  },
+      { name: 'Hallway',        roomType: 'Hallway',          area: Math.round(fa * 0.08), ventilationClassification: 'transfer' },
+    ];
+  } else {
+    template = [
+      { name: 'Master Bedroom', roomType: 'Master Bedroom', area: Math.round(fa * 0.10), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 2',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 3',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
+      { name: 'Bedroom 4',      roomType: 'Single Bedroom',  area: Math.round(fa * 0.06), ventilationClassification: 'supply'   },
+      { name: 'Study',          roomType: 'Study / Office',  area: Math.round(fa * 0.05), ventilationClassification: 'supply'   },
+      { name: 'Living Room',    roomType: 'Living Room',     area: Math.round(fa * 0.12), ventilationClassification: 'supply'   },
+      { name: 'Dining Room',    roomType: 'Dining Room',     area: Math.round(fa * 0.07), ventilationClassification: 'supply'   },
+      { name: 'Rumpus Room',    roomType: 'Rumpus Room',     area: Math.round(fa * 0.07), ventilationClassification: 'supply'   },
+      { name: 'Kitchen',        roomType: 'Kitchen',          area: Math.round(fa * 0.08), ventilationClassification: 'extract'  },
+      { name: 'Ensuite',        roomType: 'Ensuite',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
+      { name: 'Bathroom',       roomType: 'Bathroom',         area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
+      { name: 'Laundry',        roomType: 'Laundry',          area: Math.round(fa * 0.03), ventilationClassification: 'extract'  },
+      { name: 'WC',             roomType: 'WC',               area: Math.round(fa * 0.02), ventilationClassification: 'extract'  },
+      { name: 'Hallway',        roomType: 'Hallway',          area: Math.round(fa * 0.08), ventilationClassification: 'transfer' },
+    ];
+  }
+
+  return template
+    .map(r => validateRoom({ openPlan: false, ...r, confidence: 0.3 }, floorIndex))
+    .filter(Boolean);
+}
+
 // ── System prompt ─────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are an MVHR (Mechanical Ventilation with Heat Recovery) design assistant \
 for Australian residential buildings. Analyse the provided architectural floor plan and return \
 structured MVHR design data as JSON.
 
-═══ ROOM CLASSIFICATION ═══
-Assign every room a ventilationClassification:
-  "supply"   — fresh air delivered here: bedrooms, living, dining, study, rumpus
-  "extract"  — stale air removed here: kitchen, bathroom, ensuite, laundry, WC, pantry
-  "transfer" — passive air path, no terminal needed: hallway, entry, corridor
-  "ignore"   — not ventilated: WIR, garage, porch, carport, alfresco, store, plant room
+════ TASK 1 — IDENTIFY ALL ROOMS (mandatory) ════
+Your primary task is to list every enclosed space visible in this floor plan.
 
-═══ ROOM TYPES (use EXACTLY these strings) ═══
+• Include every room, even if labels are unclear or absent.
+• If a room has no visible label, assign a generic name: "Bedroom 1", "Bedroom 2", "Living",
+  "Dining", "Kitchen", "Bathroom", "Ensuite", "Laundry", "WC", "Study", "Hall", "Garage", etc.
+• If the plan shows ANY enclosed spaces, the rooms array must be non-empty.
+• Uncertain rooms: include them with confidence 0.4–0.6 rather than omitting them.
+• SELF-CHECK before finalising: if totalInternalFloorArea > 0 and rooms is empty, re-read the
+  image and add rooms. A 150 m² home → at least 8 rooms; a 250 m² home → at least 12 rooms.
+
+════ ROOM CLASSIFICATION ════
+Assign every room a ventilationClassification:
+  "supply"   — fresh air delivered: bedrooms, living, dining, study, rumpus
+  "extract"  — stale air removed: kitchen, bathroom, ensuite, laundry, WC, pantry
+  "transfer" — passive air path, no terminal: hallway, entry, corridor
+  "ignore"   — not ventilated: WIR, garage, porch, carport, alfresco, store
+
+════ ROOM TYPES (use EXACTLY these strings) ════
   Supply:   "Single Bedroom", "Double Bedroom", "Master Bedroom", "Study / Office",
             "Living Room", "Dining Room", "Rumpus Room", "Other"
   Extract:  "Kitchen", "Bathroom", "Ensuite", "Laundry", "WC", "Pantry", "Other"
   Transfer: "Hallway", "Entry", "Corridor", "Other"
   Ignore:   "WIR", "Garage", "Porch", "Carport", "Alfresco", "Store", "Other"
 
-═══ RECOMMENDED AIRFLOW (L/s) ═══
+════ RECOMMENDED AIRFLOW (L/s) ════
 Round to nearest whole litre.
-  Supply — calculate from type + area:
-    Master Bedroom:  max(15, round(area × 1.0))   typical 15–20 L/s
-    Double Bedroom:  max(12, round(area × 0.9))   typical 10–15 L/s
-    Single Bedroom:  max(10, round(area × 0.8))   typical 8–12 L/s
-    Living Room:     max(20, round(area × 1.2))   typical 20–35 L/s
-    Dining Room:     max(15, round(area × 1.0))   typical 12–20 L/s
-    Study / Office:  max(10, round(area × 0.8))   typical 8–15 L/s
-    Rumpus Room:     max(15, round(area × 1.0))   typical 12–20 L/s
-  Extract — type-based minimums:
-    Kitchen 25  Bathroom 25  Ensuite 20  Laundry 20  WC 10  Pantry 10
+  Supply — type + area:
+    Master Bedroom:  max(15, round(area × 1.0))
+    Double Bedroom:  max(12, round(area × 0.9))
+    Single Bedroom:  max(10, round(area × 0.8))
+    Living Room:     max(20, round(area × 1.2))
+    Dining Room:     max(15, round(area × 1.0))
+    Study / Office:  max(10, round(area × 0.8))
+    Rumpus Room:     max(15, round(area × 1.0))
+  Extract: Kitchen 25  Bathroom 25  Ensuite 20  Laundry 20  WC 10  Pantry 10
   Transfer / Ignore: 0
 
-═══ RECOMMENDED OUTLETS ═══
-  Supply < 25 m²:     1 outlet
-  Supply 25–49 m²:    2 outlets
-  Open plan ≥ 40 m²:  2 outlets minimum
-  Open plan ≥ 60 m²:  3 outlets
-  Extract:            1 outlet (kitchen > 30 m² → 2)
-  Transfer / Ignore:  0 outlets
+════ RECOMMENDED OUTLETS ════
+  Supply < 25 m²: 1 outlet    Supply 25–49 m²: 2 outlets
+  Open plan ≥ 40 m²: 2 minimum    Open plan ≥ 60 m²: 3 outlets
+  Extract: 1 outlet (kitchen > 30 m² → 2)    Transfer / Ignore: 0
 
-═══ OPEN PLAN DETECTION ═══
+════ OPEN PLAN DETECTION ════
 Set openPlan: true for any room > 40 m² that combines multiple functions (e.g. "Meals / Living").
-Add a warning suggesting terminal positions for open-plan areas.
 
-═══ TOTAL INTERNAL FLOOR AREA ═══
-Estimate totalInternalFloorArea (m²) — include all internal space: habitable rooms, hallways,
-bathrooms, laundries, pantries, WIRs, internal circulation.
-Exclude: porch, verandah, alfresco, carport, garage, balconies, any unenclosed/outdoor area.
+════ TASK 2 — FLOOR AREA ESTIMATE ════
+After listing rooms, estimate totalInternalFloorArea (m²).
+Include: habitable rooms, hallways, bathrooms, laundries, WIRs, internal circulation.
+Exclude: porch, verandah, alfresco, carport, garage, balconies, unenclosed areas.
 Rate confidence 0.0–1.0 in floorAreaConfidence.
 
-═══ AREAS ═══
-Estimate each room area from scale bars, dimension strings, or grid. If no scale is visible,
-use best estimates from typical Australian residential room sizes. Set area to 0 only if
-genuinely impossible.
+════ ROOM AREAS ════
+Estimate from scale bars, dimension strings, or grid. If no scale is visible, use typical
+Australian residential sizes. Set area to 0 only if genuinely impossible to estimate.
 
-═══ CLIMATE ZONE ═══
-If visible in the title block, site plan, or annotations, return the AS/NZS climate zone
-as a string: "1" through "8". Otherwise null.
+════ CLIMATE ZONE ════
+If visible in title block or annotations, return AS/NZS climate zone "1"–"8". Otherwise null.
 
-═══ RESPONSE FORMAT ═══
+════ RESPONSE FORMAT ════
 Return ONLY valid JSON — no markdown fences, no prose before or after.
 
 {
   "rooms": [
-    {
-      "name": "Master Bedroom",
-      "roomType": "Master Bedroom",
-      "area": 19.2,
-      "ventilationClassification": "supply",
-      "recommendedAirflow": 20,
-      "recommendedOutlets": 1,
-      "confidence": 0.94,
-      "openPlan": false
-    },
-    {
-      "name": "Kitchen",
-      "roomType": "Kitchen",
-      "area": 16.4,
-      "ventilationClassification": "extract",
-      "recommendedAirflow": 25,
-      "recommendedOutlets": 1,
-      "confidence": 0.97,
-      "openPlan": false
-    },
-    {
-      "name": "Hallway",
-      "roomType": "Hallway",
-      "area": 8.2,
-      "ventilationClassification": "transfer",
-      "recommendedAirflow": 0,
-      "recommendedOutlets": 0,
-      "confidence": 0.9,
-      "openPlan": false
-    }
+    { "name": "Master Bedroom", "roomType": "Master Bedroom", "area": 19.2,
+      "ventilationClassification": "supply", "recommendedAirflow": 20,
+      "recommendedOutlets": 1, "confidence": 0.94, "openPlan": false },
+    { "name": "Kitchen", "roomType": "Kitchen", "area": 16.4,
+      "ventilationClassification": "extract", "recommendedAirflow": 25,
+      "recommendedOutlets": 1, "confidence": 0.97, "openPlan": false },
+    { "name": "Hallway", "roomType": "Hallway", "area": 8.2,
+      "ventilationClassification": "transfer", "recommendedAirflow": 0,
+      "recommendedOutlets": 0, "confidence": 0.9, "openPlan": false }
   ],
   "totalInternalFloorArea": 245.6,
   "floorAreaConfidence": 0.87,
   "climateZone": null,
-  "warnings": ["No scale bar detected — areas estimated from typical room proportions."]
+  "warnings": []
+}`;
+
+// ── Stage 2 recovery prompt — room identification only ─────────
+// Used when Stage 1 returns a valid floor area but empty room arrays.
+// Deliberately ignores airflow, classifications, and floor area to
+// reduce cognitive load on the model and maximise room recall.
+const ROOM_RECOVERY_PROMPT = `You are analysing an architectural floor plan image.
+Your ONLY task is to identify every enclosed room or space visible in this image.
+
+Instructions:
+• List every room, space, or enclosed area you can see.
+• If a label is readable, use it. If not, assign a generic name: "Room 1", "Bedroom", "Kitchen", etc.
+• Estimate the area of each room in m². If uncertain, use a reasonable guess.
+• Do NOT compute airflow, outlets, or classifications — those fields are handled elsewhere.
+• Set confidence 0.5 for any room where you are uncertain.
+• Include everything: bedrooms, bathrooms, hallways, laundry, garage, WIR, alfresco, etc.
+
+Return ONLY valid JSON — no markdown, no prose.
+
+{
+  "rooms": [
+    { "name": "Master Bedroom", "roomType": "Master Bedroom", "area": 18.0, "confidence": 0.8 },
+    { "name": "Kitchen",        "roomType": "Kitchen",         "area": 14.0, "confidence": 0.9 },
+    { "name": "Hallway",        "roomType": "Hallway",         "area": 7.0,  "confidence": 0.7 }
+  ]
 }`;
 
 // ── Handler ───────────────────────────────────────────────────
@@ -394,6 +457,9 @@ export default async function handler(req, res) {
     };
   }
 
+  // Rough decoded byte size — used later to warn about low-resolution images
+  const imgByteEstimate = Math.ceil(imageSource.data.length * 3 / 4);
+
   // ── Call Claude Vision ──────────────────────────────────────
   let claudeResponse;
   try {
@@ -445,6 +511,11 @@ export default async function handler(req, res) {
   // ── Parse and validate AI response ─────────────────────────
   let parsed;
   const warnings = [];
+
+  // Small image → room labels may be unreadable
+  if (imgByteEstimate < 150_000) {
+    warnings.push('Room labels may be too small to read. Try a cropped screenshot of the floor plan.');
+  }
 
   try {
     parsed = JSON.parse(stripMarkdown(rawText));
@@ -514,7 +585,81 @@ export default async function handler(req, res) {
     }
   }
 
-  if (supply.length === 0 && extract.length === 0) {
+  let finalSupply   = supply;
+  let finalExtract  = extract;
+  let finalTransfer = transfer;
+  let finalIgnore   = ignore;
+  let recoveryMode      = false;
+  let fallbackGenerated = false;
+  // Token counts accumulate across both calls
+  let totalInputTokens  = inputTokens;
+  let totalOutputTokens = outputTokens;
+
+  const totalRooms = supply.length + extract.length + transfer.length + ignore.length;
+
+  if (totalRooms === 0 && totalInternalFloorArea > 0) {
+    // ── Stage 2: focused room-identification-only call ──────────
+    console.log('analyse-plan: Stage 1 returned empty rooms with area', totalInternalFloorArea, '— attempting Stage 2 recovery');
+    let stage2Rooms = [];
+
+    try {
+      const stage2Response = await anthropic.messages.create({
+        model:      MODEL,
+        max_tokens: 2048,
+        system:     ROOM_RECOVERY_PROMPT,
+        messages: [
+          {
+            role:    'user',
+            content: [
+              { type: 'image', source: imageSource },
+              { type: 'text',  text: 'Identify every room visible in this floor plan and return the JSON room list.' },
+            ],
+          },
+        ],
+      });
+
+      totalInputTokens  += stage2Response.usage?.input_tokens  ?? 0;
+      totalOutputTokens += stage2Response.usage?.output_tokens ?? 0;
+
+      const stage2Text = stage2Response.content?.[0]?.text ?? '';
+      let stage2Parsed;
+      try {
+        stage2Parsed = JSON.parse(stripMarkdown(stage2Text));
+      } catch (_) {
+        console.warn('analyse-plan: Stage 2 JSON parse failed');
+      }
+
+      if (stage2Parsed) {
+        // Stage 2 returns a flat rooms array — validate each and infer classification from roomType
+        const raw2 = Array.isArray(stage2Parsed.rooms) ? stage2Parsed.rooms : [];
+        stage2Rooms = raw2.map(r => validateRoom(r, floorIndex)).filter(Boolean);
+      }
+    } catch (e) {
+      console.error('analyse-plan: Stage 2 Claude call failed:', e.message);
+    }
+
+    if (stage2Rooms.length > 0) {
+      // Stage 2 succeeded — use its rooms
+      recoveryMode  = true;
+      finalSupply   = stage2Rooms.filter(r => r.ventilationClassification === 'supply');
+      finalExtract  = stage2Rooms.filter(r => r.ventilationClassification === 'extract');
+      finalTransfer = stage2Rooms.filter(r => r.ventilationClassification === 'transfer');
+      finalIgnore   = stage2Rooms.filter(r => r.ventilationClassification === 'ignore');
+      warnings.push('Room schedule extracted via Stage 2 recovery pass — review classifications and airflow values before use.');
+    } else {
+      // Both passes failed — fall back to generic schedule
+      fallbackGenerated = true;
+      warnings.push(
+        '⚠ Room schedule was generated from floor area estimates and should be manually reviewed. ' +
+        'Both AI extraction passes returned no rooms for this image.'
+      );
+      const generic = generateGenericRooms(totalInternalFloorArea, floorIndex);
+      finalSupply   = generic.filter(r => r.ventilationClassification === 'supply');
+      finalExtract  = generic.filter(r => r.ventilationClassification === 'extract');
+      finalTransfer = generic.filter(r => r.ventilationClassification === 'transfer');
+      finalIgnore   = generic.filter(r => r.ventilationClassification === 'ignore');
+    }
+  } else if (totalRooms === 0) {
     warnings.push('No rooms were identified in this image. Check that the image is a readable floor plan.');
   }
 
@@ -523,10 +668,12 @@ export default async function handler(req, res) {
     || null;
 
   const analysisJson = {
-    supply, extract, transfer, ignore,
+    supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
     totalInternalFloorArea, floorAreaConfidence,
     climateZone: resolvedClimateZone,
     warnings,
+    recoveryMode,
+    fallbackGenerated,
   };
 
   // ── Deduct credits AFTER successful parse ───────────────────
@@ -568,17 +715,19 @@ export default async function handler(req, res) {
     .from('plan_analysis_log')
     .insert({
       ...(isUuid(projectId) ? { project_id: projectId } : {}),
-      user_id:           user.id,
-      floor_index:       floorIndex,
-      credits_deducted:  deductErr ? 0 : creditCost,
-      model_used:        MODEL,
-      input_tokens:      inputTokens,
-      output_tokens:     outputTokens,
-      raw_response:      rawText,
-      parsed_rooms:      analysisJson,
-      climate_zone:      resolvedClimateZone,
-      status:            'ok',
-      ...(testMode ? { test_mode: true } : {}),
+      user_id:            user.id,
+      floor_index:        floorIndex,
+      credits_deducted:   deductErr ? 0 : creditCost,
+      model_used:         MODEL,
+      input_tokens:       totalInputTokens,
+      output_tokens:      totalOutputTokens,
+      raw_response:       rawText,
+      parsed_rooms:       analysisJson,
+      climate_zone:       resolvedClimateZone,
+      status:             'ok',
+      ...(testMode          ? { test_mode:          true } : {}),
+      ...(recoveryMode      ? { recovery_mode:      true } : {}),
+      ...(fallbackGenerated ? { fallback_generated: true } : {}),
     })
     .select('id')
     .single();
@@ -589,14 +738,16 @@ export default async function handler(req, res) {
 
   // ── Return structured result ────────────────────────────────
   return res.status(200).json({
-    rooms:                  { supply, extract, transfer, ignore },
+    rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
     totalInternalFloorArea,
     floorAreaConfidence,
     climateZone:            resolvedClimateZone,
     warnings,
+    recoveryMode,
+    fallbackGenerated,
     model:                  MODEL,
-    inputTokens,
-    outputTokens,
+    inputTokens:            totalInputTokens,
+    outputTokens:           totalOutputTokens,
     creditsDeducted:        deductErr ? 0 : creditCost,
     newBalance:             newBalance ?? null,
     logId:                  logRow?.id  ?? null,
