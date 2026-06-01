@@ -614,9 +614,11 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
     <div>
       <label style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px">Current Project</label>
-      <select id="projSelectMain" onchange="switchProjectMain(this.value)"
+      <select id="projSelectMain"
         style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:var(--input-bg);color:var(--text)"></select>
     </div>
+    <button class="proj-btn primary" onclick="switchProjectMain(document.getElementById('projSelectMain').value)"
+      style="width:100%;padding:12px;font-size:14px;font-weight:700">📂 Open Selected Project</button>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="proj-btn" onclick="renameProject()" style="flex:1">✏️ Rename</button>
       <button class="proj-btn" onclick="copyProject()" style="flex:1">⧉ Copy Project</button>
@@ -2557,7 +2559,7 @@ async function _createNewProject(name = 'New Project', address = '', clientName 
   projects.push({ id, name, createdAt: Date.now(), updatedAt: Date.now(), state: initialState, planState: null });
   putProjects(projects);
   saveProjectImage(id, null);
-  loadProject(id);
+  await loadProject(id, 'project'); // always open Details tab for a new project
 }
 
 // ── Landing screen ────────────────────────────────────
@@ -2662,7 +2664,7 @@ function switchProject(id) {
 }
 
 // ── Load a project by id ──
-async function loadProject(id) {
+async function loadProject(id, preferTab = null) {
   const projects = getProjects();
   const p = projects.find(p => p.id === id);
   if (!p) return;
@@ -2685,10 +2687,12 @@ async function loadProject(id) {
     setTimeout(loadPlanState, 50);
   }
   renderProjSelect();
-  // Open to Details tab so user fills in project info first;
-  // if details already filled, fall back to summary
+  // Open to preferTab if specified, otherwise Details for new/empty projects, Summary for existing ones
   const addrFilled = document.getElementById('projectAddress')?.value.trim() || document.getElementById('jobName')?.value.trim();
-  showTab(addrFilled ? 'summary' : 'project');
+  const targetTab = preferTab || (addrFilled ? 'summary' : 'project');
+  // If target is locked (e.g. summary with no rooms), fall back to Details
+  const targetEl = document.getElementById('navtab-' + targetTab);
+  showTab(targetEl && targetEl.classList.contains('nav-tab-locked') ? 'project' : targetTab);
 }
 
 // ── Clear all calculated output tabs ──
