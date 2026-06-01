@@ -521,8 +521,8 @@ function renderResults(data) {
   }
 
   // Rooms
-  const supplyRooms  = data.supplyRooms  || data.supply_rooms  || [];
-  const extractRooms = data.extractRooms || data.extract_rooms || [];
+  const supplyRooms  = data.rooms?.supply  || data.supplyRooms  || data.supply_rooms  || [];
+  const extractRooms = data.rooms?.extract || data.extractRooms || data.extract_rooms || [];
 
   document.getElementById('supplyBody').innerHTML  = renderRoomRows(supplyRooms)  || emptyRow();
   document.getElementById('extractBody').innerHTML = renderRoomRows(extractRooms) || emptyRow();
