@@ -532,8 +532,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <nav class="top-nav">
   <div class="nav-tab" id="navtab-projects" onclick="showTab('projects')"><span class="nav-icon">📁</span><span class="nav-label">Projects</span></div>
   <div class="nav-tab" id="navtab-project" onclick="showTab('project')"><span class="nav-icon">📋</span><span class="nav-label">Details</span></div>
-  <div class="nav-tab active" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Draw</span></div>
-  <div class="nav-tab" id="navtab-summary" onclick="showTab('summary')"><span class="nav-icon">📊</span><span class="nav-label">Summary</span></div>
+  <div class="nav-tab" id="navtab-plan" onclick="showTab('plan')"><span class="nav-icon">📐</span><span class="nav-label">Draw</span></div>
+  <div class="nav-tab active" id="navtab-summary" onclick="showTab('summary')"><span class="nav-icon">📊</span><span class="nav-label">Summary</span></div>
   <div class="nav-tab" id="navtab-bom" onclick="showTab('bom')"><span class="nav-icon">📋</span><span class="nav-label">BOM</span></div>
   <div class="nav-tab" id="navtab-commission" onclick="showTab('commission')"><span class="nav-icon">✅</span><span class="nav-label">Commission</span></div>
   <div class="nav-tab" id="navtab-export" onclick="showTab('export')"><span class="nav-icon">📥</span><span class="nav-label">Export</span></div>
@@ -644,20 +644,16 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   </div>
 
   <div style="margin-bottom:18px">
-    <div class="section-title">Project Basics</div>
+    <div class="section-title">Occupants &amp; Fresh Air Demand</div>
     <div class="grid3">
-      <div class="field"><label>Floor Area (m²)</label><input type="number" id="floorArea" min="0" placeholder="220"></div>
-      <div class="field"><label>Ceil. Height (m)</label><input type="number" id="ceilHeight" min="1.8" step="0.1" value="2.5" placeholder="2.5"></div>
-      <div class="field"><label>Bed Spaces</label><input type="number" id="bedSpaces" min="0" placeholder="6"></div>
-    </div>
-    <div class="grid2" style="margin-top:2px">
       <div class="field"><label>Bedrooms</label><input type="number" id="bedrooms" min="0" placeholder="4"></div>
+      <div class="field"><label>Bed Spaces</label><input type="number" id="bedSpaces" min="0" placeholder="6"></div>
       <div class="field"><label>Persons</label><input type="number" id="persons" min="0" placeholder="auto"></div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:2px">Persons defaults to bed spaces if blank. Governing flow = max(persons×30, extract demand, 0.3 ACH).</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Persons defaults to bed spaces if blank. Design flow = max(persons × 30 m³/h, extract demand, 0.3 ACH).</div>
   </div>
 
-  <div>
+  <div style="margin-bottom:18px">
     <div class="section-title">Building Storeys</div>
     <div class="grid3">
       <div class="field">
@@ -684,126 +680,37 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <div id="storeyHeightFields">
       <!-- populated by updateStoreyFields() -->
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:2px">Inter-floor duct length = floor ceiling height + structural allowance per crossed floor level.</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Inter-floor duct length = ceiling height + structural allowance per crossed floor level.</div>
   </div>
 
-  <div>
-    <div class="section-title">Duct Settings</div>
-    <div class="grid2">
-      <div class="field"><label>Bends per run</label><input type="number" id="bendsPerRun" min="0" value="0" placeholder="0"></div>
-    </div>
-  </div>
-
-  <!-- ─── MVHR Unit Picker ─── -->
-  <div>
-    <div class="section-title">MVHR Unit Selection</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
-      Select the unit you are designing for. The database is pre-loaded with PHI-certified units — import an updated list in Settings.
-    </div>
-
-    <!-- Selected unit card -->
-    <div id="selectedUnitCard" style="display:none;background:var(--input-bg);border:2px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
-        <div>
-          <div style="font-size:13px;font-weight:800;color:var(--primary)" id="sucName">—</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="sucId"></div>
-        </div>
-        <button onclick="clearUnitSelection()" title="Clear selection" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);flex-shrink:0">✕</button>
-      </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px">
-        <span>♻ <strong id="sucHR">—</strong>% HR</span>
-        <span>⚡ <strong id="sucSFP">—</strong> Wh/m³</span>
-        <span>💨 <strong id="sucMin">—</strong>–<strong id="sucMax">—</strong> m³/h</span>
-        <span>🔊 Supply <strong id="sucNS">—</strong> dB(A)</span>
-        <span>🔊 Extract <strong id="sucNE">—</strong> dB(A)</span>
-        <span id="sucFrost" style="color:var(--accent)"></span>
-        <span id="sucHumidity" style="color:#0ea5e9"></span>
-      </div>
-    </div>
-
-    <!-- Search + filter controls -->
-    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
-      <input id="unitSearch" type="text" placeholder="Search manufacturer or model…" oninput="renderUnitPicker()"
-        style="flex:1;min-width:180px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--input-bg);color:var(--text)">
-      <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="myUnitsOnly" onchange="renderUnitPicker()"> My units only
-      </label>
-      <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="humidityOnly" onchange="renderUnitPicker()"> Humidity recovery
-      </label>
-      <select id="unitFlowFilter" onchange="renderUnitPicker()"
-        style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--input-bg);color:var(--text)">
-        <option value="">All flows</option>
-        <option value="150">Up to 150 m³/h</option>
-        <option value="300">Up to 300 m³/h</option>
-        <option value="450">Up to 450 m³/h</option>
-        <option value="600">Up to 600 m³/h</option>
-      </select>
-    </div>
-
-    <!-- Scrollable unit list -->
-    <div id="unitPickerList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--input-bg)">
-      <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Loading units…</div>
-    </div>
-    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-      <span id="unitPickerCount" style="font-size:11px;color:var(--muted)"></span>
-      <button onclick="openCustomUnitForm(null)" class="btn-add" style="margin-left:auto">+ Add custom unit</button>
-    </div>
-  </div>
-
-  <div>
-    <div class="section-title">External Ducts &amp; Grille</div>
-    <div class="grid2">
-      <div class="field"><label>Supply ext. length (m)</label><input type="number" id="extSupplyLength" min="0" value="3" placeholder="3"></div>
-      <div class="field"><label>Extract ext. length (m)</label><input type="number" id="extExtractLength" min="0" value="3" placeholder="3"></div>
-    </div>
+  <div style="margin-bottom:18px">
+    <div class="section-title">Duct Sizing</div>
     <div class="field">
-      <label>External grille type</label>
-      <select id="grilleType" onchange="updateGrilleSize()">
-        <option value="individual">Individual (separate supply + extract)</option>
-        <option value="combi">Combi — ComfoEdge (combined single unit)</option>
+      <label>Standard duct diameter</label>
+      <select id="ductDiameter">
+        <option value="90">90 mm — rigid / semi-rigid (standard)</option>
+        <option value="75">75 mm — semi-rigid (compact)</option>
       </select>
     </div>
-    <div class="field" id="grilleSizeField">
-      <label>Grille size</label>
-      <select id="grilleSize">
-        <option value="DN125">DN125</option>
-        <option value="DN150">DN150</option>
-        <option value="DN160">DN160</option>
-        <option value="DN180">DN180</option>
-        <option value="DN200">DN200</option>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Sets the default duct diameter for this project. Bends can be added per-run in the Draw tab.</div>
+  </div>
+
+  <div style="margin-bottom:18px">
+    <div class="section-title">External Grille</div>
+    <div class="field">
+      <label>Grille type</label>
+      <select id="grilleType">
+        <option value="individual">Separate — individual supply &amp; extract grilles</option>
+        <option value="combi">Combined — ComfoEdge combi grille (single penetration)</option>
       </select>
     </div>
-    <div class="field hidden" id="combiSizeField" style="display:none">
-      <label>Combi grille size</label>
-      <select id="combiSize">
-        <option value="DN125">DN125 — recirculation &lt;3%</option>
-        <option value="DN160">DN160 — recirculation &lt;5%</option>
-      </select>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">Grille size is determined by the selected MVHR unit after the design calculation.</div>
+    <!-- Hidden fields kept in DOM so state save/load and any downstream JS still works -->
+    <div style="display:none">
+      <select id="grilleSize"><option value="DN125">DN125</option><option value="DN150">DN150</option><option value="DN160">DN160</option><option value="DN180">DN180</option><option value="DN200">DN200</option></select>
+      <select id="combiSize"><option value="DN125">DN125</option><option value="DN160">DN160</option></select>
     </div>
   </div>
-
-  <div>
-    <div class="section-title">Supply Rooms</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Airflow calculated from design total · enter name, area (m²) and duct run length</div>
-    <div id="supplyRooms"></div>
-    <button class="btn-add" onclick="addRoom('supply')">+ Add supply room</button>
-  </div>
-
-  <div>
-    <div class="section-title">Extract Rooms</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Twin duct auto-selected when normal flow &gt;35 m³/h · enter name, area (m²) and duct run length</div>
-    <div id="extractRooms"></div>
-    <button class="btn-add" onclick="addRoom('extract')">+ Add extract room</button>
-  </div>
-
-  <div style="margin-top:8px">
-    <div class="section-title">Suitable Units for This Project</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="suitableUnitsNote">Run the design calculation to see recommended units.</div>
-    <div id="suitableUnitsList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto"></div>
-  </div>
-
-  <button class="btn-calc" onclick="calculate()">Run Design Calculation ›</button>
 
 </div><!-- /tab-project -->
 
@@ -813,7 +720,97 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     <!-- pdf-toolbar moved to tab-export -->
 
     <!-- ── Tab: Summary ── -->
-    <div class="tab-panel" id="tab-summary" data-title="Design Summary">
+    <div class="tab-panel active" id="tab-summary" data-title="Design Summary" style="padding:24px;max-width:820px;margin:0 auto">
+
+      <!-- ── Editable inputs (moved from Details tab) ── -->
+      <div style="margin-bottom:18px">
+        <div class="section-title">Floor Area &amp; Building</div>
+        <div class="grid3">
+          <div class="field"><label>Floor Area (m²)</label><input type="number" id="floorArea" min="0" placeholder="220"></div>
+          <div class="field"><label>Ceil. Height (m)</label><input type="number" id="ceilHeight" min="1.8" step="0.1" value="2.5" placeholder="2.5"></div>
+          <div class="field"><label>External supply run (m)</label><input type="number" id="extSupplyLength" min="0" value="3" placeholder="3"></div>
+        </div>
+        <div class="grid2" style="margin-top:2px">
+          <div class="field"><label>External extract run (m)</label><input type="number" id="extExtractLength" min="0" value="3" placeholder="3"></div>
+        </div>
+      </div>
+
+      <!-- ─── MVHR Unit Picker ─── -->
+      <div style="margin-bottom:18px">
+        <div class="section-title">MVHR Unit Selection</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          Select the unit you are designing for. The database is pre-loaded with PHI-certified units — import an updated list in Settings.
+        </div>
+        <!-- Selected unit card -->
+        <div id="selectedUnitCard" style="display:none;background:var(--input-bg);border:2px solid var(--primary);border-radius:10px;padding:12px 16px;margin-bottom:12px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div>
+              <div style="font-size:13px;font-weight:800;color:var(--primary)" id="sucName">—</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px" id="sucId"></div>
+            </div>
+            <button onclick="clearUnitSelection()" title="Clear selection" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);flex-shrink:0">✕</button>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px">
+            <span>♻ <strong id="sucHR">—</strong>% HR</span>
+            <span>⚡ <strong id="sucSFP">—</strong> Wh/m³</span>
+            <span>💨 <strong id="sucMin">—</strong>–<strong id="sucMax">—</strong> m³/h</span>
+            <span>🔊 Supply <strong id="sucNS">—</strong> dB(A)</span>
+            <span>🔊 Extract <strong id="sucNE">—</strong> dB(A)</span>
+            <span id="sucFrost" style="color:var(--accent)"></span>
+            <span id="sucHumidity" style="color:#0ea5e9"></span>
+          </div>
+        </div>
+        <!-- Search + filter controls -->
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+          <input id="unitSearch" type="text" placeholder="Search manufacturer or model…" oninput="renderUnitPicker()"
+            style="flex:1;min-width:180px;padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--input-bg);color:var(--text)">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="myUnitsOnly" onchange="renderUnitPicker()"> My units only
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="humidityOnly" onchange="renderUnitPicker()"> Humidity recovery
+          </label>
+          <select id="unitFlowFilter" onchange="renderUnitPicker()"
+            style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--input-bg);color:var(--text)">
+            <option value="">All flows</option>
+            <option value="150">Up to 150 m³/h</option>
+            <option value="300">Up to 300 m³/h</option>
+            <option value="450">Up to 450 m³/h</option>
+            <option value="600">Up to 600 m³/h</option>
+          </select>
+        </div>
+        <div id="unitPickerList" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--input-bg)">
+          <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Loading units…</div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <span id="unitPickerCount" style="font-size:11px;color:var(--muted)"></span>
+          <button onclick="openCustomUnitForm(null)" class="btn-add" style="margin-left:auto">+ Add custom unit</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <div class="section-title">Supply Rooms</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Airflow calculated from design total · enter name, area (m²) and duct run length</div>
+        <div id="supplyRooms"></div>
+        <button class="btn-add" onclick="addRoom('supply')">+ Add supply room</button>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <div class="section-title">Extract Rooms</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Twin duct auto-selected when normal flow &gt;35 m³/h · enter name, area (m²) and duct run length</div>
+        <div id="extractRooms"></div>
+        <button class="btn-add" onclick="addRoom('extract')">+ Add extract room</button>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <div class="section-title">Suitable Units for This Project</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px" id="suitableUnitsNote">Run the design calculation to see recommended units.</div>
+        <div id="suitableUnitsList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto"></div>
+      </div>
+
+      <button class="btn-calc" onclick="calculate()" style="margin-bottom:32px">Run Design Calculation ›</button>
+
+      <hr style="border:none;border-top:2px solid var(--border);margin-bottom:24px">
 
       <div class="section-title">Airflow Design</div>
       <div class="metrics">
@@ -1176,7 +1173,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
     </div>
 
     <!-- ── Tab: Plan Markup ── -->
-    <div class="tab-panel active" id="tab-plan" data-title="Plan Markup" style="padding:0;flex-direction:column;height:calc(100vh - 112px)">
+    <div class="tab-panel" id="tab-plan" data-title="Plan Markup" style="padding:0;flex-direction:column;height:calc(100vh - 112px)">
 
       <!-- Toolbar -->
       <div class="plan-toolbar">
@@ -2405,7 +2402,7 @@ let _saveTimer = null;
 let _currentProjectId = null;
 let _lastDesignFlow = 0;
 
-const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2'];
+const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2','ductDiameter'];
 
 // ── Read / write project store ──
 function getProjects() {
@@ -2672,13 +2669,12 @@ async function loadProject(id) {
     setTimeout(loadPlanState, 50);
   }
   renderProjSelect();
-  showTab('plan');
+  showTab('summary');
 }
 
 // ── Clear all calculated output tabs ──
 function clearResults() {
-  const results = document.getElementById('results');
-  if (results) results.style.display = 'none';
+  // Don't hide #results — Summary tab now lives there and has always-visible inputs
   // Blank out dynamic result containers
   ['sNormal','sBoost','sUnit','sExt','sDucts','sPressure','sNoise',
    'unitGrid','ductTable','bomTable','commTable','alertList'].forEach(id => {
@@ -3761,11 +3757,28 @@ window.submitNewPassword = async function() {
     _setLoginSuccess('✓ Password updated. You are now signed in.');
     document.getElementById('resetPassword').value = '';
     document.getElementById('resetPasswordConfirm').value = '';
-    // Clean up URL and dismiss overlay after a short delay
     history.replaceState({}, '', window.location.pathname);
-    setTimeout(() => {
+    setTimeout(async () => {
+      // Re-fetch session so _currentUser is set and header controls show
+      const { data: { session } } = await _sb.auth.getSession();
+      if (session?.user) {
+        _currentUser = session.user;
+        const emailShort = session.user.email.split('@')[0];
+        document.getElementById('userEmailDisplay').textContent = emailShort;
+        document.getElementById('userMenuEmail').textContent = session.user.email;
+        document.getElementById('userMenuBtn').style.display = '';
+        document.getElementById('logoutBtn').style.display = '';
+        document.getElementById('creditBadge').style.display = '';
+        refreshCreditBalance();
+        if (!_appInitialized) {
+          _appInitialized = true;
+          loadCloudProjects();
+          syncUnitsFromSupabase();
+        }
+      }
       document.getElementById('loginOverlay').classList.add('hidden');
-    }, 1200);
+      showTab('projects');
+    }, 800);
   }
 };
 

@@ -146,6 +146,8 @@ input[type=number]:focus, select:focus { border-color: var(--accent); }
 .nav-tab.active { background: rgba(255,255,255,0.15); color: #fff; border-color: rgba(255,255,255,0.3); }
 .nav-tab .nav-icon { font-size: 17px; line-height: 1; }
 .nav-tab .nav-label { font-size: 10px; }
+.nav-tab-locked { opacity: 0.3; cursor: not-allowed !important; pointer-events: none; }
+.nav-tab-locked .nav-icon::after { content: '🔒'; font-size: 8px; vertical-align: super; margin-left: 2px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 #tab-plan.active { display: flex; position: relative; }
@@ -301,8 +303,10 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ LOGIN OVERLAY ═══ -->
 <div id="loginOverlay">
   <div class="login-box">
-    <div class="login-logo" style="font-size:26px;font-weight:900;letter-spacing:-0.5px;color:var(--primary);margin-bottom:4px">HiPer Studio</div>
-    <div class="login-sub" style="margin-bottom:22px">Sign in to continue</div>
+    <div style="margin-bottom:6px">
+      <img src="logo.svg" alt="HiPer Studio" style="height:44px;display:block;margin:0 auto">
+    </div>
+    <div style="font-size:15px;font-weight:800;color:var(--primary);letter-spacing:0.5px;margin-bottom:20px;text-align:center">HiPer MVHR</div>
 
     <!-- Tab switcher -->
     <div style="display:flex;gap:0;margin-bottom:20px;border:1.5px solid var(--border);border-radius:9px;overflow:hidden">
@@ -388,7 +392,7 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
       <button class="btn-login" onclick="submitNewPassword()">Set Password →</button>
     </div>
 
-    <div class="login-footer" style="margin-top:18px">© HiPer Studio</div>
+    <div class="login-footer" style="margin-top:18px">© HiPer Studio · HiPer MVHR</div>
   </div>
 </div>
 
@@ -456,8 +460,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 <!-- ═══ LANDING SCREEN ═══ -->
 <div id="landingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:7000;align-items:center;justify-content:center">
   <div style="background:var(--card);border-radius:20px;padding:40px 36px;max-width:480px;width:92%;box-shadow:0 16px 64px rgba(0,0,0,0.35);text-align:center">
-    <div style="font-size:28px;font-weight:900;color:var(--primary);margin-bottom:4px">HiPer Studio</div>
-    <div style="font-size:14px;color:var(--muted);margin-bottom:32px">Professional MVHR Design Platform</div>
+    <div style="margin-bottom:4px"><img src="logo.svg" alt="HiPer Studio" style="height:36px;display:block;margin:0 auto"></div>
+    <div style="font-size:14px;font-weight:800;color:var(--primary);letter-spacing:0.5px;margin-bottom:28px">HiPer MVHR</div>
 
     <button id="landingNewBtn" onclick="landingNewProject()"
       style="width:100%;padding:18px 24px;margin-bottom:12px;background:var(--primary);color:#fff;border:none;border-radius:12px;cursor:pointer;text-align:left;position:relative">
@@ -502,8 +506,8 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
 </div>
 
 <header>
-  <h1>HiPer MVHR</h1>
-  <span>HiPer Studio · HiPer MVHR · Passivhaus-aligned</span>
+  <img src="logo.svg" alt="HiPer Studio" style="height:28px;filter:brightness(0) invert(1)">
+  <span style="font-size:12px;opacity:0.65;margin-left:2px">HiPer MVHR</span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
     <span id="saveBadge" style="font-size:11px;opacity:0;transition:opacity 0.4s;background:rgba(255,255,255,0.15);padding:3px 10px;border-radius:20px;letter-spacing:0.3px">✓ Saved</span>
     <button id="creditBadge" onclick="openBuyCredits()" title="Purchase credits"
@@ -634,11 +638,14 @@ tr.extract-row td:nth-child(2) { color: var(--warn); font-weight: 700; }
   <div style="margin-bottom:18px">
     <div class="section-title">Project Details</div>
     <div class="grid2">
-      <div class="field"><label>Client Name</label><input type="text" id="clientName" placeholder="e.g. Smith Residence"></div>
-      <div class="field"><label>Project Address</label><input type="text" id="projectAddress" placeholder="e.g. 12 Oak St, Adelaide SA 5000"></div>
+      <div class="field"><label>Job Name</label><input type="text" id="jobName" placeholder="e.g. Smith Residence"></div>
+      <div class="field"><label>Client Name</label><input type="text" id="clientName" placeholder="e.g. John Smith"></div>
     </div>
     <div class="grid2">
+      <div class="field"><label>Project Address</label><input type="text" id="projectAddress" placeholder="e.g. 12 Oak St, Adelaide SA 5000"></div>
       <div class="field"><label>Drawn By</label><input type="text" id="drawnBy" placeholder="e.g. J. Smith"></div>
+    </div>
+    <div class="grid2">
       <div class="field"><label>Date</label><input type="date" id="projectDate"></div>
     </div>
   </div>
@@ -2402,7 +2409,7 @@ let _saveTimer = null;
 let _currentProjectId = null;
 let _lastDesignFlow = 0;
 
-const FIELD_IDS = ['clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2','ductDiameter'];
+const FIELD_IDS = ['jobName','clientName','projectAddress','drawnBy','projectDate','bedrooms','persons','floorArea','ceilHeight','extSupplyLength','extExtractLength','bendsPerRun','grilleType','grilleSize','combiSize','bedSpaces','storeyCount','unitFloor','structuralAllow','storeyH0','storeyH1','storeyH2','ductDiameter'];
 
 // ── Read / write project store ──
 function getProjects() {
@@ -2449,6 +2456,8 @@ function applyState(state) {
   renderRooms('supply'); renderRooms('extract');
   if (typeof updateGrilleSize === 'function') updateGrilleSize();
   if (typeof updateStoreyFields === 'function') updateStoreyFields();
+  _calcDone = false; // reset on project load; re-set when calculate() runs
+  updateTabLocks();
 }
 
 // ── Save current project ──
@@ -2527,15 +2536,16 @@ async function confirmNewProject() {
 
   closeNewProjectModal();
   const projectName = jobName || address;
-  await _createNewProject(projectName, address, clientName);
+  await _createNewProject(projectName, address, clientName, jobName);
   btn.disabled = false; btn.textContent = 'Create Project · 10 credits';
 }
 
-async function _createNewProject(name = 'New Project', address = '', clientName = '') {
+async function _createNewProject(name = 'New Project', address = '', clientName = '', jobName = '') {
   saveCurrentProject();
   const id = 'proj_' + Date.now();
   const projects = getProjects();
   const initialState = {};
+  if (jobName)    initialState.jobName        = jobName;
   if (address)    initialState.projectAddress = address;
   if (clientName) initialState.clientName     = clientName;
   projects.push({ id, name, createdAt: Date.now(), updatedAt: Date.now(), state: initialState, planState: null });
@@ -2669,7 +2679,10 @@ async function loadProject(id) {
     setTimeout(loadPlanState, 50);
   }
   renderProjSelect();
-  showTab('summary');
+  // Open to Details tab so user fills in project info first;
+  // if details already filled, fall back to summary
+  const addrFilled = document.getElementById('projectAddress')?.value.trim() || document.getElementById('jobName')?.value.trim();
+  showTab(addrFilled ? 'summary' : 'project');
 }
 
 // ── Clear all calculated output tabs ──
@@ -2742,6 +2755,7 @@ function showSaveBadge() { flashProjBadge(); }
 // ── Autosave (debounced) — saves into current project slot ──
 function scheduleAutosave() {
   clearTimeout(_saveTimer);
+  updateTabLocks();
   _saveTimer = setTimeout(saveCurrentProject, 800);
 }
 
@@ -3319,6 +3333,8 @@ function calculate(silent) {
 
   syncScheduleTables();
   renderSuitableUnits(_lastDesignFlow);
+  _calcDone = true;
+  updateTabLocks();
   if (!silent) showTab('summary');
   else {
     // Ensure results div is visible for other tabs to work, but don't switch
@@ -3397,7 +3413,42 @@ function switchProjectMain(id) {
   switchProject(id);
 }
 
+// ── Tab lock state ──────────────────────────────────────────
+let _calcDone = false;
+
+function updateTabLocks() {
+  const hasProject   = !!_currentProjectId;
+  const detailsDone  = hasProject && (document.getElementById('projectAddress')?.value.trim() || document.getElementById('jobName')?.value.trim());
+  const hasRooms     = (supplyRooms.length + extractRooms.length) > 0;
+  const calcDone     = _calcDone;
+
+  const lockMap = {
+    'projects':   false,
+    'project':    !hasProject,
+    'plan':       !detailsDone,
+    'summary':    !detailsDone || !hasRooms,
+    'rooms':      !calcDone,
+    'ducts':      !calcDone,
+    'bom':        !calcDone,
+    'commission': !calcDone,
+    'warnings':   !calcDone,
+    'export':     !calcDone,
+    'help':       false,
+    'settings':   false,
+  };
+
+  Object.entries(lockMap).forEach(([tab, locked]) => {
+    const el = document.getElementById('navtab-' + tab);
+    if (!el) return;
+    el.classList.toggle('nav-tab-locked', locked);
+  });
+}
+
 function showTab(name) {
+  // Block navigation to locked tabs
+  const tabEl = document.getElementById('navtab-' + name);
+  if (tabEl && tabEl.classList.contains('nav-tab-locked')) return;
+
   // Nav tabs
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   const nt = document.getElementById('navtab-' + name);
@@ -4135,9 +4186,11 @@ async function loadCloudProjects() {
   try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(merged)); } catch(e) {}
   renderProjectList();
 
-  if (!_currentProjectId) {
-    showLanding();
-  }
+  // Always show the landing after sign-in so the user can choose or create a project.
+  // (loadState() pre-sets _currentProjectId from localStorage, so the old null-check
+  //  never triggered for returning users — they'd land on a stale/empty local project
+  //  with no way to reach the open/new project screen.)
+  showLanding();
 }
 
 // Override saveCurrentProject to also push to Supabase

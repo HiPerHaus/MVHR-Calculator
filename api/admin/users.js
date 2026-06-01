@@ -49,15 +49,30 @@ export default async function handler(req, res) {
   const authMap = {};
   authUsers.forEach(u => { authMap[u.id] = u; });
 
-  // Pending = invited but never signed in (email_confirmed_at null OR last_sign_in_at null)
-  const pending = authUsers
+  // Pending = invited but never signed in
+  const pendingRaw = authUsers
     .filter(u => u.invited_at && !u.last_sign_in_at)
-    .map(u => ({
-      id:         u.id,
-      email:      u.email,
-      invited_at: u.invited_at,
-    }))
     .filter(u => !q || u.email?.toLowerCase().includes(q));
+
+  // Fetch credit balances for pending users
+  let pendingCreditMap = {};
+  if (pendingRaw.length) {
+    const { data: pendingProfiles } = await supabase
+      .from('profiles')
+      .select('id, credit_balance')
+      .in('id', pendingRaw.map(u => u.id));
+    (pendingProfiles || []).forEach(p => { pendingCreditMap[p.id] = p.credit_balance; });
+  }
+
+  const pending = pendingRaw.map(u => ({
+    id:             u.id,
+    email:          u.email,
+    invited_at:     u.invited_at,
+    credit_balance: pendingCreditMap[u.id] ?? 0,
+  }));
+
+  // Exclude pending users from the members list
+  const pendingIds = pending.map(u => u.id);
 
   // Active profiles
   let query = supabase
@@ -65,6 +80,10 @@ export default async function handler(req, res) {
     .select('id, email, full_name, company_name, credit_balance, plan_type, is_admin, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(page * limit, (page + 1) * limit - 1);
+
+  if (pendingIds.length) {
+    query = query.not('id', 'in', `(${pendingIds.join(',')})`);
+  }
 
   if (q) {
     query = query.or(`email.ilike.%${q}%,full_name.ilike.%${q}%,company_name.ilike.%${q}%`);

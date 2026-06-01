@@ -137,8 +137,8 @@ input:focus, select:focus { border-color: var(--accent); }
 <!-- Login overlay -->
 <div id="loginOverlay">
   <div class="login-box">
-    <div class="login-logo">HiPer Studio</div>
-    <div class="login-title">Admin Panel</div>
+    <div style="margin-bottom:6px"><img src="logo.svg" alt="HiPer Studio" style="height:40px;display:block;margin:0 auto"></div>
+    <div style="font-size:13px;font-weight:800;color:var(--accent);letter-spacing:0.5px;text-align:center;margin-bottom:16px">HiPer MVHR · Admin</div>
     <div id="loginError" class="login-error"></div>
     <div class="login-field">
       <label>Email</label>
@@ -155,7 +155,8 @@ input:focus, select:focus { border-color: var(--accent); }
 <!-- Header -->
 <header>
   <div style="display:flex;align-items:center;gap:14px">
-    <h1>HiPer Studio · Admin</h1>
+    <img src="logo.svg" alt="HiPer Studio" style="height:26px;filter:brightness(0) invert(1);margin-right:4px">
+    <span style="font-size:13px;opacity:0.7;font-weight:600">HiPer MVHR · Admin</span>
     <span class="admin-badge">⚙ ADMIN</span>
   </div>
   <div id="headerRight">
@@ -202,6 +203,23 @@ input:focus, select:focus { border-color: var(--accent); }
         <button class="btn btn-primary" onclick="sendInvite()" style="white-space:nowrap">✉ Send Invite</button>
       </div>
       <div id="inviteMsg" style="margin-top:10px;font-size:13px"></div>
+    </div>
+
+    <!-- Pending Invites -->
+    <div class="card" id="pendingCard" style="display:none">
+      <div class="card-title" style="color:var(--amber,#d97706)">⏳ Pending Invites <span id="pendingTotal" style="font-size:13px;font-weight:500;margin-left:6px"></span></div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Invited</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="pendingTableBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card">
@@ -444,25 +462,32 @@ async function doLogin() {
     .from('profiles').select('is_admin').eq('id', data.user.id).single();
 
   if (profileErr) {
+    console.error('Profile query error:', profileErr);
     await _sb.auth.signOut();
-    errEl.textContent = 'Could not load profile. Make sure the database schema has been applied.';
+    errEl.textContent = 'Could not verify admin access (' + (profileErr.message || profileErr.code || 'unknown error') + '). Ensure the admin patch SQL has been run.';
     errEl.className = 'login-error visible';
     return;
   }
 
   if (!profile?.is_admin) {
     await _sb.auth.signOut();
-    errEl.textContent = 'Access denied. Run this in Supabase SQL Editor: UPDATE public.profiles SET is_admin = true WHERE email = \'' + email + '\';';
+    errEl.textContent = 'Access denied — account is not marked as admin. Run in Supabase SQL Editor: UPDATE public.profiles SET is_admin = true WHERE email = \'' + email + '\';';
     errEl.className = 'login-error visible';
     return;
   }
 
   _token = data.session.access_token;
-  document.getElementById('loginOverlay').classList.add('hidden');
-  document.getElementById('headerRight').style.display = 'flex';
-  document.getElementById('adminEmail').textContent = data.user.email;
-  loadMembers();
-  loadInviteTemplateDropdown();
+  try {
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('headerRight').style.display = 'flex';
+    document.getElementById('adminEmail').textContent = data.user.email;
+    loadMembers();
+    loadInviteTemplateDropdown();
+  } catch(e) {
+    console.error('Post-login error:', e);
+    errEl.textContent = 'Signed in but page failed to load: ' + e.message;
+    errEl.className = 'login-error visible';
+  }
 }
 
 document.addEventListener('keydown', e => {
@@ -525,26 +550,30 @@ async function loadMembers() {
     document.getElementById('memberPrevBtn').disabled = memberPage === 0;
     document.getElementById('memberNextBtn').disabled = (memberPage + 1) * 50 >= total;
 
-    // ── Pending rows at the top, then active members ──
-    const pendingRows = (pending || []).map(u => `
-      <tr style="background:#fffbeb">
-        <td>
-          ${esc(u.email)}
-          <span class="badge badge-amber" style="margin-left:6px">⏳ invited</span>
-        </td>
-        <td style="color:var(--muted)">—</td>
-        <td><span class="badge badge-amber">pending</span></td>
-        <td style="text-align:right;color:var(--muted)">—</td>
-        <td style="font-size:12px;color:var(--muted)">—</td>
-        <td style="font-size:12px;color:var(--muted)">${fmtDate(u.invited_at)}</td>
-        <td>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-outline btn-sm" onclick="resendInvite('${u.id}','${esc(u.email)}',this)">↩ Resend</button>
-            <button class="btn btn-sm" onclick="cancelInvite('${u.id}','${esc(u.email)}',this)"
-              style="background:var(--critical-bg);color:var(--critical);border:1px solid #fecaca">✕ Cancel</button>
-          </div>
-        </td>
-      </tr>`).join('');
+    // ── Pending invites — separate section ──
+    const pendingList = pending || [];
+    const pendingCard = document.getElementById('pendingCard');
+    const pendingTbody = document.getElementById('pendingTableBody');
+    const pendingTotalEl = document.getElementById('pendingTotal');
+    if (pendingList.length) {
+      pendingCard.style.display = '';
+      pendingTotalEl.textContent = `(${pendingList.length})`;
+      pendingTbody.innerHTML = pendingList.map(u => `
+        <tr style="background:#fffbeb">
+          <td>${esc(u.email)}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmtDate(u.invited_at)}</td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" onclick="openGift('${u.id}','${esc(u.email)}',${u.credit_balance ?? 0})">⚡ Credits</button>
+              <button class="btn btn-outline btn-sm" onclick="resendInvite('${u.id}','${esc(u.email)}',this)">↩ Resend</button>
+              <button class="btn btn-sm" onclick="cancelInvite('${u.id}','${esc(u.email)}',this)"
+                style="background:var(--critical-bg);color:var(--critical);border:1px solid #fecaca">✕ Cancel</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    } else {
+      pendingCard.style.display = 'none';
+    }
 
     const memberRows = users.map(u => `
       <tr>
@@ -572,12 +601,12 @@ async function loadMembers() {
         </td>
       </tr>`).join('');
 
-    if (!pendingRows.length && !users.length) {
+    if (!users.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--muted)">No members found</td></tr>';
       return;
     }
 
-    tbody.innerHTML = pendingRows + memberRows;
+    tbody.innerHTML = memberRows;
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="7" style="color:var(--critical);padding:14px">${e.message}</td></tr>`;
   }
