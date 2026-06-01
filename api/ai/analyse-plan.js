@@ -166,59 +166,138 @@ function validateRoom(raw, floorIndex) {
   };
 }
 
-// Generate a plausible generic room schedule when AI returns empty arrays.
-// Rooms are sized proportionally from estimated floor area.
-// All confidence values are set to 0.3 to flag these as estimates.
-function generateGenericRooms(floorArea, floorIndex) {
-  const fa = floorArea > 0 ? floorArea : 150;
+// Suggestions returned to the client when both AI passes fail.
+const FAILURE_SUGGESTIONS = [
+  'Upload a higher resolution image',
+  'Crop the image to the floor plan only',
+  'Ensure room names are visible',
+  'Avoid elevations, sections and site plans',
+  'Export PDF files at higher quality',
+  'Upload a single floor at a time',
+  'Ensure room labels are not hidden by dimensions or notes',
+];
 
-  let template;
-  if (fa < 110) {
-    template = [
-      { name: 'Master Bedroom',  roomType: 'Master Bedroom', area: Math.round(fa * 0.13), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 2',       roomType: 'Single Bedroom',  area: Math.round(fa * 0.09), ventilationClassification: 'supply'   },
-      { name: 'Living / Dining', roomType: 'Living Room',     area: Math.round(fa * 0.22), ventilationClassification: 'supply',  openPlan: true },
-      { name: 'Kitchen',         roomType: 'Kitchen',          area: Math.round(fa * 0.09), ventilationClassification: 'extract'  },
-      { name: 'Bathroom',        roomType: 'Bathroom',         area: Math.round(fa * 0.07), ventilationClassification: 'extract'  },
-      { name: 'Laundry',         roomType: 'Laundry',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
-      { name: 'Hallway',         roomType: 'Hallway',          area: Math.round(fa * 0.09), ventilationClassification: 'transfer' },
-    ];
-  } else if (fa < 200) {
-    template = [
-      { name: 'Master Bedroom', roomType: 'Master Bedroom', area: Math.round(fa * 0.12), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 2',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.09), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 3',      roomType: 'Single Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
-      { name: 'Living Room',    roomType: 'Living Room',     area: Math.round(fa * 0.14), ventilationClassification: 'supply'   },
-      { name: 'Dining Room',    roomType: 'Dining Room',     area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
-      { name: 'Kitchen',        roomType: 'Kitchen',          area: Math.round(fa * 0.09), ventilationClassification: 'extract'  },
-      { name: 'Ensuite',        roomType: 'Ensuite',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
-      { name: 'Bathroom',       roomType: 'Bathroom',         area: Math.round(fa * 0.05), ventilationClassification: 'extract'  },
-      { name: 'Laundry',        roomType: 'Laundry',          area: Math.round(fa * 0.03), ventilationClassification: 'extract'  },
-      { name: 'WC',             roomType: 'WC',               area: Math.round(fa * 0.02), ventilationClassification: 'extract'  },
-      { name: 'Hallway',        roomType: 'Hallway',          area: Math.round(fa * 0.08), ventilationClassification: 'transfer' },
-    ];
-  } else {
-    template = [
-      { name: 'Master Bedroom', roomType: 'Master Bedroom', area: Math.round(fa * 0.10), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 2',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 3',      roomType: 'Double Bedroom',  area: Math.round(fa * 0.08), ventilationClassification: 'supply'   },
-      { name: 'Bedroom 4',      roomType: 'Single Bedroom',  area: Math.round(fa * 0.06), ventilationClassification: 'supply'   },
-      { name: 'Study',          roomType: 'Study / Office',  area: Math.round(fa * 0.05), ventilationClassification: 'supply'   },
-      { name: 'Living Room',    roomType: 'Living Room',     area: Math.round(fa * 0.12), ventilationClassification: 'supply'   },
-      { name: 'Dining Room',    roomType: 'Dining Room',     area: Math.round(fa * 0.07), ventilationClassification: 'supply'   },
-      { name: 'Rumpus Room',    roomType: 'Rumpus Room',     area: Math.round(fa * 0.07), ventilationClassification: 'supply'   },
-      { name: 'Kitchen',        roomType: 'Kitchen',          area: Math.round(fa * 0.08), ventilationClassification: 'extract'  },
-      { name: 'Ensuite',        roomType: 'Ensuite',          area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
-      { name: 'Bathroom',       roomType: 'Bathroom',         area: Math.round(fa * 0.04), ventilationClassification: 'extract'  },
-      { name: 'Laundry',        roomType: 'Laundry',          area: Math.round(fa * 0.03), ventilationClassification: 'extract'  },
-      { name: 'WC',             roomType: 'WC',               area: Math.round(fa * 0.02), ventilationClassification: 'extract'  },
-      { name: 'Hallway',        roomType: 'Hallway',          area: Math.round(fa * 0.08), ventilationClassification: 'transfer' },
-    ];
+// ── Post-processing: architectural cleanup ────────────────────
+// Applied after BOTH Stage 1 and Stage 2 extractions.
+// Removes joinery/cupboard false-positives, absorbs service spaces,
+// reclassifies stores and ambiguous rooms, and emits descriptive warnings.
+
+// Keywords that indicate built-in joinery / equipment — NOT separate MVHR rooms.
+// Match against the room name (case-insensitive, word-boundary aware where possible).
+const JOINERY_PATTERNS = [
+  /\bcpd\b/i,         // coat pantry door / cupboard
+  /\bbir\b/i,         // built-in robe
+  /\brobe\b/i,
+  /\bwardrobe\b/i,
+  /\blinen\b/i,
+  /\bbroom\b/i,
+  /\bshelv/i,         // shelving, shelves
+  /\bfridge\b/i,
+  /\bcupboard\b/i,
+  /\bcabinet/i,       // cabinet, cabinetry
+  /\bjoinery\b/i,
+  /\bpantry cupboard\b/i,
+];
+
+const SERVICE_PATTERNS = [
+  /\bhws\b/i,         // hot water system
+  /\bhot water\b/i,
+  /\bhrv\b/i,         // heat recovery ventilation unit
+  /\bplant\b/i,
+  /\bboiler\b/i,
+  /\bmeter\b/i,
+  /\bequipment\b/i,
+];
+
+// Name patterns where large context can override — e.g. "store" by itself
+const STORE_PATTERN = /\bstore\b/i;
+
+function postProcessRooms(rooms, warnings) {
+  const out = [];
+
+  for (const room of rooms) {
+    const name = (room.name || '').trim();
+    const area = room.area || 0;
+    const nameLower = name.toLowerCase();
+
+    // ── Service / plant spaces ────────────────────────────────
+    if (SERVICE_PATTERNS.some(p => p.test(name))) {
+      warnings.push(`"${name}" identified as a service/equipment space — excluded as a separate MVHR zone.`);
+      continue;
+    }
+
+    // ── Joinery / built-in storage ────────────────────────────
+    if (JOINERY_PATTERNS.some(p => p.test(name))) {
+      if (area >= 4) {
+        // Large enough to be a genuine WIR — keep as ignore
+        room.ventilationClassification = 'ignore';
+        room.roomType = 'WIR';
+        warnings.push(`"${name}" (${area} m²) treated as walk-in robe — classified as ignore.`);
+        out.push(room);
+      } else {
+        warnings.push(`"${name}" treated as built-in storage — excluded as a separate MVHR zone.`);
+      }
+      continue;
+    }
+
+    // ── Store rooms ───────────────────────────────────────────
+    if (STORE_PATTERN.test(name) || room.roomType === 'Store') {
+      if (area < 3) {
+        warnings.push(`"${name}" (${area} m²) is too small for an MVHR terminal — excluded.`);
+        continue;
+      }
+      if (area <= 4) {
+        // Small store — demote to ignore
+        if (room.ventilationClassification !== 'ignore') {
+          room.ventilationClassification = 'ignore';
+          room.roomType = 'Store';
+          warnings.push(`"${name}" (${area} m²) classified as ignore — small store, no MVHR terminal required.`);
+        }
+      } else if (room.ventilationClassification === 'supply') {
+        // Larger store should never be supply — reclassify
+        room.ventilationClassification = 'transfer';
+        room.roomType = 'Store';
+        warnings.push(`"${name}" (${area} m²) reclassified from supply to transfer — storage areas are not MVHR supply zones.`);
+      }
+      out.push(room);
+      continue;
+    }
+
+    // ── Person-name rooms → habitable supply ─────────────────
+    // Rooms labelled with a person's given name are almost always bedrooms/studies.
+    // Simple heuristic: single capitalised word that is not a known room keyword.
+    const KNOWN_ROOM_WORDS = new Set([
+      'bedroom','living','dining','kitchen','bathroom','ensuite','laundry',
+      'hallway','entry','corridor','study','office','rumpus','pantry','wc','wir',
+      'garage','porch','carport','alfresco','store','other','lounge','family',
+      'theatre','media','activity','games','gym','cellar','bar','studio',
+    ]);
+    const isPersonName = /^[A-Z][a-z]{2,}$/.test(name) && !KNOWN_ROOM_WORDS.has(nameLower);
+    if (isPersonName && room.ventilationClassification !== 'supply') {
+      room.ventilationClassification = 'supply';
+      if (!SUPPLY_TYPES.has(room.roomType)) {
+        room.roomType = 'Other';
+      }
+      warnings.push(`"${name}" interpreted as a habitable room (personal label) — classified as supply.`);
+    }
+
+    // ── JAN room ─────────────────────────────────────────────
+    if (/\bjan\b/i.test(name)) {
+      if (area >= 4 && room.ventilationClassification !== 'supply') {
+        room.ventilationClassification = 'supply';
+        room.roomType = 'Study / Office';
+        warnings.push(`"${name}" classified as supply — appears to be a usable enclosed room, not a janitor closet.`);
+      } else if (area < 4) {
+        warnings.push(`"${name}" (${area} m²) treated as a small utility space — classified as ignore.`);
+        room.ventilationClassification = 'ignore';
+        room.roomType = 'Store';
+      }
+    }
+
+    out.push(room);
   }
 
-  return template
-    .map(r => validateRoom({ openPlan: false, ...r, confidence: 0.3 }, floorIndex))
-    .filter(Boolean);
+  return out;
 }
 
 // ── System prompt ─────────────────────────────────────────────
@@ -226,8 +305,8 @@ const SYSTEM_PROMPT = `You are an MVHR (Mechanical Ventilation with Heat Recover
 for Australian residential buildings. Analyse the provided architectural floor plan and return \
 structured MVHR design data as JSON.
 
-════ TASK 1 — IDENTIFY ALL ROOMS (mandatory) ════
-Your primary task is to list every enclosed space visible in this floor plan.
+════ TASK 1 — IDENTIFY ARCHITECTURAL ROOMS (mandatory) ════
+Your primary task is to list every enclosed architectural room or usable space visible in this floor plan.
 
 • Include every room, even if labels are unclear or absent.
 • If a room has no visible label, assign a generic name: "Bedroom 1", "Bedroom 2", "Living",
@@ -237,12 +316,52 @@ Your primary task is to list every enclosed space visible in this floor plan.
 • SELF-CHECK before finalising: if totalInternalFloorArea > 0 and rooms is empty, re-read the
   image and add rooms. A 150 m² home → at least 8 rooms; a 250 m² home → at least 12 rooms.
 
+════ WALLS vs JOINERY — CRITICAL DISTINCTION ════
+Only return architectural rooms or usable enclosed spaces.
+Use wall thickness and enclosure lines to distinguish rooms from built-in joinery:
+
+  ROOMS (return these):
+  • Thick double-line walls forming a fully enclosed space with a door opening
+  • Spaces with floor area, carpet hatching, or furniture symbols
+  • Any space a person can stand, sleep, work, cook, or bathe in
+
+  NOT ROOMS (do NOT return these as separate items):
+  • Thin internal lines showing robe outlines, shelving, bench tops, joinery
+  • CPD (coat/pantry door / cupboard), BIR (built-in robe), WIR only if tiny alcove
+  • Kitchen cabinetry, bathroom vanity, bathroom cupboard recesses
+  • Fridge recess, oven recess, dishwasher space
+  • Linen cupboard, broom cupboard, small store cupboard < 3 m²
+  • HWS (hot water system) alcove, HRV equipment cupboard, plant/boiler space
+  • Any robe, shelf, or joinery zone drawn with thin lines inside another room
+
+  ABSORPTION RULE — absorb these into their parent room:
+  • HWS / hot water alcove inside laundry → part of Laundry
+  • CPD beside bathroom or ensuite → part of Bathroom / Ensuite
+  • BIR / robe zone off a bedroom → part of that bedroom or classify as WIR (ignore)
+  • Small kitchen store cupboard → part of Kitchen
+  • HRV / plant cupboard near laundry → not ventilated, ignore
+
+════ STORAGE AND SERVICE SPACES ════
+  Small store < 3 m²:      ignore — too small for an MVHR terminal
+  Store 3–4 m²:            classify as "ignore" or "transfer" (never supply)
+  Store > 4 m², enclosed:  classify as "extract" (if service / utility zone) or "transfer"
+  WIR off bedroom:         classify as "ignore" unless large (> 6 m²), then "transfer"
+  Service / plant space:   classify as "ignore" — HWS, HRV, boiler, meter board, etc.
+
+════ AMBIGUOUS ROOM NAMES ════
+  "JAN":   If it is a fully enclosed usable room with carpet, door and dimensions ≥ 4 m²,
+           treat as habitable — classify as "supply" (e.g. study, utility, hobby room).
+           Only treat as janitor/cleaner if clear institutional/commercial context.
+  "PAUL":  Treat as a person's name used for a bedroom or study — classify as "supply".
+  Rooms labelled with a person's name are almost always bedrooms or private habitable spaces.
+  Any labelled room with furniture, carpet, or a bed symbol → supply.
+
 ════ ROOM CLASSIFICATION ════
 Assign every room a ventilationClassification:
-  "supply"   — fresh air delivered: bedrooms, living, dining, study, rumpus
-  "extract"  — stale air removed: kitchen, bathroom, ensuite, laundry, WC, pantry
-  "transfer" — passive air path, no terminal: hallway, entry, corridor
-  "ignore"   — not ventilated: WIR, garage, porch, carport, alfresco, store
+  "supply"   — fresh air delivered: bedrooms, living, dining, study, rumpus, habitable rooms
+  "extract"  — stale air removed: kitchen, bathroom, ensuite, laundry, WC, pantry, utility
+  "transfer" — passive air path, no terminal needed: hallway, entry, corridor
+  "ignore"   — not ventilated: WIR, garage, porch, carport, alfresco, store, plant room
 
 ════ ROOM TYPES (use EXACTLY these strings) ════
   Supply:   "Single Bedroom", "Double Bedroom", "Master Bedroom", "Study / Office",
@@ -311,15 +430,19 @@ Return ONLY valid JSON — no markdown fences, no prose before or after.
 // Deliberately ignores airflow, classifications, and floor area to
 // reduce cognitive load on the model and maximise room recall.
 const ROOM_RECOVERY_PROMPT = `You are analysing an architectural floor plan image.
-Your ONLY task is to identify every enclosed room or space visible in this image.
+Your ONLY task is to identify every enclosed architectural room or usable space visible.
 
-Instructions:
-• List every room, space, or enclosed area you can see.
-• If a label is readable, use it. If not, assign a generic name: "Room 1", "Bedroom", "Kitchen", etc.
+Rules:
+• Only return architectural rooms — spaces enclosed by thick walls with a door opening.
+• Do NOT return cupboards, robes, joinery, shelving, or built-in storage as separate rooms.
+  These include: BIR, CPD, robe outlines, kitchen joinery, bathroom cupboards, linen cupboards,
+  HWS alcoves, HRV cupboards, fridge recesses, small store cupboards.
+• If a label is readable, use it. If not, assign a generic name: "Bedroom", "Living", "Kitchen", etc.
 • Estimate the area of each room in m². If uncertain, use a reasonable guess.
-• Do NOT compute airflow, outlets, or classifications — those fields are handled elsewhere.
+• Do NOT compute airflow, outlets, or MVHR classifications — handled elsewhere.
 • Set confidence 0.5 for any room where you are uncertain.
-• Include everything: bedrooms, bathrooms, hallways, laundry, garage, WIR, alfresco, etc.
+• Include usable spaces: bedrooms, bathrooms, hallways, laundry, garage, WIR (if walk-in sized).
+• Rooms labelled with a person's name (e.g. "Paul") are bedrooms or habitable rooms — include them.
 
 Return ONLY valid JSON — no markdown, no prose.
 
@@ -585,23 +708,31 @@ export default async function handler(req, res) {
     }
   }
 
-  let finalSupply   = supply;
-  let finalExtract  = extract;
-  let finalTransfer = transfer;
-  let finalIgnore   = ignore;
-  let recoveryMode      = false;
-  let fallbackGenerated = false;
   // Token counts accumulate across both calls
   let totalInputTokens  = inputTokens;
   let totalOutputTokens = outputTokens;
 
-  const totalRooms = supply.length + extract.length + transfer.length + ignore.length;
+  // ── Stage 1 post-processing ───────────────────────────────────
+  // Apply architectural cleanup before deciding whether rooms were found.
+  const stage1Cleaned = postProcessRooms([...supply, ...extract, ...transfer, ...ignore], warnings);
 
-  if (totalRooms === 0 && totalInternalFloorArea > 0) {
-    // ── Stage 2: focused room-identification-only call ──────────
+  let finalSupply   = stage1Cleaned.filter(r => r.ventilationClassification === 'supply');
+  let finalExtract  = stage1Cleaned.filter(r => r.ventilationClassification === 'extract');
+  let finalTransfer = stage1Cleaned.filter(r => r.ventilationClassification === 'transfer');
+  let finalIgnore   = stage1Cleaned.filter(r => r.ventilationClassification === 'ignore');
+  let recoveryMode  = false;
+  // 'success' | 'failed'
+  let analysisStatus = stage1Cleaned.length > 0 ? 'success' : null; // resolved below
+
+  const resolvedClimateZone = clientClimateZone
+    || (typeof parsed.climateZone === 'string' ? parsed.climateZone.trim() : null)
+    || null;
+
+  // ── Stage 2: recovery pass when Stage 1 finds area but no rooms ─
+  if (analysisStatus === null && totalInternalFloorArea > 0) {
     console.log('analyse-plan: Stage 1 returned empty rooms with area', totalInternalFloorArea, '— attempting Stage 2 recovery');
-    let stage2Rooms = [];
 
+    let stage2Rooms = [];
     try {
       const stage2Response = await anthropic.messages.create({
         model:      MODEL,
@@ -623,60 +754,90 @@ export default async function handler(req, res) {
 
       const stage2Text = stage2Response.content?.[0]?.text ?? '';
       let stage2Parsed;
-      try {
-        stage2Parsed = JSON.parse(stripMarkdown(stage2Text));
-      } catch (_) {
-        console.warn('analyse-plan: Stage 2 JSON parse failed');
-      }
+      try { stage2Parsed = JSON.parse(stripMarkdown(stage2Text)); }
+      catch (_) { console.warn('analyse-plan: Stage 2 JSON parse failed'); }
 
       if (stage2Parsed) {
-        // Stage 2 returns a flat rooms array — validate each and infer classification from roomType
         const raw2 = Array.isArray(stage2Parsed.rooms) ? stage2Parsed.rooms : [];
-        stage2Rooms = raw2.map(r => validateRoom(r, floorIndex)).filter(Boolean);
+        const validated2 = raw2.map(r => validateRoom(r, floorIndex)).filter(Boolean);
+        // Apply same architectural cleanup to Stage 2 results
+        stage2Rooms = postProcessRooms(validated2, warnings);
       }
     } catch (e) {
       console.error('analyse-plan: Stage 2 Claude call failed:', e.message);
     }
 
     if (stage2Rooms.length > 0) {
-      // Stage 2 succeeded — use its rooms
-      recoveryMode  = true;
-      finalSupply   = stage2Rooms.filter(r => r.ventilationClassification === 'supply');
-      finalExtract  = stage2Rooms.filter(r => r.ventilationClassification === 'extract');
-      finalTransfer = stage2Rooms.filter(r => r.ventilationClassification === 'transfer');
-      finalIgnore   = stage2Rooms.filter(r => r.ventilationClassification === 'ignore');
+      recoveryMode   = true;
+      analysisStatus = 'success';
+      finalSupply    = stage2Rooms.filter(r => r.ventilationClassification === 'supply');
+      finalExtract   = stage2Rooms.filter(r => r.ventilationClassification === 'extract');
+      finalTransfer  = stage2Rooms.filter(r => r.ventilationClassification === 'transfer');
+      finalIgnore    = stage2Rooms.filter(r => r.ventilationClassification === 'ignore');
       warnings.push('Room schedule extracted via Stage 2 recovery pass — review classifications and airflow values before use.');
     } else {
-      // Both passes failed — fall back to generic schedule
-      fallbackGenerated = true;
-      warnings.push(
-        '⚠ Room schedule was generated from floor area estimates and should be manually reviewed. ' +
-        'Both AI extraction passes returned no rooms for this image.'
-      );
-      const generic = generateGenericRooms(totalInternalFloorArea, floorIndex);
-      finalSupply   = generic.filter(r => r.ventilationClassification === 'supply');
-      finalExtract  = generic.filter(r => r.ventilationClassification === 'extract');
-      finalTransfer = generic.filter(r => r.ventilationClassification === 'transfer');
-      finalIgnore   = generic.filter(r => r.ventilationClassification === 'ignore');
+      analysisStatus = 'failed';
     }
-  } else if (totalRooms === 0) {
-    warnings.push('No rooms were identified in this image. Check that the image is a readable floor plan.');
+  } else if (analysisStatus === null) {
+    // Stage 1 found no rooms and no floor area — still a failure
+    analysisStatus = 'failed';
   }
 
-  const resolvedClimateZone = clientClimateZone
-    || (typeof parsed.climateZone === 'string' ? parsed.climateZone.trim() : null)
-    || null;
+  // ── Failure path — log, no credits, return structured failure ─
+  if (analysisStatus === 'failed') {
+    const { data: logRow, error: logErr } = await supabase
+      .from('plan_analysis_log')
+      .insert({
+        ...(isUuid(projectId) ? { project_id: projectId } : {}),
+        user_id:           user.id,
+        floor_index:       floorIndex,
+        credits_deducted:  0,
+        model_used:        MODEL,
+        input_tokens:      totalInputTokens,
+        output_tokens:     totalOutputTokens,
+        raw_response:      rawText,
+        climate_zone:      resolvedClimateZone,
+        status:            'error',
+        error_detail:      'room_extraction_failed',
+        analysis_status:   'failed',
+        failure_reason:    'room_extraction_failed',
+        ...(testMode ? { test_mode: true } : {}),
+      })
+      .select('id')
+      .single();
+
+    if (logErr) console.error('plan_analysis_log insert error (failure):', logErr);
+
+    return res.status(200).json({
+      analysisStatus:  'failed',
+      failureReason:   'room_extraction_failed',
+      suggestions:     FAILURE_SUGGESTIONS,
+      totalInternalFloorArea,
+      floorAreaConfidence,
+      climateZone:     resolvedClimateZone,
+      warnings,
+      model:           MODEL,
+      inputTokens:     totalInputTokens,
+      outputTokens:    totalOutputTokens,
+      creditsDeducted: 0,
+      newBalance:      null,
+      logId:           logRow?.id ?? null,
+      logError:        logErr?.message ?? null,
+    });
+  }
+
+  // ── Success path ─────────────────────────────────────────────
 
   const analysisJson = {
     supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
     totalInternalFloorArea, floorAreaConfidence,
     climateZone: resolvedClimateZone,
     warnings,
+    analysisStatus: 'success',
     recoveryMode,
-    fallbackGenerated,
   };
 
-  // ── Deduct credits AFTER successful parse ───────────────────
+  // ── Deduct credits only on success ──────────────────────────
   const { data: newBalance, error: deductErr } = await supabase.rpc('deduct_credits', {
     p_user_id:     user.id,
     p_amount:      creditCost,
@@ -694,12 +855,10 @@ export default async function handler(req, res) {
       });
     }
     console.error('deduct_credits error:', deductErr);
-    // Don't fail the user — we have the result; log and return it (credits will be reconciled manually)
     warnings.push('Warning: credit deduction encountered an issue. Contact support if your balance is incorrect.');
   }
 
   // ── Persist analysis to projects.ai_analysis_json ───────────
-  // Skipped in testMode when no projectId is supplied
   if (isUuid(projectId)) {
     await supabase
       .from('projects')
@@ -715,36 +874,34 @@ export default async function handler(req, res) {
     .from('plan_analysis_log')
     .insert({
       ...(isUuid(projectId) ? { project_id: projectId } : {}),
-      user_id:            user.id,
-      floor_index:        floorIndex,
-      credits_deducted:   deductErr ? 0 : creditCost,
-      model_used:         MODEL,
-      input_tokens:       totalInputTokens,
-      output_tokens:      totalOutputTokens,
-      raw_response:       rawText,
-      parsed_rooms:       analysisJson,
-      climate_zone:       resolvedClimateZone,
-      status:             'ok',
-      ...(testMode          ? { test_mode:          true } : {}),
-      ...(recoveryMode      ? { recovery_mode:      true } : {}),
-      ...(fallbackGenerated ? { fallback_generated: true } : {}),
+      user_id:           user.id,
+      floor_index:       floorIndex,
+      credits_deducted:  deductErr ? 0 : creditCost,
+      model_used:        MODEL,
+      input_tokens:      totalInputTokens,
+      output_tokens:     totalOutputTokens,
+      raw_response:      rawText,
+      parsed_rooms:      analysisJson,
+      climate_zone:      resolvedClimateZone,
+      status:            'ok',
+      analysis_status:   'success',
+      ...(testMode      ? { test_mode:      true } : {}),
+      ...(recoveryMode  ? { recovery_mode:  true } : {}),
     })
     .select('id')
     .single();
 
-  if (logErr) {
-    console.error('plan_analysis_log insert error:', logErr);
-  }
+  if (logErr) console.error('plan_analysis_log insert error:', logErr);
 
-  // ── Return structured result ────────────────────────────────
+  // ── Return structured result ─────────────────────────────────
   return res.status(200).json({
+    analysisStatus:         'success',
+    recoveryMode,
     rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
     totalInternalFloorArea,
     floorAreaConfidence,
     climateZone:            resolvedClimateZone,
     warnings,
-    recoveryMode,
-    fallbackGenerated,
     model:                  MODEL,
     inputTokens:            totalInputTokens,
     outputTokens:           totalOutputTokens,
