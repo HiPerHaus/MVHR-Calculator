@@ -169,6 +169,7 @@ input:focus, select:focus { border-color: var(--accent); }
 <nav>
   <button class="nav-btn active" onclick="showPanel('members')">👥 Members</button>
   <button class="nav-btn" onclick="showPanel('transactions')">📋 Transactions</button>
+  <button class="nav-btn" onclick="showPanel('companies')">🏢 Companies</button>
   <button class="nav-btn" onclick="showPanel('costs')">⚡ Operation Costs</button>
   <button class="nav-btn" onclick="showPanel('emails')">✉ Email Templates</button>
 </nav>
@@ -427,6 +428,147 @@ input:focus, select:focus { border-color: var(--accent); }
     </div>
   </div>
 
+  <!-- ═══ COMPANIES PANEL ═══ -->
+  <div id="panel-companies" class="panel">
+
+    <!-- Create company -->
+    <div class="card" style="border-left:4px solid var(--accent)">
+      <div class="card-title">Create Company</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;max-width:800px">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Company name</label>
+          <input type="text" id="newCompanyName" placeholder="e.g. Acme HVAC Pty Ltd" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Billing email (optional)</label>
+          <input type="email" id="newCompanyBilling" placeholder="billing@company.com" style="width:100%">
+        </div>
+        <button class="btn btn-primary" onclick="createCompany()">Create</button>
+      </div>
+      <div id="createCompanyMsg" style="font-size:12px;margin-top:10px;min-height:16px"></div>
+    </div>
+
+    <!-- Company list -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">All Companies</div>
+        <button class="btn btn-outline btn-sm" onclick="loadCompanies()">↻ Refresh</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Pool Credits</th>
+            <th>Company Balance</th>
+            <th>Billing Email</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="companiesTableBody">
+          <tr><td colspan="5" style="text-align:center;padding:28px;color:var(--muted)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Company detail (shown when a company is selected) -->
+    <div id="companyDetailSection" style="display:none">
+
+      <div class="card" style="border-left:4px solid var(--amber)">
+        <div class="card-title" id="companyDetailTitle">Company Detail</div>
+
+        <!-- Pool toggle + add credits -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;max-width:700px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Shared Credit Pool</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <label class="toggle-label">
+                <input type="checkbox" id="poolToggle" onchange="togglePool()" style="width:auto;margin:0">
+                <span id="poolToggleText" style="font-size:13px;font-weight:600;color:var(--muted)">Disabled</span>
+              </label>
+            </div>
+            <div id="poolToggleMsg" style="font-size:12px;margin-top:6px;min-height:14px"></div>
+          </div>
+
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px">
+              Company Balance: <span id="companyBalanceDisplay" style="color:var(--primary);font-size:14px">—</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="companyCreditsAmount" placeholder="±credits" style="width:110px">
+              <input type="text" id="companyCreditsNote" placeholder="Note (optional)" style="flex:1">
+              <button class="btn btn-primary btn-sm" onclick="adjustCompanyCredits()">Apply</button>
+            </div>
+            <div id="companyCreditsMsg" style="font-size:12px;margin-top:6px;min-height:14px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pool verification -->
+      <div class="card">
+        <div class="card-title">Pool Credit Verification</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+          Select a company member and simulate a credit deduction to verify credits are drawn from the company pool (not the user's personal balance).
+        </p>
+        <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Member</label>
+            <select id="verifyMemberSelect" style="min-width:220px">
+              <option value="">— select member —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Credits to deduct</label>
+            <input type="number" id="verifyDeductAmount" value="1" min="1" style="width:80px">
+          </div>
+          <button class="btn btn-outline" onclick="runPoolVerification()">▶ Run test deduction</button>
+        </div>
+        <div id="verifyResult" style="margin-top:12px;display:none"></div>
+      </div>
+
+      <!-- Members -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin-bottom:0">Members</div>
+        </div>
+
+        <!-- Add existing user -->
+        <div style="display:grid;grid-template-columns:1fr 140px auto;gap:10px;align-items:end;max-width:680px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Add existing user by email</label>
+            <input type="email" id="addMemberEmail" placeholder="user@example.com" style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase">Role</label>
+            <select id="addMemberRole" style="width:100%">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+              <option value="owner">Owner</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addMemberToCompany()" style="white-space:nowrap">Add to company</button>
+        </div>
+        <div id="addMemberMsg" style="font-size:12px;margin-bottom:12px;min-height:14px"></div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Personal Balance</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="companyMembersBody">
+            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- /companyDetailSection -->
+
+  </div><!-- /panel-companies -->
+
 </main>
 
 <script>
@@ -508,6 +650,7 @@ function showPanel(name) {
   if (name === 'transactions') { txPage = 0; loadTransactions(); }
   if (name === 'costs') loadCosts();
   if (name === 'emails') loadEmailTemplates();
+  if (name === 'companies') loadCompanies();
 }
 
 // ── API helper ────────────────────────────────────────────────
@@ -1102,6 +1245,276 @@ function generateTempPassword() {
   for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
   document.getElementById('resetPasswordInput').value = pw;
   document.getElementById('resetPasswordInput').type = 'text';
+}
+
+// ══════════════════════════════════════════════════════════════
+// COMPANIES
+// ══════════════════════════════════════════════════════════════
+let _selectedCompanyId = null;
+
+async function loadCompanies() {
+  const tbody = document.getElementById('companiesTableBody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const { companies } = await api('GET', '/api/admin/company-members');
+    if (!companies.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:28px;color:var(--muted)">No companies yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = companies.map(c => `
+      <tr>
+        <td><strong>${esc(c.name)}</strong></td>
+        <td>
+          <span class="badge ${c.pool_credits_enabled ? 'badge-green' : 'badge-amber'}">
+            ${c.pool_credits_enabled ? '✓ Enabled' : 'Disabled'}
+          </span>
+        </td>
+        <td><strong>${(c.credit_balance || 0).toLocaleString()}</strong></td>
+        <td style="color:var(--muted)">${esc(c.billing_email || '—')}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" onclick="selectCompany('${c.id}','${esc(c.name)}',${c.pool_credits_enabled},${c.credit_balance||0})">
+            Manage →
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--critical)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function createCompany() {
+  const name = document.getElementById('newCompanyName').value.trim();
+  const billingEmail = document.getElementById('newCompanyBilling').value.trim();
+  const msg = document.getElementById('createCompanyMsg');
+  if (!name) { msg.style.color='var(--critical)'; msg.textContent='Company name required.'; return; }
+  msg.style.color='var(--muted)'; msg.textContent='Creating…';
+  try {
+    const { company } = await api('POST', '/api/company/create', { name, billingEmail });
+    msg.style.color='var(--accent)'; msg.textContent=`✓ Created "${company.name}" (ID: ${company.id})`;
+    document.getElementById('newCompanyName').value = '';
+    document.getElementById('newCompanyBilling').value = '';
+    loadCompanies();
+  } catch(e) {
+    msg.style.color='var(--critical)'; msg.textContent=e.message;
+  }
+}
+
+function selectCompany(id, name, poolEnabled, balance) {
+  _selectedCompanyId = id;
+  document.getElementById('companyDetailSection').style.display = '';
+  document.getElementById('companyDetailTitle').textContent = `Managing: ${name}`;
+  document.getElementById('poolToggle').checked = poolEnabled;
+  document.getElementById('poolToggleText').textContent = poolEnabled ? 'Enabled' : 'Disabled';
+  document.getElementById('poolToggleText').style.color = poolEnabled ? 'var(--accent)' : 'var(--muted)';
+  document.getElementById('companyBalanceDisplay').textContent = balance.toLocaleString() + ' credits';
+  document.getElementById('poolToggleMsg').textContent = '';
+  document.getElementById('companyCreditsMsg').textContent = '';
+  document.getElementById('addMemberMsg').textContent = '';
+  document.getElementById('verifyResult').style.display = 'none';
+  loadCompanyMembers();
+  document.getElementById('companyDetailSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function togglePool() {
+  const enabled = document.getElementById('poolToggle').checked;
+  const msg = document.getElementById('poolToggleMsg');
+  document.getElementById('poolToggleText').textContent = enabled ? 'Enabled' : 'Disabled';
+  document.getElementById('poolToggleText').style.color = enabled ? 'var(--accent)' : 'var(--muted)';
+  msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
+  try {
+    await api('POST', '/api/admin/company-credits', {
+      companyId: _selectedCompanyId,
+      amount: 0,
+      poolEnabled: enabled,
+    });
+    msg.style.color = 'var(--accent)'; msg.textContent = `✓ Pool ${enabled ? 'enabled' : 'disabled'}`;
+    loadCompanies();
+  } catch(e) {
+    msg.style.color = 'var(--critical)'; msg.textContent = e.message;
+  }
+}
+
+async function adjustCompanyCredits() {
+  const amount = parseInt(document.getElementById('companyCreditsAmount').value, 10);
+  const note = document.getElementById('companyCreditsNote').value.trim();
+  const msg = document.getElementById('companyCreditsMsg');
+  if (isNaN(amount) || amount === 0) { msg.style.color='var(--critical)'; msg.textContent='Enter a non-zero amount.'; return; }
+  msg.style.color='var(--muted)'; msg.textContent='Applying…';
+  try {
+    const { new_balance } = await api('POST', '/api/admin/company-credits', {
+      companyId: _selectedCompanyId,
+      amount,
+      note: note || undefined,
+    });
+    msg.style.color='var(--accent)'; msg.textContent=`✓ Done. New company balance: ${new_balance.toLocaleString()} credits`;
+    document.getElementById('companyBalanceDisplay').textContent = new_balance.toLocaleString() + ' credits';
+    document.getElementById('companyCreditsAmount').value = '';
+    document.getElementById('companyCreditsNote').value = '';
+    loadCompanies();
+  } catch(e) {
+    msg.style.color='var(--critical)'; msg.textContent=e.message;
+  }
+}
+
+async function loadCompanyMembers() {
+  const tbody = document.getElementById('companyMembersBody');
+  const sel = document.getElementById('verifyMemberSelect');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const { members } = await api('POST', '/api/admin/company-members', { action: 'list', companyId: _selectedCompanyId });
+    sel.innerHTML = '<option value="">— select member —</option>';
+    if (!members.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No members yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = members.map(m => `
+      <tr>
+        <td>${esc(m.email)}</td>
+        <td style="color:var(--muted)">${esc(m.full_name || '—')}</td>
+        <td>
+          <span class="badge ${m.company_role==='owner'?'badge-admin':m.company_role==='admin'?'badge-amber':'badge-green'}">
+            ${esc(m.company_role)}
+          </span>
+        </td>
+        <td>${(m.credit_balance||0).toLocaleString()}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" style="color:var(--critical);border-color:var(--critical)"
+            onclick="removeMemberFromCompany('${m.id}','${esc(m.email)}')">Remove</button>
+        </td>
+      </tr>
+    `).join('');
+    members.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.email} (${m.company_role})`;
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--critical)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function addMemberToCompany() {
+  const email = document.getElementById('addMemberEmail').value.trim();
+  const role = document.getElementById('addMemberRole').value;
+  const msg = document.getElementById('addMemberMsg');
+  if (!email) { msg.style.color='var(--critical)'; msg.textContent='Email required.'; return; }
+  msg.style.color='var(--muted)'; msg.textContent='Looking up user…';
+  try {
+    // Find the user by email via admin users endpoint
+    const { users } = await api('GET', `/api/admin/users?q=${encodeURIComponent(email)}&limit=5`);
+    const match = (users || []).find(u => u.email?.toLowerCase() === email.toLowerCase());
+    if (!match) { msg.style.color='var(--critical)'; msg.textContent='No user found with that email. They must sign up first.'; return; }
+
+    msg.textContent = 'Adding to company…';
+    await api('POST', '/api/admin/company-members', {
+      action: 'add',
+      companyId: _selectedCompanyId,
+      userId: match.id,
+      role,
+    });
+    msg.style.color='var(--accent)'; msg.textContent=`✓ ${email} added as ${role}`;
+    document.getElementById('addMemberEmail').value = '';
+    loadCompanyMembers();
+    loadCompanies();
+  } catch(e) {
+    msg.style.color='var(--critical)'; msg.textContent=e.message;
+  }
+}
+
+async function removeMemberFromCompany(userId, email) {
+  if (!confirm(`Remove ${email} from this company?`)) return;
+  try {
+    await api('POST', '/api/admin/company-members', { action: 'remove', userId });
+    loadCompanyMembers();
+    loadCompanies();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function runPoolVerification() {
+  const memberId = document.getElementById('verifyMemberSelect').value;
+  const amount = parseInt(document.getElementById('verifyDeductAmount').value, 10);
+  const resultDiv = document.getElementById('verifyResult');
+  if (!memberId) { alert('Select a member first.'); return; }
+  if (!amount || amount < 1) { alert('Enter a positive deduction amount.'); return; }
+
+  resultDiv.style.display = '';
+  resultDiv.innerHTML = '<div style="color:var(--muted);font-size:13px">Running test…</div>';
+
+  try {
+    // Step 1: snapshot balances before
+    const { users } = await api('GET', `/api/admin/users?q=${encodeURIComponent(memberId)}&limit=1`);
+    // Better: fetch via members list already loaded
+    const { members } = await api('POST', '/api/admin/company-members', { action: 'list', companyId: _selectedCompanyId });
+    const memberBefore = members.find(m => m.id === memberId);
+    const { companies } = await api('GET', '/api/admin/company-members');
+    const companyBefore = companies.find(c => c.id === _selectedCompanyId);
+
+    const userBalBefore = memberBefore?.credit_balance ?? '?';
+    const compBalBefore = companyBefore?.credit_balance ?? '?';
+
+    // Step 2: admin-deduct from company pool on behalf of this member
+    const { new_balance: compBalAfter } = await api('POST', '/api/admin/company-credits', {
+      companyId: _selectedCompanyId,
+      amount: -amount,
+      note: `Pool verification test — deducted ${amount} credit(s) for member ${memberId}`,
+    });
+
+    // Step 3: re-fetch member balance (should be unchanged)
+    const { members: membersAfter } = await api('POST', '/api/admin/company-members', { action: 'list', companyId: _selectedCompanyId });
+    const memberAfter = membersAfter.find(m => m.id === memberId);
+    const userBalAfter = memberAfter?.credit_balance ?? '?';
+
+    const poolChanged = compBalAfter !== compBalBefore;
+    const userUnchanged = userBalBefore === userBalAfter;
+
+    resultDiv.innerHTML = `
+      <div style="background:${poolChanged && userUnchanged ? 'var(--ok-bg)' : 'var(--critical-bg)'};border:1px solid ${poolChanged && userUnchanged ? 'var(--ok-border)' : '#fecaca'};border-radius:10px;padding:16px;font-size:13px">
+        <div style="font-weight:800;font-size:14px;margin-bottom:10px;color:${poolChanged && userUnchanged ? '#1a6832' : 'var(--critical)'}">
+          ${poolChanged && userUnchanged ? '✓ Verification passed — credits drawn from company pool' : '⚠ Unexpected result — check pool settings'}
+        </div>
+        <table style="border-collapse:collapse;width:100%;max-width:420px">
+          <tr>
+            <td style="padding:4px 10px 4px 0;color:var(--muted)">Company pool before</td>
+            <td style="padding:4px 0;font-weight:700">${compBalBefore} credits</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 10px 4px 0;color:var(--muted)">Company pool after</td>
+            <td style="padding:4px 0;font-weight:700">${compBalAfter} credits</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 10px 4px 0;color:var(--muted)">Deducted from pool</td>
+            <td style="padding:4px 0;font-weight:700;color:var(--critical)">−${amount}</td>
+          </tr>
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:8px 10px 4px 0;color:var(--muted)">Member personal balance before</td>
+            <td style="padding:8px 0 4px;font-weight:700">${userBalBefore} credits</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 10px 4px 0;color:var(--muted)">Member personal balance after</td>
+            <td style="padding:4px 0;font-weight:700">${userBalAfter} credits</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 10px 4px 0;color:var(--muted)">Personal balance changed?</td>
+            <td style="padding:4px 0;font-weight:700;color:${userUnchanged ? '#1a6832' : 'var(--critical)'}">${userUnchanged ? '✓ No (correct)' : '⚠ Yes (unexpected)'}</td>
+          </tr>
+        </table>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+          Note: this test used the admin credit endpoint to simulate a pool deduction. In production, deductions happen via the <code>deduct_credits()</code> RPC when pool_credits_enabled=true.
+          <button class="btn btn-outline btn-sm" style="margin-left:8px" onclick="document.getElementById('verifyResult').style.display='none'">Dismiss</button>
+        </div>
+      </div>
+    `;
+
+    // Update displayed balance
+    document.getElementById('companyBalanceDisplay').textContent = compBalAfter.toLocaleString() + ' credits';
+
+  } catch(e) {
+    resultDiv.innerHTML = `<div style="color:var(--critical);font-size:13px">Error: ${esc(e.message)}</div>`;
+  }
 }
 
 async function submitResetPassword() {
