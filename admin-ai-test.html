@@ -320,13 +320,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
+            <th>Fixtures</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="supplyBody">
-          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -342,13 +343,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
+            <th>Fixtures</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="extractBody">
-          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -364,13 +366,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
+            <th>Fixtures</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="otherBody">
-          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -696,6 +699,9 @@ function renderRoomRows(rooms) {
       transfer: 'color:#1e40af;background:#dbeafe',
       ignore:   'color:var(--muted);background:var(--input-bg)',
     }[r.ventilationClassification] || '';
+    const fixtureList = Array.isArray(r.fixtures) && r.fixtures.length
+      ? r.fixtures.map(f => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fef3c7;color:#92400e;margin-right:3px">${esc(f)}</span>`).join('')
+      : '<span style="color:var(--muted);font-size:12px">—</span>';
     const optExtract = r.optionalSupply
       ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#166534;background:#dcfce7">Supply</span>'
       : r.optionalExtract
@@ -709,6 +715,7 @@ function renderRoomRows(rooms) {
       <td style="color:var(--muted);font-size:12px">${labelSeen}</td>
       <td>${type}</td>
       <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span></td>
+      <td>${fixtureList}</td>
       <td style="text-align:center">${optExtract}</td>
       <td style="max-width:220px">${reason}</td>
       <td>${confBadge}</td>
@@ -723,7 +730,7 @@ function confClass(c) {
 }
 
 function emptyRow() {
-  return '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+  return '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
 }
 
 // ── Status helpers ────────────────────────────────────────────
