@@ -20,6 +20,7 @@
   "homepage": "https://github.com/HiPerHaus/MVHR-Calculator#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
+    "@vercel/functions": "^2.0.0",
     "@supabase/supabase-js": "^2.106.2",
     "stripe": "^16.0.0",
     "pdfjs-dist": "^4.4.168",

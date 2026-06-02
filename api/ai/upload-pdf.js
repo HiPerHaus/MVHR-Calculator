@@ -19,6 +19,7 @@
 // Response 500: DB error
 
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
 import { rateLimit, applyRateLimit } from '../../lib/rate-limit.js';
 
 const supabase = createClient(
@@ -154,28 +155,62 @@ export default async function handler(req, res) {
       .eq('user_id', user.id); // safety: only update own projects
   }
 
-  // ── Fire-and-forget: invoke render-pdf ───────────────────────────────────
-  // render-pdf runs synchronously on a separate Vercel function invocation.
-  // We don't await it — upload-pdf returns immediately with jobId.
-  // The client polls /job-status to track progress.
+  // ── Kick off render-pdf via waitUntil ────────────────────────────────────
+  // waitUntil keeps the Vercel function alive until the promise settles,
+  // preventing the runtime from freezing the background fetch before it starts.
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
     : 'http://localhost:3000';
 
-  fetch(`${baseUrl}/api/ai/render-pdf`, {
-    method:  'POST',
-    headers: {
-      'Content-Type':       'application/json',
-      'x-internal-secret':  process.env.INTERNAL_API_SECRET ?? '',
-    },
-    body: JSON.stringify({
-      uploadId:    uploadRow.id,
-      jobId:       uploadRow.job_id,
-      storagePath,
-      userId:      user.id,
-      projectId:   projectId ?? null,
-    }),
-  }).catch(e => console.error('upload-pdf: render-pdf call failed:', e.message));
+  const renderPayload = JSON.stringify({
+    uploadId:    uploadRow.id,
+    jobId:       uploadRow.job_id,
+    storagePath,
+    userId:      user.id,
+    projectId:   projectId ?? null,
+  });
+
+  console.log(JSON.stringify({
+    event:    'upload-pdf:handoff',
+    target:   'render-pdf',
+    uploadId: uploadRow.id,
+    jobId:    uploadRow.job_id,
+  }));
+
+  waitUntil(
+    fetch(`${baseUrl}/api/ai/render-pdf`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+      },
+      body: renderPayload,
+    }).then(async (r) => {
+      const body = await r.text().catch(() => '');
+      console.log(JSON.stringify({
+        event:    'upload-pdf:handoff-response',
+        target:   'render-pdf',
+        status:   r.status,
+        body:     body.slice(0, 200),
+      }));
+      if (!r.ok) {
+        await supabase
+          .from('pdf_uploads')
+          .update({ status: 'error', error_detail: `render-pdf handoff failed (HTTP ${r.status}): ${body.slice(0, 300)}` })
+          .eq('id', uploadRow.id);
+      }
+    }).catch(async (err) => {
+      console.error(JSON.stringify({
+        event:    'upload-pdf:handoff-error',
+        target:   'render-pdf',
+        error:    err.message,
+      }));
+      await supabase
+        .from('pdf_uploads')
+        .update({ status: 'error', error_detail: `render-pdf handoff error: ${err.message}` })
+        .eq('id', uploadRow.id);
+    })
+  );
 
   return res.status(202).json({
     jobId:   uploadRow.job_id,

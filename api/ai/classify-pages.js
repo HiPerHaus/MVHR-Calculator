@@ -14,6 +14,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase  = createClient(
@@ -289,22 +290,55 @@ export default async function handler(req, res) {
       })
       .eq('id', uploadId);
 
-    // ── Fire-and-forget: auto-analyse ─────────────────────────────────────
-    // Immediately starts the background analysis pipeline — auto-selects floor
-    // plan pages, runs analyse-plan for each, and emails the user when done.
+    // ── Hand off to auto-analyse via waitUntil ────────────────────────────
     // The status will transition: awaiting_confirmation → analysing → complete.
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000';
 
-    fetch(`${baseUrl}/api/ai/auto-analyse`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':       'application/json',
-        'x-internal-secret':  process.env.INTERNAL_API_SECRET ?? '',
-      },
-      body: JSON.stringify({ uploadId, jobId, userId, projectId: projectId ?? null }),
-    }).catch(e => console.error('classify-pages: auto-analyse call failed:', e.message));
+    const analysePayload = JSON.stringify({ uploadId, jobId, userId, projectId: projectId ?? null });
+
+    console.log(JSON.stringify({
+      event:    'classify-pages:handoff',
+      target:   'auto-analyse',
+      uploadId,
+      jobId,
+    }));
+
+    waitUntil(
+      fetch(`${baseUrl}/api/ai/auto-analyse`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':      'application/json',
+          'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+        },
+        body: analysePayload,
+      }).then(async (r) => {
+        const body = await r.text().catch(() => '');
+        console.log(JSON.stringify({
+          event:  'classify-pages:handoff-response',
+          target: 'auto-analyse',
+          status: r.status,
+          body:   body.slice(0, 200),
+        }));
+        if (!r.ok) {
+          await supabase
+            .from('pdf_uploads')
+            .update({ status: 'error', error_detail: `auto-analyse handoff failed (HTTP ${r.status}): ${body.slice(0, 300)}` })
+            .eq('id', uploadId);
+        }
+      }).catch(async (err) => {
+        console.error(JSON.stringify({
+          event:  'classify-pages:handoff-error',
+          target: 'auto-analyse',
+          error:  err.message,
+        }));
+        await supabase
+          .from('pdf_uploads')
+          .update({ status: 'error', error_detail: `auto-analyse handoff error: ${err.message}` })
+          .eq('id', uploadId);
+      })
+    );
 
     return res.status(200).json({
       uploadId,

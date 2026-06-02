@@ -30,6 +30,7 @@
 //   pending → rendering → classifying
 
 import { createClient } from '@supabase/supabase-js';
+import { waitUntil } from '@vercel/functions';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -342,19 +343,55 @@ export default async function handler(req, res) {
       .update({ status: 'classifying', render_completed_at: renderCompletedAt })
       .eq('id', uploadId);
 
-    // Fire-and-forget: call classify-pages.
+    // ── Hand off to classify-pages via waitUntil ──────────────────────────
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : 'http://localhost:3000';
 
-    fetch(`${baseUrl}/api/ai/classify-pages`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
-      },
-      body: JSON.stringify({ uploadId, jobId, userId, pageCount, projectId: projectId ?? null }),
-    }).catch(e => console.error('render-pdf: classify-pages call failed:', e.message));
+    const classifyPayload = JSON.stringify({ uploadId, jobId, userId, pageCount, projectId: projectId ?? null });
+
+    console.log(JSON.stringify({
+      event:    'render-pdf:handoff',
+      target:   'classify-pages',
+      uploadId,
+      jobId,
+      pageCount,
+    }));
+
+    waitUntil(
+      fetch(`${baseUrl}/api/ai/classify-pages`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':      'application/json',
+          'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+        },
+        body: classifyPayload,
+      }).then(async (r) => {
+        const body = await r.text().catch(() => '');
+        console.log(JSON.stringify({
+          event:  'render-pdf:handoff-response',
+          target: 'classify-pages',
+          status: r.status,
+          body:   body.slice(0, 200),
+        }));
+        if (!r.ok) {
+          await supabase
+            .from('pdf_uploads')
+            .update({ status: 'error', error_detail: `classify-pages handoff failed (HTTP ${r.status}): ${body.slice(0, 300)}` })
+            .eq('id', uploadId);
+        }
+      }).catch(async (err) => {
+        console.error(JSON.stringify({
+          event:  'render-pdf:handoff-error',
+          target: 'classify-pages',
+          error:  err.message,
+        }));
+        await supabase
+          .from('pdf_uploads')
+          .update({ status: 'error', error_detail: `classify-pages handoff error: ${err.message}` })
+          .eq('id', uploadId);
+      })
+    );
 
     return res.status(200).json({
       uploadId,
