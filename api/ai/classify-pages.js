@@ -63,31 +63,9 @@ STRONG FLOOR PLAN INDICATORS (confidence ≥ 0.85):
 - North arrow or compass rose
 - Room numbers or reference codes
 
-VOLUME CALCULATION METADATA:
-For EVERY page, also assess:
-- hasFloorLevels:    Are storey level markers or floor level indicators visible?
-- hasCeilingHeights: Are ceiling height dimensions explicitly shown?
-- hasRoofGeometry:   Is roof ridge geometry, slope, or eaves geometry visible?
-- hasElevationData:  Is this an external elevation projection showing building height?
-- hasSectionData:    Is this a cross-section cut showing floor-to-ceiling relationships?
-
 RESPONSE FORMAT:
-Return a JSON array — one object per image, in the same order as the images provided.
-{
-  "pages": [
-    {
-      "pageNumber":          1,
-      "pageType":            "floor_plan",
-      "confidence":          0.97,
-      "reason":              "Room labels BEDROOM, KITCHEN, LIVING visible; door swings; window symbols on walls",
-      "hasFloorLevels":      false,
-      "hasCeilingHeights":   false,
-      "hasRoofGeometry":     false,
-      "hasElevationData":    false,
-      "hasSectionData":      false
-    }
-  ]
-}
+Return ONLY a JSON object — no markdown, no prose, no explanation.
+{"pages":[{"pageNumber":1,"pageType":"floor_plan","confidence":0.97,"reason":"one sentence"}]}
 
 Be concise in 'reason' — one sentence maximum.
 If you cannot see the image clearly, return pageType: "unknown" with low confidence.`;
@@ -120,6 +98,17 @@ function extractJson(text) {
   return JSON.parse(s.slice(start, end + 1));
 }
 
+// Derive boolean metadata from pageType — avoids asking the AI for extra fields.
+function deriveBooleans(pageType) {
+  return {
+    has_floor_levels:    pageType === 'section'   || pageType === 'elevation',
+    has_ceiling_heights: pageType === 'section',
+    has_roof_geometry:   pageType === 'roof_plan' || pageType === 'section',
+    has_elevation_data:  pageType === 'elevation',
+    has_section_data:    pageType === 'section',
+  };
+}
+
 // Build a default "unclassified" result for a single page — used when all
 // attempts to get a valid classification fail.
 function unclassifiedResult(pageId, reason) {
@@ -128,78 +117,76 @@ function unclassifiedResult(pageId, reason) {
     page_type:                 'unclassified',
     classification_confidence: null,
     classification_reason:     reason.slice(0, 500),
-    has_floor_levels:          null,
-    has_ceiling_heights:       null,
-    has_roof_geometry:         null,
-    has_elevation_data:        null,
-    has_section_data:          null,
+    ...deriveBooleans('unclassified'),
+  };
+}
+
+// Build a DB update record from a parsed AI result for one page.
+function buildUpdate(pageId, r, fallbackReason) {
+  const pageType = validatePageType(r?.pageType);
+  return {
+    id:                        pageId,
+    page_type:                 pageType,
+    classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
+    classification_reason:     (typeof r?.reason === 'string' ? r.reason : fallbackReason).slice(0, 500),
+    ...deriveBooleans(pageType),
   };
 }
 
 // ── Single-page classification ─────────────────────────────────────────────
-// Classifies exactly one page. Called as a fallback when a multi-page batch
-// fails to parse — guarantees every page always gets a result.
 async function classifyOnePage(page, signedUrl) {
-  const userMessage = {
-    role:    'user',
-    content: [
-      { type: 'image', source: { type: 'url', url: signedUrl } },
-      { type: 'text',  text: 'Classify this single image. Return JSON only — no prose, no markdown.' },
-    ],
-  };
-
   const response = await anthropic.messages.create({
     model:      MODEL,
-    max_tokens: 512,
+    max_tokens: 128,
     system:     CLASSIFICATION_SYSTEM,
-    messages:   [userMessage],
-    // Prefill forces the response to start with the JSON object.
+    messages:   [{
+      role:    'user',
+      content: [
+        { type: 'image', source: { type: 'url', url: signedUrl } },
+        { type: 'text',  text: 'Classify this image. Return JSON only — no prose, no markdown.\n{"pages":[{"pageNumber":1,"pageType":"...","confidence":0.0,"reason":"..."}]}' },
+      ],
+    }],
   });
 
-  const raw = response.content?.[0]?.text ?? '';
+  const raw    = response.content?.[0]?.text ?? '';
   const parsed = extractJson(raw);
-  // Single-page response may be a bare object or wrapped in { pages: [...] }
-  const r = parsed?.pages?.[0] ?? parsed;
-  return r;
+  return parsed?.pages?.[0] ?? parsed;
 }
 
 // ── Multi-page batch call ──────────────────────────────────────────────────
-// Returns parsed result or throws. Caller is responsible for retry/fallback.
 async function classifyBatch(batchPages, urlMap) {
-  const activeBatch  = batchPages.filter(p => urlMap[p.page_number]);
-  const imageBlocks  = activeBatch.map(p => ({
+  const activeBatch = batchPages.filter(p => urlMap[p.page_number]);
+  const imageBlocks = activeBatch.map(p => ({
     type: 'image', source: { type: 'url', url: urlMap[p.page_number] },
   }));
   const pageListText = activeBatch
     .map((p, idx) => `Image ${idx + 1} = Page ${p.page_number}`)
     .join('\n');
 
-  const userMessage = {
-    role:    'user',
-    content: [
-      ...imageBlocks,
-      {
-        type: 'text',
-        text: [
-          `Classify each of the ${imageBlocks.length} images above.`,
-          pageListText,
-          '',
-          'Respond with ONLY a JSON object — no markdown, no explanation, no prose.',
-          'Format: {"pages":[{"pageNumber":N,"pageType":"...","confidence":0.0,"reason":"...","hasFloorLevels":false,"hasCeilingHeights":false,"hasRoofGeometry":false,"hasElevationData":false,"hasSectionData":false}]}',
-        ].join('\n'),
-      },
-    ],
-  };
-
   const response = await anthropic.messages.create({
     model:      MODEL,
-    max_tokens: 256 * activeBatch.length + 128,  // scale with batch size
+    max_tokens: 128 * activeBatch.length + 64,
     system:     CLASSIFICATION_SYSTEM,
-    messages:   [userMessage],
+    messages:   [{
+      role:    'user',
+      content: [
+        ...imageBlocks,
+        {
+          type: 'text',
+          text: [
+            `Classify each of the ${imageBlocks.length} images above.`,
+            pageListText,
+            '',
+            'Return ONLY JSON — no markdown, no prose.',
+            '{"pages":[{"pageNumber":N,"pageType":"...","confidence":0.0,"reason":"..."}]}',
+          ].join('\n'),
+        },
+      ],
+    }],
   });
 
   const raw = response.content?.[0]?.text ?? '';
-  console.log(`[classify-pages] batch raw response (${activeBatch.length} pages):`, raw.slice(0, 400));
+  console.log(`[classify-pages] batch raw (${activeBatch.length} pages):`, raw.slice(0, 300));
   return extractJson(raw);
 }
 
@@ -304,34 +291,13 @@ export default async function handler(req, res) {
         for (const p of batch) {
           const r = resultMap[p.page_number];
           if (r) {
-            updates.push({
-              id:                        p.id,
-              page_type:                 validatePageType(r.pageType),
-              classification_confidence: typeof r.confidence === 'number' ? r.confidence : null,
-              classification_reason:     typeof r.reason    === 'string'  ? r.reason.slice(0, 500) : null,
-              has_floor_levels:          r.hasFloorLevels    ?? null,
-              has_ceiling_heights:       r.hasCeilingHeights ?? null,
-              has_roof_geometry:         r.hasRoofGeometry   ?? null,
-              has_elevation_data:        r.hasElevationData  ?? null,
-              has_section_data:          r.hasSectionData    ?? null,
-            });
+            updates.push(buildUpdate(p.id, r, null));
           } else {
-            // Batch succeeded but this page's number wasn't in the response —
-            // fall through to individual classification below.
+            // Batch succeeded but this page was missing — classify individually.
             console.warn(`[classify-pages] page ${p.page_number} missing from batch result — classifying individually`);
             try {
               const r2 = await classifyOnePage(p, urlMap[p.page_number]);
-              updates.push({
-                id:                        p.id,
-                page_type:                 validatePageType(r2?.pageType),
-                classification_confidence: typeof r2?.confidence === 'number' ? r2.confidence : null,
-                classification_reason:     (typeof r2?.reason === 'string' ? r2.reason : 'Individual fallback').slice(0, 500),
-                has_floor_levels:          r2?.hasFloorLevels    ?? null,
-                has_ceiling_heights:       r2?.hasCeilingHeights ?? null,
-                has_roof_geometry:         r2?.hasRoofGeometry   ?? null,
-                has_elevation_data:        r2?.hasElevationData  ?? null,
-                has_section_data:          r2?.hasSectionData    ?? null,
-              });
+              updates.push(buildUpdate(p.id, r2, 'Individual fallback'));
             } catch (indErr) {
               updates.push(unclassifiedResult(p.id, `Individual classification failed: ${indErr.message}`));
             }
@@ -346,20 +312,10 @@ export default async function handler(req, res) {
       for (const p of activeBatch) {
         try {
           const r = await classifyOnePage(p, urlMap[p.page_number]);
-          updates.push({
-            id:                        p.id,
-            page_type:                 validatePageType(r?.pageType),
-            classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
-            classification_reason:     (typeof r?.reason === 'string' ? r.reason : 'Batch failed; classified individually').slice(0, 500),
-            has_floor_levels:          r?.hasFloorLevels    ?? null,
-            has_ceiling_heights:       r?.hasCeilingHeights ?? null,
-            has_roof_geometry:         r?.hasRoofGeometry   ?? null,
-            has_elevation_data:        r?.hasElevationData  ?? null,
-            has_section_data:          r?.hasSectionData    ?? null,
-          });
-          console.log(`[classify-pages] individual classification page ${p.page_number}: ${r?.pageType ?? 'unknown'}`);
+          updates.push(buildUpdate(p.id, r, 'Batch failed; classified individually'));
+          console.log(`[classify-pages] individual page ${p.page_number}: ${validatePageType(r?.pageType)}`);
         } catch (indErr) {
-          console.error(`[classify-pages] individual classification failed for page ${p.page_number}:`, indErr.message);
+          console.error(`[classify-pages] individual failed for page ${p.page_number}:`, indErr.message);
           updates.push(unclassifiedResult(p.id, `Classification failed: ${indErr.message}`));
         }
       }
