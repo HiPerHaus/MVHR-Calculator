@@ -340,8 +340,19 @@ export default async function handler(req, res) {
       .eq('pdf_upload_id', uploadId)
       .order('page_number', { ascending: true });
 
-    if (pagesErr || !pages?.length) {
-      throw new Error(`No pages found for upload ${uploadId}: ${pagesErr?.message ?? 'empty'}`);
+    if (pagesErr) {
+      throw new Error(`Failed to fetch pages for upload ${uploadId}: ${pagesErr.message}`);
+    }
+
+    if (!pages?.length) {
+      console.log(JSON.stringify({
+        event: 'auto-analyse:no-pages-found',
+        uploadId, jobId,
+      }));
+      await supabase.from('pdf_uploads')
+        .update({ status: 'error', error_detail: 'No rendered pages found for this upload' })
+        .eq('id', uploadId);
+      return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
     }
 
     // ── Auto-select floor plan pages ───────────────────────────────────────

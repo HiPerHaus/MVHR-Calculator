@@ -379,11 +379,44 @@ export default async function handler(req, res) {
       })
       .eq('id', uploadId);
 
+    // ── Gate: only hand off to auto-analyse if pages actually exist ────────
+    // Re-check upload status and page count to avoid triggering analysis on
+    // jobs that failed during rendering (pages_rendered=0, status=error).
+    const { data: uploadCheck } = await supabase
+      .from('pdf_uploads')
+      .select('status')
+      .eq('id', uploadId)
+      .maybeSingle();
+
+    const classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
+
+    if (!uploadCheck || uploadCheck.status === 'error') {
+      console.log(JSON.stringify({
+        event: 'classify-pages:handoff-skipped',
+        reason: 'upload status is error',
+        uploadId, jobId,
+      }));
+      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'upload error' });
+    }
+
+    if (pages.length === 0 || classifiedCount === 0) {
+      console.log(JSON.stringify({
+        event: 'classify-pages:handoff-skipped',
+        reason: 'no classified pages',
+        uploadId, jobId, totalPages: pages.length, classifiedCount,
+      }));
+      await supabase.from('pdf_uploads')
+        .update({ status: 'error', error_detail: 'No pages were successfully classified' })
+        .eq('id', uploadId);
+      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'no classified pages' });
+    }
+
     // ── Hand off to auto-analyse via waitUntil ────────────────────────────
-    // The status will transition: awaiting_confirmation → analysing → complete.
-    const host    = req.headers.host ?? '';
-    const proto   = host.includes('localhost') ? 'http' : 'https';
-    const baseUrl = `${proto}://${host}`;
+    const baseUrl = (
+      process.env.PUBLIC_SITE_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (req.headers.host?.includes('localhost') ? `http://${req.headers.host}` : 'https://www.hiper-studio.au')
+    ).replace(/\/$/, '');
 
     const analysePayload = JSON.stringify({ uploadId, jobId, userId, projectId: projectId ?? null });
 
