@@ -25,7 +25,7 @@ const supabase  = createClient(
 // Haiku is sufficient for page-type classification (simple categorisation).
 // Reserve Opus/Sonnet for the room analysis pass in analyse-plan.js.
 const MODEL          = 'claude-haiku-4-5-20251001';
-const MAX_BATCH_SIZE = 20;    // max pages per Claude Vision call
+const MAX_BATCH_SIZE = 4;     // small batches → simpler JSON → fewer parse failures
 const BUCKET         = 'plan-uploads';
 
 // ── Internal auth ─────────────────────────────────────────────────────────
@@ -92,9 +92,115 @@ Return a JSON array — one object per image, in the same order as the images pr
 Be concise in 'reason' — one sentence maximum.
 If you cannot see the image clearly, return pageType: "unknown" with low confidence.`;
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function stripMarkdown(text) {
-  return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+// ── JSON extraction helpers ───────────────────────────────────────────────
+// Strip markdown fences and extract the first JSON object or array found.
+function extractJson(text) {
+  // Remove markdown fences
+  let s = text.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/im, '').trim();
+
+  // Try direct parse first
+  try { return JSON.parse(s); } catch (_) {}
+
+  // Find the outermost { ... } or [ ... ] block
+  const firstBrace  = s.indexOf('{');
+  const firstBracket = s.indexOf('[');
+  let start = -1;
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    start = firstBrace;
+  } else if (firstBracket !== -1) {
+    start = firstBracket;
+  }
+  if (start === -1) throw new SyntaxError('No JSON structure found in response');
+
+  const lastBrace   = s.lastIndexOf('}');
+  const lastBracket = s.lastIndexOf(']');
+  const end = Math.max(lastBrace, lastBracket);
+  if (end === -1 || end < start) throw new SyntaxError('Malformed JSON structure');
+
+  return JSON.parse(s.slice(start, end + 1));
+}
+
+// Build a default "unclassified" result for a single page — used when all
+// attempts to get a valid classification fail.
+function unclassifiedResult(pageId, reason) {
+  return {
+    id:                        pageId,
+    page_type:                 'unclassified',
+    classification_confidence: null,
+    classification_reason:     reason.slice(0, 500),
+    has_floor_levels:          null,
+    has_ceiling_heights:       null,
+    has_roof_geometry:         null,
+    has_elevation_data:        null,
+    has_section_data:          null,
+  };
+}
+
+// ── Single-page classification ─────────────────────────────────────────────
+// Classifies exactly one page. Called as a fallback when a multi-page batch
+// fails to parse — guarantees every page always gets a result.
+async function classifyOnePage(page, signedUrl) {
+  const userMessage = {
+    role:    'user',
+    content: [
+      { type: 'image', source: { type: 'url', url: signedUrl } },
+      { type: 'text',  text: 'Classify this single image. Return JSON only — no prose, no markdown.' },
+    ],
+  };
+
+  const response = await anthropic.messages.create({
+    model:      MODEL,
+    max_tokens: 512,
+    system:     CLASSIFICATION_SYSTEM,
+    messages:   [userMessage],
+    // Prefill forces the response to start with the JSON object.
+  });
+
+  const raw = response.content?.[0]?.text ?? '';
+  const parsed = extractJson(raw);
+  // Single-page response may be a bare object or wrapped in { pages: [...] }
+  const r = parsed?.pages?.[0] ?? parsed;
+  return r;
+}
+
+// ── Multi-page batch call ──────────────────────────────────────────────────
+// Returns parsed result or throws. Caller is responsible for retry/fallback.
+async function classifyBatch(batchPages, urlMap) {
+  const activeBatch  = batchPages.filter(p => urlMap[p.page_number]);
+  const imageBlocks  = activeBatch.map(p => ({
+    type: 'image', source: { type: 'url', url: urlMap[p.page_number] },
+  }));
+  const pageListText = activeBatch
+    .map((p, idx) => `Image ${idx + 1} = Page ${p.page_number}`)
+    .join('\n');
+
+  const userMessage = {
+    role:    'user',
+    content: [
+      ...imageBlocks,
+      {
+        type: 'text',
+        text: [
+          `Classify each of the ${imageBlocks.length} images above.`,
+          pageListText,
+          '',
+          'Respond with ONLY a JSON object — no markdown, no explanation, no prose.',
+          'Format: {"pages":[{"pageNumber":N,"pageType":"...","confidence":0.0,"reason":"...","hasFloorLevels":false,"hasCeilingHeights":false,"hasRoofGeometry":false,"hasElevationData":false,"hasSectionData":false}]}',
+        ].join('\n'),
+      },
+    ],
+  };
+
+  const response = await anthropic.messages.create({
+    model:      MODEL,
+    max_tokens: 256 * activeBatch.length + 128,  // scale with batch size
+    system:     CLASSIFICATION_SYSTEM,
+    messages:   [userMessage],
+  });
+
+  const raw = response.content?.[0]?.text ?? '';
+  console.log(`[classify-pages] batch raw response (${activeBatch.length} pages):`, raw.slice(0, 400));
+  return extractJson(raw);
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -134,10 +240,9 @@ export default async function handler(req, res) {
     const updates = [];
 
     for (let i = 0; i < pages.length; i += MAX_BATCH_SIZE) {
-      const batch     = pages.slice(i, i + MAX_BATCH_SIZE);
-      const batchNums = batch.map(p => p.page_number);
+      const batch = pages.slice(i, i + MAX_BATCH_SIZE);
 
-      // Generate signed URLs for each page image (1 hour TTL).
+      // ── Sign URLs ────────────────────────────────────────────────────────
       const paths = batch
         .filter(p => p.image_path)
         .map(p => p.image_path.replace(`${BUCKET}/`, ''));
@@ -147,107 +252,121 @@ export default async function handler(req, res) {
         .createSignedUrls(paths, 3600);
 
       if (signErr || !signedUrls?.length) {
-        console.warn(`classify-pages: could not sign URLs for batch ${i}–${i + batch.length}`);
-        // Mark these pages as unknown rather than failing the whole job.
-        for (const p of batch) {
-          updates.push({
-            id:                        p.id,
-            page_type:                 'unknown',
-            classification_confidence: null,
-            classification_reason:     'Image not available for classification',
-          });
-        }
+        console.warn(`[classify-pages] could not sign URLs for batch starting at page ${batch[0].page_number}`);
+        for (const p of batch) updates.push(unclassifiedResult(p.id, 'Image URL signing failed'));
         continue;
       }
 
-      // Build signed URL map: pageNumber → signedUrl
+      // Build pageNumber → signedUrl map (paths and batch are in the same order
+      // because we filtered both by image_path presence in the same order).
       const urlMap = {};
-      for (let j = 0; j < batch.length; j++) {
-        urlMap[batch[j].page_number] = signedUrls[j]?.signedUrl ?? null;
+      let urlIdx = 0;
+      for (const p of batch) {
+        if (p.image_path) {
+          urlMap[p.page_number] = signedUrls[urlIdx]?.signedUrl ?? null;
+          urlIdx++;
+        }
       }
 
-      // ── Build Claude Vision message ──────────────────────────────────────
-      // Each image is a separate content block.
-      const imageBlocks = batch
-        .filter(p => urlMap[p.page_number])
-        .map(p => ({
-          type: 'image',
-          source: {
-            type: 'url',
-            url:  urlMap[p.page_number],
-          },
-        }));
+      const activeBatch = batch.filter(p => urlMap[p.page_number]);
+      if (!activeBatch.length) {
+        for (const p of batch) updates.push(unclassifiedResult(p.id, 'No image available'));
+        continue;
+      }
 
-      if (!imageBlocks.length) continue;
-
-      // Tell Claude which page numbers correspond to which images.
-      const pageListText = batch
-        .filter(p => urlMap[p.page_number])
-        .map((p, idx) => `Image ${idx + 1} = Page ${p.page_number}`)
-        .join('\n');
-
-      const userMessage = {
-        role:    'user',
-        content: [
-          ...imageBlocks,
-          {
-            type: 'text',
-            text: `Classify each of the ${imageBlocks.length} images above.\n\n${pageListText}\n\nReturn JSON only — no prose.`,
-          },
-        ],
-      };
-
-      // ── Call Claude ──────────────────────────────────────────────────────
-      let batchResult;
+      // ── Attempt 1: batch call ─────────────────────────────────────────────
+      let batchResult = null;
+      let attempt1Err = null;
       try {
-        const response = await anthropic.messages.create({
-          model:      MODEL,
-          max_tokens: 2048,
-          system:     CLASSIFICATION_SYSTEM,
-          messages:   [userMessage],
-        });
+        batchResult = await classifyBatch(batch, urlMap);
+      } catch (err) {
+        attempt1Err = err;
+        console.warn(`[classify-pages] batch parse failed (attempt 1, pages ${batch[0].page_number}–${batch[batch.length-1].page_number}): ${err.message}`);
+      }
 
-        const rawText   = response.content?.[0]?.text ?? '';
-        const cleanText = stripMarkdown(rawText);
-        batchResult     = JSON.parse(cleanText);
-      } catch (aiErr) {
-        console.error(`classify-pages: AI call failed for batch starting at page ${i + 1}:`, aiErr.message);
-        // Graceful degradation — mark pages unknown.
+      // ── Attempt 2: retry once if first attempt failed ─────────────────────
+      if (!batchResult) {
+        try {
+          batchResult = await classifyBatch(batch, urlMap);
+        } catch (err) {
+          console.warn(`[classify-pages] batch parse failed (attempt 2, pages ${batch[0].page_number}–${batch[batch.length-1].page_number}): ${err.message}`);
+        }
+      }
+
+      // ── If batch succeeded, extract results ────────────────────────────────
+      if (batchResult) {
+        const resultPages = batchResult?.pages ?? (Array.isArray(batchResult) ? batchResult : []);
+        const resultMap   = {};
+        for (const r of resultPages) {
+          if (r?.pageNumber != null) resultMap[r.pageNumber] = r;
+        }
+
         for (const p of batch) {
-          updates.push({
-            id:                        p.id,
-            page_type:                 'unknown',
-            classification_confidence: null,
-            classification_reason:     'Classification failed',
-          });
+          const r = resultMap[p.page_number];
+          if (r) {
+            updates.push({
+              id:                        p.id,
+              page_type:                 validatePageType(r.pageType),
+              classification_confidence: typeof r.confidence === 'number' ? r.confidence : null,
+              classification_reason:     typeof r.reason    === 'string'  ? r.reason.slice(0, 500) : null,
+              has_floor_levels:          r.hasFloorLevels    ?? null,
+              has_ceiling_heights:       r.hasCeilingHeights ?? null,
+              has_roof_geometry:         r.hasRoofGeometry   ?? null,
+              has_elevation_data:        r.hasElevationData  ?? null,
+              has_section_data:          r.hasSectionData    ?? null,
+            });
+          } else {
+            // Batch succeeded but this page's number wasn't in the response —
+            // fall through to individual classification below.
+            console.warn(`[classify-pages] page ${p.page_number} missing from batch result — classifying individually`);
+            try {
+              const r2 = await classifyOnePage(p, urlMap[p.page_number]);
+              updates.push({
+                id:                        p.id,
+                page_type:                 validatePageType(r2?.pageType),
+                classification_confidence: typeof r2?.confidence === 'number' ? r2.confidence : null,
+                classification_reason:     (typeof r2?.reason === 'string' ? r2.reason : 'Individual fallback').slice(0, 500),
+                has_floor_levels:          r2?.hasFloorLevels    ?? null,
+                has_ceiling_heights:       r2?.hasCeilingHeights ?? null,
+                has_roof_geometry:         r2?.hasRoofGeometry   ?? null,
+                has_elevation_data:        r2?.hasElevationData  ?? null,
+                has_section_data:          r2?.hasSectionData    ?? null,
+              });
+            } catch (indErr) {
+              updates.push(unclassifiedResult(p.id, `Individual classification failed: ${indErr.message}`));
+            }
+          }
         }
         continue;
       }
 
-      // ── Parse results ────────────────────────────────────────────────────
-      const resultPages = batchResult?.pages ?? [];
+      // ── Batch failed both attempts: classify each page individually ────────
+      console.warn(`[classify-pages] falling back to per-page classification for pages ${batch[0].page_number}–${batch[batch.length-1].page_number}`);
 
-      // Build lookup by pageNumber.
-      const resultMap = {};
-      for (const r of resultPages) {
-        resultMap[r.pageNumber] = r;
+      for (const p of activeBatch) {
+        try {
+          const r = await classifyOnePage(p, urlMap[p.page_number]);
+          updates.push({
+            id:                        p.id,
+            page_type:                 validatePageType(r?.pageType),
+            classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
+            classification_reason:     (typeof r?.reason === 'string' ? r.reason : 'Batch failed; classified individually').slice(0, 500),
+            has_floor_levels:          r?.hasFloorLevels    ?? null,
+            has_ceiling_heights:       r?.hasCeilingHeights ?? null,
+            has_roof_geometry:         r?.hasRoofGeometry   ?? null,
+            has_elevation_data:        r?.hasElevationData  ?? null,
+            has_section_data:          r?.hasSectionData    ?? null,
+          });
+          console.log(`[classify-pages] individual classification page ${p.page_number}: ${r?.pageType ?? 'unknown'}`);
+        } catch (indErr) {
+          console.error(`[classify-pages] individual classification failed for page ${p.page_number}:`, indErr.message);
+          updates.push(unclassifiedResult(p.id, `Classification failed: ${indErr.message}`));
+        }
       }
 
-      for (const p of batch) {
-        const r = resultMap[p.page_number] ?? {};
-        const pageType = validatePageType(r.pageType);
-
-        updates.push({
-          id:                        p.id,
-          page_type:                 pageType,
-          classification_confidence: typeof r.confidence === 'number' ? r.confidence : null,
-          classification_reason:     typeof r.reason === 'string'     ? r.reason.slice(0, 500) : null,
-          has_floor_levels:          r.hasFloorLevels    ?? null,
-          has_ceiling_heights:       r.hasCeilingHeights ?? null,
-          has_roof_geometry:         r.hasRoofGeometry   ?? null,
-          has_elevation_data:        r.hasElevationData  ?? null,
-          has_section_data:          r.hasSectionData    ?? null,
-        });
+      // Pages that had no signed URL are already handled above via unclassifiedResult.
+      for (const p of batch.filter(p => !urlMap[p.page_number])) {
+        updates.push(unclassifiedResult(p.id, 'No image available'));
       }
     }
 
