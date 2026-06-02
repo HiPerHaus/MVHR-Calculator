@@ -109,27 +109,33 @@ function deriveBooleans(pageType) {
   };
 }
 
-// Build a default "unclassified" result for a single page — used when all
-// attempts to get a valid classification fail.
-function unclassifiedResult(pageId, reason) {
+
+// Build a DB upsert record from a parsed AI result.
+// `page` must be the full fetched row (id, page_number, pdf_upload_id) so
+// the upsert never hits NOT NULL constraints on those columns.
+function buildUpdate(page, r, fallbackReason) {
+  const pageType = validatePageType(r?.pageType);
   return {
-    id:                        pageId,
+    id:                        page.id,
+    pdf_upload_id:             page.pdf_upload_id,
+    page_number:               page.page_number,
+    page_type:                 pageType,
+    classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
+    classification_reason:     (typeof r?.reason === 'string' ? r.reason : fallbackReason ?? 'classified').slice(0, 500),
+    ...deriveBooleans(pageType),
+  };
+}
+
+// Build a safe "unclassified" record — includes all NOT NULL columns.
+function unclassifiedRecord(page, reason) {
+  return {
+    id:                        page.id,
+    pdf_upload_id:             page.pdf_upload_id,
+    page_number:               page.page_number,
     page_type:                 'unclassified',
     classification_confidence: null,
     classification_reason:     reason.slice(0, 500),
     ...deriveBooleans('unclassified'),
-  };
-}
-
-// Build a DB update record from a parsed AI result for one page.
-function buildUpdate(pageId, r, fallbackReason) {
-  const pageType = validatePageType(r?.pageType);
-  return {
-    id:                        pageId,
-    page_type:                 pageType,
-    classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
-    classification_reason:     (typeof r?.reason === 'string' ? r.reason : fallbackReason).slice(0, 500),
-    ...deriveBooleans(pageType),
   };
 }
 
@@ -229,8 +235,16 @@ export default async function handler(req, res) {
     for (let i = 0; i < pages.length; i += MAX_BATCH_SIZE) {
       const batch = pages.slice(i, i + MAX_BATCH_SIZE);
 
+      // Guard: skip any page row that somehow has no page_number — cannot safely upsert.
+      for (const p of batch) {
+        if (!p.page_number) {
+          console.error(`[classify-pages] page row ${p.id} has null page_number — skipping`);
+        }
+      }
+      const validBatch = batch.filter(p => p.page_number != null);
+
       // ── Sign URLs ────────────────────────────────────────────────────────
-      const paths = batch
+      const paths = validBatch
         .filter(p => p.image_path)
         .map(p => p.image_path.replace(`${BUCKET}/`, ''));
 
@@ -239,25 +253,25 @@ export default async function handler(req, res) {
         .createSignedUrls(paths, 3600);
 
       if (signErr || !signedUrls?.length) {
-        console.warn(`[classify-pages] could not sign URLs for batch starting at page ${batch[0].page_number}`);
-        for (const p of batch) updates.push(unclassifiedResult(p.id, 'Image URL signing failed'));
+        console.warn(`[classify-pages] could not sign URLs for batch starting at page ${validBatch[0]?.page_number}`);
+        for (const p of validBatch) updates.push(unclassifiedRecord(p, 'Image URL signing failed'));
         continue;
       }
 
-      // Build pageNumber → signedUrl map (paths and batch are in the same order
-      // because we filtered both by image_path presence in the same order).
+      // Build pageNumber → signedUrl map
       const urlMap = {};
       let urlIdx = 0;
-      for (const p of batch) {
+      for (const p of validBatch) {
         if (p.image_path) {
           urlMap[p.page_number] = signedUrls[urlIdx]?.signedUrl ?? null;
           urlIdx++;
         }
       }
 
-      const activeBatch = batch.filter(p => urlMap[p.page_number]);
+      const activeBatch = validBatch.filter(p => urlMap[p.page_number]);
+
       if (!activeBatch.length) {
-        for (const p of batch) updates.push(unclassifiedResult(p.id, 'No image available'));
+        for (const p of validBatch) updates.push(unclassifiedRecord(p, 'No image available'));
         continue;
       }
 
@@ -265,7 +279,7 @@ export default async function handler(req, res) {
       let batchResult = null;
       let attempt1Err = null;
       try {
-        batchResult = await classifyBatch(batch, urlMap);
+        batchResult = await classifyBatch(validBatch, urlMap);
       } catch (err) {
         attempt1Err = err;
         console.warn(`[classify-pages] batch parse failed (attempt 1, pages ${batch[0].page_number}–${batch[batch.length-1].page_number}): ${err.message}`);
@@ -274,7 +288,7 @@ export default async function handler(req, res) {
       // ── Attempt 2: retry once if first attempt failed ─────────────────────
       if (!batchResult) {
         try {
-          batchResult = await classifyBatch(batch, urlMap);
+          batchResult = await classifyBatch(validBatch, urlMap);
         } catch (err) {
           console.warn(`[classify-pages] batch parse failed (attempt 2, pages ${batch[0].page_number}–${batch[batch.length-1].page_number}): ${err.message}`);
         }
@@ -288,18 +302,18 @@ export default async function handler(req, res) {
           if (r?.pageNumber != null) resultMap[r.pageNumber] = r;
         }
 
-        for (const p of batch) {
+        for (const p of validBatch) {
           const r = resultMap[p.page_number];
           if (r) {
-            updates.push(buildUpdate(p.id, r, null));
+            updates.push(buildUpdate(p, r, null));
           } else {
             // Batch succeeded but this page was missing — classify individually.
             console.warn(`[classify-pages] page ${p.page_number} missing from batch result — classifying individually`);
             try {
               const r2 = await classifyOnePage(p, urlMap[p.page_number]);
-              updates.push(buildUpdate(p.id, r2, 'Individual fallback'));
+              updates.push(buildUpdate(p, r2, 'Individual fallback'));
             } catch (indErr) {
-              updates.push(unclassifiedResult(p.id, `Individual classification failed: ${indErr.message}`));
+              updates.push(unclassifiedRecord(p, `Individual classification failed: ${indErr.message}`));
             }
           }
         }
@@ -307,22 +321,22 @@ export default async function handler(req, res) {
       }
 
       // ── Batch failed both attempts: classify each page individually ────────
-      console.warn(`[classify-pages] falling back to per-page classification for pages ${batch[0].page_number}–${batch[batch.length-1].page_number}`);
+      console.warn(`[classify-pages] falling back to per-page classification for pages ${validBatch[0]?.page_number}–${validBatch[validBatch.length-1]?.page_number}`);
 
       for (const p of activeBatch) {
         try {
           const r = await classifyOnePage(p, urlMap[p.page_number]);
-          updates.push(buildUpdate(p.id, r, 'Batch failed; classified individually'));
+          updates.push(buildUpdate(p, r, 'Batch failed; classified individually'));
           console.log(`[classify-pages] individual page ${p.page_number}: ${validatePageType(r?.pageType)}`);
         } catch (indErr) {
           console.error(`[classify-pages] individual failed for page ${p.page_number}:`, indErr.message);
-          updates.push(unclassifiedResult(p.id, `Classification failed: ${indErr.message}`));
+          updates.push(unclassifiedRecord(p, `Classification failed: ${indErr.message}`));
         }
       }
 
-      // Pages that had no signed URL are already handled above via unclassifiedResult.
-      for (const p of batch.filter(p => !urlMap[p.page_number])) {
-        updates.push(unclassifiedResult(p.id, 'No image available'));
+      // Pages with no signed URL were not in activeBatch — mark them unclassified.
+      for (const p of validBatch.filter(p => !urlMap[p.page_number])) {
+        updates.push(unclassifiedRecord(p, 'No image available'));
       }
     }
 
