@@ -32,10 +32,12 @@
 //                             'wet_area' | 'laundry' | 'office' | 'gym' | 'robe' |
 //                             'circulation' | 'service' | 'other'
 //                  airflowDriver: 'occupancy' | 'area' | 'fixed_extract' | 'transfer' | 'optional'
+//                  requiresManualReview: boolean — ambiguous room with no detected fixtures
 //                  bedSpaces: number (permanent sleeping capacity; 0 for non-bedrooms)
 //                  potentialBedSpaces: number (convertible rooms; 0 if not applicable)
 // Top-level response also includes:
-//   occupancySummary: { suggestedOccupancy, totalBedSpaces, potentialAdditionalBedSpaces }
+//   occupancySummary:  { suggestedOccupancy, totalBedSpaces, potentialAdditionalBedSpaces }
+//   reviewCandidates:  [{ room, reason, roomBoundaryHint }]
 //     extract:  [...],
 //     transfer: [...],
 //     ignore:   [...]
@@ -182,6 +184,9 @@ function validateRoom(raw, floorIndex) {
     ? rawDriver
     : SPACE_TYPE_TO_DRIVER[spaceType] ?? 'occupancy';
 
+  // requiresManualReview: true when the AI completed inspection but fixture presence is uncertain.
+  const requiresManualReview = raw.requiresManualReview === true;
+
   // bedSpaces / potentialBedSpaces: occupancy estimation (not ventilation classification).
   const bedSpaces          = typeof raw.bedSpaces === 'number' && raw.bedSpaces >= 0
     ? Math.round(raw.bedSpaces) : (spaceType === 'bedroom' ? 2 : 0);
@@ -223,6 +228,7 @@ function validateRoom(raw, floorIndex) {
     airflowDriver,
     bedSpaces,
     potentialBedSpaces,
+    requiresManualReview,
   };
 }
 
@@ -240,6 +246,7 @@ const FAILURE_SUGGESTIONS = [
 // ── Post-processing: architectural cleanup ────────────────────
 // Applied after BOTH Stage 1 and Stage 2 extractions.
 // Precedence order (highest first):
+//   0.  Ambiguous label + no fixtures → requiresManualReview=true, confidence capped at 0.85
 //   1.  Service/equipment → exclude
 //   2.  Wet-fixture override → force extract (shower/toilet/sink/basin etc.)
 //   3.  WIR → transfer + optionalSupply (≥ 4 m²)
@@ -415,6 +422,24 @@ function postProcessRooms(rooms, warnings) {
     const area   = room.area || 0;
     const nameLo = name.toLowerCase();
     let matched  = false;
+
+    // ── 0. Ambiguous label + no fixtures → requiresManualReview ──
+    // Applied before all classification rules so every downstream path inherits the flag.
+    const AMBIGUOUS_LABEL_PATTERNS = [
+      /\bmulti.?use\b/i, /\bmulti.?purpose\b/i, /\bmpr\b/i,
+      /\bstudio\b/i,     /\bretreat\b/i,         /\bactivity\b/i,
+      /\boffice\b/i,     /\bhome office\b/i,      /\brumpus\b/i,
+      /\bgym\b/i,        /\bworkshop\b/i,         /\bhobby\b/i,
+      /\bcellar\b/i,     /\bgames\b/i,
+    ];
+    if (
+      AMBIGUOUS_LABEL_PATTERNS.some(p => p.test(name)) &&
+      (!Array.isArray(room.fixtures) || room.fixtures.length === 0)
+    ) {
+      room.requiresManualReview = true;
+      if (room.confidence != null && room.confidence > 0.85) room.confidence = 0.85;
+      warnings.push(`"${name}" — ambiguous room type with no fixtures detected. Flagged for manual review.`);
+    }
 
     // ── 1. Service / equipment → exclude ─────────────────────
     if (SERVICE_PATTERNS.some(p => p.test(name))) {
@@ -749,11 +774,78 @@ Assumptions Requirement:
     "Multi-Use Room reclassified as extract. Sink detected during second inspection pass."
   This creates an audit trail showing what the model inspected and why it classified as it did.
 
+Manual Review Flag:
+  If you have completed the second inspection pass of an ambiguous room and still cannot
+  confirm whether wet fixtures are present:
+    → Set "requiresManualReview": true on that room entry.
+    → Do NOT confidently assign classification = "supply" in this state.
+    → Keep the classification as your best estimate but record the uncertainty.
+    → Add an assumption: "Multi-Use Room flagged for manual review — fixture presence uncertain
+      after two inspection passes."
+  If you are confident no fixtures are present after the second pass:
+    → Set "requiresManualReview": false.
+    → Add an assumption confirming what was inspected.
+  The default value is false. Only set true when genuine uncertainty remains after inspection.
+
 Warning Requirement:
   If you inspect a room from the ambiguous list and find no fixtures, add a note in assumptions[]:
     e.g. "Inspected Multi-Use Room — no wet fixtures visible; classified as supply."
   If you find a fixture, list it in fixtures[] and add a note in assumptions[]:
     e.g. "Multi-Use Room contains a sink — reclassified as extract."
+
+════ AMBIGUOUS ROOM ESCALATION ════
+If a room is classified as any of the following AND no fixtures are confidently identified:
+  Multi-Use Room  Studio  Activity Room  Retreat  Rumpus  Gym  Home Office
+  Workshop  Hobby Room  Cellar  Games Room  Unlabelled habitable room
+
+THEN you MUST:
+  → Set "requiresManualReview": true
+  → Set confidence to no more than 0.85
+  → Add an assumption explaining why, e.g.:
+    "Multi-Use Room inspected. No fixtures confidently identified. Drawing scale prevents
+    confirmation of kitchenette or wet-area fixtures. Manual review recommended."
+
+NEVER confidently classify an ambiguous room as supply solely because no fixture was detected.
+Absence of evidence is not evidence of absence.
+
+════ FIXTURE VISIBILITY RULE ════
+Distinguish between three states — do not collapse them:
+  1. Fixture confidently identified  → list in fixtures[], classify accordingly
+  2. Fixture possibly present         → list in fixtures[] with note "possible", set requiresManualReview true,
+                                        add warning: "Possible kitchenette or wet-area fixture detected
+                                        but could not be confirmed."
+  3. No fixture visible after full inspection → fixtures: [], requiresManualReview depends on room type
+
+If a fixture is only partially visible or resolution is insufficient:
+  Do NOT assume it is absent.
+  Set requiresManualReview = true and add a warning.
+
+════ REVIEW CANDIDATES ════
+Return a top-level "reviewCandidates" array listing every room that requires further human review.
+Only include rooms where fixture presence is uncertain or the room type is ambiguous.
+
+For each candidate, include:
+  "room"             — exact room name as it appears in rooms[]
+  "reason"           — why this room requires review (one sentence)
+  "roomBoundaryHint" — plain-language description of where the room sits on the plan,
+                       to support a future room-crop AI pass.
+                       Example: "Lower-right corner adjacent Laundry and Entry"
+
+Example output:
+"reviewCandidates": [
+  {
+    "room": "Multi-Use Room",
+    "reason": "Possible kitchenette. Fixture visibility insufficient at this drawing scale.",
+    "roomBoundaryHint": "Lower-right corner of floor plan, adjacent to Laundry and Entry"
+  },
+  {
+    "room": "Studio",
+    "reason": "Sink symbol partially visible on north wall. Could not confirm.",
+    "roomBoundaryHint": "Upper-left area, adjacent to Master Bedroom"
+  }
+]
+
+If no rooms require review: "reviewCandidates": []
 
 ════ STEP 3: IDENTIFY FIXTURES IN EVERY ROOM ════
 Do NOT rely only on the room label. Visually inspect the interior of EVERY room for drawn symbols.
@@ -1410,6 +1502,18 @@ export default async function handler(req, res) {
     ? parsed.assumptions.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim())
     : [];
 
+  // reviewCandidates: rooms flagged by the AI for further human or crop-analysis review.
+  // Validated: each entry must have a non-empty "room" string.
+  const reviewCandidates = Array.isArray(parsed.reviewCandidates)
+    ? parsed.reviewCandidates
+        .filter(c => c && typeof c.room === 'string' && c.room.trim())
+        .map(c => ({
+          room:             c.room.trim(),
+          reason:           typeof c.reason === 'string'           ? c.reason.trim()           : '',
+          roomBoundaryHint: typeof c.roomBoundaryHint === 'string' ? c.roomBoundaryHint.trim() : '',
+        }))
+    : [];
+
   // Token counts accumulate across both calls
   let totalInputTokens  = inputTokens;
   let totalOutputTokens = outputTokens;
@@ -1428,6 +1532,103 @@ export default async function handler(req, res) {
   let stage2RoomCount = null; // null when Stage 2 was not invoked
   // 'success' | 'failed'
   let analysisStatus = stage1RoomCount > 0 ? 'success' : null; // resolved below
+
+  // ── Stage 3: targeted fixture re-inspection for flagged rooms ─
+  // Runs after Stage 1 (or Stage 2) when any room has requiresManualReview = true.
+  // Sends a focused prompt listing only the flagged rooms and asks the model to
+  // re-inspect each one for wet fixtures. Merges updated fixture lists back into
+  // the final room objects without changing any other fields.
+  // Stage 3 is intentionally non-destructive: it only adds fixtures and may flip
+  // requiresManualReview to false if confident. It never removes rooms.
+  // (Defined as an async function here; called after Stage 2 resolves below.)
+  async function runStage3FixtureReview(flaggedRooms, imgSource) {
+    if (!flaggedRooms.length) return {};
+
+    const roomList = flaggedRooms
+      .map(r => `- "${r.name}" (current classification: ${r.ventilationClassification}, spaceType: ${r.spaceType})`)
+      .join('\n');
+
+    const stage3Prompt = `You are a fixture detection specialist reviewing an architectural floor plan.
+Stage 1 analysis flagged the following rooms as requiring manual fixture review.
+For each room, fixtures could not be confirmed or ruled out after two inspection passes.
+
+Rooms requiring re-inspection:
+${roomList}
+
+YOUR TASK:
+For each room listed above, perform a focused inspection of that room's interior only.
+Look for: sink, basin, vanity, shower, toilet, WC, laundry tub, kitchenette, trough, urinal.
+Also look for: bath, freestanding bath, spa, spa bath, sauna.
+
+IMPORTANT: Be specific. Do not inspect other rooms.
+If you cannot locate a room on the plan, say so in the result.
+
+Return ONLY valid JSON. No markdown. No prose.
+
+{
+  "rooms": [
+    {
+      "name": "<exact room name from list above>",
+      "fixtures": ["sink", "vanity"],
+      "requiresManualReview": false,
+      "reviewNote": "Sink and vanity confirmed on north wall."
+    }
+  ]
+}
+
+If no fixtures are found after careful inspection:
+  "fixtures": [],
+  "requiresManualReview": false,
+  "reviewNote": "No wet fixtures found after detailed inspection of all walls."
+
+If still uncertain:
+  "fixtures": [],
+  "requiresManualReview": true,
+  "reviewNote": "Room partially obscured — fixture presence cannot be confirmed or ruled out."`;
+
+    try {
+      const stage3Response = await anthropic.messages.create({
+        model:      MODEL,
+        max_tokens: 1024,
+        system:     stage3Prompt,
+        messages: [{
+          role:    'user',
+          content: [
+            { type: 'image', source: imgSource },
+            { type: 'text',  text:  'Re-inspect the listed rooms for wet fixtures and return the JSON result.' },
+          ],
+        }],
+      });
+
+      totalInputTokens  += stage3Response.usage?.input_tokens  ?? 0;
+      totalOutputTokens += stage3Response.usage?.output_tokens ?? 0;
+
+      const stage3Text = stage3Response.content?.[0]?.text ?? '';
+      let stage3Parsed;
+      try { stage3Parsed = JSON.parse(stripMarkdown(stage3Text)); }
+      catch (_) {
+        console.warn('analyse-plan: Stage 3 JSON parse failed');
+        return {};
+      }
+
+      // Build a lookup: roomName → { fixtures, requiresManualReview, reviewNote }
+      const updates = {};
+      for (const r of (stage3Parsed.rooms ?? [])) {
+        if (typeof r.name === 'string' && r.name.trim()) {
+          updates[r.name.trim()] = {
+            fixtures:            Array.isArray(r.fixtures) ? r.fixtures.map(f => String(f).trim().toLowerCase()) : [],
+            requiresManualReview: r.requiresManualReview === true,
+            reviewNote:           typeof r.reviewNote === 'string' ? r.reviewNote.trim() : null,
+          };
+        }
+      }
+      return updates;
+
+    } catch (e) {
+      console.error('analyse-plan: Stage 3 fixture review failed:', e.message);
+      return {};
+    }
+  }
 
   // ── Stage 2: recovery pass when Stage 1 returns no rooms ─────
   if (analysisStatus === null) {
@@ -1485,6 +1686,55 @@ export default async function handler(req, res) {
     analysisStatus = 'failed';
   }
 
+  // ── Stage 3: fixture re-inspection for requiresManualReview rooms ──
+  if (analysisStatus === 'success') {
+    const allRoomsForReview = [...finalSupply, ...finalExtract, ...finalTransfer, ...finalIgnore];
+    const flagged = allRoomsForReview.filter(r => r.requiresManualReview);
+
+    if (flagged.length > 0) {
+      console.log(`analyse-plan: Stage 3 — re-inspecting ${flagged.length} flagged room(s)`);
+      const stage3Updates = await runStage3FixtureReview(flagged, imageSource);
+
+      if (Object.keys(stage3Updates).length > 0) {
+        // Apply updates to all room lists
+        const applyUpdates = rooms => rooms.map(room => {
+          const update = stage3Updates[room.name];
+          if (!update) return room;
+
+          const mergedFixtures = [...new Set([...room.fixtures, ...update.fixtures])];
+          const updatedRoom = { ...room, fixtures: mergedFixtures, requiresManualReview: update.requiresManualReview };
+
+          // If Stage 3 found a wet fixture, re-run the fixture override logic
+          const newWetFixture = update.fixtures.find(f => WET_FIXTURE_PATTERNS.some(p => p.test(f)));
+          if (newWetFixture && updatedRoom.ventilationClassification !== 'extract') {
+            updatedRoom.ventilationClassification = 'extract';
+            if (!EXTRACT_TYPES.has(updatedRoom.roomType)) updatedRoom.roomType = 'Other';
+            updatedRoom.classificationReason = `Stage 3 re-inspection: ${newWetFixture} detected — reclassified as extract.`;
+            warnings.push(`"${room.name}" reclassified as extract after Stage 3 fixture review — ${newWetFixture} detected.`);
+          }
+          if (update.reviewNote) {
+            assumptions.push(`Stage 3 review — "${room.name}": ${update.reviewNote}`);
+          }
+          return updatedRoom;
+        });
+
+        finalSupply   = applyUpdates(finalSupply);
+        finalExtract  = applyUpdates(finalExtract);
+        finalTransfer = applyUpdates(finalTransfer);
+        finalIgnore   = applyUpdates(finalIgnore);
+
+        // Re-sort any rooms that were reclassified to extract
+        const reclassified = [...finalSupply, ...finalTransfer, ...finalIgnore].filter(r => r.ventilationClassification === 'extract');
+        if (reclassified.length) {
+          finalSupply   = finalSupply.filter(r   => r.ventilationClassification !== 'extract');
+          finalTransfer = finalTransfer.filter(r => r.ventilationClassification !== 'extract');
+          finalIgnore   = finalIgnore.filter(r   => r.ventilationClassification !== 'extract');
+          finalExtract  = [...finalExtract, ...reclassified];
+        }
+      }
+    }
+  }
+
   // ── Failure path — log, no credits, return structured failure ─
   if (analysisStatus === 'failed') {
     const { data: logRow, error: logErr } = await supabase
@@ -1540,10 +1790,25 @@ export default async function handler(req, res) {
     potentialAdditionalBedSpaces,
   };
 
+  // Merge server-side flagged rooms into reviewCandidates so the array is always complete.
+  // Rooms flagged by rule 0 (postProcessRooms) that aren't already in the AI's list are added.
+  const allFinalForReview = [...finalSupply, ...finalExtract, ...finalTransfer, ...finalIgnore];
+  const existingCandidateNames = new Set(reviewCandidates.map(c => c.room));
+  for (const room of allFinalForReview) {
+    if (room.requiresManualReview && !existingCandidateNames.has(room.name)) {
+      reviewCandidates.push({
+        room:             room.name,
+        reason:           'Ambiguous room type with no fixtures detected — flagged by server-side rule.',
+        roomBoundaryHint: '',
+      });
+    }
+  }
+
   const analysisJson = {
     supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
     warnings,
     assumptions,
+    reviewCandidates,
     analysisStatus: 'success',
     recoveryMode,
     occupancySummary,
@@ -1609,6 +1874,7 @@ export default async function handler(req, res) {
     stage2RoomCount,
     rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
     occupancySummary,
+    reviewCandidates,
     warnings,
     assumptions,
     model:                  MODEL,

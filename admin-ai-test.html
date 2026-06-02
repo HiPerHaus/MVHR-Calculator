@@ -313,6 +313,12 @@ details summary:hover { background: var(--primary-light); }
       <div class="section-label">ℹ Assumptions</div>
       <div id="assumptionsList"></div>
     </div>
+
+    <!-- Review Candidates -->
+    <div id="reviewCandidatesSection" style="display:none;margin-top:12px">
+      <div class="section-label" style="color:var(--critical)">🔍 Review Candidates</div>
+      <div id="reviewCandidatesList"></div>
+    </div>
   </div>
 
   <!-- ── Failure Card (shown when analysisStatus = 'failed') ── -->
@@ -707,6 +713,21 @@ function renderResults(data) {
     assumeSection.style.display = 'none';
   }
 
+  // Review Candidates
+  const candidates = data.reviewCandidates || [];
+  const rcSection = document.getElementById('reviewCandidatesSection');
+  if (candidates.length) {
+    document.getElementById('reviewCandidatesList').innerHTML = candidates.map(c => `
+      <div style="background:var(--critical-bg);border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--critical)">${esc(c.room)}</div>
+        <div style="font-size:12px;color:var(--critical);margin-top:3px">${esc(c.reason)}</div>
+        ${c.roomBoundaryHint ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">📍 ${esc(c.roomBoundaryHint)}</div>` : ''}
+      </div>`).join('');
+    rcSection.style.display = '';
+  } else {
+    rcSection.style.display = 'none';
+  }
+
   // Rooms — only rendered on successful analysis
   if (failed) {
     document.getElementById('roomsCard').style.display  = 'none';
@@ -786,8 +807,14 @@ function renderRoomRows(rooms) {
     const parentRoomBadge = r.parentRoom
       ? ` <span title="Secondary zone split from ${esc(r.parentRoom)}" style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dbeafe;color:#1e40af;margin-left:3px">↳ ${esc(r.parentRoom)}</span>`
       : '';
-    return `<tr${r.parentRoom ? ' style="background:rgba(219,234,254,0.3)"' : ''}>
-      <td>${name}${secondaryZone}${parentRoomBadge}</td>
+    const reviewBadge = r.requiresManualReview
+      ? ` <span title="Fixture presence uncertain — manual review required" style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:#fef2f2;color:#9b1c1c;border:1px solid #fecaca">⚠ review</span>`
+      : '';
+    const rowStyle = r.requiresManualReview
+      ? ' style="background:rgba(254,242,242,0.6)"'
+      : r.parentRoom ? ' style="background:rgba(219,234,254,0.3)"' : '';
+    return `<tr${rowStyle}>
+      <td>${name}${secondaryZone}${parentRoomBadge}${reviewBadge}</td>
       <td style="color:var(--muted);font-size:12px">${labelSeen}</td>
       <td>${type}${spaceTag}</td>
       <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span>${terminalBadge}</td>
