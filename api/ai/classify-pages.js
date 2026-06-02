@@ -490,7 +490,7 @@ export default async function handler(req, res) {
       classifiedPages:      updates.length,
       failedClassifications,
       totalClassifyMs:      classifyMs,
-      status: 'awaiting_confirmation',
+      status: 'awaiting_confirmation', error_detail: null,
     });
 
   } catch (err) {
