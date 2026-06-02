@@ -22,9 +22,12 @@
 //   pending → rendering → classifying
 //
 // Required npm packages (add to package.json):
-//   pdfjs-dist   ^4.x   — PDF parsing and rendering
-//   canvas       ^2.x   — Node.js canvas for pdfjs rendering
-//   sharp        ^0.33  — thumbnail generation
+//   pdfjs-dist        ^4.x    — PDF parsing and rendering
+//   @napi-rs/canvas   ^0.1.x  — Serverless-compatible canvas (Rust/Skia, prebuilt binary, no system libs)
+//   sharp             ^0.33   — thumbnail generation
+//
+// NOTE: Do NOT use the 'canvas' npm package — it requires pixman/cairo system libraries
+// that are unavailable in Vercel's serverless build environment.
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -51,7 +54,10 @@ async function getPdfJs() {
 }
 
 async function getCanvas() {
-  const { createCanvas } = await import('canvas');
+  // @napi-rs/canvas ships prebuilt Rust/Skia binaries for linux-x64, darwin, windows.
+  // Unlike the 'canvas' npm package it has NO system library dependencies (no pixman, cairo).
+  // This makes it compatible with Vercel's serverless build environment.
+  const { createCanvas } = await import('@napi-rs/canvas');
   return createCanvas;
 }
 
@@ -61,7 +67,10 @@ async function getSharp() {
 }
 
 // ── PDF rendering ─────────────────────────────────────────────────────────
-class NodeCanvasFactory {
+// CanvasFactory implementation required by pdfjs-dist for Node.js rendering.
+// Works with @napi-rs/canvas — API-compatible with the old 'canvas' package
+// except that encode() is async (toBuffer() is not available in @napi-rs/canvas).
+class PdfjsCanvasFactory {
   constructor(createCanvasFn) {
     this._createCanvas = createCanvasFn;
   }
@@ -75,6 +84,7 @@ class NodeCanvasFactory {
     canvasAndContext.canvas.height = height;
   }
   destroy(canvasAndContext) {
+    // Release the pixel buffer held by the canvas.
     canvasAndContext.canvas.width  = 0;
     canvasAndContext.canvas.height = 0;
     canvasAndContext.canvas  = null;
@@ -86,7 +96,7 @@ async function renderPageToPng(page, dpi, createCanvasFn) {
   const scale    = dpi / PDF_POINTS_PER_INCH;
   const viewport = page.getViewport({ scale });
 
-  const factory    = new NodeCanvasFactory(createCanvasFn);
+  const factory = new PdfjsCanvasFactory(createCanvasFn);
   const { canvas, context } = factory.create(
     Math.ceil(viewport.width),
     Math.ceil(viewport.height)
@@ -102,7 +112,10 @@ async function renderPageToPng(page, dpi, createCanvasFn) {
     canvasFactory: factory,
   }).promise;
 
-  const buffer = canvas.toBuffer('image/png');
+  // @napi-rs/canvas uses encode() which returns a Promise<Buffer>.
+  // The old 'canvas' package used the synchronous toBuffer() — that API
+  // does not exist in @napi-rs/canvas.
+  const buffer = await canvas.encode('png');
   factory.destroy({ canvas, context });
   return {
     buffer,
