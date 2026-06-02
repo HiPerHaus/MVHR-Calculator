@@ -90,27 +90,39 @@ function selectFloorPlanPages(pages) {
 // Returns the hires_image_path, or null if render fails (analyse-plan
 // will fall back to the low-res classification image).
 async function renderHires({ uploadId, jobId, pageId, storagePath, pageNumber, userId, baseUrl }) {
+  const secret = process.env.INTERNAL_API_SECRET;
+  console.log('[auto-analyse] render-hires call', {
+    pageNumber,
+    hasSecret: !!secret,
+    secretLen: secret?.length ?? 0,
+    url: `${baseUrl}/api/ai/render-hires`,
+  });
+
+  if (!secret) {
+    console.error('[auto-analyse] INTERNAL_API_SECRET is not set — render-hires will return 401/403');
+  }
+
   try {
     const res = await fetch(`${baseUrl}/api/ai/render-hires`, {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
-        'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+        'x-internal-secret': secret ?? '',
       },
       body: JSON.stringify({ uploadId, jobId, pageId, storagePath, pageNumber, userId }),
-      signal: AbortSignal.timeout(60_000),  // 60-second timeout for a single page hi-res render
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      console.warn(`auto-analyse: render-hires failed for page ${pageNumber}: ${err.error ?? res.statusText}`);
+      const text = await res.text().catch(() => res.statusText);
+      console.warn(`[auto-analyse] render-hires HTTP ${res.status} for page ${pageNumber}:`, text.slice(0, 200));
       return null;
     }
 
     const data = await res.json();
     return data.hiresPath ?? null;
   } catch (e) {
-    console.warn(`auto-analyse: render-hires error for page ${pageNumber}:`, e.message);
+    console.warn(`[auto-analyse] render-hires fetch error for page ${pageNumber}:`, e.message);
     return null;
   }
 }
@@ -118,11 +130,23 @@ async function renderHires({ uploadId, jobId, pageId, storagePath, pageNumber, u
 // ── Analyse one page ───────────────────────────────────────────────────────
 // Calls analyse-plan with internal auth (x-internal-secret + userId in body).
 async function analysePage({ uploadId, jobId, userId, projectId, pageId, floorIndex, floorLevel, floorName, hiresImagePath, baseUrl }) {
+  const secret = process.env.INTERNAL_API_SECRET;
+  console.log('[auto-analyse] analyse-plan call', {
+    pageId,
+    hasSecret: !!secret,
+    secretLen: secret?.length ?? 0,
+    url: `${baseUrl}/api/ai/analyse-plan`,
+  });
+
+  if (!secret) {
+    console.error('[auto-analyse] INTERNAL_API_SECRET is not set — analyse-plan will return 401/403');
+  }
+
   const body = {
     pdfPageId:   pageId,
     pdfUploadId: uploadId,
     floorIndex,
-    userId,       // For internal auth — not used as a bearer token
+    userId,
     ...(projectId      ? { projectId }      : {}),
     ...(floorName      ? { floorName }      : {}),
     ...(hiresImagePath ? { hiresImagePath } : {}),
@@ -132,15 +156,15 @@ async function analysePage({ uploadId, jobId, userId, projectId, pageId, floorIn
     method:  'POST',
     headers: {
       'Content-Type':      'application/json',
-      'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+      'x-internal-secret': secret ?? '',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(240_000),  // 4-minute timeout per page
+    signal: AbortSignal.timeout(240_000),
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(`analyse-plan returned ${res.status}: ${err.error ?? res.statusText}`);
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`analyse-plan returned ${res.status}: ${text.slice(0, 300)}`);
   }
 
   return res.json();
@@ -259,6 +283,14 @@ export default async function handler(req, res) {
   if (!uploadId || !jobId || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, userId required' });
   }
+
+  // Log secret availability early — the most common cause of 401s on internal calls.
+  console.log('[auto-analyse] env check', {
+    hasInternalSecret: !!process.env.INTERNAL_API_SECRET,
+    secretLen:         process.env.INTERNAL_API_SECRET?.length ?? 0,
+    uploadId,
+    jobId,
+  });
 
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
