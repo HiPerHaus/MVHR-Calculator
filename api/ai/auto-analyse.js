@@ -302,10 +302,13 @@ function isHabitableAnalysisPage(page) {
   if (page.page_type !== 'floor_plan') return false;
 
   const rejectTerms = [
-    'garage',
+    'garage floor plan',
+    'garage space',
+    'garage and ground floor layouts',
     'slab',
     'framing',
     'structural',
+    'wall framing',
     'wall layout',
     'roof layout',
     'footing',
@@ -324,14 +327,19 @@ function isHabitableAnalysisPage(page) {
     'living',
     'kitchen',
     'bedroom',
+    'bedrooms',
     'bath',
     'ensuite',
     'laundry',
     'lounge',
     'dining',
+    'entry',
     'habitable',
     'room labels',
     'internal walls',
+    'doors',
+    'windows',
+    'area schedule',
   ];
 
   return positiveTerms.some(term => text.includes(term));
