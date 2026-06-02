@@ -292,9 +292,13 @@ export default async function handler(req, res) {
     jobId,
   });
 
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000';
+  // Use the canonical public URL so internal self-calls bypass Vercel deployment protection.
+  // VERCEL_URL is deployment-specific and hits the protected preview URL — don't use it.
+  const baseUrl = (
+    process.env.PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (req.headers.host?.includes('localhost') ? 'http://localhost:3000' : 'https://www.hiper-studio.au')
+  ).replace(/\/$/, '');
 
   // ── Mark as analysing immediately (prevents polling clients showing awaiting_confirmation) ──
   await supabase
