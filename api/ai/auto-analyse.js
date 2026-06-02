@@ -345,12 +345,14 @@ export default async function handler(req, res) {
     }
 
     if (!pages?.length) {
-      // Double-check with a direct count — handles race conditions where pages were
-      // written after the select returned empty.
-      const { count: directCount } = await supabase
+      // Double-check by fetching ids — avoids Supabase count-option syntax issues.
+      const { data: checkRows } = await supabase
         .from('pdf_pages')
-        .select('id', { count: 'exact', head: true })
-        .eq('pdf_upload_id', uploadId);
+        .select('id')
+        .eq('pdf_upload_id', uploadId)
+        .limit(10);
+
+      const directCount = checkRows?.length ?? 0;
 
       if (!directCount) {
         console.log(JSON.stringify({

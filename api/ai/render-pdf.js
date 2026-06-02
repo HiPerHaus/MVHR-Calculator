@@ -241,13 +241,15 @@ export default async function handler(req, res) {
 
     if (insertErr) throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
 
-    // Count actual rows written — source of truth for downstream gates.
-    const { count: actualPagesCount } = await supabase
+    // Count actual rows written — fetch ids and use .length to avoid Supabase
+    // count-option syntax differences between client versions.
+    const { data: renderedRows } = await supabase
       .from('pdf_pages')
-      .select('id', { count: 'exact', head: true })
-      .eq('pdf_upload_id', uploadId);
+      .select('id')
+      .eq('pdf_upload_id', uploadId)
+      .limit(200);
 
-    const renderedCount = actualPagesCount ?? pageRecords.length;
+    const renderedCount = renderedRows?.length ?? pageRecords.length;
     const totalRenderMs = Date.now() - loopStart;
     const avgMs = pageDurations.length
       ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length) : 0;

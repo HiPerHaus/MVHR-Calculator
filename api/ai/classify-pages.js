@@ -372,14 +372,28 @@ export default async function handler(req, res) {
 
     const classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
 
-    // Use actual pdf_pages row count as the source of truth — pdf_uploads.pages_rendered
-    // may be stale (e.g. 0) if render-pdf ran before this column was being written.
-    const { count: actualPageCount } = await supabase
+    // Use actual pdf_pages rows as source of truth.
+    // Supabase JS v2: count option must be on select('*', { count, head }) — but to
+    // avoid count syntax pitfalls, just fetch ids and use .length.
+    const { data: pageRows, error: pageCountErr } = await supabase
       .from('pdf_pages')
-      .select('id', { count: 'exact', head: true })
-      .eq('pdf_upload_id', uploadId);
+      .select('id, page_number, pdf_upload_id')
+      .eq('pdf_upload_id', uploadId)
+      .limit(100);
 
-    const renderedCount = actualPageCount ?? pages.length;
+    const renderedCount = pageRows?.length ?? pages.length;
+
+    console.log(JSON.stringify({
+      event:              'classify-pages:page-count-check',
+      uploadId,
+      countByPdfUploadId: renderedCount,
+      pageCountErr:       pageCountErr?.message ?? null,
+      pagesArrayLength:   pages.length,
+      classifiedCount,
+      sampleRows:         (pageRows ?? []).slice(0, 3).map(r => ({
+        id: r.id, page_number: r.page_number, pdf_upload_id: r.pdf_upload_id,
+      })),
+    }));
 
     // ── Update pdf_uploads with accurate progress fields ──────────────────
     await supabase
