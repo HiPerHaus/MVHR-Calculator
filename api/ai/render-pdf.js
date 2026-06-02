@@ -235,21 +235,49 @@ export default async function handler(req, res) {
     doc.destroy();
 
     // ── Upsert pdf_pages ──────────────────────────────────────────────────────
+    // Defensive: ensure every record explicitly carries pdf_upload_id and page_number
+    // so they cannot be null even if a prior broken upsert left null-linked rows.
+    const safeRecords = pageRecords.map(r => ({
+      ...r,
+      pdf_upload_id: uploadId,   // always override — never trust inherited value
+      upload_id:     uploadId,   // populate alias column if schema uses both names
+      page_number:   r.page_number,
+    }));
+
+    console.log(JSON.stringify({
+      event:       'render-pdf:upsert',
+      uploadId,
+      recordCount: safeRecords.length,
+      sample:      safeRecords.slice(0, 2).map(r => ({
+        pdf_upload_id: r.pdf_upload_id,
+        upload_id:     r.upload_id,
+        page_number:   r.page_number,
+      })),
+    }));
+
     const { error: insertErr } = await supabase
       .from('pdf_pages')
-      .upsert(pageRecords, { onConflict: 'pdf_upload_id,page_number' });
+      .upsert(safeRecords, { onConflict: 'pdf_upload_id,page_number' });
 
     if (insertErr) throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
 
-    // Count actual rows written — fetch ids and use .length to avoid Supabase
-    // count-option syntax differences between client versions.
-    const { data: renderedRows } = await supabase
+    // ── Verify rows are linked to this upload ─────────────────────────────────
+    const { data: verify } = await supabase
       .from('pdf_pages')
       .select('id')
-      .eq('pdf_upload_id', uploadId)
-      .limit(200);
+      .eq('pdf_upload_id', uploadId);
 
-    const renderedCount = renderedRows?.length ?? pageRecords.length;
+    if (!verify?.length) {
+      throw new Error(`pdf_pages insert failed: no rows linked to upload ${uploadId}`);
+    }
+
+    console.log(JSON.stringify({
+      event:        'render-pdf:verify',
+      uploadId,
+      verifiedRows: verify.length,
+    }));
+
+    const renderedCount = verify.length;
     const totalRenderMs = Date.now() - loopStart;
     const avgMs = pageDurations.length
       ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length) : 0;
