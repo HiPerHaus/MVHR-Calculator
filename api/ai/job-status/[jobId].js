@@ -191,12 +191,55 @@ export default async function handler(req, res) {
     .filter(p => p.pageType === 'floor_plan')
     .map(p => p.pageNumber);
 
+  // ── When complete, fetch analysis results via pdf_pages.analysis_log_id ───
+  // analyse-plan writes analysis_log_id back to the pdf_page row after success.
+  // plan_analysis_log.parsed_rooms holds the full structured result.
+  let analysisResults = null;
+  if (upload.status === 'complete') {
+    const analysedPages = pages.filter(p => p.analysis_log_id);
+
+    if (analysedPages.length) {
+      const logIds = analysedPages.map(p => p.analysis_log_id);
+
+      const { data: logs } = await supabase
+        .from('plan_analysis_log')
+        .select('id, floor_index, parsed_rooms, analysis_status, created_at')
+        .in('id', logIds)
+        .order('floor_index', { ascending: true });
+
+      if (logs?.length) {
+        const logMap = Object.fromEntries(logs.map(l => [l.id, l]));
+
+        analysisResults = analysedPages
+          .map(page => {
+            const log = logMap[page.analysis_log_id];
+            if (!log) return null;
+            const parsed = log.parsed_rooms ?? {};
+            return {
+              logId:           log.id,
+              floorIndex:      log.floor_index ?? page.floorIndex ?? 0,
+              floorName:       page.floorName ?? `Floor ${log.floor_index ?? 0}`,
+              rooms:           parsed.rooms           ?? { supply: [], extract: [], transfer: [], ignore: [] },
+              warnings:        parsed.warnings        ?? [],
+              assumptions:     parsed.assumptions     ?? [],
+              occupancySummary: parsed.occupancySummary ?? null,
+              reviewCandidates: parsed.reviewCandidates ?? [],
+              analysisStatus:  log.analysis_status   ?? 'success',
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.floorIndex - b.floorIndex);
+      }
+    }
+  }
+
   return res.status(200).json({
-    jobId:          upload.job_id,
-    status:         upload.status,
-    pageCount:      upload.page_count,
-    pages:          responsePages,
+    jobId:           upload.job_id,
+    status:          upload.status,
+    pageCount:       upload.page_count,
+    pages:           responsePages,
     candidatePages,
-    errorDetail:    null,
+    errorDetail:     null,
+    analysisResults, // null unless status=complete and logs exist
   });
 }

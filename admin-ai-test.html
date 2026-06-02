@@ -835,7 +835,36 @@ async function pollJobStatus() {
     } else if (status === 'complete') {
       stopPdfPolling();
       stopTimer();
-      setStatus('success', 'Analysis complete');
+      if (data.analysisResults?.length) {
+        const allRooms = { supply: [], extract: [], transfer: [], ignore: [] };
+        const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
+        let occupancySummary = null;
+        const pageResults = [];
+        for (const r of data.analysisResults) {
+          for (const key of ['supply', 'extract', 'transfer', 'ignore']) {
+            allRooms[key].push(...(r.rooms?.[key] ?? []));
+          }
+          allWarnings.push(...(r.warnings ?? []));
+          allAssumptions.push(...(r.assumptions ?? []));
+          allReviewCandidates.push(...(r.reviewCandidates ?? []));
+          if (r.occupancySummary) occupancySummary = r.occupancySummary;
+          pageResults.push({ floorName: r.floorName, data: r });
+        }
+        const merged = {
+          analysisStatus: 'success',
+          rooms: allRooms,
+          warnings: allWarnings,
+          assumptions: allAssumptions,
+          occupancySummary,
+          reviewCandidates: allReviewCandidates,
+          _pageResults: pageResults,
+        };
+        _lastResult = merged;
+        setStatus('success', `Complete — ${data.analysisResults.length} floor(s) analysed`);
+        renderResults(merged);
+      } else {
+        setStatus('success', 'Analysis complete');
+      }
       document.getElementById('analyseBtn').disabled = false;
 
     } else if (status === 'error') {
