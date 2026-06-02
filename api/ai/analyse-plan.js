@@ -26,7 +26,16 @@
 //   rooms: {
 //     supply:   [{ name, labelSeen, roomType, area, floor, ventilationClassification, confidence,
 //                  fixtures, optionalExtract, optionalSupply, containsSecondaryExtractZone,
-//                  classificationReason }],
+//                  classificationReason, parentRoom, terminalPriority, spaceType }],
+//                  terminalPriority: 'high' | 'medium' | 'low' | 'none'
+//                  spaceType: 'bedroom' | 'living' | 'dining' | 'kitchen' | 'wet_area' |
+//                             'laundry' | 'office' | 'gym' | 'robe' | 'circulation' |
+//                             'service' | 'other'
+//                  airflowDriver: 'occupancy' | 'area' | 'fixed_extract' | 'transfer' | 'optional'
+//                  bedSpaces: number (permanent sleeping capacity; 0 for non-bedrooms)
+//                  potentialBedSpaces: number (convertible rooms; 0 if not applicable)
+// Top-level response also includes:
+//   occupancySummary: { suggestedOccupancy, totalBedSpaces, potentialAdditionalBedSpaces }
 //     extract:  [...],
 //     transfer: [...],
 //     ignore:   [...]
@@ -124,6 +133,76 @@ function validateRoom(raw, floorIndex) {
     else                                        ventClass = 'supply';
   }
 
+  // parentRoom: name of the primary room this zone was split from (secondary zones only)
+  const parentRoom = typeof raw.parentRoom === 'string' && raw.parentRoom.trim()
+    ? raw.parentRoom.trim()
+    : null;
+
+  // spaceType: functional space category used by the sizing engine for airflow lookup.
+  const SPACE_TYPE_VALUES = new Set([
+    'bedroom','living','dining','kitchen','wet_area','laundry',
+    'office','gym','robe','circulation','service','other',
+  ]);
+  const rawSpaceType = typeof raw.spaceType === 'string'
+    ? raw.spaceType.toLowerCase().trim() : null;
+  // Fallback: infer from roomType when AI doesn't set it
+  const ROOM_TYPE_TO_SPACE_TYPE = {
+    'Single Bedroom':  'bedroom',  'Double Bedroom': 'bedroom',
+    'Master Bedroom':  'bedroom',  'Study / Office': 'office',
+    'Living Room':     'living',   'Dining Room':    'dining',
+    'Rumpus Room':     'living',   'Other':          'other',
+    'Kitchen':         'kitchen',  'Bathroom':       'wet_area',
+    'Ensuite':         'wet_area', 'Laundry':        'laundry',
+    'WC':              'wet_area', 'Pantry':         'kitchen',
+    'Hallway':         'circulation', 'Entry':        'circulation',
+    'Corridor':        'circulation', 'WIR':          'robe',
+    'Garage':          'service',  'Porch':          'service',
+    'Carport':         'service',  'Alfresco':       'service',
+    'Store':           'service',
+  };
+  const spaceType = SPACE_TYPE_VALUES.has(rawSpaceType)
+    ? rawSpaceType
+    : ROOM_TYPE_TO_SPACE_TYPE[resolvedType] ?? 'other';
+
+  // airflowDriver: sizing methodology for the calculation stage.
+  const AIRFLOW_DRIVER_VALUES = new Set(['occupancy','area','fixed_extract','transfer','optional']);
+  const rawDriver = typeof raw.airflowDriver === 'string'
+    ? raw.airflowDriver.toLowerCase().trim() : null;
+  // Fallback: derive from spaceType when AI doesn't set it
+  const SPACE_TYPE_TO_DRIVER = {
+    bedroom:     'occupancy',   living:      'occupancy',
+    dining:      'area',        kitchen:     'fixed_extract',
+    wet_area:    'fixed_extract', laundry:   'fixed_extract',
+    office:      'occupancy',   gym:         'occupancy',
+    robe:        'optional',    circulation: 'transfer',
+    service:     'optional',    other:       'occupancy',
+  };
+  const airflowDriver = AIRFLOW_DRIVER_VALUES.has(rawDriver)
+    ? rawDriver
+    : SPACE_TYPE_TO_DRIVER[spaceType] ?? 'occupancy';
+
+  // bedSpaces / potentialBedSpaces: occupancy estimation (not ventilation classification).
+  const bedSpaces          = typeof raw.bedSpaces === 'number' && raw.bedSpaces >= 0
+    ? Math.round(raw.bedSpaces) : (spaceType === 'bedroom' ? 2 : 0);
+  const potentialBedSpaces = typeof raw.potentialBedSpaces === 'number' && raw.potentialBedSpaces >= 0
+    ? Math.round(raw.potentialBedSpaces) : 0;
+
+  // terminalPriority: design-stage hint for terminal allocation.
+  // 'high'   — normally requires its own dedicated terminal
+  // 'medium' — often has its own terminal but may share
+  // 'low'    — terminal optional, used for balancing or project-specific reasons
+  // 'none'   — normally no terminal (hallways, circulation, service spaces)
+  // AI may set this; falls back to a sensible default derived from ventClass.
+  const TERMINAL_PRIORITY_VALUES = new Set(['high','medium','low','none']);
+  const rawPriority = typeof raw.terminalPriority === 'string'
+    ? raw.terminalPriority.toLowerCase().trim() : null;
+  const terminalPriority = TERMINAL_PRIORITY_VALUES.has(rawPriority)
+    ? rawPriority
+    : ventClass === 'supply'   ? 'high'
+    : ventClass === 'extract'  ? 'high'
+    : ventClass === 'transfer' ? 'none'
+    : 'none';
+
   return {
     name:                      name || resolvedType,
     labelSeen:                 labelSeen || name || resolvedType,
@@ -137,6 +216,12 @@ function validateRoom(raw, floorIndex) {
     optionalSupply:                 false,
     containsSecondaryExtractZone:   raw.containsSecondaryExtractZone === true,
     classificationReason:           null,
+    parentRoom,
+    terminalPriority,
+    spaceType,
+    airflowDriver,
+    bedSpaces,
+    potentialBedSpaces,
   };
 }
 
@@ -496,6 +581,11 @@ Analyse the residential floor plan and classify every identified space.
 Do NOT perform airflow calculations, diffuser sizing, duct sizing, balancing or equipment selection.
 Return structured JSON only.
 
+IMPORTANT:
+Missing a fixture is worse than incorrectly identifying a fixture.
+When uncertain whether a sink, basin, kitchenette or laundry tub exists, inspect the room
+again before classifying.
+
 ════ MVHR AIR MOVEMENT PRINCIPLE ════
 Supply rooms → Transfer areas → Extract rooms
 Supply = habitable rooms where occupants spend extended time.
@@ -550,6 +640,95 @@ Set "roomType" to exactly one of:
   Transfer: "Hallway"  "Entry"  "Corridor"  "Other"
   Ignore:   "WIR"  "Garage"  "Porch"  "Carport"  "Alfresco"  "Store"  "Other"
 
+════ MANDATORY INSPECTION OF AMBIGUOUS ROOMS ════
+The following room types MUST undergo a detailed visual inspection before classification.
+Do NOT classify these rooms based on the room label alone:
+
+  Multi-Use Room  Multi-Purpose Room  MPR  Activity Room  Retreat  Rumpus  Games Room
+  Studio  Gym  Cellar  Bar  Home Office  Office  Study  Workshop  Utility Room
+  Craft Room  Hobby Room  Theatre  Media Room  Bonus Room  Flex Room  Sunroom
+
+Before assigning a ventilation classification to any of these rooms:
+  1. Inspect every wall of the room for drawn fixtures or joinery.
+  2. Inspect all joinery runs — look for a sink bowl outline embedded in a benchtop.
+  3. Look for plumbing symbols: circles (basin), rectangles (sink/tub), elongated ovals (toilet).
+  4. Look for shower recess outlines — square/rectangular zone with a small circle (drain).
+  5. Look for a laundry tub — deep square tub, often in a corner or against a wall.
+  6. Check whether any benchtop runs along a wall that could conceal a kitchenette.
+  7. Inspect corners and alcoves — wet fixtures are often placed out of the main circulation path.
+  8. Look for a second label inside the room (e.g. "BAR SINK", "LAUNDRY TUB", "WC").
+  9. Check for tile hatching patterns — often used to mark wet zones within a room.
+  10. If any ambiguity remains, report the room at the HIGHER sensitivity level (i.e. include the fixture in fixtures[] rather than omitting it).
+
+Mandatory Fixture Search:
+  For every room in the ambiguous list above, explicitly check for and report:
+    • Sink or basin of any kind (bar sink, prep sink, utility sink, kitchenette)
+    • Shower recess or cubicle
+    • Toilet or WC
+    • Laundry tub or utility tub
+    • Vanity unit
+
+Visual Recognition Guidance:
+  Sink / basin  — D-shaped or rectangular cutout in a benchtop line; may have a small + or circle for the drain
+  Vanity        — benchtop line with one or two basin outlines; often shown with a mirror symbol above
+  Shower        — square or rectangular outline, dashed or solid, with a drain circle inside
+  Toilet / WC   — elongated oval (pan) attached to a smaller rectangle (cistern)
+  Laundry tub   — square or near-square deep tub, usually in a corner, larger than a basin
+  Kitchenette   — short joinery run (< 2 m) with a visible sink cutout; may include a small fridge symbol
+
+Multi-Use Room Special Rule:
+  A room labelled "Multi-Use", "Multi-Purpose", "MPR", "Activity", "Flex" or similar
+  has a high probability of containing a kitchenette, bar sink or laundry tub.
+  These fixtures are frequently installed in such rooms and are easy to miss on small-scale plans.
+  ALWAYS look twice inside these rooms before deciding no wet fixture is present.
+
+Second Inspection Pass — Mandatory:
+  Before finalising any Multi-Use Room, MPR, Gym, Retreat, Studio, Office or Activity Room:
+    Perform a second dedicated inspection pass of that room only.
+    Do not rely on the first scan.
+    Many fixtures are small, partially obscured, located within joinery, or located inside
+    connected alcoves.
+
+Hidden Wet-Area Detection:
+  Pay particular attention to:
+    • Rooms labelled "By Owner"
+    • Unlabelled alcoves attached to an ambiguous room
+    • Joinery recesses and built-in joinery runs
+    • Small rooms or spaces connected to a Multi-Use Room
+    • Rooms behind sliding doors or without a labelled door
+    • Spaces connected to an ambiguous room without a physical door
+  These frequently contain ensuites, powder rooms, kitchenettes, utility areas or laundry facilities.
+  If such a space is found, inspect it for wet fixtures and include it as a separate room entry.
+
+Evidence Hierarchy — most important rule:
+  For ambiguous rooms:
+    Room label   = weak evidence
+    Fixtures     = strong evidence
+  Always trust visible fixtures over room names.
+  A room named "Activity Room" with a visible sink is EXTRACT, not supply.
+  A room named "Gym" with no visible wet fixtures remains extract (elevated moisture load).
+  A room named "Study" with a visible sink is EXTRACT.
+
+Confidence Penalty:
+  If an ambiguous room is classified without any detected fixtures:
+    Maximum confidence = 0.90
+    Confidence above 0.90 is only permitted when all walls, joinery and connected spaces
+    are clearly visible and have been inspected in the second pass.
+
+Assumptions Requirement:
+  If an ambiguous room is classified as supply after inspection, add an entry to assumptions[]:
+    "Multi-Use Room classified as supply. No sink, basin, shower, toilet, kitchenette or
+    laundry fixtures detected after detailed inspection."
+  If an ambiguous room is classified as extract due to a fixture, add an entry to assumptions[]:
+    "Multi-Use Room reclassified as extract. Sink detected during second inspection pass."
+  This creates an audit trail showing what the model inspected and why it classified as it did.
+
+Warning Requirement:
+  If you inspect a room from the ambiguous list and find no fixtures, add a note in assumptions[]:
+    e.g. "Inspected Multi-Use Room — no wet fixtures visible; classified as supply."
+  If you find a fixture, list it in fixtures[] and add a note in assumptions[]:
+    e.g. "Multi-Use Room contains a sink — reclassified as extract."
+
 ════ STEP 3: IDENTIFY FIXTURES IN EVERY ROOM ════
 Do NOT rely only on the room label. Visually inspect the interior of EVERY room for drawn symbols.
 
@@ -598,6 +777,245 @@ Examples:
   Store + laundry tub               = extract
   Retreat + spa bath only           = supply + containsSecondaryExtractZone true
 
+════ ROOM SPLITTING RULE ════
+Some architectural spaces contain multiple ventilation zones.
+If a room contains a clearly identifiable wet area that would normally be classified differently
+to the main room — do NOT classify the entire room using a single ventilation classification.
+
+Instead:
+  1. Create the primary room entry using the dominant room function.
+  2. Create a separate secondary zone entry for the wet area.
+  3. Set containsSecondaryExtractZone = true on the primary room entry.
+  4. Set "parentRoom" on the secondary zone entry to the primary room's name.
+  5. Add a warning describing the split.
+
+Examples:
+  Bedroom + freestanding bath       → Bedroom (supply, containsSecondaryExtractZone true)
+                                       Bath Zone (extract, parentRoom "Bedroom")
+  Bedroom + ensuite                 → Bedroom (supply, containsSecondaryExtractZone true)
+                                       Ensuite (extract, parentRoom "Bedroom")
+  Gym + shower                      → Gym (extract — elevated CO₂/moisture load)
+                                       Shower Zone (extract, parentRoom "Gym")
+  Retreat + wet bar                 → Retreat (supply, containsSecondaryExtractZone true)
+                                       Wet Bar Zone (extract, parentRoom "Retreat")
+  Studio + kitchenette              → Studio (supply, containsSecondaryExtractZone true)
+                                       Kitchenette Zone (extract, parentRoom "Studio")
+  Living / Kitchen open-plan        → Living (supply)
+                                       Kitchen Zone (extract, parentRoom "Living")
+
+NEVER convert an entire habitable room to extract simply because a smaller wet area exists within it.
+The primary room's classification must reflect its dominant occupancy function.
+
+════ OPEN PLAN AIRFLOW ZONE RULE ════
+Architectural rooms and ventilation zones are not always the same thing.
+The objective is to identify airflow zones, not simply room names.
+Large open-plan spaces frequently contain multiple ventilation zones with different functions.
+
+Examples:
+  Living / Dining / Kitchen
+    → Living Room    = supply zone
+    → Dining         = supply zone
+    → Kitchen        = extract zone
+
+  Living / Dining / Kitchen / Scullery
+    → Living Room    = supply zone
+    → Dining         = supply zone
+    → Kitchen        = extract zone
+    → Scullery       = extract zone
+
+  Master Suite
+    → Bedroom        = supply zone
+    → Ensuite        = extract zone
+    → WIR            = transfer zone
+
+  Gym + Shower
+    → Gym            = supply zone (CO₂/moisture load — see also Gym rule)
+    → Shower Zone    = extract zone
+
+  Retreat + Wet Bar
+    → Retreat        = supply zone
+    → Wet Bar Zone   = extract zone
+
+  Studio + Kitchenette
+    → Studio         = supply zone
+    → Kitchenette    = extract zone
+
+When a single architectural space contains areas that would normally receive different classifications:
+  1. Split the space into airflow zones.
+  2. Create a separate room object for each zone.
+  3. Assign the correct ventilation classification to each zone.
+  4. Link secondary zones using "parentRoom" set to the architectural room name.
+  5. Add a warning describing the split.
+
+Do NOT classify an entire open-plan area as supply or extract simply because one portion of the
+space contains a wet area. Always classify based on airflow function.
+
+════ AIRFLOW ZONE HIERARCHY ════
+When determining ventilation classification, apply in this order:
+  1. Visible fixtures   (highest priority — overrides everything)
+  2. Room function      (gym, pantry, laundry always extract regardless of label)
+  3. Architectural layout (open plan — split at the wet zone boundary)
+  4. Room label         (lowest priority — use only when nothing else is visible)
+
+Visible fixtures always override room labels:
+  Room labelled "Studio"         + sink          → extract zone
+  Room labelled "Multi-Use Room" + shower        → extract zone
+  Room labelled "Retreat"        + kitchenette   → extract zone
+  Room labelled "Bedroom"        + bath only     → supply zone + secondary extract zone
+  Room labelled "Living"         + kitchen bench → split: living = supply, kitchen = extract
+
+The objective is to identify the airflow zones that will ultimately receive MVHR terminals.
+Every zone should represent a distinct airflow destination, not simply a room name.
+
+════ ZONE OUTPUT FORMAT ════
+Each zone is a room entry in the rooms[] array.
+Secondary zones created by splitting must set "parentRoom" to the architectural room name.
+Set "terminalPriority" per the TERMINAL PRIORITY RULE above.
+
+Example output for open-plan Living / Dining / Kitchen:
+  { "name": "Living Room", "classification": "supply",  "parentRoom": null,                       "terminalPriority": "high" }
+  { "name": "Dining",      "classification": "supply",  "parentRoom": "Living / Dining / Kitchen", "terminalPriority": "high" }
+  { "name": "Kitchen",     "classification": "extract", "parentRoom": "Living / Dining / Kitchen", "terminalPriority": "high" }
+
+Example output for Master Suite:
+  { "name": "Master Bedroom",           "classification": "supply",  "parentRoom": null,             "terminalPriority": "high", "containsSecondaryExtractZone": true }
+  { "name": "Master Bedroom - Ensuite", "classification": "extract", "parentRoom": "Master Bedroom", "terminalPriority": "high" }
+
+Example output for Pantry adjacent to Kitchen:
+  { "name": "Kitchen", "classification": "extract", "parentRoom": null,      "terminalPriority": "high" }
+  { "name": "Pantry",  "classification": "extract", "parentRoom": "Kitchen", "terminalPriority": "low"  }
+
+Do NOT create separate zones for:
+  Hallways  Corridors  Small cupboards  Joinery  Storage recesses
+unless they independently require a ventilation terminal.
+
+════ TERMINAL PRIORITY RULE ════
+Not all airflow zones require their own MVHR terminal.
+For every zone, assign a "terminalPriority" value reflecting normal MVHR design practice —
+not project-specific decisions, which are made at the sizing stage.
+
+HIGH — normally requires its own dedicated terminal:
+  Bedroom  Master Bedroom  Living Room  Lounge  Dining Room  Family Room
+  Kitchen  Bathroom  Ensuite  WC  Powder Room  Toilet  Laundry
+
+MEDIUM — often has its own terminal but may share airflow with an adjacent zone:
+  Gym  Home Office  Study  Multi-Use Room  Retreat  Activity Room  Studio  Rumpus  Media Room
+
+LOW — terminal optional; used for balancing or project-specific reasons:
+  Pantry  Scullery  Walk-in Pantry  Butler's Pantry
+  Walk-in Robe (WIR)  Dressing Room  Internal Store
+
+NONE — normally no terminal:
+  Hallway  Corridor  Entry  Foyer  Stair  Landing
+  Mudroom  Porch  Small Cupboard  Joinery  Plant Room  Garage  Outdoor areas
+
+terminalPriority reflects whether a zone would typically receive a terminal in a standard
+MVHR design. It does NOT mean a terminal is mandatory — the sizing engine will decide that
+based on airflow balance, room volume and project requirements.
+
+════ SPACE TYPE RULE ════
+For every airflow zone, assign a "spaceType" that represents the functional use of the zone.
+spaceType is used by the sizing engine to look up airflow rates and design rules.
+Use the room function, not the room label.
+
+  "bedroom"     — Bedroom  Master Bedroom  Guest Bedroom  Kids Bedroom  Personal room (named)
+  "living"      — Living  Lounge  Family Room  Sitting Room  Retreat  Rumpus  Activity  Sunroom
+                  Multi-Use Room  Multi-Purpose Room  Media Room  Games Room  Theatre  Home Theatre
+                  Studio (no wet fixtures)
+  "dining"      — Dining  Meals  Dining Room  Breakfast
+  "kitchen"     — Kitchen  Kitchenette  Scullery  Butler's Pantry  Walk-in Pantry  Pantry
+  "wet_area"    — Bathroom  Ensuite  Powder Room  WC  Toilet
+  "laundry"     — Laundry  Mudroom (with laundry fixtures)  Utility Room (with laundry fixtures)
+  "office"      — Study  Office  Home Office  Library  Workroom
+  "gym"         — Gym  Home Gym  Exercise Room
+  "robe"        — Walk-in Robe (WIR)  Dressing Room  Wardrobe Room
+  "circulation" — Hallway  Corridor  Entry  Foyer  Passage  Landing  Stair  Lobby
+  "service"     — Store  Cupboard  Plant Room  Mechanical  Electrical  HWS  Garage  Carport
+                  Bin Store  Roof Space  Attic  Outdoor areas
+  "other"       — Any zone that does not clearly fit the above
+
+Notes:
+  • Pantry, Scullery and Butler's Pantry → "kitchen" (airflow calculated using kitchen extract rate)
+  • WIR and Dressing Room → "robe" (transfer zone; low or no terminal)
+  • A Retreat or Rumpus without wet fixtures → "living"
+  • A Studio with a sink → spaceType "kitchen" (or "wet_area" if sink only), classification = extract
+  • Mudroom without laundry fixtures → "circulation"
+
+════ AIRFLOW DRIVER RULE ════
+For every airflow zone assign an "airflowDriver".
+The airflowDriver identifies which sizing methodology applies at the calculation stage.
+
+  "occupancy"      — habitable rooms where airflow is primarily driven by occupants:
+                     Bedroom  Master Bedroom  Guest Bedroom  Living Room  Lounge  Family Room
+                     Retreat  Home Office  Study  Library  Multi-Use Room  Activity Room  Studio
+                     Gym  Rumpus  Media Room  Playroom  Sunroom
+
+  "area"           — larger habitable spaces where floor area influences the airflow rate:
+                     Open-Plan Living  Dining Room  Meals  Dining  Large Family Room
+                     (Use "area" instead of "occupancy" when the space is open-plan or > ~40 m²)
+
+  "fixed_extract"  — wet rooms and service areas where extract rates are typically prescribed:
+                     Kitchen  Kitchenette  Scullery  Butler's Pantry  Pantry
+                     Bathroom  Ensuite  WC  Powder Room  Toilet
+                     Laundry  Mudroom (wet)  Utility Room (wet)
+
+  "transfer"       — circulation spaces that move air between supply and extract zones:
+                     Hallway  Corridor  Passage  Entry  Foyer  Stair  Landing  Lobby
+
+  "optional"       — spaces that may receive airflow for balancing but are not compliance-required:
+                     Walk-in Robe (WIR)  Dressing Room  Internal Store  Cupboard  Plant Room
+
+Examples:
+  Bedroom         → "occupancy"
+  Living Room     → "occupancy"
+  Open-Plan Living/Dining (> 40 m²) → "area"
+  Dining Room     → "area"
+  Kitchen         → "fixed_extract"
+  Ensuite         → "fixed_extract"
+  WC              → "fixed_extract"
+  Laundry         → "fixed_extract"
+  Pantry          → "fixed_extract"
+  Hallway         → "transfer"
+  Walk-in Robe    → "optional"
+  Internal Store  → "optional"
+
+════ BED SPACE DETECTION RULE ════
+This is NOT a ventilation classification task.
+This is an occupancy estimation task only.
+Estimate likely sleeping capacity conservatively. The user will always be able to override values.
+
+For every zone set "bedSpaces" and "potentialBedSpaces". Default both to 0.
+
+PERMANENT BED SPACES — bedSpaces:
+  Master Bedroom              → 2  (assume double unless clearly single-occupancy)
+  Double Bedroom / Bedroom    → 2  (Bedroom 2, Bedroom 3, Guest Bedroom, Bedroom)
+  Single / Child / Nursery    → 1  (Small Bedroom, Child's Room, Nursery, Baby's Room)
+  All non-bedroom zones       → 0
+
+CONVERTIBLE BED SPACES — potentialBedSpaces:
+  A non-bedroom zone that has a door, appears to have a window, and is of suitable size
+  (roughly ≥ 8 m²) may be suitable for future bedroom conversion:
+    Study  Multi-Purpose Room  Multi-Use Room  Retreat  Studio  Activity Room
+    → potentialBedSpaces = 1
+  Add an assumption: "Multi-Use Room appears suitable for future bedroom conversion."
+  All other zones: potentialBedSpaces = 0
+
+ROOMS THAT ARE NOT BEDROOMS (bedSpaces = 0 unless fixtures suggest otherwise):
+  Study  Home Office  Library  Retreat  Sitting Room  Media Room  Theatre
+  Living Room  Lounge  Dining Room  Gym  Games Room  Activity Room
+  Multi-Purpose Room  Multi-Use Room  Studio  Rumpus Room
+
+PROJECT-LEVEL OCCUPANCY SUMMARY:
+After listing all rooms[], add a top-level "occupancySummary" object:
+  {
+    "suggestedOccupancy":          <sum of all bedSpaces>,
+    "totalBedSpaces":              <sum of all bedSpaces>,
+    "potentialAdditionalBedSpaces":<sum of all potentialBedSpaces>
+  }
+
+Do not attempt to predict actual residents.
+Only estimate available sleeping capacity.
+
 ════ ZONE-WITHIN-ZONE ════
 Some rooms contain two ventilation functions. Preserve the primary classification and set
 "containsSecondaryExtractZone": true so Stage 2 can allocate a secondary extract terminal.
@@ -633,26 +1051,41 @@ Return ONLY valid JSON. No markdown. No prose.
   "rooms": [
     { "name": "Master Bedroom", "labelSeen": "MASTER BED",
       "roomType": "Master Bedroom", "classification": "supply",
-      "area": 19.2, "confidence": 0.94,
-      "fixtures": [], "containsSecondaryExtractZone": false },
+      "spaceType": "bedroom", "airflowDriver": "occupancy",
+      "area": 19.2, "confidence": 0.94, "terminalPriority": "high",
+      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
     { "name": "Kitchen", "labelSeen": "KITCHEN",
       "roomType": "Kitchen", "classification": "extract",
-      "area": 16.4, "confidence": 0.97,
-      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false },
+      "spaceType": "kitchen", "airflowDriver": "fixed_extract",
+      "area": 16.4, "confidence": 0.97, "terminalPriority": "high",
+      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false, "parentRoom": null },
     { "name": "Multi-Use Room", "labelSeen": "MULTI USE",
       "roomType": "Other", "classification": "extract",
-      "area": 12.0, "confidence": 0.85,
-      "fixtures": ["sink"], "containsSecondaryExtractZone": false },
+      "spaceType": "kitchen", "airflowDriver": "fixed_extract",
+      "area": 12.0, "confidence": 0.85, "terminalPriority": "medium",
+      "fixtures": ["sink"], "containsSecondaryExtractZone": false, "parentRoom": null },
     { "name": "Rumpus Room", "labelSeen": "RUMPUS",
       "roomType": "Rumpus Room", "classification": "supply",
-      "area": 22.0, "confidence": 0.95,
-      "fixtures": ["fridge"], "containsSecondaryExtractZone": false },
+      "spaceType": "living", "airflowDriver": "occupancy",
+      "area": 22.0, "confidence": 0.95, "terminalPriority": "high",
+      "fixtures": ["fridge"], "containsSecondaryExtractZone": false, "parentRoom": null },
     { "name": "Walk-in Robe", "labelSeen": "WIR",
       "roomType": "WIR", "classification": "transfer",
-      "area": 5.5, "confidence": 0.92,
-      "fixtures": [], "containsSecondaryExtractZone": false }
+      "spaceType": "robe", "airflowDriver": "optional",
+      "area": 5.5, "confidence": 0.92, "terminalPriority": "low",
+      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
+    { "name": "Master Bedroom", "labelSeen": "MASTER SUITE",
+      "roomType": "Master Bedroom", "classification": "supply",
+      "spaceType": "bedroom", "airflowDriver": "occupancy",
+      "area": 22.0, "confidence": 0.93, "terminalPriority": "high",
+      "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": true, "parentRoom": null },
+    { "name": "Master Bedroom - Bath Zone", "labelSeen": "FREESTANDING BATH",
+      "roomType": "Bathroom", "classification": "extract",
+      "spaceType": "wet_area", "airflowDriver": "fixed_extract",
+      "area": 4.0, "confidence": 0.88, "terminalPriority": "high",
+      "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": false, "parentRoom": "Master Bedroom" }
   ],
-  "warnings": [],
+  "warnings": ["Master Bedroom split: primary room supply, bath zone created as secondary extract."],
   "assumptions": []
 }`;
 
@@ -678,6 +1111,14 @@ CLASSIFICATION:
              plant room, electrical room, HRV/MVHR cupboard, HWS, bin store
   WIR      — transfer (set optionalSupply true if ≥ 4 m²)
   Store    — transfer + optionalExtract true (ignore if < 2 m²)
+
+AMBIGUOUS ROOM INSPECTION — inspect every wall before classifying:
+  Multi-Use  Multi-Purpose  MPR  Activity  Retreat  Rumpus  Games  Studio  Gym  Cellar  Bar
+  Office  Study  Workshop  Utility  Craft  Hobby  Theatre  Media  Flex  Sunroom
+  For each: check every wall for sink, basin, vanity, shower, toilet, laundry tub, kitchenette.
+  Tile hatching, benchtop runs with cutouts, and plumbing symbols count as fixture evidence.
+  If fixture presence is uncertain, include it in fixtures[] (missing = worse than false positive).
+  Add a note in assumptions[] for each ambiguous room you inspect.
 
 FIXTURE INSPECTION — do NOT rely on room labels for plumbing:
 Inspect every room interior for drawn symbols against walls.

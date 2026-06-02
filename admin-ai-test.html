@@ -288,6 +288,12 @@ details summary:hover { background: var(--primary-light); }
       <div class="section-label">⚠ Warnings</div>
       <div id="warningsList"></div>
     </div>
+
+    <!-- Assumptions -->
+    <div id="assumptionsSection" style="display:none;margin-top:12px">
+      <div class="section-label">ℹ Assumptions</div>
+      <div id="assumptionsList"></div>
+    </div>
   </div>
 
   <!-- ── Failure Card (shown when analysisStatus = 'failed') ── -->
@@ -647,12 +653,23 @@ function renderResults(data) {
   // Warnings
   const warnings = data.warnings || [];
   const warnSection = document.getElementById('warningsSection');
-  const warnList    = document.getElementById('warningsList');
   if (warnings.length) {
-    warnList.innerHTML = warnings.map(w => `<div class="warn-item">${esc(String(w))}</div>`).join('');
+    document.getElementById('warningsList').innerHTML =
+      warnings.map(w => `<div class="warn-item">${esc(String(w))}</div>`).join('');
     warnSection.style.display = '';
   } else {
     warnSection.style.display = 'none';
+  }
+
+  // Assumptions
+  const assumptions = data.assumptions || [];
+  const assumeSection = document.getElementById('assumptionsSection');
+  if (assumptions.length) {
+    document.getElementById('assumptionsList').innerHTML =
+      assumptions.map(a => `<div style="padding:6px 12px;font-size:12px;color:var(--muted);border-left:3px solid var(--border);margin-bottom:4px">${esc(String(a))}</div>`).join('');
+    assumeSection.style.display = '';
+  } else {
+    assumeSection.style.display = 'none';
   }
 
   // Rooms — only rendered on successful analysis
@@ -687,6 +704,15 @@ function renderRoomRows(rooms) {
   return rooms.map(r => {
     const name       = esc(r.name || '—');
     const labelSeen  = esc(r.labelSeen || '—');
+    const driverColour = {
+      occupancy:     '#1e40af', area:          '#0e7490',
+      fixed_extract: '#92400e', transfer:      '#374151',
+      optional:      '#6b7280',
+    }[r.airflowDriver] || '#6b7280';
+    const spaceTag = (r.spaceType || r.airflowDriver)
+      ? `<br><span style="font-size:10px;color:var(--muted);font-weight:500">${r.spaceType ? esc(r.spaceType) : ''}</span>`
+        + (r.airflowDriver ? ` <span style="font-size:10px;font-weight:700;color:${driverColour}">${esc(r.airflowDriver)}</span>` : '')
+      : '';
     const type       = esc(r.roomType || '—');
     const classif    = esc(r.ventilationClassification || '—');
     const conf       = r.confidence != null ? Number(r.confidence) : null;
@@ -699,6 +725,15 @@ function renderRoomRows(rooms) {
       transfer: 'color:#1e40af;background:#dbeafe',
       ignore:   'color:var(--muted);background:var(--input-bg)',
     }[r.ventilationClassification] || '';
+    const priorityStyle = {
+      high:   'background:#dcfce7;color:#166534',
+      medium: 'background:#dbeafe;color:#1e40af',
+      low:    'background:#fef3c7;color:#92400e',
+      none:   'background:var(--input-bg);color:var(--muted);border:1px solid var(--border)',
+    }[r.terminalPriority] || '';
+    const terminalBadge = r.terminalPriority
+      ? ` <span title="Terminal priority: ${esc(r.terminalPriority)}" style="font-size:10px;padding:1px 6px;border-radius:8px;${priorityStyle}">${esc(r.terminalPriority)}</span>`
+      : '';
     const fixtureList = Array.isArray(r.fixtures) && r.fixtures.length
       ? r.fixtures.map(f => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fef3c7;color:#92400e;margin-right:3px">${esc(f)}</span>`).join('')
       : '<span style="color:var(--muted);font-size:12px">—</span>';
@@ -710,11 +745,17 @@ function renderRoomRows(rooms) {
     const reason = r.classificationReason
       ? `<span style="font-size:11px;color:var(--muted)">${esc(r.classificationReason)}</span>`
       : '<span style="color:var(--muted);font-size:12px">—</span>';
-    return `<tr>
-      <td>${name}</td>
+    const secondaryZone = r.containsSecondaryExtractZone
+      ? ' <span title="Contains secondary extract zone" style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fef3c7;color:#92400e">⚡ 2nd zone</span>'
+      : '';
+    const parentRoomBadge = r.parentRoom
+      ? ` <span title="Secondary zone split from ${esc(r.parentRoom)}" style="font-size:10px;padding:1px 6px;border-radius:8px;background:#dbeafe;color:#1e40af;margin-left:3px">↳ ${esc(r.parentRoom)}</span>`
+      : '';
+    return `<tr${r.parentRoom ? ' style="background:rgba(219,234,254,0.3)"' : ''}>
+      <td>${name}${secondaryZone}${parentRoomBadge}</td>
       <td style="color:var(--muted);font-size:12px">${labelSeen}</td>
-      <td>${type}</td>
-      <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span></td>
+      <td>${type}${spaceTag}</td>
+      <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span>${terminalBadge}</td>
       <td>${fixtureList}</td>
       <td style="text-align:center">${optExtract}</td>
       <td style="max-width:220px">${reason}</td>
