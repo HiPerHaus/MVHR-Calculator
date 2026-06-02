@@ -24,7 +24,8 @@
     "stripe": "^16.0.0",
     "pdfjs-dist": "^4.4.168",
     "@napi-rs/canvas": "^0.1.53",
-    "sharp": "^0.33.4"
+    "sharp": "^0.33.4",
+    "resend": "^4.0.0"
   },
   "engines": {
     "node": "22.x"

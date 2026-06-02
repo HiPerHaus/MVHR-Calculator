@@ -104,7 +104,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { uploadId, jobId, userId, pageCount } = req.body ?? {};
+  const { uploadId, jobId, userId, pageCount, projectId } = req.body ?? {};
 
   if (!uploadId || !jobId || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, userId required' });
@@ -288,6 +288,23 @@ export default async function handler(req, res) {
         classify_completed_at: classifyCompletedAt,
       })
       .eq('id', uploadId);
+
+    // ── Fire-and-forget: auto-analyse ─────────────────────────────────────
+    // Immediately starts the background analysis pipeline — auto-selects floor
+    // plan pages, runs analyse-plan for each, and emails the user when done.
+    // The status will transition: awaiting_confirmation → analysing → complete.
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'http://localhost:3000';
+
+    fetch(`${baseUrl}/api/ai/auto-analyse`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':       'application/json',
+        'x-internal-secret':  process.env.INTERNAL_API_SECRET ?? '',
+      },
+      body: JSON.stringify({ uploadId, jobId, userId, projectId: projectId ?? null }),
+    }).catch(e => console.error('classify-pages: auto-analyse call failed:', e.message));
 
     return res.status(200).json({
       uploadId,

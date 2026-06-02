@@ -173,6 +173,7 @@ export default async function handler(req, res) {
       jobId:       uploadRow.job_id,
       storagePath,
       userId:      user.id,
+      projectId:   projectId ?? null,
     }),
   }).catch(e => console.error('upload-pdf: render-pdf call failed:', e.message));
 

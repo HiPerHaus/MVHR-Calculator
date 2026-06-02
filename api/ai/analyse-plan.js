@@ -16,8 +16,11 @@
 //                                    preferred for files >1 MB (avoids Vercel 4.5 MB body limit)
 //   mimeType     string   optional — 'image/png' | 'image/jpeg' | 'image/webp' (default 'image/png')
 //   climateZone  string   optional — override / pre-filled climate zone
-//   pdfUploadId  string   optional — RESERVED: future UUID referencing a processed PDF upload record;
-//                                    currently a no-op, accepted for forward-compatibility
+//   pdfUploadId     string   optional — RESERVED: future UUID referencing a processed PDF upload record;
+//                                       currently a no-op, accepted for forward-compatibility
+//   hiresImagePath  string   optional — Storage path for the hi-res PNG rendered by render-hires.js.
+//                                       Supplied by auto-analyse; takes priority over pdf_pages.image_path
+//                                       when pdfPageId is also set.
 //
 // Exactly one of imageData, imageUrl, or storagePath must be provided.
 //
@@ -1286,23 +1289,41 @@ export default async function handler(req, res) {
   if (!applyRateLimit(req, res, { limiter })) return;
 
   // ── Auth ────────────────────────────────────────────────────
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  // Two auth paths:
+  //   1. Internal (auto-analysis): x-internal-secret header + userId in body.
+  //      Used by auto-analyse.js to run analysis in the background without a
+  //      user's bearer token. Only accepted when INTERNAL_API_SECRET is set.
+  //   2. Standard: Bearer token from Authorization header.
+  let user;
+  const internalSecret = req.headers['x-internal-secret'];
+  const internalApiSecret = process.env.INTERNAL_API_SECRET;
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
+  if (internalSecret && internalApiSecret && internalSecret === internalApiSecret) {
+    // Internal call — trust userId from request body.
+    const bodyUserId = req.body?.userId;
+    if (!bodyUserId) return res.status(400).json({ error: 'userId required for internal auth' });
+    user = { id: bodyUserId };
+  } else {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !authUser) return res.status(401).json({ error: 'Invalid token' });
+    user = authUser;
+  }
 
   // ── Parse body ──────────────────────────────────────────────
   const {
     projectId,
     testMode     = false,
     floorIndex   = 0,
-    imageData,      // base64 string — small images / backwards compat only
-    imageUrl,       // signed external URL
-    storagePath,    // Supabase Storage path — preferred for large files (avoids 413)
-    mimeType     = 'image/png',
-    pdfUploadId,    // UUID — links this call to a pdf_uploads row (audit trail)
-    pdfPageId,      // UUID — when provided, image is resolved from pdf_pages.image_path
+    imageData,        // base64 string — small images / backwards compat only
+    imageUrl,         // signed external URL
+    storagePath,      // Supabase Storage path — preferred for large files (avoids 413)
+    mimeType      = 'image/png',
+    pdfUploadId,      // UUID — links this call to a pdf_uploads row (audit trail)
+    pdfPageId,        // UUID — when provided, image is resolved from pdf_pages.image_path
+    hiresImagePath,   // Storage path for hi-res PNG (supplied by auto-analyse after render-hires)
+                      // Takes priority over pdf_pages.image_path when pdfPageId is also set.
   } = req.body ?? {};
 
   // In testMode, require admin auth; otherwise projectId is mandatory
@@ -1322,27 +1343,34 @@ export default async function handler(req, res) {
   }
 
   // ── Resolve pdfPageId → storagePath ──────────────────────────────────────
-  // When pdfPageId is provided the caller doesn't send an image directly —
-  // we look up the rendered page PNG from the database.
+  // When pdfPageId is provided the caller doesn't send an image directly.
+  // Priority: hiresImagePath (250 DPI PNG from render-hires) > pdf_pages.image_path (72 DPI JPEG).
   let resolvedStoragePath = storagePath;
 
   if (pdfPageId) {
-    if (!isUuid(pdfPageId)) {
-      return res.status(400).json({ error: 'pdfPageId must be a valid UUID' });
-    }
-    const { data: pageRow, error: pageErr } = await supabase
-      .from('pdf_pages')
-      .select('id, image_path, pdf_upload_id')
-      .eq('id', pdfPageId)
-      .single();
+    // If auto-analyse already rendered hi-res, use it directly without a DB lookup.
+    if (hiresImagePath) {
+      // Hi-res PNG already rendered by render-hires — use it directly.
+      resolvedStoragePath = hiresImagePath;
+    } else {
+      // Fall back to the low-res classification JPEG from pdf_pages.image_path.
+      if (!isUuid(pdfPageId)) {
+        return res.status(400).json({ error: 'pdfPageId must be a valid UUID' });
+      }
+      const { data: pageRow, error: pageErr } = await supabase
+        .from('pdf_pages')
+        .select('id, image_path, pdf_upload_id')
+        .eq('id', pdfPageId)
+        .single();
 
-    if (pageErr || !pageRow) {
-      return res.status(404).json({ error: 'pdfPageId not found' });
+      if (pageErr || !pageRow) {
+        return res.status(404).json({ error: 'pdfPageId not found' });
+      }
+      if (!pageRow.image_path) {
+        return res.status(409).json({ error: 'Page image not yet rendered — poll job-status first' });
+      }
+      resolvedStoragePath = pageRow.image_path; // e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.jpg"
     }
-    if (!pageRow.image_path) {
-      return res.status(409).json({ error: 'Page image not yet rendered — poll job-status first' });
-    }
-    resolvedStoragePath = pageRow.image_path; // e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.png"
   }
 
   const sourceCount = [imageData, imageUrl, resolvedStoragePath].filter(Boolean).length;
