@@ -10,12 +10,16 @@
 //                         credits still deducted; plan_analysis_log still written;
 //                         projects.ai_analysis_json NOT updated if projectId is absent
 //   floorIndex  integer  optional — 0 = ground floor (default)
-//   imageData   string   optional — base64-encoded image (if sending inline)
-//   imageUrl    string   optional — signed Supabase Storage URL (alternative to imageData)
-//   mimeType    string   optional — 'image/png' | 'image/jpeg' | 'image/webp' (default 'image/png')
-//   climateZone string   optional — override / pre-filled climate zone
+//   imageData    string   optional — base64-encoded image (if sending inline, ≤1 MB)
+//   imageUrl     string   optional — signed Supabase Storage URL (alternative to imageData)
+//   storagePath  string   optional — Supabase Storage path, e.g. "plan-uploads/temp/<uid>/<file>"
+//                                    preferred for files >1 MB (avoids Vercel 4.5 MB body limit)
+//   mimeType     string   optional — 'image/png' | 'image/jpeg' | 'image/webp' (default 'image/png')
+//   climateZone  string   optional — override / pre-filled climate zone
+//   pdfUploadId  string   optional — RESERVED: future UUID referencing a processed PDF upload record;
+//                                    currently a no-op, accepted for forward-compatibility
 //
-// Exactly one of imageData or imageUrl must be provided.
+// Exactly one of imageData, imageUrl, or storagePath must be provided.
 //
 // Response 200:
 // {
@@ -1293,9 +1297,12 @@ export default async function handler(req, res) {
     projectId,
     testMode     = false,
     floorIndex   = 0,
-    imageData,      // base64 string
-    imageUrl,       // signed Storage URL
+    imageData,      // base64 string — small images / backwards compat only
+    imageUrl,       // signed external URL
+    storagePath,    // Supabase Storage path — preferred for large files (avoids 413)
     mimeType     = 'image/png',
+    pdfUploadId,    // UUID — links this call to a pdf_uploads row (audit trail)
+    pdfPageId,      // UUID — when provided, image is resolved from pdf_pages.image_path
   } = req.body ?? {};
 
   // In testMode, require admin auth; otherwise projectId is mandatory
@@ -1314,11 +1321,37 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!imageData && !imageUrl) {
-    return res.status(400).json({ error: 'Provide imageData (base64) or imageUrl' });
+  // ── Resolve pdfPageId → storagePath ──────────────────────────────────────
+  // When pdfPageId is provided the caller doesn't send an image directly —
+  // we look up the rendered page PNG from the database.
+  let resolvedStoragePath = storagePath;
+
+  if (pdfPageId) {
+    if (!isUuid(pdfPageId)) {
+      return res.status(400).json({ error: 'pdfPageId must be a valid UUID' });
+    }
+    const { data: pageRow, error: pageErr } = await supabase
+      .from('pdf_pages')
+      .select('id, image_path, pdf_upload_id')
+      .eq('id', pdfPageId)
+      .single();
+
+    if (pageErr || !pageRow) {
+      return res.status(404).json({ error: 'pdfPageId not found' });
+    }
+    if (!pageRow.image_path) {
+      return res.status(409).json({ error: 'Page image not yet rendered — poll job-status first' });
+    }
+    resolvedStoragePath = pageRow.image_path; // e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.png"
   }
-  if (imageData && imageUrl) {
-    return res.status(400).json({ error: 'Provide imageData OR imageUrl, not both' });
+
+  const sourceCount = [imageData, imageUrl, resolvedStoragePath].filter(Boolean).length;
+  if (sourceCount === 0) {
+    return res.status(400).json({ error: 'Provide pdfPageId, storagePath, imageUrl, or imageData (base64)' });
+  }
+  if (sourceCount > 1 && !pdfPageId) {
+    // pdfPageId resolves to storagePath — only flag conflict for manual combinations
+    return res.status(400).json({ error: 'Provide only one of: pdfPageId, storagePath, imageUrl, imageData' });
   }
 
   const validMimeTypes = ['image/png','image/jpeg','image/jpg','image/webp','image/gif'];
@@ -1363,18 +1396,51 @@ export default async function handler(req, res) {
   }
 
   // ── Resolve image source ─────────────────────────────────────
+  // Priority: storagePath (preferred — no payload size limit) > imageUrl > imageData (legacy)
   let imageSource;
 
-  if (imageData) {
-    // Inline base64 — validate size
+  if (resolvedStoragePath) {
+    // Download directly from Supabase Storage server-side.
+    // resolvedStoragePath is either the original storagePath or the image_path from pdf_pages.
+    const bucket = resolvedStoragePath.split('/')[0];
+    const path   = resolvedStoragePath.slice(bucket.length + 1);
+
+    const { data: storageData, error: storageErr } = await supabase
+      .storage
+      .from(bucket)
+      .download(path);
+
+    if (storageErr || !storageData) {
+      return res.status(400).json({ error: `Could not download from storage: ${storageErr?.message ?? 'unknown error'}` });
+    }
+
+    const buf = await storageData.arrayBuffer();
+    if (buf.byteLength > MAX_IMAGE_BYTES) {
+      return res.status(413).json({ error: `Image too large (max ${MAX_IMAGE_BYTES / 1024 / 1024} MB)` });
+    }
+
+    // Infer MIME type from file extension in resolvedStoragePath
+    const ext = path.split('.').pop().toLowerCase();
+    const extMimeMap = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+    const resolvedMime = extMimeMap[ext] ?? safeMimeType;
+
+    imageSource = {
+      type:       'base64',
+      media_type: resolvedMime,
+      data:       Buffer.from(buf).toString('base64'),
+    };
+
+  } else if (imageData) {
+    // Inline base64 — kept for backwards compatibility and small test images only.
+    // For large images use storagePath to avoid Vercel's 4.5 MB body limit.
     const byteLen = Math.ceil((imageData.replace(/=/g,'').length) * 3 / 4);
     if (byteLen > MAX_IMAGE_BYTES) {
-      return res.status(413).json({ error: `Image too large (max ${MAX_IMAGE_BYTES / 1024 / 1024} MB)` });
+      return res.status(413).json({ error: `Image too large (max ${MAX_IMAGE_BYTES / 1024 / 1024} MB). Upload via storagePath instead.` });
     }
     imageSource = { type: 'base64', media_type: safeMimeType, data: imageData };
 
   } else {
-    // URL source — fetch and convert to base64 so we own the data
+    // Signed external URL — fetch server-side and convert to base64
     let fetchRes;
     try {
       fetchRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
@@ -1398,6 +1464,16 @@ export default async function handler(req, res) {
       media_type: resolvedMime,
       data:       Buffer.from(buf).toString('base64'),
     };
+  }
+
+  // After analysis, clean up temp storage file (fire-and-forget — do not block on error).
+  // Skip cleanup when the image came from a PDF page (pdfPageId set) — those are permanent.
+  if (storagePath && !pdfPageId) {
+    const bucket = storagePath.split('/')[0];
+    const path   = storagePath.slice(bucket.length + 1);
+    supabase.storage.from(bucket).remove([path]).catch(e =>
+      console.warn('analyse-plan: temp file cleanup failed:', e.message)
+    );
   }
 
   // Rough decoded byte size — used later to warn about low-resolution images
@@ -1865,6 +1941,19 @@ If still uncertain:
     .single();
 
   if (logErr) console.error('plan_analysis_log insert error:', logErr);
+
+  // ── Write analysis_log_id back to pdf_pages ──────────────────
+  // Links this analysis run to the specific page that was analysed.
+  // Fire-and-forget: non-blocking, failure is logged only.
+  if (pdfPageId && logRow?.id) {
+    supabase
+      .from('pdf_pages')
+      .update({ analysis_log_id: logRow.id })
+      .eq('id', pdfPageId)
+      .then(({ error: pageUpdateErr }) => {
+        if (pageUpdateErr) console.error('analyse-plan: pdf_pages analysis_log_id writeback failed:', pageUpdateErr);
+      });
+  }
 
   // ── Return structured result ─────────────────────────────────
   return res.status(200).json({

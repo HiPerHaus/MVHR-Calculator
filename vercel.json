@@ -1,5 +1,10 @@
 {
+  "functions": {
+    "api/ai/render-pdf.js":    { "maxDuration": 300 },
+    "api/ai/classify-pages.js":{ "maxDuration": 300 }
+  },
   "rewrites": [
+    { "source": "/api/ai/job-status/:jobId", "destination": "/api/ai/job-status/[jobId]" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/admin",    "destination": "/admin.html" },
     { "source": "/(.*)",     "destination": "/index.html" }

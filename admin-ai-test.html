@@ -126,6 +126,50 @@ details summary:hover { background: var(--primary-light); }
 /* ── Error box ── */
 .error-box { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 8px; padding: 12px 16px; font-size: 13px; }
 
+/* ── PDF page selection grid ── */
+.page-card {
+  border: 2px solid var(--border); border-radius: 10px; overflow: hidden;
+  cursor: pointer; transition: border-color .15s, box-shadow .15s;
+  background: var(--card-bg);
+}
+.page-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,150,178,.15); }
+.page-card.selected { border-color: var(--accent); background: var(--primary-light); }
+.page-card-thumb {
+  width: 100%; aspect-ratio: 3/4; object-fit: cover;
+  background: #f0f4f7; display: block;
+}
+.page-card-thumb-placeholder {
+  width: 100%; aspect-ratio: 3/4; background: #f0f4f7;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: #ccd5db;
+}
+.page-card-body { padding: 8px 10px 10px; }
+.page-card-num  { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
+.page-type-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 12px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+}
+.badge-floor_plan    { background: #dcfce7; color: #166534; }
+.badge-site_plan     { background: #dbeafe; color: #1e3a8a; }
+.badge-elevation     { background: #ede9fe; color: #4c1d95; }
+.badge-section       { background: #ccfbf1; color: #134e4a; }
+.badge-roof_plan     { background: #e0e7ff; color: #3730a3; }
+.badge-detail        { background: #ffedd5; color: #9a3412; }
+.badge-schedule      { background: #f3f4f6; color: #374151; }
+.badge-specification { background: #f3f4f6; color: #374151; }
+.badge-unknown       { background: #fee2e2; color: #991b1b; }
+.badge-volume        { background: #f5f3ff; color: #7c3aed; font-size: 9px; margin-left: 3px; }
+.page-card-conf { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.page-card-floor { margin-top: 6px; display: none; }
+.page-card-floor label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 2px; }
+.page-card-floor input, .page-card-floor select {
+  width: 100%; padding: 3px 6px; font-size: 11px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--input-bg); color: var(--text);
+  margin-bottom: 4px; box-sizing: border-box;
+}
+.page-card.selected .page-card-floor { display: block; }
+
 /* ── Section dividers ── */
 .section-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin: 18px 0 8px; }
 
@@ -212,13 +256,38 @@ details summary:hover { background: var(--primary-light); }
       ⚠ Room labels may be too small to read. Try a cropped screenshot of just the floor plan.
     </div>
 
+    <!-- Large file warning — shown when file exceeds inline base64 threshold -->
+    <div id="largeFileWarning" style="display:none;margin-top:8px;padding:9px 14px;background:var(--amber-bg);border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:var(--amber)">
+      📦 <strong>Large file detected.</strong> The file will be uploaded to Storage first to avoid request size limits.
+    </div>
+
+    <!-- PDF detected notice -->
+    <div id="pdfNotice" style="display:none;margin-top:10px;padding:9px 14px;background:#e8f4fd;border:1px solid #90c8f0;border-radius:8px;font-size:12px;color:#1a5676">
+      📄 <strong>PDF detected.</strong> Claude will classify all pages, then you select which floors to analyse.
+    </div>
+
     <div id="fileError" class="error-box" style="display:none;margin-top:12px"></div>
 
     <div style="margin-top:16px;display:flex;align-items:center;gap:14px">
-      <button class="btn btn-primary" id="analyseBtn" onclick="analysePlan()" disabled>
+      <button class="btn btn-primary" id="analyseBtn" onclick="startPipeline()" disabled>
         🔍 Analyse Plan
       </button>
       <button class="btn btn-outline btn-sm" id="clearBtn" onclick="clearAll()" style="display:none">✕ Clear</button>
+    </div>
+  </div>
+
+  <!-- ── Section 1b: Page Selection (PDF pipeline) ── -->
+  <div class="card" id="pageSelectionCard" style="display:none">
+    <div class="card-title">Select Floor Plan Pages</div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px">
+      Pages classified as floor plans are pre-selected. Adjust the selection, set floor levels, then click Analyse.
+    </p>
+    <div id="pageGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:16px"></div>
+    <div style="display:flex;align-items:center;gap:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <button class="btn btn-primary" id="confirmPagesBtn" onclick="confirmPages()" disabled>
+        ✓ Analyse Selected Pages
+      </button>
+      <span id="selectedPageCount" style="font-size:13px;color:var(--muted)">0 pages selected</span>
     </div>
   </div>
 
@@ -442,6 +511,10 @@ let _lastResult = null;
 let _elapsedInterval = null;
 let _startTime = null;
 
+// Files above this threshold are uploaded to Storage before calling the API.
+// Vercel's default request body limit is ~4.5 MB; keep well below that.
+const INLINE_SIZE_LIMIT = 1 * 1024 * 1024; // 1 MB
+
 // ── Auth ──────────────────────────────────────────────────────
 async function doLogin() {
   const email  = document.getElementById('loginEmail').value.trim();
@@ -515,12 +588,19 @@ function setFile(file) {
   }
 
   _selectedFile = file;
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
   document.getElementById('selectedFileName').textContent = file.name;
   document.getElementById('selectedFileSize').textContent = formatBytes(file.size);
   document.getElementById('selectedFile').style.display = '';
   document.getElementById('analyseBtn').disabled = false;
+  document.getElementById('analyseBtn').textContent = isPdf ? '📄 Upload & Classify Pages' : '🔍 Analyse Plan';
   document.getElementById('clearBtn').style.display = '';
   document.getElementById('imageSizeWarning').style.display = 'none';
+  document.getElementById('pdfNotice').style.display = isPdf ? '' : 'none';
+  // Large file warning only relevant for non-PDF images
+  document.getElementById('largeFileWarning').style.display =
+    (!isPdf && file.size > INLINE_SIZE_LIMIT) ? '' : 'none';
   resetResults();
 
   // Check image dimensions for non-PDF files — warn if too small to read labels
@@ -552,7 +632,7 @@ uploadArea.addEventListener('drop', e => {
 async function analysePlan() {
   if (!_selectedFile) return;
 
-  setStatus('active', 'Uploading…');
+  setStatus('active', 'Preparing…');
   startTimer();
 
   document.getElementById('analyseBtn').disabled = true;
@@ -560,17 +640,46 @@ async function analysePlan() {
   resetResults();
 
   try {
-    // Convert to base64
-    setStatus('active', 'Reading file…');
-    const base64 = await fileToBase64(_selectedFile);
+    const projectIdVal = document.getElementById('projectIdInput').value.trim() || null;
+    let body;
+
+    if (_selectedFile.size > INLINE_SIZE_LIMIT) {
+      // ── Large file: upload to Supabase Storage, send storagePath only ──────
+      setStatus('active', 'Uploading to Storage…');
+
+      // Temp path scoped to the authed user — auto-deleted by the API after analysis
+      const { data: { user } } = await _sb.auth.getUser();
+      const ts       = Date.now();
+      const safeName = _selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `plan-uploads/temp/${user.id}/${ts}_${safeName}`;
+
+      const { error: uploadErr } = await _sb.storage
+        .from('plan-uploads')
+        .upload(`temp/${user.id}/${ts}_${safeName}`, _selectedFile, {
+          cacheControl: '60',
+          upsert: false,
+        });
+
+      if (uploadErr) throw new Error('Storage upload failed: ' + uploadErr.message);
+
+      body = {
+        testMode:    true,
+        projectId:   projectIdVal,
+        storagePath,              // e.g. "plan-uploads/temp/<userId>/<filename>"
+      };
+
+    } else {
+      // ── Small file: send inline base64 (existing path) ──────────────────────
+      setStatus('active', 'Reading file…');
+      const base64 = await fileToBase64(_selectedFile);
+      body = {
+        testMode:  true,
+        projectId: projectIdVal,
+        imageData: base64,
+      };
+    }
 
     setStatus('active', 'Calling Claude…');
-    const projectIdVal = document.getElementById('projectIdInput').value.trim() || null;
-    const body = {
-      testMode:  true,
-      projectId: projectIdVal,
-      imageData: base64,
-    };
     const res = await fetch('/api/ai/analyse-plan', {
       method: 'POST',
       headers: {
@@ -617,6 +726,331 @@ async function analysePlan() {
     showError(e.message);
   } finally {
     document.getElementById('analyseBtn').disabled = false;
+  }
+}
+
+// ── Pipeline entry point — routes image vs PDF ───────────────
+async function startPipeline() {
+  if (!_selectedFile) return;
+  const isPdf = _selectedFile.type === 'application/pdf' ||
+                _selectedFile.name.toLowerCase().endsWith('.pdf');
+  if (isPdf) {
+    await startPdfPipeline();
+  } else {
+    await analysePlan();
+  }
+}
+
+// ── PDF Pipeline ──────────────────────────────────────────────
+// State
+let _pdfJobId    = null;
+let _pollTimer   = null;
+let _pageData    = [];   // current page list from job-status
+
+const PDF_POLL_INTERVAL_MS = 3000;
+
+async function startPdfPipeline() {
+  setStatus('active', 'Uploading PDF…');
+  startTimer();
+  document.getElementById('analyseBtn').disabled = true;
+  document.getElementById('fileError').style.display = 'none';
+  resetResults();
+  document.getElementById('pageSelectionCard').style.display = 'none';
+
+  try {
+    const { data: { user } } = await _sb.auth.getUser();
+    const jobId    = crypto.randomUUID();
+    const safeName = _selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const objectPath   = `temp/${user.id}/${jobId}/original.pdf`;
+    const storagePath  = `plan-uploads/${objectPath}`;
+
+    // 1. Upload PDF to Storage
+    const { error: uploadErr } = await _sb.storage
+      .from('plan-uploads')
+      .upload(objectPath, _selectedFile, { cacheControl: '60', upsert: false });
+
+    if (uploadErr) throw new Error('Storage upload failed: ' + uploadErr.message);
+
+    // 2. Register job with upload-pdf
+    setStatus('active', 'Registering job…');
+    const projectIdVal = document.getElementById('projectIdInput').value.trim() || null;
+
+    const regRes = await fetch('/api/ai/upload-pdf', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
+      body:    JSON.stringify({ storagePath, projectId: projectIdVal, testMode: true }),
+    });
+    const regData = await regRes.json();
+    if (!regRes.ok) throw new Error(regData.error || 'Job registration failed');
+
+    _pdfJobId = regData.jobId;
+
+    // 3. Start polling
+    setStatus('active', 'Rendering pages…');
+    startPdfPolling();
+
+  } catch(e) {
+    stopTimer();
+    setStatus('error', 'Failed');
+    showError(e.message);
+    document.getElementById('analyseBtn').disabled = false;
+  }
+}
+
+function startPdfPolling() {
+  stopPdfPolling();
+  _pollTimer = setInterval(pollJobStatus, PDF_POLL_INTERVAL_MS);
+  pollJobStatus(); // run immediately
+}
+
+function stopPdfPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+async function pollJobStatus() {
+  if (!_pdfJobId) return;
+  try {
+    const res  = await fetch(`/api/ai/job-status/${_pdfJobId}`, {
+      headers: { 'Authorization': 'Bearer ' + _token },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Poll failed');
+
+    const status = data.status;
+
+    if (status === 'rendering') {
+      const pc = data.pageCount ? ` (${data.pageCount} pages)` : '';
+      setStatus('active', `Rendering pages${pc}…`);
+
+    } else if (status === 'classifying') {
+      setStatus('active', `Classifying pages (${data.pageCount ?? '?'} total)…`);
+
+    } else if (status === 'awaiting_confirmation') {
+      stopPdfPolling();
+      stopTimer();
+      setStatus('success', `Classification complete — ${data.pageCount} pages`);
+      _pageData = data.pages ?? [];
+      renderPageSelectionGrid(data.pages, data.candidatePages);
+
+    } else if (status === 'complete') {
+      stopPdfPolling();
+      stopTimer();
+      setStatus('success', 'Analysis complete');
+      document.getElementById('analyseBtn').disabled = false;
+
+    } else if (status === 'error') {
+      stopPdfPolling();
+      stopTimer();
+      setStatus('error', 'Pipeline error');
+      showError(data.errorDetail || 'An error occurred in the rendering pipeline.');
+      document.getElementById('analyseBtn').disabled = false;
+    }
+  } catch(e) {
+    // Don't stop polling on transient network errors — just log
+    console.warn('pollJobStatus error:', e.message);
+  }
+}
+
+// ── Page selection grid ───────────────────────────────────────
+const PAGE_TYPE_LABELS = {
+  floor_plan: 'Floor Plan', site_plan: 'Site Plan',
+  elevation: 'Elevation', section: 'Section', roof_plan: 'Roof Plan',
+  detail: 'Detail', schedule: 'Schedule',
+  specification: 'Specification', unknown: 'Unknown',
+};
+
+const VOLUME_TYPES = new Set(['elevation', 'section', 'roof_plan']);
+
+function renderPageSelectionGrid(pages, candidatePageNums) {
+  const grid = document.getElementById('pageGrid');
+  grid.innerHTML = '';
+
+  const candidateSet = new Set(candidatePageNums ?? []);
+
+  for (const page of pages) {
+    const isCandidate = candidateSet.has(page.pageNumber);
+    const card = document.createElement('div');
+    card.className = 'page-card' + (isCandidate ? ' selected' : '');
+    card.dataset.pageId = page.pageId;
+    card.dataset.selected = isCandidate ? '1' : '0';
+
+    const typeLabel = PAGE_TYPE_LABELS[page.pageType] ?? page.pageType;
+    const conf  = page.confidence != null ? Math.round(page.confidence * 100) + '%' : '—';
+    const isVol = VOLUME_TYPES.has(page.pageType);
+    const volBadge = isVol
+      ? `<span class="page-type-badge badge-volume">📐 volume data</span>` : '';
+
+    const thumbHtml = page.thumbUrl
+      ? `<img class="page-card-thumb" src="${esc(page.thumbUrl)}" alt="Page ${page.pageNumber}" loading="lazy">`
+      : `<div class="page-card-thumb-placeholder">📄</div>`;
+
+    // Default floor level guess based on position
+    const defaultLevel = candidatePageNums.indexOf(page.pageNumber);
+    const defaultName  = page.floorName ?? guessFloorName(defaultLevel >= 0 ? defaultLevel : 0);
+
+    card.innerHTML = `
+      ${thumbHtml}
+      <div class="page-card-body">
+        <div class="page-card-num">Page ${page.pageNumber}</div>
+        <span class="page-type-badge badge-${page.pageType}">${typeLabel}</span>
+        ${volBadge}
+        <div class="page-card-conf">Confidence: ${conf}</div>
+        <div class="page-card-floor">
+          <label>Floor level</label>
+          <select class="floor-level-select">
+            <option value="-1">Basement (−1)</option>
+            <option value="0" selected>Ground (0)</option>
+            <option value="1">First (1)</option>
+            <option value="2">Second (2)</option>
+            <option value="3">Third (3)</option>
+          </select>
+          <label>Floor name</label>
+          <input class="floor-name-input" type="text" value="${esc(defaultName)}" placeholder="e.g. Ground Floor Plan">
+        </div>
+      </div>`;
+
+    // Pre-select floor level for known candidates
+    if (defaultLevel >= 0) {
+      const sel = card.querySelector('.floor-level-select');
+      const optVal = String(Math.min(defaultLevel, 3));
+      const opt = sel.querySelector(`option[value="${optVal}"]`);
+      if (opt) { sel.querySelectorAll('option').forEach(o => o.selected = false); opt.selected = true; }
+    }
+
+    card.addEventListener('click', e => {
+      // Don't toggle when clicking a form input inside the card
+      if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+      togglePageCard(card);
+    });
+
+    grid.appendChild(card);
+  }
+
+  updateSelectedCount();
+  document.getElementById('pageSelectionCard').style.display = '';
+}
+
+function togglePageCard(card) {
+  const nowSelected = card.dataset.selected === '0';
+  card.dataset.selected = nowSelected ? '1' : '0';
+  card.classList.toggle('selected', nowSelected);
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const n = document.querySelectorAll('.page-card[data-selected="1"]').length;
+  document.getElementById('selectedPageCount').textContent =
+    n === 1 ? '1 page selected' : `${n} pages selected`;
+  document.getElementById('confirmPagesBtn').disabled = n === 0;
+}
+
+function guessFloorName(level) {
+  const names = ['Ground Floor Plan', 'First Floor Plan', 'Second Floor Plan', 'Third Floor Plan'];
+  return names[level] ?? `Level ${level} Plan`;
+}
+
+// ── Confirm pages + trigger analysis ─────────────────────────
+async function confirmPages() {
+  const selectedCards = [...document.querySelectorAll('.page-card[data-selected="1"]')];
+  if (!selectedCards.length) return;
+
+  document.getElementById('confirmPagesBtn').disabled = true;
+  setStatus('active', 'Confirming page selection…');
+  startTimer();
+
+  // Build payload
+  const pages = selectedCards.map((card, idx) => {
+    const levelSel  = card.querySelector('.floor-level-select');
+    const nameInput = card.querySelector('.floor-name-input');
+    const floorLevel = parseInt(levelSel?.value ?? '0', 10);
+    return {
+      pageId:     card.dataset.pageId,
+      pageRole:   'primary_analysis',
+      floorIndex: idx,
+      floorLevel,
+      floorName:  nameInput?.value?.trim() || guessFloorName(floorLevel),
+    };
+  });
+
+  try {
+    const confirmRes = await fetch('/api/ai/confirm-pages', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
+      body:    JSON.stringify({ jobId: _pdfJobId, pages }),
+    });
+    const confirmData = await confirmRes.json();
+    if (!confirmRes.ok) throw new Error(confirmData.error || 'Confirmation failed');
+
+    // Now analyse each selected page in sequence
+    setStatus('active', `Analysing ${pages.length} page(s)…`);
+    const analysisPages = confirmData.analysisPages ?? pages.map(p => p.pageId);
+
+    const allRooms = { supply: [], extract: [], transfer: [], ignore: [] };
+    const allWarnings = [];
+    let   allAssumptions = [];
+    let   occupancySummary = null;
+    let   reviewCandidates = [];
+    const pageResults = [];
+
+    for (let i = 0; i < analysisPages.length; i++) {
+      const pageId = analysisPages[i];
+      const pageConf = pages.find(p => p.pageId === pageId) ?? pages[i] ?? {};
+      setStatus('active', `Analysing page ${i + 1} of ${analysisPages.length}…`);
+
+      const res = await fetch('/api/ai/analyse-plan', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
+        body:    JSON.stringify({
+          testMode:    true,
+          projectId:   document.getElementById('projectIdInput').value.trim() || null,
+          pdfUploadId: _pdfJobId,
+          pdfPageId:   pageId,
+          floorIndex:  pageConf.floorIndex ?? i,
+        }),
+      });
+
+      const pageData = await res.json();
+      if (!res.ok) {
+        allWarnings.push(`Page ${i + 1}: ${pageData.error || 'Analysis failed'}`);
+        continue;
+      }
+
+      // Merge rooms
+      for (const key of ['supply', 'extract', 'transfer', 'ignore']) {
+        allRooms[key].push(...(pageData.rooms?.[key] ?? []));
+      }
+      allWarnings.push(...(pageData.warnings ?? []));
+      allAssumptions = [...allAssumptions, ...(pageData.assumptions ?? [])];
+      if (pageData.occupancySummary) occupancySummary = pageData.occupancySummary;
+      reviewCandidates.push(...(pageData.reviewCandidates ?? []));
+
+      pageResults.push({
+        floorName: pageConf.floorName || `Floor ${i}`,
+        data: pageData,
+      });
+    }
+
+    // Build merged result
+    const merged = {
+      analysisStatus:  'success',
+      rooms:           allRooms,
+      warnings:        allWarnings,
+      assumptions:     allAssumptions,
+      occupancySummary,
+      reviewCandidates,
+      _pageResults:    pageResults,
+    };
+
+    _lastResult = merged;
+    stopTimer();
+    setStatus('success', `Completed — ${analysisPages.length} floor(s) analysed`);
+    renderResults(merged);
+
+  } catch(e) {
+    stopTimer();
+    setStatus('error', 'Failed');
+    showError(e.message);
+    document.getElementById('confirmPagesBtn').disabled = false;
   }
 }
 
@@ -869,11 +1303,19 @@ function stopTimer() {
 function clearAll() {
   _selectedFile = null;
   _lastResult   = null;
+  // Reset PDF pipeline state
+  stopPdfPolling();
+  _pdfJobId  = null;
+  _pageData  = [];
   document.getElementById('fileInput').value = '';
-  document.getElementById('selectedFile').style.display = 'none';
-  document.getElementById('imageSizeWarning').style.display = 'none';
-  document.getElementById('fileError').style.display = 'none';
-  document.getElementById('analyseBtn').disabled = true;
+  document.getElementById('selectedFile').style.display      = 'none';
+  document.getElementById('imageSizeWarning').style.display  = 'none';
+  document.getElementById('largeFileWarning').style.display  = 'none';
+  document.getElementById('pdfNotice').style.display         = 'none';
+  document.getElementById('pageSelectionCard').style.display = 'none';
+  document.getElementById('fileError').style.display         = 'none';
+  document.getElementById('analyseBtn').disabled    = true;
+  document.getElementById('analyseBtn').textContent = '🔍 Analyse Plan';
   document.getElementById('clearBtn').style.display = 'none';
   setStatus('idle', 'Idle — select a file to begin');
   document.getElementById('elapsed').textContent = '';
