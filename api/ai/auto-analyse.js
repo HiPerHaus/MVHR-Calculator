@@ -61,7 +61,7 @@ function validateInternalToken(req) {
 // Never voluntarily selects elevation/section/detail/schedule/specification.
 function selectFloorPlanPages(pages) {
   const floorPlans = pages
-    .filter(p => p.page_type === 'floor_plan')
+    .filter(isHabitableAnalysisPage)
     .sort((a, b) => {
       // Primary sort: confidence desc
       const confDiff = (b.classification_confidence ?? 0) - (a.classification_confidence ?? 0);
@@ -284,6 +284,59 @@ function escapeHtml(str) {
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
+
+function isHabitableAnalysisPage(page) {
+  const text = [
+    page.page_type,
+    page.classification_reason,
+    page.sheet_title,
+    page.sheet_number,
+    page.floor_plan_type,
+    page.detected_floor,
+    page.floor_name,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (page.page_type !== 'floor_plan') return false;
+
+  const rejectTerms = [
+    'garage',
+    'slab',
+    'framing',
+    'structural',
+    'wall layout',
+    'roof layout',
+    'footing',
+    'bracing',
+    'tiedown',
+    'tie-down',
+    'deck joist',
+    'floor joist',
+    'suspended slab',
+    'ramp slab',
+  ];
+
+  if (rejectTerms.some(term => text.includes(term))) return false;
+
+  const positiveTerms = [
+    'living',
+    'kitchen',
+    'bedroom',
+    'bath',
+    'ensuite',
+    'laundry',
+    'lounge',
+    'dining',
+    'habitable',
+    'room labels',
+    'internal walls',
+  ];
+
+  return positiveTerms.some(term => text.includes(term));
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -360,7 +413,7 @@ export default async function handler(req, res) {
           uploadId, jobId, directCount,
         }));
         await supabase.from('pdf_uploads')
-          .update({ status: 'error', error_detail: 'No pdf_pages rows found for this upload' })
+          .update({ status: 'error', error_detail: 'No habitable floor plan pages found for this upload' })
           .eq('id', uploadId);
         return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
       }
