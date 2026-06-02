@@ -255,20 +255,16 @@ details summary:hover { background: var(--primary-light); }
         <div class="summary-value" id="sumOutputTokens">—</div>
       </div>
       <div class="summary-item">
-        <div class="summary-label">Climate Zone</div>
-        <div class="summary-value" id="sumClimateZone">—</div>
+        <div class="summary-label">Analysis Status</div>
+        <div class="summary-value" id="sumAnalysisStatus">—</div>
       </div>
       <div class="summary-item">
-        <div class="summary-label">Total Floor Area</div>
-        <div class="summary-value" id="sumFloorArea">—</div>
+        <div class="summary-label">Stage 1 Rooms</div>
+        <div class="summary-value" id="sumStage1Count">—</div>
       </div>
       <div class="summary-item">
-        <div class="summary-label">Area Confidence</div>
-        <div class="summary-value" id="sumAreaConf">—</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">Extraction Mode</div>
-        <div class="summary-value" id="sumExtractionMode">—</div>
+        <div class="summary-label">Stage 2 Rooms</div>
+        <div class="summary-value" id="sumStage2Count">—</div>
       </div>
       <div class="summary-item" style="position:relative">
         <div class="summary-label">Log ID</div>
@@ -277,13 +273,6 @@ details summary:hover { background: var(--primary-light); }
           <button class="btn btn-outline btn-sm" id="copyLogIdBtn" onclick="copyText('sumLogId','copyLogIdBtn')" title="Copy Log ID">⎘</button>
         </div>
       </div>
-    </div>
-
-    <!-- Fallback warning — shown only when fallbackGenerated=true -->
-    <div id="fallbackWarning" style="display:none;margin-top:14px;padding:14px 16px;background:#fef2f2;border:2px solid #f87171;border-radius:8px;font-size:13px;color:#9b1c1c">
-      <strong>⚠ Generic fallback room schedule</strong> — Both AI extraction passes returned no rooms.
-      The room schedule below was generated from the estimated floor area only and does not reflect the actual plan.
-      <strong>Do not use this output for MVHR design without manually reviewing and correcting every room.</strong>
     </div>
 
     <!-- Recovery mode notice — shown when recoveryMode=true -->
@@ -301,6 +290,22 @@ details summary:hover { background: var(--primary-light); }
     </div>
   </div>
 
+  <!-- ── Failure Card (shown when analysisStatus = 'failed') ── -->
+  <div class="card" id="failureCard" style="display:none;border-left:4px solid var(--critical)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="font-size:22px">⛔</span>
+      <div>
+        <div style="font-size:15px;font-weight:800;color:var(--critical)">Unable to Read Floor Plan</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:2px">The AI could not reliably identify rooms from this plan. No credits have been consumed.</div>
+      </div>
+    </div>
+    <div id="failureReasonRow" style="display:none;margin-bottom:12px;padding:8px 12px;background:var(--critical-bg);border-radius:6px;font-size:12px;color:var(--critical)">
+      <strong>Reason:</strong> <span id="failureReasonText"></span>
+    </div>
+    <div class="section-label">Suggestions</div>
+    <ul id="suggestionsList" style="margin:8px 0 0 18px;font-size:13px;color:var(--text);line-height:1.8"></ul>
+  </div>
+
   <!-- ── Section 4: Room Analysis ── -->
   <div class="card" id="roomsCard" style="display:none">
     <div class="card-title">Room Analysis</div>
@@ -311,16 +316,15 @@ details summary:hover { background: var(--primary-light); }
       <table class="data-table" id="supplyTable">
         <thead>
           <tr>
-            <th>Room</th>
-            <th>Type</th>
-            <th>Area m²</th>
-            <th>Airflow L/s</th>
-            <th>Outlets</th>
+            <th>Room Name</th>
+            <th>Label Seen</th>
+            <th>Room Type</th>
+            <th>Classification</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="supplyBody">
-          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -332,54 +336,22 @@ details summary:hover { background: var(--primary-light); }
       <table class="data-table" id="extractTable">
         <thead>
           <tr>
-            <th>Room</th>
-            <th>Type</th>
-            <th>Area m²</th>
-            <th>Airflow L/s</th>
-            <th>Outlets</th>
+            <th>Room Name</th>
+            <th>Label Seen</th>
+            <th>Room Type</th>
+            <th>Classification</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="extractBody">
-          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
     <div class="table-total" id="extractTotal"></div>
   </div>
 
-  <!-- ── Section 5: MVHR Schedule ── -->
-  <div class="card" id="scheduleCard" style="display:none">
-    <div class="card-title">Draft MVHR Schedule</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:18px">
-      <div class="summary-item">
-        <div class="summary-label">Total Supply Airflow</div>
-        <div class="summary-value" id="schSupplyAirflow">—</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">Total Extract Airflow</div>
-        <div class="summary-value" id="schExtractAirflow">—</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">Supply Valves</div>
-        <div class="summary-value" id="schSupplyValves">—</div>
-      </div>
-      <div class="summary-item">
-        <div class="summary-label">Extract Valves</div>
-        <div class="summary-value" id="schExtractValves">—</div>
-      </div>
-      <div class="summary-item" style="border-left:3px solid var(--accent)">
-        <div class="summary-label">Design Airflow</div>
-        <div class="summary-value" id="schDesignAirflow">—</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">L/s (max supply/extract, rounded up to 10)</div>
-      </div>
-    </div>
-    <div id="scheduleBalanceNote" style="font-size:12px;color:var(--muted)"></div>
-  </div>
-
-  <!-- ── Section 6: Raw JSON ── -->
+  <!-- ── Section 5: Raw JSON ── -->
   <div id="rawCard" style="display:none;margin-bottom:18px">
     <details id="rawDetails">
       <summary>Raw AI Response</summary>
@@ -586,34 +558,49 @@ async function analysePlan() {
 // ── Render results ────────────────────────────────────────────
 function renderResults(data) {
   // Summary
+  const failed = data.analysisStatus === 'failed';
+
   document.getElementById('sumModel').textContent        = data.model || '—';
   document.getElementById('sumCredits').textContent      = data.creditsDeducted != null ? data.creditsDeducted : '—';
   document.getElementById('sumInputTokens').textContent  = data.inputTokens != null ? data.inputTokens.toLocaleString() : '—';
   document.getElementById('sumOutputTokens').textContent = data.outputTokens != null ? data.outputTokens.toLocaleString() : '—';
-  document.getElementById('sumClimateZone').textContent  = data.climateZone || '—';
   document.getElementById('sumLogId').textContent        = data.logId || '—';
 
-  // Extraction mode badge
-  const modeEl = document.getElementById('sumExtractionMode');
-  if (data.fallbackGenerated) {
-    modeEl.innerHTML = '<span style="color:#9b1c1c;font-weight:800">⚠ Fallback</span>';
+  // Stage room counts (debug)
+  document.getElementById('sumStage1Count').textContent =
+    data.stage1RoomCount != null ? data.stage1RoomCount : '—';
+  document.getElementById('sumStage2Count').textContent =
+    data.stage2RoomCount != null ? data.stage2RoomCount : 'not used';
+
+  // Analysis status badge
+  const statusEl = document.getElementById('sumAnalysisStatus');
+  if (failed) {
+    statusEl.innerHTML = '<span style="color:var(--critical);font-weight:800">⛔ Failed</span>';
   } else if (data.recoveryMode) {
-    modeEl.innerHTML = '<span style="color:var(--amber);font-weight:800">🔄 Stage 2</span>';
+    statusEl.innerHTML = '<span style="color:var(--amber);font-weight:800">🔄 Stage 2</span>';
   } else {
-    modeEl.innerHTML = '<span style="color:var(--accent);font-weight:800">✓ Normal</span>';
+    statusEl.innerHTML = '<span style="color:var(--accent);font-weight:800">✓ Success</span>';
   }
 
-  // Show / hide recovery and fallback notices
-  document.getElementById('fallbackWarning').style.display = data.fallbackGenerated ? '' : 'none';
-  document.getElementById('recoveryNotice').style.display  = (data.recoveryMode && !data.fallbackGenerated) ? '' : 'none';
+  // Recovery notice (success via Stage 2 only)
+  document.getElementById('recoveryNotice').style.display = (!failed && data.recoveryMode) ? '' : 'none';
 
-  // Floor area
-  document.getElementById('sumFloorArea').textContent =
-    data.totalInternalFloorArea != null ? data.totalInternalFloorArea.toFixed(1) + ' m²' : '—';
-  document.getElementById('sumAreaConf').textContent =
-    data.floorAreaConfidence != null
-      ? (data.floorAreaConfidence * 100).toFixed(0) + '%'
-      : '—';
+  // Failure card
+  const failureCard = document.getElementById('failureCard');
+  if (failed) {
+    failureCard.style.display = '';
+    const reasonRow = document.getElementById('failureReasonRow');
+    if (data.failureReason) {
+      document.getElementById('failureReasonText').textContent = data.failureReason.replace(/_/g, ' ');
+      reasonRow.style.display = '';
+    } else {
+      reasonRow.style.display = 'none';
+    }
+    const ul = document.getElementById('suggestionsList');
+    ul.innerHTML = (data.suggestions || []).map(s => `<li>${esc(s)}</li>`).join('');
+  } else {
+    failureCard.style.display = 'none';
+  }
 
   // Log error
   const logErrBox = document.getElementById('logErrorBox');
@@ -637,38 +624,22 @@ function renderResults(data) {
     warnSection.style.display = 'none';
   }
 
-  // Rooms
-  const supplyRooms  = data.rooms?.supply  || data.supplyRooms  || data.supply_rooms  || [];
-  const extractRooms = data.rooms?.extract || data.extractRooms || data.extract_rooms || [];
+  // Rooms — only rendered on successful analysis
+  if (failed) {
+    document.getElementById('roomsCard').style.display = 'none';
+    document.getElementById('rawCard').style.display   = '';
+    document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
+    return;
+  }
+
+  const supplyRooms  = data.rooms?.supply  || [];
+  const extractRooms = data.rooms?.extract || [];
 
   document.getElementById('supplyBody').innerHTML  = renderRoomRows(supplyRooms)  || emptyRow();
   document.getElementById('extractBody').innerHTML = renderRoomRows(extractRooms) || emptyRow();
   document.getElementById('supplyTotal').textContent  = `Total: ${supplyRooms.length} supply room${supplyRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('extractTotal').textContent = `Total: ${extractRooms.length} extract room${extractRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('roomsCard').style.display = '';
-
-  // MVHR Schedule
-  const totalSupplyAirflow  = supplyRooms.reduce((s, r) => s + (r.recommendedAirflow  || 0), 0);
-  const totalExtractAirflow = extractRooms.reduce((s, r) => s + (r.recommendedAirflow || 0), 0);
-  const totalSupplyValves   = supplyRooms.reduce((s, r) => s + (r.recommendedOutlets  || 0), 0);
-  const totalExtractValves  = extractRooms.reduce((s, r) => s + (r.recommendedOutlets || 0), 0);
-  const designAirflow       = Math.ceil(Math.max(totalSupplyAirflow, totalExtractAirflow) / 10) * 10;
-
-  document.getElementById('schSupplyAirflow').textContent  = totalSupplyAirflow  || '—';
-  document.getElementById('schExtractAirflow').textContent = totalExtractAirflow || '—';
-  document.getElementById('schSupplyValves').textContent   = totalSupplyValves   || '—';
-  document.getElementById('schExtractValves').textContent  = totalExtractValves  || '—';
-  document.getElementById('schDesignAirflow').textContent  = designAirflow       || '—';
-
-  const diff = Math.abs(totalSupplyAirflow - totalExtractAirflow);
-  const pct  = totalSupplyAirflow > 0
-    ? ((diff / Math.max(totalSupplyAirflow, totalExtractAirflow)) * 100).toFixed(0)
-    : null;
-  document.getElementById('scheduleBalanceNote').textContent = pct != null
-    ? `Supply / extract imbalance: ${diff} L/s (${pct}%). Target < 10% for balanced MVHR.`
-    : '';
-
-  document.getElementById('scheduleCard').style.display = '';
 
   // Raw JSON
   document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
@@ -678,22 +649,25 @@ function renderResults(data) {
 function renderRoomRows(rooms) {
   if (!rooms || !rooms.length) return '';
   return rooms.map(r => {
-    const name     = esc(r.name || r.room || '—');
-    const type     = esc(r.roomType || r.type || '—');
-    const area     = r.area != null ? Number(r.area).toFixed(1) : '—';
-    const airflow  = r.recommendedAirflow != null ? r.recommendedAirflow : '—';
-    const outlets  = r.recommendedOutlets != null ? r.recommendedOutlets : '—';
-    const conf     = r.confidence != null ? Number(r.confidence) : null;
-    const confBadge = conf != null
+    const name       = esc(r.name || '—');
+    const labelSeen  = esc(r.labelSeen || '—');
+    const type       = esc(r.roomType || '—');
+    const classif    = esc(r.ventilationClassification || '—');
+    const conf       = r.confidence != null ? Number(r.confidence) : null;
+    const confBadge  = conf != null
       ? `<span class="conf-badge ${confClass(conf)}">${(conf * 100).toFixed(0)}%</span>`
       : '—';
-    const openTag  = r.openPlan ? ' <span class="badge" style="background:#ede9fe;color:#5b21b6;font-size:10px">open plan</span>' : '';
+    const classStyle = {
+      supply: 'color:#166534;background:#dcfce7',
+      extract: 'color:#92400e;background:#fef3c7',
+      transfer: 'color:#1e40af;background:#dbeafe',
+      ignore: 'color:var(--muted);background:var(--input-bg)',
+    }[r.ventilationClassification] || '';
     return `<tr>
-      <td>${name}${openTag}</td>
+      <td>${name}</td>
+      <td style="color:var(--muted);font-size:12px">${labelSeen}</td>
       <td>${type}</td>
-      <td>${area}</td>
-      <td style="font-weight:700">${airflow}</td>
-      <td>${outlets}</td>
+      <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span></td>
       <td>${confBadge}</td>
     </tr>`;
   }).join('');
@@ -706,7 +680,7 @@ function confClass(c) {
 }
 
 function emptyRow() {
-  return '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+  return '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
 }
 
 // ── Status helpers ────────────────────────────────────────────
@@ -746,12 +720,11 @@ function clearAll() {
 }
 
 function resetResults() {
-  document.getElementById('summaryCard').style.display   = 'none';
-  document.getElementById('roomsCard').style.display     = 'none';
-  document.getElementById('scheduleCard').style.display  = 'none';
-  document.getElementById('rawCard').style.display       = 'none';
-  document.getElementById('fallbackWarning').style.display = 'none';
-  document.getElementById('recoveryNotice').style.display  = 'none';
+  document.getElementById('summaryCard').style.display    = 'none';
+  document.getElementById('failureCard').style.display    = 'none';
+  document.getElementById('roomsCard').style.display      = 'none';
+  document.getElementById('rawCard').style.display        = 'none';
+  document.getElementById('recoveryNotice').style.display = 'none';
 }
 
 function showError(msg) {
