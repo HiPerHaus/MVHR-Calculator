@@ -23,11 +23,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
-import { createRequire } from 'module';
 
-// mupdf is a WebAssembly build of MuPDF — no native deps, no DOM, no workers.
-const require  = createRequire(import.meta.url);
-const mupdf    = require('mupdf');
+// mupdf is ESM-only — use dynamic import, not require.
+async function getMupdf() {
+  return import('mupdf');
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -57,7 +57,7 @@ function validateInternalToken(req) {
 
 // ── Render one page via MuPDF ─────────────────────────────────────────────
 // Returns { jpegBuffer, thumbBuffer, widthPx, heightPx, widthMm, heightMm }
-async function renderPage(doc, pageIndex, dpi, sharpFn) {
+async function renderPage(doc, pageIndex, dpi, sharpFn, mupdf) {
   const page   = doc.loadPage(pageIndex); // 0-indexed
   const bounds = page.getBounds();        // [x0, y0, x1, y1] in PDF points (72pt/in)
 
@@ -94,11 +94,11 @@ async function renderPage(doc, pageIndex, dpi, sharpFn) {
 }
 
 // ── Process one page: render + upload + build record ─────────────────────
-async function processPage({ doc, pageIndex, pageNum, basePath, uploadId, sharpFn }) {
+async function processPage({ doc, pageIndex, pageNum, basePath, uploadId, sharpFn, mupdf }) {
   const t0 = Date.now();
 
   const { jpegBuffer, thumbBuffer, widthPx, heightPx, widthMm, heightMm } =
-    await renderPage(doc, pageIndex, CLASSIFICATION_DPI, sharpFn);
+    await renderPage(doc, pageIndex, CLASSIFICATION_DPI, sharpFn, mupdf);
 
   const paddedNum = String(pageNum).padStart(2, '0');
   const imagePath = `${basePath}/page_${paddedNum}.jpg`;
@@ -162,7 +162,7 @@ export default async function handler(req, res) {
     .eq('id', uploadId);
 
   try {
-    const sharpFn = await getSharp();
+    const [mupdf, sharpFn] = await Promise.all([getMupdf(), getSharp()]);
 
     // ── Download PDF ─────────────────────────────────────────────────────────
     const objectPath = storagePath.replace(`${BUCKET}/`, '');
@@ -171,10 +171,10 @@ export default async function handler(req, res) {
 
     if (dlErr || !pdfBlob) throw new Error(`Failed to download PDF: ${dlErr?.message}`);
 
-    const pdfBuffer   = Buffer.from(await pdfBlob.arrayBuffer());
+    const pdfBuffer = Buffer.from(await pdfBlob.arrayBuffer());
 
     // ── Open with MuPDF ───────────────────────────────────────────────────────
-    const doc       = mupdf.Document.openDocument(pdfBuffer, 'application/pdf');
+    const doc = mupdf.Document.openDocument(pdfBuffer, 'application/pdf');
     const pageCount = doc.countPages();
 
     if (pageCount > MAX_PAGES) {
@@ -200,7 +200,7 @@ export default async function handler(req, res) {
       const batch = pageNums.slice(i, i + RENDER_BATCH_SIZE);
       const results = await Promise.all(
         batch.map(pageNum =>
-          processPage({ doc, pageIndex: pageNum - 1, pageNum, basePath, uploadId, sharpFn })
+          processPage({ doc, pageIndex: pageNum - 1, pageNum, basePath, uploadId, sharpFn, mupdf })
         )
       );
       for (const { record, durationMs } of results) {

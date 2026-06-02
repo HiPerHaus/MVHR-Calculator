@@ -10,10 +10,6 @@
 // Response 200: { pageId, hiresPath, widthPx, heightPx, durationMs }
 
 import { createClient } from '@supabase/supabase-js';
-import { createRequire } from 'module';
-
-const require  = createRequire(import.meta.url);
-const mupdf    = require('mupdf');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -44,6 +40,9 @@ export default async function handler(req, res) {
   const t0 = Date.now();
 
   try {
+    // ── Load mupdf ────────────────────────────────────────────────────────
+    const mupdf = await import('mupdf');
+
     // ── Download PDF ───────────────────────────────────────────────────────
     const objectPath = storagePath.replace(`${BUCKET}/`, '');
     const { data: pdfBlob, error: dlErr } = await supabase.storage
