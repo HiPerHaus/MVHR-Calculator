@@ -107,13 +107,24 @@ end $$;
 alter table public.plan_analysis_log
   add column if not exists test_mode boolean not null default false;
 
--- ── 6. Stage 2 recovery tracking ────────────────────────────
--- recovery_mode:      true when Stage 1 returned empty rooms and Stage 2 recovered them.
--- fallback_generated: true when both Stage 1 and Stage 2 failed and a generic room
---                     schedule was generated from floor area estimates.
+-- ── 6. Stage 2 recovery and analysis status tracking ────────
 alter table public.plan_analysis_log
-  add column if not exists recovery_mode      boolean not null default false,
-  add column if not exists fallback_generated boolean not null default false;
+  add column if not exists recovery_mode    boolean not null default false,
+  add column if not exists analysis_status  text    not null default 'success'
+    check (analysis_status in ('success','failed')),
+  add column if not exists failure_reason   text;
+
+-- Remove fallback_generated — generic room generation has been removed from the workflow.
+-- If this column exists from a previous migration run, drop it safely.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'plan_analysis_log' and column_name = 'fallback_generated'
+  ) then
+    alter table public.plan_analysis_log drop column fallback_generated;
+  end if;
+end $$;
 
 comment on column public.plan_analysis_log.project_id is
   'NULL when the row was created by an admin test run (testMode=true) without an associated project.';
@@ -121,14 +132,16 @@ comment on column public.plan_analysis_log.test_mode is
   'true = admin test run via /admin-ai-test.html; false = normal production call.';
 comment on column public.plan_analysis_log.recovery_mode is
   'true = Stage 1 returned empty rooms but Stage 2 recovery pass succeeded.';
-comment on column public.plan_analysis_log.fallback_generated is
-  'true = both AI passes failed; room schedule was generated from floor area estimates only.';
+comment on column public.plan_analysis_log.analysis_status is
+  '"success" = rooms extracted; "failed" = both AI passes returned empty rooms — no credits charged.';
+comment on column public.plan_analysis_log.failure_reason is
+  'Machine-readable failure code, e.g. "room_extraction_failed". NULL on success.';
 
 
 -- ── Done ─────────────────────────────────────────────────────
 -- Verify with:
---   select column_name, is_nullable from information_schema.columns
+--   select column_name, is_nullable, column_default from information_schema.columns
 --     where table_name='plan_analysis_log'
---     and column_name in ('project_id','test_mode','recovery_mode','fallback_generated');
+--     and column_name in ('project_id','test_mode','recovery_mode','analysis_status','failure_reason');
 --   select * from plan_analysis_log limit 0;
 --   select * from operation_costs where operation like 'ai_%';

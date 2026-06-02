@@ -261,17 +261,22 @@ const KNOWN_ROOM_WORDS = new Set([
 
 const STORE_PATTERN = /\bstore\b/i;
 
-// Wet-area fixtures that force extract classification regardless of room name
+// Wet-area fixtures that force extract classification regardless of room name.
+// Oven, cooktop, fridge and dishwasher are intentionally excluded — they do not
+// require extract ventilation on their own. They may appear in fixtures[] for
+// information but must NOT trigger the extract override.
 const WET_FIXTURE_PATTERNS = [
   /\bsink\b/i,
   /\bbasin\b/i,
   /\bvanity\b/i,
   /\btoilet\b/i,
+  /\bwc\b/i,
   /\bshower\b/i,
   /\bbath\b/i,
   /\blaundry tub\b/i,
+  /\btub\b/i,
+  /\btrough\b/i,
   /\bkitchenette\b/i,
-  /\bkitchen joinery\b/i,
 ];
 // Matches WIR, Walk-in Robe, Walk in Robe, Walk-in Wardrobe, Walk in Wardrobe
 const WIR_PATTERN   = /\b(wir|walk[-\s]?in\s+(robe|wardrobe))\b/i;
@@ -300,8 +305,8 @@ function postProcessRooms(rooms, warnings) {
       if (wetFixture) {
         room.ventilationClassification = 'extract';
         if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
-        room.classificationReason = `Contains wet fixture (${room.fixtures.join(', ')}) — classified as extract regardless of room name.`;
-        warnings.push(`"${name}" reclassified as extract — wet fixture detected: ${room.fixtures.join(', ')}.`);
+        room.classificationReason = `Contains wet fixture (${wetFixture}) — classified as extract regardless of room name.`;
+        warnings.push(`"${name}" reclassified as extract — ${wetFixture} detected.`);
         out.push(room);
         continue;
       }
@@ -491,13 +496,47 @@ Set "roomType" to exactly one of:
   Transfer: "Hallway"  "Entry"  "Corridor"  "Other"
   Ignore:   "WIR"  "Garage"  "Porch"  "Carport"  "Alfresco"  "Store"  "Other"
 
-════ STEP 3: IDENTIFY FIXTURES ════
-For each room, list any plumbing or wet-area fixtures visible inside it.
-Include: sink, basin, vanity, toilet, shower, bath, laundry tub, kitchenette, kitchen joinery.
-If no fixtures are visible, set "fixtures": [].
-FIXTURE RULE: If a room contains any wet fixture, set classification to "extract" — even if the
-room name suggests otherwise. A "Multi Use Room" with a sink = extract. A "Studio" with a
-kitchenette = extract. Fixture evidence overrides the room name.
+════ STEP 3: IDENTIFY FIXTURES IN EVERY ROOM ════
+Do NOT rely on the room label to decide whether a room has plumbing.
+Visually inspect the interior of EVERY room for drawn symbols and joinery outlines.
+
+Look specifically for these drawn elements inside each room boundary:
+  • Sink symbol       — rectangular or D-shaped outline against a wall or benchtop
+  • Basin symbol      — circular or oval outline, usually wall-mounted
+  • Vanity            — rectangular benchtop with one or two basin outlines
+  • Laundry tub       — deep square or rectangular tub symbol
+  • Kitchenette       — short run of joinery with a sink outline included
+  • Shower recess     — square or rectangular zone, often with a drain circle
+  • Bath              — large rectangular or freestanding tub outline
+  • Toilet / WC       — elongated oval or rectangular symbol
+
+Small plumbing fixtures are commonly drawn as simple outlines against walls and are easy to
+miss. Check every wall inside the room, not just the labelled centre.
+
+These room types often contain plumbing fixtures even when not labelled as wet rooms —
+inspect them carefully:
+  Multi-Use Room  Study  Office  Utility  Workshop  Studio  Store  Mudroom
+  Scullery  Pantry  Retreat  Activity  Rumpus  Gym  Cellar  Bar
+
+WET FIXTURES — if any are visible inside the room, add to fixtures[] and set classification "extract":
+  sink  basin  vanity  toilet  WC  shower  bath  laundry tub  tub  trough  kitchenette
+
+DRY FIXTURES — add to fixtures[] for information only, do NOT classify as extract alone:
+  oven  cooktop  fridge  dishwasher
+
+FIXTURE RULE (highest priority — overrides room name):
+• Any wet fixture present → classification = "extract"
+• Oven / cooktop / fridge / dishwasher alone → do not change classification
+• Examples:
+    Multi-Use Room + sink symbol    = extract
+    Study + basin symbol            = extract
+    Utility Room + basin            = extract
+    Studio + kitchenette with sink  = extract
+    Mudroom + laundry tub           = extract
+    Scullery + sink + dishwasher    = extract  (sink is wet)
+    Rumpus + fridge only            = supply   (fridge alone is not wet)
+
+If no fixtures are visible inside the room boundary, set "fixtures": [].
 
 ════ CRITICAL RULES ════
 • Thick-walled enclosed spaces with a door = rooms. List them.
@@ -516,9 +555,12 @@ Return ONLY valid JSON. No markdown. No prose. No other fields.
     { "name": "Kitchen", "labelSeen": "KITCHEN",
       "roomType": "Kitchen", "classification": "extract",
       "area": 16.4, "confidence": 0.97, "fixtures": ["sink", "kitchen joinery"] },
-    { "name": "Multi Use Room", "labelSeen": "MULTI USE",
+    { "name": "Multi-Use Room", "labelSeen": "MULTI USE",
       "roomType": "Other", "classification": "extract",
       "area": 12.0, "confidence": 0.85, "fixtures": ["sink"] },
+    { "name": "Rumpus Room", "labelSeen": "RUMPUS",
+      "roomType": "Rumpus Room", "classification": "supply",
+      "area": 22.0, "confidence": 0.95, "fixtures": ["fridge"] },
     { "name": "Hallway", "labelSeen": "HALL",
       "roomType": "Hallway", "classification": "transfer",
       "area": 8.2, "confidence": 0.9, "fixtures": [] }
@@ -544,8 +586,15 @@ Classification rules:
 Rooms labelled with a person's name (PAUL, JAN, JANE, etc.) are habitable — classify as supply.
 Do not return cupboards, joinery, shelving or robe outlines as rooms.
 Estimate area (m²) if visible. Set confidence 0.5 for uncertain rooms.
-For each room, list visible plumbing fixtures in "fixtures": []. If a room has any wet fixture
-(sink, basin, vanity, toilet, shower, bath, laundry tub, kitchenette), set classification "extract".
+Do NOT rely on room labels to detect plumbing. Visually inspect every room's interior for
+drawn fixture symbols — sink outlines, basin circles, vanity benchtops, laundry tubs, shower
+recesses. Small fixtures are drawn against walls and easy to miss; check all four walls.
+Rooms like Multi-Use Room, Study, Office, Utility, Studio, Mudroom, Workshop often contain
+sinks even when not labelled as wet rooms.
+Wet fixtures (sink, basin, vanity, toilet, WC, shower, bath, laundry tub, tub, trough,
+kitchenette) → add to fixtures[] and set classification "extract".
+Dry fixtures (oven, cooktop, fridge, dishwasher) → add to fixtures[] but do NOT trigger extract.
+Multi-Use Room + sink = extract. Rumpus + fridge only = supply.
 
 Return ONLY valid JSON. No markdown. No prose.
 
