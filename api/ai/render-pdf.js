@@ -127,7 +127,8 @@ async function processPage({ doc, pageIndex, pageNum, basePath, uploadId, sharpF
 
   return {
     record: {
-      pdf_upload_id:    uploadId,
+      upload_id:        uploadId,   // matches DB unique constraint column
+      pdf_upload_id:    uploadId,   // alias — kept in sync
       page_number:      pageNum,
       image_path:       imgUpload.error   ? null : `${BUCKET}/${imagePath}`,
       thumb_path:       thumbUpload.error ? null : `${BUCKET}/${thumbPath}`,
@@ -235,12 +236,14 @@ export default async function handler(req, res) {
     doc.destroy();
 
     // ── Upsert pdf_pages ──────────────────────────────────────────────────────
-    // Defensive: ensure every record explicitly carries pdf_upload_id and page_number
-    // so they cannot be null even if a prior broken upsert left null-linked rows.
+    // Both upload_id and pdf_upload_id are set on every record.
+    // The DB unique constraint is on (upload_id, page_number) — use that as the
+    // conflict key. pdf_upload_id is an alias column; we backfill it explicitly
+    // after the upsert in case PostgREST ignores it during conflict resolution.
     const safeRecords = pageRecords.map(r => ({
       ...r,
-      pdf_upload_id: uploadId,   // always override — never trust inherited value
-      upload_id:     uploadId,   // populate alias column if schema uses both names
+      upload_id:     uploadId,
+      pdf_upload_id: uploadId,
       page_number:   r.page_number,
     }));
 
@@ -249,35 +252,56 @@ export default async function handler(req, res) {
       uploadId,
       recordCount: safeRecords.length,
       sample:      safeRecords.slice(0, 2).map(r => ({
-        pdf_upload_id: r.pdf_upload_id,
         upload_id:     r.upload_id,
+        pdf_upload_id: r.pdf_upload_id,
         page_number:   r.page_number,
       })),
     }));
 
     const { error: insertErr } = await supabase
       .from('pdf_pages')
-      .upsert(safeRecords, { onConflict: 'pdf_upload_id,page_number' });
+      .upsert(safeRecords, { onConflict: 'upload_id,page_number' });
 
     if (insertErr) throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
 
-    // ── Verify rows are linked to this upload ─────────────────────────────────
-    const { data: verify } = await supabase
+    // ── Backfill pdf_upload_id on any rows where it didn't take ───────────────
+    // If pdf_upload_id is a real column but wasn't set during upsert conflict
+    // resolution, this UPDATE ensures it's always populated.
+    const { error: backfillErr } = await supabase
       .from('pdf_pages')
-      .select('id')
-      .eq('pdf_upload_id', uploadId);
+      .update({ pdf_upload_id: uploadId })
+      .eq('upload_id', uploadId)
+      .is('pdf_upload_id', null);
 
-    if (!verify?.length) {
-      throw new Error(`pdf_pages insert failed: no rows linked to upload ${uploadId}`);
+    if (backfillErr) {
+      console.warn(JSON.stringify({
+        event: 'render-pdf:backfill-warning',
+        uploadId,
+        error: backfillErr.message,
+      }));
     }
 
+    // ── Verify rows are linked via BOTH columns ───────────────────────────────
+    const [{ data: verifyByPdfUploadId }, { data: verifyByUploadId }] = await Promise.all([
+      supabase.from('pdf_pages').select('id').eq('pdf_upload_id', uploadId),
+      supabase.from('pdf_pages').select('id').eq('upload_id',     uploadId),
+    ]);
+
     console.log(JSON.stringify({
-      event:        'render-pdf:verify',
+      event:                   'render-pdf:verify',
       uploadId,
-      verifiedRows: verify.length,
+      countByPdfUploadId:      verifyByPdfUploadId?.length ?? 0,
+      countByUploadId:         verifyByUploadId?.length    ?? 0,
     }));
 
-    const renderedCount = verify.length;
+    if (!verifyByPdfUploadId?.length) {
+      throw new Error(
+        `pdf_pages insert failed: no rows linked via pdf_upload_id = ${uploadId} ` +
+        `(upload_id count: ${verifyByUploadId?.length ?? 0})`
+      );
+    }
+
+    const renderedCount = verifyByPdfUploadId.length;
     const totalRenderMs = Date.now() - loopStart;
     const avgMs = pageDurations.length
       ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length) : 0;
