@@ -156,11 +156,13 @@ export default async function handler(req, res) {
   }
 
   // ── Kick off render-pdf via waitUntil ────────────────────────────────────
-  // waitUntil keeps the Vercel function alive until the promise settles,
-  // preventing the runtime from freezing the background fetch before it starts.
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000';
+  // Use req.headers.host (not VERCEL_URL) so self-calls always reach the same
+  // deployment that handled the upload — VERCEL_URL is the deployment-specific
+  // preview URL and is unreliable for production domain routing.
+  const host    = req.headers.host ?? '';
+  const proto   = host.includes('localhost') ? 'http' : 'https';
+  const baseUrl = `${proto}://${host}`;
+  const renderUrl = `${baseUrl}/api/ai/render-pdf`;
 
   const renderPayload = JSON.stringify({
     uploadId:    uploadRow.id,
@@ -170,15 +172,15 @@ export default async function handler(req, res) {
     projectId:   projectId ?? null,
   });
 
-  console.log(JSON.stringify({
-    event:    'upload-pdf:handoff',
-    target:   'render-pdf',
+  console.log('[upload-pdf] triggering render-pdf', {
+    renderUrl,
     uploadId: uploadRow.id,
     jobId:    uploadRow.job_id,
-  }));
+    storagePath,
+  });
 
   waitUntil(
-    fetch(`${baseUrl}/api/ai/render-pdf`, {
+    fetch(renderUrl, {
       method:  'POST',
       headers: {
         'Content-Type':      'application/json',
@@ -186,25 +188,16 @@ export default async function handler(req, res) {
       },
       body: renderPayload,
     }).then(async (r) => {
-      const body = await r.text().catch(() => '');
-      console.log(JSON.stringify({
-        event:    'upload-pdf:handoff-response',
-        target:   'render-pdf',
-        status:   r.status,
-        body:     body.slice(0, 200),
-      }));
+      const text = await r.text().catch(() => '');
+      console.log('[upload-pdf] render-pdf response', r.status, text.slice(0, 300));
       if (!r.ok) {
         await supabase
           .from('pdf_uploads')
-          .update({ status: 'error', error_detail: `render-pdf handoff failed (HTTP ${r.status}): ${body.slice(0, 300)}` })
+          .update({ status: 'error', error_detail: `render-pdf handoff failed (HTTP ${r.status}): ${text.slice(0, 300)}` })
           .eq('id', uploadRow.id);
       }
     }).catch(async (err) => {
-      console.error(JSON.stringify({
-        event:    'upload-pdf:handoff-error',
-        target:   'render-pdf',
-        error:    err.message,
-      }));
+      console.error('[upload-pdf] render-pdf handoff failed', err.message);
       await supabase
         .from('pdf_uploads')
         .update({ status: 'error', error_detail: `render-pdf handoff error: ${err.message}` })

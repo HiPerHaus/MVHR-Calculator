@@ -49,7 +49,10 @@ const MAX_PAGES           = 100;
 // ── Lazy-load heavy deps (avoids cold-start penalty for other routes) ─────
 async function getPdfJs() {
   const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  GlobalWorkerOptions.workerSrc = '';
+  // Do NOT set workerSrc = '' — that triggers the "fake worker" error in pdfjs v4.
+  // Setting it to false (or leaving it unset) combined with disableWorker: true on
+  // getDocument is the correct Node/Vercel serverless approach.
+  GlobalWorkerOptions.workerSrc = false;
   return { getDocument };
 }
 
@@ -211,6 +214,13 @@ async function processPage({ pdfDoc, pageNum, basePath, uploadId, createCanvasFn
 
 // ── Handler ───────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
+  // Log immediately — confirms the function was invoked at all.
+  console.log('[render-pdf] invoked', {
+    method:  req.method,
+    body:    req.body,
+    host:    req.headers.host,
+  });
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   if (!validateInternalToken(req)) {
@@ -252,7 +262,12 @@ export default async function handler(req, res) {
     const pdfData        = new Uint8Array(pdfArrayBuffer);
 
     // ── Open PDF ─────────────────────────────────────────────────────────────
-    const pdfDoc    = await getDocument({ data: pdfData }).promise;
+    const pdfDoc    = await getDocument({
+      data:            pdfData,
+      disableWorker:   true,
+      useWorkerFetch:  false,
+      isEvalSupported: false,
+    }).promise;
     const pageCount = pdfDoc.numPages;
 
     if (pageCount > MAX_PAGES) {
@@ -344,9 +359,9 @@ export default async function handler(req, res) {
       .eq('id', uploadId);
 
     // ── Hand off to classify-pages via waitUntil ──────────────────────────
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
+    const host    = req.headers.host ?? '';
+    const proto   = host.includes('localhost') ? 'http' : 'https';
+    const baseUrl = `${proto}://${host}`;
 
     const classifyPayload = JSON.stringify({ uploadId, jobId, userId, pageCount, projectId: projectId ?? null });
 

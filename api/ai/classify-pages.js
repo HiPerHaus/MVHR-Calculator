@@ -292,9 +292,9 @@ export default async function handler(req, res) {
 
     // ── Hand off to auto-analyse via waitUntil ────────────────────────────
     // The status will transition: awaiting_confirmation → analysing → complete.
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
+    const host    = req.headers.host ?? '';
+    const proto   = host.includes('localhost') ? 'http' : 'https';
+    const baseUrl = `${proto}://${host}`;
 
     const analysePayload = JSON.stringify({ uploadId, jobId, userId, projectId: projectId ?? null });
 

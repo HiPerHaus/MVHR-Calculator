@@ -41,7 +41,7 @@ const BUCKET              = 'plan-uploads';
 // ── Lazy deps ─────────────────────────────────────────────────────────────
 async function getPdfJs() {
   const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  GlobalWorkerOptions.workerSrc = '';
+  GlobalWorkerOptions.workerSrc = false;
   return { getDocument };
 }
 
@@ -119,7 +119,12 @@ export default async function handler(req, res) {
     const pdfData = new Uint8Array(await pdfBlob.arrayBuffer());
 
     // ── Render page ────────────────────────────────────────────────────────
-    const pdfDoc  = await getDocument({ data: pdfData }).promise;
+    const pdfDoc  = await getDocument({
+      data:            pdfData,
+      disableWorker:   true,
+      useWorkerFetch:  false,
+      isEvalSupported: false,
+    }).promise;
     const page    = await pdfDoc.getPage(pageNumber);
 
     const scale   = HIRES_DPI / PDF_POINTS_PER_INCH;
