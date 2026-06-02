@@ -99,6 +99,21 @@ function stripMarkdown(text) {
   return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
 }
 
+// Robust JSON extraction — strips markdown fences, then finds the first
+// valid {...} or [...] block if direct parse fails.
+function extractJson(text) {
+  let s = stripMarkdown(text);
+  try { return JSON.parse(s); } catch (_) {}
+  const fb = s.indexOf('{'), fb2 = s.indexOf('[');
+  let start = -1;
+  if (fb !== -1 && (fb2 === -1 || fb < fb2)) start = fb;
+  else if (fb2 !== -1) start = fb2;
+  if (start === -1) throw new SyntaxError('No JSON structure found');
+  const end = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+  if (end < start) throw new SyntaxError('Malformed JSON');
+  return JSON.parse(s.slice(start, end + 1));
+}
+
 // Validate and normalise a single room object from AI output.
 // Stage 1 focus: name, label, type, classification, confidence, area only.
 // Airflow, outlets and open-plan detection are deferred to later stages.
@@ -1552,9 +1567,9 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: 'AI service error. No credits were deducted.' });
   }
 
-  const rawText      = claudeResponse.content?.[0]?.text ?? '';
-  const inputTokens  = claudeResponse.usage?.input_tokens  ?? 0;
-  const outputTokens = claudeResponse.usage?.output_tokens ?? 0;
+  let rawText      = claudeResponse.content?.[0]?.text ?? '';
+  let inputTokens  = claudeResponse.usage?.input_tokens  ?? 0;
+  let outputTokens = claudeResponse.usage?.output_tokens ?? 0;
 
   // ── Parse and validate AI response ─────────────────────────
   let parsed;
@@ -1565,10 +1580,52 @@ export default async function handler(req, res) {
     warnings.push('Room labels may be too small to read. Try a cropped screenshot of the floor plan.');
   }
 
+  // Attempt 1: robust extraction (strips markdown fences, finds first JSON block)
+  let parseError = null;
   try {
-    parsed = JSON.parse(stripMarkdown(rawText));
+    parsed = extractJson(rawText);
   } catch (e) {
-    // Log failure — no credits deducted
+    parseError = e;
+    console.warn('analyse-plan: Stage 1 parse attempt 1 failed:', e.message,
+      '| raw snippet:', rawText.slice(0, 200));
+  }
+
+  // Attempt 2: retry with explicit JSON-only prompt
+  if (!parsed) {
+    console.log('analyse-plan: retrying Stage 1 with JSON-only prompt');
+    try {
+      const retryResponse = await anthropic.messages.create({
+        model:      MODEL,
+        max_tokens: 4096,
+        system:     SYSTEM_PROMPT,
+        messages: [
+          {
+            role:    'user',
+            content: [
+              { type: 'image', source: imageSource },
+              { type: 'text',  text: 'Analyse this floor plan. Return ONLY a JSON object — no markdown, no prose. Start your response with {' },
+            ],
+          },
+        ],
+      });
+      const retryText = retryResponse.content?.[0]?.text ?? '';
+      inputTokens  += retryResponse.usage?.input_tokens  ?? 0;
+      outputTokens += retryResponse.usage?.output_tokens ?? 0;
+      try {
+        parsed = extractJson(retryText);
+        rawText = retryText; // use retry text for logging
+        console.log('analyse-plan: Stage 1 retry parse succeeded');
+      } catch (e2) {
+        console.error('analyse-plan: Stage 1 retry parse also failed:', e2.message,
+          '| raw snippet:', retryText.slice(0, 200));
+        parseError = e2;
+      }
+    } catch (retryApiErr) {
+      console.error('analyse-plan: Stage 1 retry API call failed:', retryApiErr.message);
+    }
+  }
+
+  if (!parsed) {
     await supabase.from('plan_analysis_log').insert({
       ...(isUuid(projectId) ? { project_id: projectId } : {}),
       user_id:      user.id,
@@ -1579,11 +1636,12 @@ export default async function handler(req, res) {
       output_tokens: outputTokens,
       raw_response: rawText,
       status:       'error',
-      error_detail: `JSON parse failed: ${e.message}`,
+      error_detail: `JSON parse failed after retry: ${parseError?.message}`,
     });
 
     return res.status(422).json({
-      error: 'AI returned an unparseable response. No credits were deducted. Please try again.',
+      error: `AI returned an unparseable response (parse stage: ${parseError?.message ?? 'unknown'}). No credits deducted.`,
+      rawSnippet: rawText.slice(0, 300),
     });
   }
 

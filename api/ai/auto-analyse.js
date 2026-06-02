@@ -52,22 +52,34 @@ function validateInternalToken(req) {
 }
 
 // ── Page selection ─────────────────────────────────────────────────────────
-// Returns an ordered list of floor_plan pages to analyse.
-// Sorted by floor_level (if known) then page_number.
+// Priority order:
+//   1. floor_plan pages, confidence ≥ PRIMARY_THRESHOLD  (sorted by confidence desc, then page_number)
+//   2. floor_plan pages, confidence ≥ FALLBACK_THRESHOLD
+//   3. floor_plan pages, any confidence
+//   4. site_plan pages (last-resort useful fallback)
+//   5. any page (something is better than nothing)
+// Never voluntarily selects elevation/section/detail/schedule/specification.
 function selectFloorPlanPages(pages) {
-  const byConfidence = (threshold) =>
-    pages
-      .filter(p => p.page_type === 'floor_plan' && (p.classification_confidence ?? 0) >= threshold)
-      .sort((a, b) => {
-        if (a.floor_level !== null && b.floor_level !== null) return a.floor_level - b.floor_level;
-        return a.page_number - b.page_number;
-      });
+  const floorPlans = pages
+    .filter(p => p.page_type === 'floor_plan')
+    .sort((a, b) => {
+      // Primary sort: confidence desc
+      const confDiff = (b.classification_confidence ?? 0) - (a.classification_confidence ?? 0);
+      if (confDiff !== 0) return confDiff;
+      return a.page_number - b.page_number;
+    });
 
-  let selected = byConfidence(PRIMARY_THRESHOLD);
-  if (!selected.length) selected = byConfidence(FALLBACK_THRESHOLD);
+  let selected =
+    floorPlans.filter(p => (p.classification_confidence ?? 0) >= PRIMARY_THRESHOLD)  ||
+    floorPlans.filter(p => (p.classification_confidence ?? 0) >= FALLBACK_THRESHOLD) ||
+    floorPlans;
 
-  // Last resort: take the first page (something is better than nothing).
-  if (!selected.length && pages.length) selected = [pages[0]];
+  // Proper fallback chain — || on arrays is always truthy, use length checks:
+  if (!selected.length) selected = floorPlans.filter(p => (p.classification_confidence ?? 0) >= PRIMARY_THRESHOLD);
+  if (!selected.length) selected = floorPlans.filter(p => (p.classification_confidence ?? 0) >= FALLBACK_THRESHOLD);
+  if (!selected.length) selected = floorPlans;
+  if (!selected.length) selected = pages.filter(p => p.page_type === 'site_plan');
+  if (!selected.length) selected = pages.slice(0, 1);
 
   // Deduplicate: if the same floor_level appears multiple times, keep highest confidence.
   const seen = new Map();
@@ -79,6 +91,7 @@ function selectFloorPlanPages(pages) {
     }
   }
 
+  // Final sort: floor_level asc (known levels), then page_number asc.
   return [...seen.values()].sort((a, b) => {
     if (a.floor_level !== null && b.floor_level !== null) return a.floor_level - b.floor_level;
     return a.page_number - b.page_number;
