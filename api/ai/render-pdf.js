@@ -218,19 +218,32 @@ export default async function handler(req, res) {
 
     if (insertErr) throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
 
+    // Count actual rows written — source of truth for downstream gates.
+    const { count: actualPagesCount } = await supabase
+      .from('pdf_pages')
+      .select('id', { count: 'exact', head: true })
+      .eq('pdf_upload_id', uploadId);
+
+    const renderedCount = actualPagesCount ?? pageRecords.length;
     const totalRenderMs = Date.now() - loopStart;
     const avgMs = pageDurations.length
       ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length) : 0;
     const failedPages = pageRecords.filter(p => !p.image_path).length;
 
     console.log(JSON.stringify({
-      event: 'render-pdf:complete', jobId, uploadId, pageCount, failedPages,
+      event: 'render-pdf:complete', jobId, uploadId, pageCount, renderedCount, failedPages,
       totalRenderMs, avgMsPerPage: avgMs, batchSize: RENDER_BATCH_SIZE,
     }));
 
     const renderCompletedAt = new Date().toISOString();
     await supabase.from('pdf_uploads')
-      .update({ status: 'classifying', render_completed_at: renderCompletedAt })
+      .update({
+        status:               'classifying',
+        stage:                'rendered',
+        page_count:           renderedCount,
+        pages_rendered:       renderedCount,
+        render_completed_at:  renderCompletedAt,
+      })
       .eq('id', uploadId);
 
     // ── Hand off to classify-pages ─────────────────────────────────────────

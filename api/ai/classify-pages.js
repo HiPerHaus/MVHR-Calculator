@@ -370,45 +370,53 @@ export default async function handler(req, res) {
       batchCount:           Math.ceil(pages.length / MAX_BATCH_SIZE),
     }));
 
-    // ── Update pdf_uploads status → awaiting_confirmation ─────────────────
+    const classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
+
+    // Use actual pdf_pages row count as the source of truth — pdf_uploads.pages_rendered
+    // may be stale (e.g. 0) if render-pdf ran before this column was being written.
+    const { count: actualPageCount } = await supabase
+      .from('pdf_pages')
+      .select('id', { count: 'exact', head: true })
+      .eq('pdf_upload_id', uploadId);
+
+    const renderedCount = actualPageCount ?? pages.length;
+
+    // ── Update pdf_uploads with accurate progress fields ──────────────────
     await supabase
       .from('pdf_uploads')
       .update({
         status:                'awaiting_confirmation',
+        stage:                 'classified',
+        page_count:            renderedCount,
+        pages_rendered:        renderedCount,
+        pages_classified:      classifiedCount,
         classify_completed_at: classifyCompletedAt,
       })
       .eq('id', uploadId);
 
     // ── Gate: only hand off to auto-analyse if pages actually exist ────────
-    // Re-check upload status and page count to avoid triggering analysis on
-    // jobs that failed during rendering (pages_rendered=0, status=error).
-    const { data: uploadCheck } = await supabase
-      .from('pdf_uploads')
-      .select('status')
-      .eq('id', uploadId)
-      .maybeSingle();
-
-    const classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
-
-    if (!uploadCheck || uploadCheck.status === 'error') {
+    if (renderedCount === 0) {
       console.log(JSON.stringify({
         event: 'classify-pages:handoff-skipped',
-        reason: 'upload status is error',
-        uploadId, jobId,
+        reason: 'no pdf_pages rows exist',
+        uploadId, jobId, renderedCount, classifiedCount,
       }));
-      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'upload error' });
+      await supabase.from('pdf_uploads')
+        .update({ status: 'error', error_detail: 'No rendered pages found in pdf_pages' })
+        .eq('id', uploadId);
+      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'no_pages' });
     }
 
-    if (pages.length === 0 || classifiedCount === 0) {
+    if (classifiedCount === 0) {
       console.log(JSON.stringify({
         event: 'classify-pages:handoff-skipped',
-        reason: 'no classified pages',
-        uploadId, jobId, totalPages: pages.length, classifiedCount,
+        reason: 'no pages successfully classified',
+        uploadId, jobId, renderedCount, classifiedCount,
       }));
       await supabase.from('pdf_uploads')
         .update({ status: 'error', error_detail: 'No pages were successfully classified' })
         .eq('id', uploadId);
-      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'no classified pages' });
+      return res.status(200).json({ uploadId, jobId, status: 'skipped', reason: 'no_classified_pages' });
     }
 
     // ── Hand off to auto-analyse via waitUntil ────────────────────────────

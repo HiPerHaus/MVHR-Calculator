@@ -345,14 +345,41 @@ export default async function handler(req, res) {
     }
 
     if (!pages?.length) {
-      console.log(JSON.stringify({
-        event: 'auto-analyse:no-pages-found',
-        uploadId, jobId,
-      }));
-      await supabase.from('pdf_uploads')
-        .update({ status: 'error', error_detail: 'No rendered pages found for this upload' })
-        .eq('id', uploadId);
-      return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
+      // Double-check with a direct count — handles race conditions where pages were
+      // written after the select returned empty.
+      const { count: directCount } = await supabase
+        .from('pdf_pages')
+        .select('id', { count: 'exact', head: true })
+        .eq('pdf_upload_id', uploadId);
+
+      if (!directCount) {
+        console.log(JSON.stringify({
+          event: 'auto-analyse:no-pages-found',
+          uploadId, jobId, directCount,
+        }));
+        await supabase.from('pdf_uploads')
+          .update({ status: 'error', error_detail: 'No pdf_pages rows found for this upload' })
+          .eq('id', uploadId);
+        return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
+      }
+
+      // Rows exist but weren't returned — retry the fetch once.
+      console.warn(`[auto-analyse] pages select returned empty but count=${directCount} — retrying fetch`);
+      const { data: retryPages, error: retryErr } = await supabase
+        .from('pdf_pages')
+        .select('id, page_number, page_type, classification_confidence, floor_level, floor_name, image_path')
+        .eq('pdf_upload_id', uploadId)
+        .order('page_number', { ascending: true });
+
+      if (retryErr || !retryPages?.length) {
+        await supabase.from('pdf_uploads')
+          .update({ status: 'error', error_detail: 'pdf_pages retry fetch returned empty' })
+          .eq('id', uploadId);
+        return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
+      }
+
+      // Use the retry result.
+      pages.push(...retryPages);
     }
 
     // ── Auto-select floor plan pages ───────────────────────────────────────
