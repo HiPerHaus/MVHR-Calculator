@@ -244,6 +244,7 @@ export default async function handler(req, res) {
       ...r,
       upload_id:     uploadId,
       pdf_upload_id: uploadId,
+      pdf_upload_id: uploadId,
       page_number:   r.page_number,
     }));
 
