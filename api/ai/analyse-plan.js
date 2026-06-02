@@ -1298,11 +1298,13 @@ export default async function handler(req, res) {
   const internalSecret = req.headers['x-internal-secret'];
   const internalApiSecret = process.env.INTERNAL_API_SECRET;
 
+  let internalCall = false;
   if (internalSecret && internalApiSecret && internalSecret === internalApiSecret) {
     // Internal call — trust userId from request body.
     const bodyUserId = req.body?.userId;
     if (!bodyUserId) return res.status(400).json({ error: 'userId required for internal auth' });
     user = { id: bodyUserId };
+    internalCall = true;
   } else {
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -1326,7 +1328,10 @@ export default async function handler(req, res) {
                       // Takes priority over pdf_pages.image_path when pdfPageId is also set.
   } = req.body ?? {};
 
-  // In testMode, require admin auth; otherwise projectId is mandatory
+  // projectId is required for standard (user-facing) calls.
+  // It is optional when:
+  //   - testMode is true (admin test path)
+  //   - internalCall is true (auto-analyse pipeline — pdfPageId/pdfUploadId identify the work)
   if (testMode) {
     const { data: adminProfile } = await supabase
       .from('profiles')
@@ -1336,7 +1341,7 @@ export default async function handler(req, res) {
     if (!adminProfile?.is_admin) {
       return res.status(403).json({ error: 'Admin access required for testMode' });
     }
-  } else {
+  } else if (!internalCall) {
     if (!isUuid(projectId)) {
       return res.status(400).json({ error: 'Valid projectId (UUID) required' });
     }
