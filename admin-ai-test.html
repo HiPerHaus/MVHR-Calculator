@@ -275,6 +275,25 @@ details summary:hover { background: var(--primary-light); }
       </div>
     </div>
 
+    <!-- Occupancy Summary -->
+    <div id="occupancySummary" style="display:none;margin-top:14px">
+      <div class="section-label">Occupancy Estimate</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="summary-item" style="min-width:140px">
+          <div class="summary-label">Suggested Occupancy</div>
+          <div class="summary-value" id="sumOccupancy" style="font-size:22px">—</div>
+        </div>
+        <div class="summary-item" style="min-width:140px">
+          <div class="summary-label">Total Bed Spaces</div>
+          <div class="summary-value" id="sumBedSpaces">—</div>
+        </div>
+        <div class="summary-item" style="min-width:140px">
+          <div class="summary-label">Potential Additional</div>
+          <div class="summary-value" id="sumPotentialBedSpaces" style="color:var(--muted)">—</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Recovery mode notice — shown when recoveryMode=true -->
     <div id="recoveryNotice" style="display:none;margin-top:14px;padding:10px 14px;background:var(--amber-bg);border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:var(--amber)">
       🔄 <strong>Stage 2 recovery used.</strong> Stage 1 returned no rooms; a focused recovery pass extracted the room schedule. Review classifications and airflow values before use.
@@ -327,13 +346,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Room Type</th>
             <th>Classification</th>
             <th>Fixtures</th>
+            <th>Beds</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="supplyBody">
-          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -350,13 +370,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Room Type</th>
             <th>Classification</th>
             <th>Fixtures</th>
+            <th>Beds</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="extractBody">
-          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -373,13 +394,14 @@ details summary:hover { background: var(--primary-light); }
             <th>Room Type</th>
             <th>Classification</th>
             <th>Fixtures</th>
+            <th>Beds</th>
             <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="otherBody">
-          <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -619,6 +641,19 @@ function renderResults(data) {
     statusEl.innerHTML = '<span style="color:var(--accent);font-weight:800">✓ Success</span>';
   }
 
+  // Occupancy summary
+  const occ = data.occupancySummary;
+  const occSection = document.getElementById('occupancySummary');
+  if (!failed && occ) {
+    document.getElementById('sumOccupancy').textContent   = occ.suggestedOccupancy ?? '—';
+    document.getElementById('sumBedSpaces').textContent   = occ.totalBedSpaces ?? '—';
+    document.getElementById('sumPotentialBedSpaces').textContent =
+      occ.potentialAdditionalBedSpaces > 0 ? '+' + occ.potentialAdditionalBedSpaces : '0';
+    occSection.style.display = '';
+  } else {
+    occSection.style.display = 'none';
+  }
+
   // Recovery notice (success via Stage 2 only)
   document.getElementById('recoveryNotice').style.display = (!failed && data.recoveryMode) ? '' : 'none';
 
@@ -757,6 +792,14 @@ function renderRoomRows(rooms) {
       <td>${type}${spaceTag}</td>
       <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span>${terminalBadge}</td>
       <td>${fixtureList}</td>
+      <td style="text-align:center">${
+        (r.bedSpaces > 0 || r.potentialBedSpaces > 0)
+          ? `<span style="font-size:12px;font-weight:700;color:var(--primary)">${r.bedSpaces || 0}</span>`
+            + (r.potentialBedSpaces > 0
+                ? ` <span title="Potential bed spaces" style="font-size:10px;color:var(--muted)">(+${r.potentialBedSpaces})</span>`
+                : '')
+          : '<span style="color:var(--muted);font-size:12px">—</span>'
+      }</td>
       <td style="text-align:center">${optExtract}</td>
       <td style="max-width:220px">${reason}</td>
       <td>${confBadge}</td>
@@ -771,7 +814,7 @@ function confClass(c) {
 }
 
 function emptyRow() {
-  return '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+  return '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
 }
 
 // ── Status helpers ────────────────────────────────────────────

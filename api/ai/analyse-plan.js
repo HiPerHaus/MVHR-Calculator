@@ -28,9 +28,9 @@
 //                  fixtures, optionalExtract, optionalSupply, containsSecondaryExtractZone,
 //                  classificationReason, parentRoom, terminalPriority, spaceType }],
 //                  terminalPriority: 'high' | 'medium' | 'low' | 'none'
-//                  spaceType: 'bedroom' | 'living' | 'dining' | 'kitchen' | 'wet_area' |
-//                             'laundry' | 'office' | 'gym' | 'robe' | 'circulation' |
-//                             'service' | 'other'
+//                  spaceType: 'bedroom' | 'living' | 'dining' | 'kitchen' | 'kitchenette' |
+//                             'wet_area' | 'laundry' | 'office' | 'gym' | 'robe' |
+//                             'circulation' | 'service' | 'other'
 //                  airflowDriver: 'occupancy' | 'area' | 'fixed_extract' | 'transfer' | 'optional'
 //                  bedSpaces: number (permanent sleeping capacity; 0 for non-bedrooms)
 //                  potentialBedSpaces: number (convertible rooms; 0 if not applicable)
@@ -140,7 +140,7 @@ function validateRoom(raw, floorIndex) {
 
   // spaceType: functional space category used by the sizing engine for airflow lookup.
   const SPACE_TYPE_VALUES = new Set([
-    'bedroom','living','dining','kitchen','wet_area','laundry',
+    'bedroom','living','dining','kitchen','kitchenette','wet_area','laundry',
     'office','gym','robe','circulation','service','other',
   ]);
   const rawSpaceType = typeof raw.spaceType === 'string'
@@ -170,12 +170,13 @@ function validateRoom(raw, floorIndex) {
     ? raw.airflowDriver.toLowerCase().trim() : null;
   // Fallback: derive from spaceType when AI doesn't set it
   const SPACE_TYPE_TO_DRIVER = {
-    bedroom:     'occupancy',   living:      'occupancy',
-    dining:      'area',        kitchen:     'fixed_extract',
-    wet_area:    'fixed_extract', laundry:   'fixed_extract',
-    office:      'occupancy',   gym:         'occupancy',
-    robe:        'optional',    circulation: 'transfer',
-    service:     'optional',    other:       'occupancy',
+    bedroom:     'occupancy',   living:       'occupancy',
+    dining:      'area',        kitchen:      'fixed_extract',
+    kitchenette: 'fixed_extract', wet_area:   'fixed_extract',
+    laundry:     'fixed_extract', office:     'occupancy',
+    gym:         'occupancy',   robe:         'optional',
+    circulation: 'transfer',    service:      'optional',
+    other:       'occupancy',
   };
   const airflowDriver = AIRFLOW_DRIVER_VALUES.has(rawDriver)
     ? rawDriver
@@ -640,6 +641,31 @@ Set "roomType" to exactly one of:
   Transfer: "Hallway"  "Entry"  "Corridor"  "Other"
   Ignore:   "WIR"  "Garage"  "Porch"  "Carport"  "Alfresco"  "Store"  "Other"
 
+════ HABITABLE ROOM KITCHENETTE RULE ════
+If a habitable room contains a sink AND cabinetry or a benchtop:
+  → Treat the space as a kitchenette zone.
+  → classification  = "extract"
+  → spaceType       = "kitchenette"
+  → airflowDriver   = "fixed_extract"
+  → terminalPriority = "medium"
+  → Reason: food preparation and appliance use generate moisture, odours and contaminants.
+
+Applies to:
+  Multi-Use Room  Studio  Retreat  Activity Room  Rumpus  Office  Guest Room
+  Any habitable room not normally expected to contain a sink.
+
+Confidence guidance:
+  Sink + visible cabinetry or benchtop → high confidence kitchenette → extract
+  Sink only (no visible cabinetry)     → still classify as extract, add assumption:
+    "Sink detected without visible cabinetry — classified as extract pending manual review."
+
+spaceType distinction:
+  "kitchen"     — dedicated kitchen room (primary food preparation space)
+  "kitchenette" — habitable room with sink and cabinetry (secondary/incidental food prep)
+
+Both use airflowDriver = "fixed_extract", but kitchenette → terminalPriority "medium"
+vs kitchen → terminalPriority "high".
+
 ════ MANDATORY INSPECTION OF AMBIGUOUS ROOMS ════
 The following room types MUST undergo a detailed visual inspection before classification.
 Do NOT classify these rooms based on the room label alone:
@@ -923,7 +949,9 @@ Use the room function, not the room label.
                   Multi-Use Room  Multi-Purpose Room  Media Room  Games Room  Theatre  Home Theatre
                   Studio (no wet fixtures)
   "dining"      — Dining  Meals  Dining Room  Breakfast
-  "kitchen"     — Kitchen  Kitchenette  Scullery  Butler's Pantry  Walk-in Pantry  Pantry
+  "kitchen"     — Kitchen  Scullery  Butler's Pantry  Walk-in Pantry  Pantry
+  "kitchenette" — Habitable room with a sink + cabinetry (Multi-Use Room, Studio, Retreat, etc.)
+                  See HABITABLE ROOM KITCHENETTE RULE for classification details.
   "wet_area"    — Bathroom  Ensuite  Powder Room  WC  Toilet
   "laundry"     — Laundry  Mudroom (with laundry fixtures)  Utility Room (with laundry fixtures)
   "office"      — Study  Office  Home Office  Library  Workroom
@@ -955,7 +983,8 @@ The airflowDriver identifies which sizing methodology applies at the calculation
                      (Use "area" instead of "occupancy" when the space is open-plan or > ~40 m²)
 
   "fixed_extract"  — wet rooms and service areas where extract rates are typically prescribed:
-                     Kitchen  Kitchenette  Scullery  Butler's Pantry  Pantry
+                     Kitchen  Scullery  Butler's Pantry  Pantry
+                     Kitchenette (habitable room with sink + cabinetry)
                      Bathroom  Ensuite  WC  Powder Room  Toilet
                      Laundry  Mudroom (wet)  Utility Room (wet)
 
@@ -1053,7 +1082,8 @@ Return ONLY valid JSON. No markdown. No prose.
       "roomType": "Master Bedroom", "classification": "supply",
       "spaceType": "bedroom", "airflowDriver": "occupancy",
       "area": 19.2, "confidence": 0.94, "terminalPriority": "high",
-      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
+      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null,
+      "bedSpaces": 2, "potentialBedSpaces": 0 },
     { "name": "Kitchen", "labelSeen": "KITCHEN",
       "roomType": "Kitchen", "classification": "extract",
       "spaceType": "kitchen", "airflowDriver": "fixed_extract",
@@ -1086,7 +1116,12 @@ Return ONLY valid JSON. No markdown. No prose.
       "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": false, "parentRoom": "Master Bedroom" }
   ],
   "warnings": ["Master Bedroom split: primary room supply, bath zone created as secondary extract."],
-  "assumptions": []
+  "assumptions": ["Multi-Use Room appears suitable for future bedroom conversion."],
+  "occupancySummary": {
+    "suggestedOccupancy": 6,
+    "totalBedSpaces": 6,
+    "potentialAdditionalBedSpaces": 1
+  }
 }`;
 
 // ── Stage 2 recovery prompt ────────────────────────────────────
@@ -1360,6 +1395,11 @@ export default async function handler(req, res) {
   const transfer  = allRooms.filter(r => r.ventilationClassification === 'transfer');
   const ignore    = allRooms.filter(r => r.ventilationClassification === 'ignore');
 
+  // ── Extract AI occupancy summary (if provided) ───────────────
+  // Validated and recalculated from room data after postProcessRooms runs.
+  // Raw AI value stored here; recalculated summary is computed below.
+  const rawOccupancySummary = parsed.occupancySummary ?? null;
+
   // ── Collect AI warnings and assumptions ─────────────────────
   if (Array.isArray(parsed.warnings)) {
     for (const w of parsed.warnings) {
@@ -1489,12 +1529,24 @@ export default async function handler(req, res) {
 
   // ── Success path ─────────────────────────────────────────────
 
+  // Compute occupancy summary from post-processed rooms.
+  // Recalculated server-side so the value is always consistent with the validated room list.
+  const allFinalRooms = [...finalSupply, ...finalExtract, ...finalTransfer, ...finalIgnore];
+  const totalBedSpaces = allFinalRooms.reduce((sum, r) => sum + (r.bedSpaces || 0), 0);
+  const potentialAdditionalBedSpaces = allFinalRooms.reduce((sum, r) => sum + (r.potentialBedSpaces || 0), 0);
+  const occupancySummary = {
+    suggestedOccupancy:           totalBedSpaces,
+    totalBedSpaces,
+    potentialAdditionalBedSpaces,
+  };
+
   const analysisJson = {
     supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
     warnings,
     assumptions,
     analysisStatus: 'success',
     recoveryMode,
+    occupancySummary,
   };
 
   // ── Deduct credits only on success ──────────────────────────
@@ -1556,6 +1608,7 @@ export default async function handler(req, res) {
     stage1RoomCount,
     stage2RoomCount,
     rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
+    occupancySummary,
     warnings,
     assumptions,
     model:                  MODEL,
