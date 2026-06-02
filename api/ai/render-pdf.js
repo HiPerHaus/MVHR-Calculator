@@ -48,11 +48,9 @@ const MAX_PAGES           = 100;
 
 // ── Lazy-load heavy deps (avoids cold-start penalty for other routes) ─────
 async function getPdfJs() {
-  const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  // Do NOT set workerSrc = '' — that triggers the "fake worker" error in pdfjs v4.
-  // Setting it to false (or leaving it unset) combined with disableWorker: true on
-  // getDocument is the correct Node/Vercel serverless approach.
-  GlobalWorkerOptions.workerSrc = false;
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // Do NOT touch GlobalWorkerOptions.workerSrc — pdfjs v4 rejects both '' and false.
+  // disableWorker: true on getDocument() is sufficient for Node/Vercel serverless.
   return { getDocument };
 }
 

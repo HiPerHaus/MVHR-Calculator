@@ -40,8 +40,9 @@ const BUCKET              = 'plan-uploads';
 
 // ── Lazy deps ─────────────────────────────────────────────────────────────
 async function getPdfJs() {
-  const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  GlobalWorkerOptions.workerSrc = false;
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // Do NOT touch GlobalWorkerOptions.workerSrc — pdfjs v4 rejects both '' and false.
+  // disableWorker: true on getDocument() is sufficient for Node/Vercel serverless.
   return { getDocument };
 }
 
