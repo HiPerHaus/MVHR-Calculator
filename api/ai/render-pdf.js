@@ -1,237 +1,160 @@
 // api/ai/render-pdf.js
-// POST /api/ai/render-pdf  (internal — called by upload-pdf, not by the client)
+// POST /api/ai/render-pdf  (internal — called by upload-pdf)
 //
-// Downloads the original PDF from Storage, renders every page to a low-DPI JPEG
-// (fast, small — used for AI classification only), generates JPEG thumbnails,
-// uploads all assets back to Storage, and inserts one pdf_pages row per page.
+// Downloads the original PDF from Supabase Storage, renders every page to a
+// low-DPI JPEG (classification pass), generates JPEG thumbnails, uploads all
+// assets back to Storage, and inserts one pdf_pages row per page.
 //
-// After all pages are uploaded, calls /api/ai/classify-pages to start
-// the AI page-type classification pass.
+// Rendering uses MuPDF via the `mupdf` npm package (WebAssembly build).
+// MuPDF has no system-library dependencies and no DOM requirements — it runs
+// cleanly in Vercel's Node.js serverless environment.
 //
 // TWO-STAGE RENDERING STRATEGY
 // ─────────────────────────────
-// Stage 1 (this file): All pages → low-DPI (72) JPEG for classification.
-//   Fast. Typical A3 page: ~838×1188 px, ~200 KB.
-//
-// Stage 2 (render-hires.js): Selected floor_plan pages only → high-DPI (250) PNG.
-//   Called by auto-analyse.js before passing the image to analyse-plan.
-//   Result stored in pdf_pages.hires_image_path.
-//
-// This approach cuts Stage 1 processing time by ~4–8× vs. the old 150-DPI PNG flow.
+// Stage 1 (this file): All pages → 72 DPI JPEG  (fast, small, for classification)
+// Stage 2 (render-hires.js): Selected floor plans only → 250 DPI PNG (analysis)
 //
 // Request body (JSON):
-//   uploadId     uuid     — pdf_uploads.id
-//   jobId        uuid     — pdf_uploads.job_id
-//   storagePath  string   — "plan-uploads/temp/<uid>/<jobId>/original.pdf"
-//   userId       string   — the owning user id
-//   projectId    uuid     — optional
-//
-// The endpoint updates pdf_uploads.status as it progresses:
-//   pending → rendering → classifying
+//   uploadId     uuid    — pdf_uploads.id
+//   jobId        uuid    — pdf_uploads.job_id
+//   storagePath  string  — "plan-uploads/temp/<uid>/<jobId>/original.pdf"
+//   userId       string  — owning user id
+//   projectId    uuid    — optional
 
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
 import { createRequire } from 'module';
 
-// pdfjs-dist v4 ships ESM-only and always tries to resolve pdf.worker.mjs,
-// which does not exist in Vercel's /var/task bundle. Pin to v3's CommonJS
-// legacy build, which honours disableWorker: true without touching workerSrc.
+// mupdf is a WebAssembly build of MuPDF — no native deps, no DOM, no workers.
 const require  = createRequire(import.meta.url);
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const mupdf    = require('mupdf');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ── Constants ─────────────────────────────────────────────────────────────
-const CLASSIFICATION_DPI  = 72;    // Low DPI — just enough for page-type classification
-const THUMBNAIL_HEIGHT    = 200;   // px — thumbnail height
-const PDF_POINTS_PER_INCH = 72;    // PDF coordinate space is 72 points/inch
+// ── Constants ──────────────────────────────────────────────────────────────
+const CLASSIFICATION_DPI  = 72;
+const THUMBNAIL_HEIGHT    = 200;   // px
 const BUCKET              = 'plan-uploads';
-const RENDER_BATCH_SIZE   = 3;     // Pages to render concurrently
-// Hard limit — PDFs exceeding this are rejected (not silently truncated).
+const RENDER_BATCH_SIZE   = 3;     // pages processed concurrently
 const MAX_PAGES           = 100;
 
-// ── Lazy-load canvas + sharp (heavy — skip on cold starts for other routes) ─
-async function getCanvas() {
-  const { createCanvas } = await import('@napi-rs/canvas');
-  return createCanvas;
-}
-
 async function getSharp() {
-  const sharp = (await import('sharp')).default;
-  return sharp;
+  return (await import('sharp')).default;
 }
 
-// ── PDF rendering ─────────────────────────────────────────────────────────
-class PdfjsCanvasFactory {
-  constructor(createCanvasFn) {
-    this._createCanvas = createCanvasFn;
-  }
-  create(width, height) {
-    const canvas  = this._createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    return { canvas, context };
-  }
-  reset(canvasAndContext, width, height) {
-    canvasAndContext.canvas.width  = width;
-    canvasAndContext.canvas.height = height;
-  }
-  destroy(canvasAndContext) {
-    canvasAndContext.canvas.width  = 0;
-    canvasAndContext.canvas.height = 0;
-    canvasAndContext.canvas  = null;
-    canvasAndContext.context = null;
-  }
-}
-
-// Render one PDF page to a raw PNG buffer (later converted to JPEG by sharp).
-async function renderPageToRawPng(page, dpi, createCanvasFn) {
-  const scale    = dpi / PDF_POINTS_PER_INCH;
-  const viewport = page.getViewport({ scale });
-
-  const factory = new PdfjsCanvasFactory(createCanvasFn);
-  const { canvas, context } = factory.create(
-    Math.ceil(viewport.width),
-    Math.ceil(viewport.height)
-  );
-
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
-  await page.render({
-    canvasContext: context,
-    viewport,
-    canvasFactory: factory,
-  }).promise;
-
-  const buffer = await canvas.encode('png');
-  factory.destroy({ canvas, context });
-
-  return {
-    buffer,
-    widthPx:  Math.ceil(viewport.width),
-    heightPx: Math.ceil(viewport.height),
-    widthMm:  Math.round((viewport.width  / scale) * 25.4 / 72 * 10) / 10,
-    heightMm: Math.round((viewport.height / scale) * 25.4 / 72 * 10) / 10,
-  };
-}
-
-// Convert raw PNG to a JPEG for classification storage.
-async function toJpeg(pngBuffer, sharpFn, quality = 85) {
-  return sharpFn(pngBuffer).jpeg({ quality }).toBuffer();
-}
-
-// Generate a small JPEG thumbnail.
-async function makeThumbnail(pngBuffer, targetHeight, sharpFn) {
-  return sharpFn(pngBuffer)
-    .resize({ height: targetHeight, withoutEnlargement: true })
-    .jpeg({ quality: 80 })
-    .toBuffer();
-}
-
-// ── Internal auth ─────────────────────────────────────────────────────────
+// ── Internal auth ──────────────────────────────────────────────────────────
 function validateInternalToken(req) {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
-    console.warn('render-pdf: INTERNAL_API_SECRET is not set. Falling back to host check — set this env var in production.');
     const host = req.headers.host ?? '';
     return host.includes('localhost') || host.includes('vercel.internal');
   }
   return req.headers['x-internal-secret'] === secret;
 }
 
-// ── Process one page ──────────────────────────────────────────────────────
-// Renders, converts to JPEG, generates thumbnail, uploads both, returns a
-// record ready for upsert into pdf_pages.
-// Returns { record, durationMs, encodeMs, uploadMs }.
-async function processPage({ pdfDoc, pageNum, basePath, uploadId, createCanvasFn, sharpFn }) {
+// ── Render one page via MuPDF ─────────────────────────────────────────────
+// Returns { jpegBuffer, thumbBuffer, widthPx, heightPx, widthMm, heightMm }
+async function renderPage(doc, pageIndex, dpi, sharpFn) {
+  const page   = doc.loadPage(pageIndex); // 0-indexed
+  const bounds = page.getBounds();        // [x0, y0, x1, y1] in PDF points (72pt/in)
+
+  const x0 = bounds[0], y0 = bounds[1], x1 = bounds[2], y1 = bounds[3];
+  const scale  = dpi / 72;
+
+  // toPixmap(matrix, colorspace, alpha)
+  // matrix = [a, b, c, d, e, f] affine — for uniform scale: [s,0,0,s,0,0]
+  const pixmap = page.toPixmap(
+    [scale, 0, 0, scale, 0, 0],
+    mupdf.ColorSpace.DeviceRGB,
+    false   // no alpha
+  );
+
+  const pngData = pixmap.asPNG();   // Uint8Array of a PNG-encoded image
+  pixmap.destroy();
+  page.destroy();
+
+  const pngBuffer = Buffer.from(pngData);
+  const widthPx   = Math.round((x1 - x0) * scale);
+  const heightPx  = Math.round((y1 - y0) * scale);
+  const widthMm   = Math.round((x1 - x0) / 72 * 25.4 * 10) / 10;
+  const heightMm  = Math.round((y1 - y0) / 72 * 25.4 * 10) / 10;
+
+  const [jpegBuffer, thumbBuffer] = await Promise.all([
+    sharpFn(pngBuffer).jpeg({ quality: 85 }).toBuffer(),
+    sharpFn(pngBuffer)
+      .resize({ height: THUMBNAIL_HEIGHT, withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer(),
+  ]);
+
+  return { jpegBuffer, thumbBuffer, widthPx, heightPx, widthMm, heightMm };
+}
+
+// ── Process one page: render + upload + build record ─────────────────────
+async function processPage({ doc, pageIndex, pageNum, basePath, uploadId, sharpFn }) {
   const t0 = Date.now();
 
-  const page = await pdfDoc.getPage(pageNum);
+  const { jpegBuffer, thumbBuffer, widthPx, heightPx, widthMm, heightMm } =
+    await renderPage(doc, pageIndex, CLASSIFICATION_DPI, sharpFn);
 
-  // Render to raw PNG in memory
-  const tRender = Date.now();
-  const { buffer: pngBuffer, widthPx, heightPx, widthMm, heightMm } =
-    await renderPageToRawPng(page, CLASSIFICATION_DPI, createCanvasFn);
-  const renderMs = Date.now() - tRender;
-
-  // Convert PNG → JPEG (classification image) and thumbnail — in parallel
-  const tEncode = Date.now();
-  const [jpegBuffer, thumbBuffer] = await Promise.all([
-    toJpeg(pngBuffer, sharpFn, 85),
-    makeThumbnail(pngBuffer, THUMBNAIL_HEIGHT, sharpFn),
-  ]);
-  const encodeMs = Date.now() - tEncode;
-
-  // Upload classification JPEG + thumbnail JPEG in parallel
   const paddedNum = String(pageNum).padStart(2, '0');
-  const imageName = `page_${paddedNum}.jpg`;
-  const thumbName = `page_${paddedNum}_thumb.jpg`;
-  const imagePath = `${basePath}/${imageName}`;
-  const thumbPath = `${basePath}/${thumbName}`;
+  const imagePath = `${basePath}/page_${paddedNum}.jpg`;
+  const thumbPath = `${basePath}/page_${paddedNum}_thumb.jpg`;
 
   const tUpload = Date.now();
   const [imgUpload, thumbUpload] = await Promise.all([
     supabase.storage.from(BUCKET).upload(imagePath, jpegBuffer, {
-      contentType:  'image/jpeg',
-      cacheControl: '60',
-      upsert:       true,
+      contentType: 'image/jpeg', cacheControl: '60', upsert: true,
     }),
     supabase.storage.from(BUCKET).upload(thumbPath, thumbBuffer, {
-      contentType:  'image/jpeg',
-      cacheControl: '60',
-      upsert:       true,
+      contentType: 'image/jpeg', cacheControl: '60', upsert: true,
     }),
   ]);
   const uploadMs = Date.now() - tUpload;
 
   if (imgUpload.error) {
-    console.warn(`render-pdf: failed to upload page ${pageNum}:`, imgUpload.error.message);
+    console.warn(`render-pdf: upload failed for page ${pageNum}:`, imgUpload.error.message);
   }
 
-  page.cleanup();
+  const durationMs = Date.now() - t0;
+  console.log(JSON.stringify({
+    event: 'render-pdf:page', jobId: null, pageNum, durationMs, uploadMs,
+    widthPx, heightPx,
+  }));
 
-  const record = {
-    pdf_upload_id:    uploadId,
-    page_number:      pageNum,
-    image_path:       imgUpload.error   ? null : `${BUCKET}/${imagePath}`,
-    thumb_path:       thumbUpload.error ? null : `${BUCKET}/${thumbPath}`,
-    is_temporary:     true,
-    page_type:        'unknown',
-    page_width_mm:    widthMm  || null,
-    page_height_mm:   heightMm || null,
-    render_width_px:  widthPx  || null,
-    render_height_px: heightPx || null,
-    render_dpi:       CLASSIFICATION_DPI,
+  return {
+    record: {
+      pdf_upload_id:    uploadId,
+      page_number:      pageNum,
+      image_path:       imgUpload.error   ? null : `${BUCKET}/${imagePath}`,
+      thumb_path:       thumbUpload.error ? null : `${BUCKET}/${thumbPath}`,
+      is_temporary:     true,
+      page_type:        'unknown',
+      page_width_mm:    widthMm  || null,
+      page_height_mm:   heightMm || null,
+      render_width_px:  widthPx  || null,
+      render_height_px: heightPx || null,
+      render_dpi:       CLASSIFICATION_DPI,
+    },
+    durationMs,
   };
-
-  return { record, durationMs: Date.now() - t0, renderMs, encodeMs, uploadMs };
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────
+// ── Handler ────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  // Log immediately — confirms the function was invoked at all.
-  console.log('[render-pdf] invoked', {
-    method:  req.method,
-    body:    req.body,
-    host:    req.headers.host,
-  });
+  console.log('[render-pdf] invoked', { method: req.method, body: req.body, host: req.headers.host });
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  if (!validateInternalToken(req)) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
+  if (!validateInternalToken(req)) return res.status(403).json({ error: 'Forbidden' });
 
   const { uploadId, jobId, storagePath, userId, projectId } = req.body ?? {};
-
   if (!uploadId || !jobId || !storagePath || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, storagePath, userId required' });
   }
 
-  // ── Mark as rendering ──────────────────────────────────────────────────────
   const renderStartedAt = new Date().toISOString();
   await supabase
     .from('pdf_uploads')
@@ -239,191 +162,117 @@ export default async function handler(req, res) {
     .eq('id', uploadId);
 
   try {
-    // ── Load canvas + sharp ──────────────────────────────────────────────────
-    const [createCanvasFn, sharpFn] = await Promise.all([
-      getCanvas(),
-      getSharp(),
-    ]);
+    const sharpFn = await getSharp();
 
-    // ── Download PDF from Storage ──────────────────────────────────────────
+    // ── Download PDF ─────────────────────────────────────────────────────────
     const objectPath = storagePath.replace(`${BUCKET}/`, '');
     const { data: pdfBlob, error: dlErr } = await supabase.storage
-      .from(BUCKET)
-      .download(objectPath);
+      .from(BUCKET).download(objectPath);
 
-    if (dlErr || !pdfBlob) {
-      throw new Error(`Failed to download PDF: ${dlErr?.message}`);
-    }
+    if (dlErr || !pdfBlob) throw new Error(`Failed to download PDF: ${dlErr?.message}`);
 
-    const pdfArrayBuffer = await pdfBlob.arrayBuffer();
-    const pdfData        = new Uint8Array(pdfArrayBuffer);
+    const pdfBuffer   = Buffer.from(await pdfBlob.arrayBuffer());
 
-    // ── Open PDF (no worker — CJS v3 legacy build) ───────────────────────────
-    const pdfDoc    = await pdfjsLib.getDocument({
-      data:            pdfData,
-      disableWorker:   true,
-      useWorkerFetch:  false,
-      isEvalSupported: false,
-    }).promise;
-    const pageCount = pdfDoc.numPages;
+    // ── Open with MuPDF ───────────────────────────────────────────────────────
+    const doc       = mupdf.Document.openDocument(pdfBuffer, 'application/pdf');
+    const pageCount = doc.countPages();
 
     if (pageCount > MAX_PAGES) {
-      pdfDoc.destroy();
-      const msg = `PDF has ${pageCount} pages (maximum is ${MAX_PAGES}). Split the PDF and upload one section at a time.`;
-      console.error(`render-pdf: rejected — ${msg}`);
-      await supabase
-        .from('pdf_uploads')
-        .update({ status: 'error', error_detail: msg })
-        .eq('id', uploadId);
+      doc.destroy();
+      const msg = `PDF has ${pageCount} pages (maximum ${MAX_PAGES}). Split and re-upload.`;
+      await supabase.from('pdf_uploads').update({ status: 'error', error_detail: msg }).eq('id', uploadId);
       return res.status(422).json({ error: msg });
     }
 
-    await supabase
-      .from('pdf_uploads')
+    await supabase.from('pdf_uploads')
       .update({ page_count: pageCount, pages_accepted: pageCount })
       .eq('id', uploadId);
 
-    // ── Render pages in parallel batches ──────────────────────────────────
-    const basePath       = `temp/${userId}/${jobId}`;
-    const pageRecords    = new Array(pageCount);
-    const pageDurations  = [];
-    const renderLoopStart = Date.now();
+    // ── Render in parallel batches ────────────────────────────────────────────
+    const basePath      = `temp/${userId}/${jobId}`;
+    const pageRecords   = new Array(pageCount);
+    const pageDurations = [];
+    const loopStart     = Date.now();
 
-    // Build page number list and process in batches of RENDER_BATCH_SIZE
     const pageNums = Array.from({ length: pageCount }, (_, i) => i + 1);
 
     for (let i = 0; i < pageNums.length; i += RENDER_BATCH_SIZE) {
       const batch = pageNums.slice(i, i + RENDER_BATCH_SIZE);
-
       const results = await Promise.all(
         batch.map(pageNum =>
-          processPage({ pdfDoc, pageNum, basePath, uploadId, createCanvasFn, sharpFn })
+          processPage({ doc, pageIndex: pageNum - 1, pageNum, basePath, uploadId, sharpFn })
         )
       );
-
-      for (const { record, durationMs, renderMs, encodeMs, uploadMs } of results) {
+      for (const { record, durationMs } of results) {
         pageRecords[record.page_number - 1] = record;
         pageDurations.push(durationMs);
-        console.log(JSON.stringify({
-          event:      'render-pdf:page',
-          jobId,
-          pageNumber: record.page_number,
-          durationMs,
-          renderMs,
-          encodeMs,
-          uploadMs,
-        }));
       }
     }
 
-    pdfDoc.destroy();
+    doc.destroy();
 
-    // ── Insert pdf_pages rows ──────────────────────────────────────────────
+    // ── Upsert pdf_pages ──────────────────────────────────────────────────────
     const { error: insertErr } = await supabase
       .from('pdf_pages')
       .upsert(pageRecords, { onConflict: 'pdf_upload_id,page_number' });
 
-    if (insertErr) {
-      throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
-    }
+    if (insertErr) throw new Error(`Failed to insert pdf_pages: ${insertErr.message}`);
 
-    // ── Log render performance ─────────────────────────────────────────────
-    const totalRenderMs = Date.now() - renderLoopStart;
-    const avgMs         = pageDurations.length
-      ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length)
-      : 0;
-    const failedPages   = pageRecords.filter(p => !p.image_path).length;
+    const totalRenderMs = Date.now() - loopStart;
+    const avgMs = pageDurations.length
+      ? Math.round(pageDurations.reduce((a, b) => a + b, 0) / pageDurations.length) : 0;
+    const failedPages = pageRecords.filter(p => !p.image_path).length;
 
     console.log(JSON.stringify({
-      event:          'render-pdf:complete',
-      jobId,
-      uploadId,
-      pageCount,
-      failedPages,
-      totalRenderMs,
-      avgMsPerPage:   avgMs,
-      minMsPerPage:   pageDurations.length ? Math.min(...pageDurations) : null,
-      maxMsPerPage:   pageDurations.length ? Math.max(...pageDurations) : null,
-      batchSize:      RENDER_BATCH_SIZE,
-      classificationDpi: CLASSIFICATION_DPI,
+      event: 'render-pdf:complete', jobId, uploadId, pageCount, failedPages,
+      totalRenderMs, avgMsPerPage: avgMs, batchSize: RENDER_BATCH_SIZE,
     }));
 
-    // ── Update status → classifying ───────────────────────────────────────
     const renderCompletedAt = new Date().toISOString();
-    await supabase
-      .from('pdf_uploads')
+    await supabase.from('pdf_uploads')
       .update({ status: 'classifying', render_completed_at: renderCompletedAt })
       .eq('id', uploadId);
 
-    // ── Hand off to classify-pages via waitUntil ──────────────────────────
-    const host    = req.headers.host ?? '';
-    const proto   = host.includes('localhost') ? 'http' : 'https';
-    const baseUrl = `${proto}://${host}`;
-
+    // ── Hand off to classify-pages ─────────────────────────────────────────
+    const host     = req.headers.host ?? '';
+    const proto    = host.includes('localhost') ? 'http' : 'https';
+    const baseUrl  = `${proto}://${host}`;
     const classifyPayload = JSON.stringify({ uploadId, jobId, userId, pageCount, projectId: projectId ?? null });
 
-    console.log(JSON.stringify({
-      event:    'render-pdf:handoff',
-      target:   'classify-pages',
-      uploadId,
-      jobId,
-      pageCount,
-    }));
+    console.log(JSON.stringify({ event: 'render-pdf:handoff', target: 'classify-pages', uploadId, jobId }));
 
     waitUntil(
       fetch(`${baseUrl}/api/ai/classify-pages`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':      'application/json',
-          'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
-        },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '' },
         body: classifyPayload,
       }).then(async (r) => {
-        const body = await r.text().catch(() => '');
-        console.log(JSON.stringify({
-          event:  'render-pdf:handoff-response',
-          target: 'classify-pages',
-          status: r.status,
-          body:   body.slice(0, 200),
-        }));
+        const text = await r.text().catch(() => '');
+        console.log('[render-pdf] classify-pages response', r.status, text.slice(0, 200));
         if (!r.ok) {
-          await supabase
-            .from('pdf_uploads')
-            .update({ status: 'error', error_detail: `classify-pages handoff failed (HTTP ${r.status}): ${body.slice(0, 300)}` })
+          await supabase.from('pdf_uploads')
+            .update({ status: 'error', error_detail: `classify-pages handoff failed (HTTP ${r.status}): ${text.slice(0, 300)}` })
             .eq('id', uploadId);
         }
       }).catch(async (err) => {
-        console.error(JSON.stringify({
-          event:  'render-pdf:handoff-error',
-          target: 'classify-pages',
-          error:  err.message,
-        }));
-        await supabase
-          .from('pdf_uploads')
+        console.error('[render-pdf] classify-pages handoff failed', err.message);
+        await supabase.from('pdf_uploads')
           .update({ status: 'error', error_detail: `classify-pages handoff error: ${err.message}` })
           .eq('id', uploadId);
       })
     );
 
     return res.status(200).json({
-      uploadId,
-      jobId,
-      pageCount,
-      failedPages,
-      totalRenderMs,
-      avgMsPerPage: avgMs,
+      uploadId, jobId, pageCount, failedPages, totalRenderMs, avgMsPerPage: avgMs,
       status: 'classifying',
-      message: `Rendered ${pageCount} pages in ${(totalRenderMs / 1000).toFixed(1)}s (avg ${avgMs}ms/page, ${RENDER_BATCH_SIZE} concurrent). Classification started.`,
+      message: `Rendered ${pageCount} pages in ${(totalRenderMs / 1000).toFixed(1)}s. Classification started.`,
     });
 
   } catch (err) {
     console.error('render-pdf: fatal error', err);
-
-    await supabase
-      .from('pdf_uploads')
+    await supabase.from('pdf_uploads')
       .update({ status: 'error', error_detail: err.message })
       .eq('id', uploadId);
-
     return res.status(500).json({ error: err.message });
   }
 }
