@@ -124,6 +124,8 @@ function validateRoom(raw, floorIndex) {
     floor:                     floorIndex,
     ventilationClassification: ventClass,
     confidence,
+    optionalExtract:           false,
+    classificationReason:      null,
   };
 }
 
@@ -265,14 +267,18 @@ function postProcessRooms(rooms, warnings) {
     }
 
     // ── 2. Joinery / built-in storage ─────────────────────────
+    // CPD, BIR, linen, broom, shelving, fridge recess, cupboard, cabinet, joinery:
+    // always ignore (or exclude if tiny). Only promote to WIR/ignore if genuinely room-sized (≥ 4 m²).
     if (JOINERY_PATTERNS.some(p => p.test(name))) {
       if (area >= 4) {
         room.ventilationClassification = 'ignore';
         room.roomType = 'WIR';
+        room.classificationReason = 'Room-sized storage/robe space — classified as ignore; no MVHR terminal required.';
         warnings.push(`"${name}" (${area} m²) treated as walk-in robe — classified as ignore.`);
         out.push(room);
       } else {
-        warnings.push(`"${name}" treated as built-in storage — excluded as a separate MVHR zone.`);
+        // Small joinery — not a room, exclude entirely
+        warnings.push(`"${name}" treated as built-in joinery/storage — excluded as a separate MVHR zone.`);
       }
       continue;
     }
@@ -320,19 +326,27 @@ function postProcessRooms(rooms, warnings) {
     if (matched) continue;
 
     // ── 7. Store size rules ───────────────────────────────────
+    // Internal enclosed store rooms are classified by area:
+    //   < 2 m²        → ignore (too small for a terminal)
+    //   2 – 5 m²      → transfer + optionalExtract (may suit balance)
+    //   > 5 m²        → extract candidate + optionalExtract
+    // Joinery spaces (CPD/BIR/linen etc.) are handled above and never reach here.
     if (STORE_PATTERN.test(name) || room.roomType === 'Store') {
-      if (area < 3) {
-        warnings.push(`"${name}" (${area} m²) is too small for an MVHR terminal — excluded.`);
-        continue;
-      }
-      if (area <= 4) {
+      room.roomType = 'Store';
+      if (area < 2) {
         room.ventilationClassification = 'ignore';
-        room.roomType = 'Store';
-        warnings.push(`"${name}" (${area} m²) classified as ignore — small store, no MVHR terminal required.`);
-      } else if (room.ventilationClassification === 'supply') {
+        room.classificationReason = 'Store too small for an MVHR terminal.';
+        warnings.push(`"${name}" (${area} m²) — too small for an MVHR terminal, classified as ignore.`);
+      } else if (area <= 5) {
         room.ventilationClassification = 'transfer';
-        room.roomType = 'Store';
-        warnings.push(`"${name}" (${area} m²) reclassified from supply to transfer — stores are not MVHR supply zones.`);
+        room.optionalExtract = true;
+        room.classificationReason = 'Internal store may be used as an extract point if required for system balance.';
+        warnings.push(`"${name}" (${area} m²) — classified as transfer with optional extract.`);
+      } else {
+        room.ventilationClassification = 'extract';
+        room.optionalExtract = true;
+        room.classificationReason = 'Internal store may be used as an extract point if required for system balance.';
+        warnings.push(`"${name}" (${area} m²) — large internal store classified as extract candidate.`);
       }
       out.push(room);
       continue;

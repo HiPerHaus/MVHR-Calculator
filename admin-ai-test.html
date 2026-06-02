@@ -320,11 +320,13 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
+            <th>Opt. Extract</th>
+            <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="supplyBody">
-          <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
@@ -340,15 +342,39 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
+            <th>Opt. Extract</th>
+            <th>Reason</th>
             <th>Confidence</th>
           </tr>
         </thead>
         <tbody id="extractBody">
-          <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
         </tbody>
       </table>
     </div>
     <div class="table-total" id="extractTotal"></div>
+
+    <!-- Transfer & Ignore Rooms -->
+    <div class="section-label" style="margin-top:20px">Transfer &amp; Ignore Rooms</div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="otherTable">
+        <thead>
+          <tr>
+            <th>Room Name</th>
+            <th>Label Seen</th>
+            <th>Room Type</th>
+            <th>Classification</th>
+            <th>Opt. Extract</th>
+            <th>Reason</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody id="otherBody">
+          <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-total" id="otherTotal"></div>
   </div>
 
   <!-- ── Section 5: Raw JSON ── -->
@@ -626,19 +652,24 @@ function renderResults(data) {
 
   // Rooms — only rendered on successful analysis
   if (failed) {
-    document.getElementById('roomsCard').style.display = 'none';
-    document.getElementById('rawCard').style.display   = '';
+    document.getElementById('roomsCard').style.display  = 'none';
+    document.getElementById('rawCard').style.display    = '';
     document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
     return;
   }
 
-  const supplyRooms  = data.rooms?.supply  || [];
-  const extractRooms = data.rooms?.extract || [];
+  const supplyRooms   = data.rooms?.supply   || [];
+  const extractRooms  = data.rooms?.extract  || [];
+  const transferRooms = data.rooms?.transfer || [];
+  const ignoreRooms   = data.rooms?.ignore   || [];
+  const otherRooms    = [...transferRooms, ...ignoreRooms];
 
   document.getElementById('supplyBody').innerHTML  = renderRoomRows(supplyRooms)  || emptyRow();
   document.getElementById('extractBody').innerHTML = renderRoomRows(extractRooms) || emptyRow();
+  document.getElementById('otherBody').innerHTML   = renderRoomRows(otherRooms)   || emptyRow();
   document.getElementById('supplyTotal').textContent  = `Total: ${supplyRooms.length} supply room${supplyRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('extractTotal').textContent = `Total: ${extractRooms.length} extract room${extractRooms.length !== 1 ? 's' : ''}`;
+  document.getElementById('otherTotal').textContent   = `Total: ${otherRooms.length} transfer/ignore room${otherRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('roomsCard').style.display = '';
 
   // Raw JSON
@@ -658,16 +689,24 @@ function renderRoomRows(rooms) {
       ? `<span class="conf-badge ${confClass(conf)}">${(conf * 100).toFixed(0)}%</span>`
       : '—';
     const classStyle = {
-      supply: 'color:#166534;background:#dcfce7',
-      extract: 'color:#92400e;background:#fef3c7',
+      supply:   'color:#166534;background:#dcfce7',
+      extract:  'color:#92400e;background:#fef3c7',
       transfer: 'color:#1e40af;background:#dbeafe',
-      ignore: 'color:var(--muted);background:var(--input-bg)',
+      ignore:   'color:var(--muted);background:var(--input-bg)',
     }[r.ventilationClassification] || '';
+    const optExtract = r.optionalExtract
+      ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#92400e;background:#fef3c7">Yes</span>'
+      : '<span style="color:var(--muted);font-size:12px">—</span>';
+    const reason = r.classificationReason
+      ? `<span style="font-size:11px;color:var(--muted)">${esc(r.classificationReason)}</span>`
+      : '<span style="color:var(--muted);font-size:12px">—</span>';
     return `<tr>
       <td>${name}</td>
       <td style="color:var(--muted);font-size:12px">${labelSeen}</td>
       <td>${type}</td>
       <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;${classStyle}">${classif}</span></td>
+      <td style="text-align:center">${optExtract}</td>
+      <td style="max-width:220px">${reason}</td>
       <td>${confBadge}</td>
     </tr>`;
   }).join('');
@@ -680,7 +719,7 @@ function confClass(c) {
 }
 
 function emptyRow() {
-  return '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
+  return '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No rooms returned</td></tr>';
 }
 
 // ── Status helpers ────────────────────────────────────────────
