@@ -221,8 +221,8 @@ export default async function handler(req, res) {
     // ── Fetch all pages for this upload ────────────────────────────────────
     const { data: pages, error: pagesErr } = await supabase
       .from('pdf_pages')
-      .select('id, page_number, image_path')
-      .eq('pdf_upload_id', uploadId)
+      .select('id, page_number, image_path, upload_id, pdf_upload_id')
+      .or(`pdf_upload_id.eq.${uploadId},upload_id.eq.${uploadId}`)
       .order('page_number', { ascending: true });
 
     if (pagesErr || !pages?.length) {
