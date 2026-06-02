@@ -24,12 +24,15 @@
 //   stage1RoomCount: number,
 //   stage2RoomCount: number | null,
 //   rooms: {
-//     supply:   [{ name, labelSeen, roomType, area, floor, ventilationClassification, confidence }],
+//     supply:   [{ name, labelSeen, roomType, area, floor, ventilationClassification, confidence,
+//                  fixtures, optionalExtract, optionalSupply, containsSecondaryExtractZone,
+//                  classificationReason }],
 //     extract:  [...],
 //     transfer: [...],
 //     ignore:   [...]
 //   },
 //   warnings:        string[],
+//   assumptions:     string[],
 //   model:           string,
 //   inputTokens:     number,
 //   outputTokens:    number,
@@ -130,9 +133,10 @@ function validateRoom(raw, floorIndex) {
     ventilationClassification: ventClass,
     confidence,
     fixtures,
-    optionalExtract:           false,
-    optionalSupply:            false,
-    classificationReason:      null,
+    optionalExtract:                false,
+    optionalSupply:                 false,
+    containsSecondaryExtractZone:   raw.containsSecondaryExtractZone === true,
+    classificationReason:           null,
   };
 }
 
@@ -150,61 +154,68 @@ const FAILURE_SUGGESTIONS = [
 // ── Post-processing: architectural cleanup ────────────────────
 // Applied after BOTH Stage 1 and Stage 2 extractions.
 // Precedence order (highest first):
-//   1. Service/equipment → exclude
-//   2. Fixture override → force extract (sink/basin/toilet/shower etc. take priority over name)
-//   3. WIR size rules → size-based supply/transfer/ignore + optionalSupply
-//   4. Known joinery/storage labels (BIR/CPD/robe/wardrobe/linen etc.) → exclude or demote to ignore
-//   5. Outdoor/non-ventilated label patterns → force ignore
-//   6. Circulation label patterns → force transfer
-//   7. Wet-room label patterns → force extract
-//   8. Habitable label patterns → force supply
-//   9. Store size rules → size-based extract/transfer/ignore + optionalExtract
-//  10. JAN heuristic
-//  11. Person-name heuristic (last — only when nothing else matched)
+//   1.  Service/equipment → exclude
+//   2.  Wet-fixture override → force extract (shower/toilet/sink/basin etc.)
+//   3.  WIR → transfer + optionalSupply (≥ 4 m²)
+//   4.  Joinery (BIR/CPD/robe/linen etc.) → exclude or ignore
+//   5.  Outdoor/non-ventilated labels → force ignore
+//   6.  Circulation labels → force transfer
+//   7.  Gym → force extract
+//   8.  Extract labels (kitchen/pantry/scullery/bathroom etc.) → force extract
+//   9.  Habitable labels → force supply
+//  10.  Store rules → transfer + optionalExtract
+//  11.  JAN heuristic
+//  12.  Person-name heuristic
 
 // ── Pattern sets ─────────────────────────────────────────────
 
 const SERVICE_PATTERNS = [
-  /\bhws\b/i,         // hot water system
+  /\bhws\b/i,           // hot water system
   /\bhot water\b/i,
-  /\bhrv\b/i,         // heat recovery ventilation unit
+  /\bhrv\b/i,           // heat-recovery ventilation unit housing
+  /\bmvhr\b/i,          // MVHR cupboard
   /\bplant\b/i,
   /\bboiler\b/i,
   /\bmeter board\b/i,
-  /\bequipment\b/i,
+  /\belectrical\b/i,
+  /\bmechanical\b/i,
+  /\broof space\b/i,
+  /\battic\b/i,
+  /\bunderfloor\b/i,
+  /\blift shaft\b/i,
+  /\bbin store\b/i,
 ];
 
 // Joinery/built-in storage — NOT architectural rooms.
-// These are always excluded or demoted, never promoted to supply/transfer.
-// WIR (walk-in robe) is NOT in this list — it gets its own size-based rule below.
+// WIR is intentionally absent — handled by its own rule.
 const JOINERY_PATTERNS = [
-  /\bcpd\b/i,         // coat pantry door / cupboard
-  /\bbir\b/i,         // built-in robe
-  /\brobe\b/i,        // robe joinery (not WIR — caught separately)
-  /\bwardrobe\b/i,    // wardrobe joinery
+  /\bcpd\b/i,           // coat pantry door / cupboard
+  /\bbir\b/i,           // built-in robe
+  /\brobe\b/i,          // robe joinery
+  /\bwardrobe\b/i,
   /\blinen\b/i,
   /\bbroom\b/i,
   /\bshelv/i,
-  /\bfridge\b/i,
+  /\bfridge\b/i,        // fridge recess
   /\bcupboard\b/i,
   /\bcabinet/i,
   /\bjoinery\b/i,
 ];
 
-// Labels that should always be ignore (outdoor / non-ventilated)
-// Note: WIR is intentionally excluded here — it has its own size-based rule.
+// Outdoor / non-ventilated — always ignore
 const IGNORE_LABEL_PATTERNS = [
   /\bverandah\b/i, /\bveranda\b/i,
   /\bporch\b/i,
   /\balfresco\b/i,
   /\bgarage\b/i,
   /\bcarport\b/i,
-  /\bbalcon/i,        // balcony, balconies
+  /\bbalcon/i,          // balcony, balconies
   /\bdeck\b/i,
   /\bcourtyard\b/i,
+  /\boutdoor\b/i,
 ];
 
-// Labels that should always be transfer (circulation)
+// Circulation — always transfer
 const TRANSFER_LABEL_PATTERNS = [
   /\bpassage\b/i,
   /\bhall(way)?\b/i,
@@ -216,7 +227,8 @@ const TRANSFER_LABEL_PATTERNS = [
   /\bstair/i,
 ];
 
-// Labels that should always be extract (wet rooms / service)
+// Extract — wet/odour-producing rooms (by label)
+// Gym is handled separately below (its own rule).
 const EXTRACT_LABEL_PATTERNS = [
   /\bbath(room)?\b/i,
   /\bensuite\b/i,
@@ -225,11 +237,15 @@ const EXTRACT_LABEL_PATTERNS = [
   /\btoilet\b/i,
   /\blaundry\b/i,
   /\bkitchen\b/i,
-  /\bpantry\b/i,
+  /\bpantry\b/i,       // pantry / walk-in pantry / butler's pantry — always extract
+  /\bscullery\b/i,
+  /\bbutler/i,         // butler's pantry
+  /\bmudroom\b/i,
   /\butility\b/i,
 ];
 
-// Labels that should always be supply (habitable rooms)
+// Supply — habitable rooms
+// Gym intentionally excluded (it is extract — see rule 7 below).
 const SUPPLY_LABEL_PATTERNS = [
   /\bbedroom\b/i,
   /\bmaster\b/i,
@@ -243,66 +259,91 @@ const SUPPLY_LABEL_PATTERNS = [
   /\bmedia\b/i,
   /\bgames\b/i,
   /\bactivity\b/i,
-  /\bgym\b/i,
   /\bstudio\b/i,
   /\bstudy\b/i,
   /\boffice\b/i,
+  /\blibrary\b/i,
+  /\bplayroom\b/i,
+  /\bplay room\b/i,
+  /\bretreat\b/i,
+  /\bsitting\b/i,
+  /\bsunroom\b/i,
+  /\bhome theatre\b/i,
+  /\bmulti.?purpose\b/i,
+  /\bmulti.?use\b/i,
 ];
 
-// All known architectural room words — used to exclude them from person-name heuristic
+// Known room vocabulary — excludes from person-name heuristic
 const KNOWN_ROOM_WORDS = new Set([
   'bedroom','master','living','dining','meals','kitchen','bathroom','bath','ensuite',
   'laundry','hallway','hall','passage','entry','corridor','foyer','lobby','study','office',
   'rumpus','pantry','wc','toilet','powder','wir','robe','garage','porch','carport',
   'alfresco','verandah','veranda','store','other','lounge','family','theatre','media',
   'activity','games','gym','cellar','bar','studio','landing','stair','stairs',
-  'utility','balcony','deck','courtyard','jan',
+  'utility','balcony','deck','courtyard','jan','scullery','butler','mudroom','library',
+  'playroom','retreat','sitting','sunroom','kitchen','kitchenette',
 ]);
 
 const STORE_PATTERN = /\bstore\b/i;
 
-// Wet-area fixtures that force extract classification regardless of room name.
-// Oven, cooktop, fridge and dishwasher are intentionally excluded — they do not
-// require extract ventilation on their own. They may appear in fixtures[] for
-// information but must NOT trigger the extract override.
+// Moisture fixtures — add to fixtures[] but do NOT force extract on their own.
+// A habitable room with only these becomes Supply + containsSecondaryExtractZone = true.
+// They only trigger extract if a WET fixture (shower/toilet/sink/basin) is also present.
+const MOISTURE_FIXTURE_PATTERNS = [
+  /\bbath\b/i,
+  /\bfreestanding bath\b/i,
+  /\bspa bath\b/i,
+  /\bspa\b/i,
+  /\bsauna\b/i,
+];
+
+// Wet-area fixtures that force extract regardless of room name.
+// IMPORTANT: bath, freestanding bath, spa bath and sauna are MOISTURE fixtures —
+// they do not auto-trigger extract unless a shower, toilet or sink is also present.
+// Those are intentionally absent from this list.
 const WET_FIXTURE_PATTERNS = [
   /\bsink\b/i,
   /\bbasin\b/i,
   /\bvanity\b/i,
   /\btoilet\b/i,
   /\bwc\b/i,
+  /\burinal\b/i,
   /\bshower\b/i,
-  /\bbath\b/i,
   /\blaundry tub\b/i,
-  /\btub\b/i,
+  /\butility sink\b/i,
+  /\bkitchen sink\b/i,
+  /\bbar sink\b/i,
+  /\bprep sink\b/i,
   /\btrough\b/i,
   /\bkitchenette\b/i,
 ];
+
 // Matches WIR, Walk-in Robe, Walk in Robe, Walk-in Wardrobe, Walk in Wardrobe
-const WIR_PATTERN   = /\b(wir|walk[-\s]?in\s+(robe|wardrobe))\b/i;
+const WIR_PATTERN = /\b(wir|walk[-\s]?in\s+(robe|wardrobe))\b/i;
 
 function postProcessRooms(rooms, warnings) {
   const out = [];
 
   for (const room of rooms) {
-    const name    = (room.name || '').trim();
-    const area    = room.area || 0;
-    const nameLo  = name.toLowerCase();
-    let matched   = false; // set true if a label pattern fires
+    const name   = (room.name || '').trim();
+    const area   = room.area || 0;
+    const nameLo = name.toLowerCase();
+    let matched  = false;
 
     // ── 1. Service / equipment → exclude ─────────────────────
     if (SERVICE_PATTERNS.some(p => p.test(name))) {
-      warnings.push(`"${name}" identified as a service/equipment space — excluded as a separate MVHR zone.`);
+      warnings.push(`"${name}" identified as a service/equipment space — excluded.`);
       continue;
     }
 
-    // ── 2. Fixture override — wet-area fixtures force extract ─────
-    // Plumbing fixtures take priority over room name.
-    // A "Multi Use Room" with a sink is extract. A "Studio" with a kitchenette is extract.
+    // ── 2. Fixture override ───────────────────────────────────
+    // Wet fixtures (shower/toilet/sink/basin etc.) force extract regardless of room name.
+    // Moisture fixtures (bath/spa/sauna) alone preserve supply but flag secondary extract zone.
     if (Array.isArray(room.fixtures) && room.fixtures.length > 0) {
-      const fixtureStr = room.fixtures.join(' ');
       const wetFixture = room.fixtures.find(f => WET_FIXTURE_PATTERNS.some(p => p.test(f)));
+
       if (wetFixture) {
+        // Has a real wet fixture → extract
         room.ventilationClassification = 'extract';
         if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
         room.classificationReason = `Contains wet fixture (${wetFixture}) — classified as extract regardless of room name.`;
@@ -310,139 +351,132 @@ function postProcessRooms(rooms, warnings) {
         out.push(room);
         continue;
       }
+
+      // No wet fixture — check for moisture-only fixtures (bath/spa/sauna)
+      const moistureFixture = room.fixtures.find(f => MOISTURE_FIXTURE_PATTERNS.some(p => p.test(f)));
+      if (moistureFixture && room.ventilationClassification === 'supply') {
+        // Habitable room with bath/spa alone: stay supply, flag secondary zone
+        room.containsSecondaryExtractZone = true;
+        if (!room.classificationReason) {
+          room.classificationReason = `Habitable room with ${moistureFixture} — supply preserved. Secondary extract zone flagged for diffuser allocation.`;
+        }
+        warnings.push(`"${name}" contains ${moistureFixture} — classified as supply with secondary extract zone.`);
+        // Fall through — room continues to label-pattern rules which will confirm supply
+      }
     }
 
-    // ── 3. WIR (walk-in robe) — size-based ───────────────────────
-    // Matches name, labelSeen, or roomType against WIR / Walk-in Robe / Walk-in Wardrobe.
-    // Must run before joinery rule so "Walk-in Robe" doesn't get caught by /\brobe\b/i.
+    // ── 3. WIR → transfer + optionalSupply ───────────────────
+    // Matched against name + labelSeen + roomType to catch "Walk-in Robe" variants.
+    // Must run before joinery rule (/\brobe\b/i would otherwise catch it).
     const combined = `${room.name} ${room.labelSeen || ''} ${room.roomType}`.toLowerCase();
     if (WIR_PATTERN.test(combined)) {
-      const WIR_REASON = 'Separate WIR may be used as a low-flow supply point if required for system balance or air movement.';
       room.roomType = 'WIR';
-      if (area < 2) {
-        room.ventilationClassification = 'ignore';
-        room.classificationReason = 'WIR too small for an MVHR terminal — classified as ignore.';
-        warnings.push(`Walk-in Robe (${area} m²) classified as ignore — too small for an MVHR terminal.`);
-      } else if (area < 5) {
-        room.ventilationClassification = 'transfer';
+      room.ventilationClassification = 'transfer';
+      if (area >= 4) {
         room.optionalSupply = true;
-        room.classificationReason = WIR_REASON;
-        warnings.push(`Walk-in Robe (${area} m²) classified as optional supply zone.`);
+        room.classificationReason = 'Walk-in Robe — transfer. May be used as a low-flow supply point if required for system balance.';
+        warnings.push(`Walk-in Robe (${area} m²) — transfer, optionalSupply flagged.`);
       } else {
-        room.ventilationClassification = 'supply';
-        room.optionalSupply = true;
-        room.classificationReason = WIR_REASON;
-        warnings.push(`Walk-in Robe (${area} m²) classified as optional supply zone.`);
+        room.classificationReason = 'Walk-in Robe — transfer. Too small to warrant a supply terminal.';
+        warnings.push(`Walk-in Robe (${area} m²) — classified as transfer.`);
       }
       out.push(room);
       continue;
     }
 
-    // ── 3. Joinery / built-in storage ─────────────────────────
-    // CPD, BIR, linen, broom, shelving, fridge recess, cupboard, cabinet, joinery:
-    // always ignore (or exclude if tiny). Only promote to WIR/ignore if genuinely room-sized (≥ 4 m²).
+    // ── 4. Joinery / built-in storage ─────────────────────────
     if (JOINERY_PATTERNS.some(p => p.test(name))) {
       if (area >= 4) {
         room.ventilationClassification = 'ignore';
         room.roomType = 'WIR';
-        room.classificationReason = 'Room-sized storage/robe space — classified as ignore; no MVHR terminal required.';
-        warnings.push(`"${name}" (${area} m²) treated as walk-in robe — classified as ignore.`);
+        room.classificationReason = 'Room-sized built-in storage — classified as ignore.';
+        warnings.push(`"${name}" (${area} m²) treated as built-in storage — classified as ignore.`);
         out.push(room);
       } else {
-        // Small joinery — not a room, exclude entirely
-        warnings.push(`"${name}" treated as built-in joinery/storage — excluded as a separate MVHR zone.`);
+        warnings.push(`"${name}" treated as built-in joinery — excluded.`);
       }
       continue;
     }
 
-    // ── 3. Outdoor / non-ventilated label patterns ────────────
+    // ── 5. Outdoor / non-ventilated → ignore ─────────────────
     if (IGNORE_LABEL_PATTERNS.some(p => p.test(name))) {
-      if (room.ventilationClassification !== 'ignore') {
-        room.ventilationClassification = 'ignore';
-        if (!IGNORE_TYPES.has(room.roomType)) room.roomType = 'Other';
-      }
+      room.ventilationClassification = 'ignore';
+      if (!IGNORE_TYPES.has(room.roomType)) room.roomType = 'Other';
       out.push(room);
       matched = true;
     }
 
-    // ── 4. Circulation label patterns ─────────────────────────
+    // ── 6. Circulation → transfer ────────────────────────────
     else if (TRANSFER_LABEL_PATTERNS.some(p => p.test(name))) {
-      if (room.ventilationClassification !== 'transfer') {
-        room.ventilationClassification = 'transfer';
-        if (!TRANSFER_TYPES.has(room.roomType)) room.roomType = 'Other';
-      }
+      room.ventilationClassification = 'transfer';
+      if (!TRANSFER_TYPES.has(room.roomType)) room.roomType = 'Other';
       out.push(room);
       matched = true;
     }
 
-    // ── 5. Wet-room label patterns ────────────────────────────
+    // ── 7. Gym → extract ─────────────────────────────────────
+    // Gyms are extract due to elevated moisture, CO₂ and odour load.
+    else if (/\bgym\b/i.test(name)) {
+      room.ventilationClassification = 'extract';
+      if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
+      room.classificationReason = 'Home gym — extract due to elevated moisture, CO₂ and odour load.';
+      out.push(room);
+      matched = true;
+    }
+
+    // ── 8. Extract labels ────────────────────────────────────
     else if (EXTRACT_LABEL_PATTERNS.some(p => p.test(name))) {
-      if (room.ventilationClassification !== 'extract') {
-        room.ventilationClassification = 'extract';
-        if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
-      }
+      room.ventilationClassification = 'extract';
+      if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
       out.push(room);
       matched = true;
     }
 
-    // ── 6. Habitable room label patterns ──────────────────────
+    // ── 9. Supply labels ─────────────────────────────────────
     else if (SUPPLY_LABEL_PATTERNS.some(p => p.test(name))) {
-      if (room.ventilationClassification !== 'supply') {
-        room.ventilationClassification = 'supply';
-        if (!SUPPLY_TYPES.has(room.roomType)) room.roomType = 'Other';
-      }
+      room.ventilationClassification = 'supply';
+      if (!SUPPLY_TYPES.has(room.roomType)) room.roomType = 'Other';
       out.push(room);
       matched = true;
     }
 
     if (matched) continue;
 
-    // ── 7. Store size rules ───────────────────────────────────
-    // Internal enclosed store rooms are classified by area:
-    //   < 2 m²        → ignore (too small for a terminal)
-    //   2 – 5 m²      → transfer + optionalExtract (may suit balance)
-    //   > 5 m²        → extract candidate + optionalExtract
-    // Joinery spaces (CPD/BIR/linen etc.) are handled above and never reach here.
+    // ── 10. Store rules ───────────────────────────────────────
+    // Stores and cupboards are normally Transfer + optionalExtract for balancing flexibility.
+    // Very small stores (< 2 m²) are Ignore.
     if (STORE_PATTERN.test(name) || room.roomType === 'Store') {
       room.roomType = 'Store';
       if (area < 2) {
         room.ventilationClassification = 'ignore';
         room.classificationReason = 'Store too small for an MVHR terminal.';
-        warnings.push(`"${name}" (${area} m²) — too small for an MVHR terminal, classified as ignore.`);
-      } else if (area <= 5) {
+        warnings.push(`"${name}" (${area} m²) — too small for a terminal, classified as ignore.`);
+      } else {
         room.ventilationClassification = 'transfer';
         room.optionalExtract = true;
-        room.classificationReason = 'Internal store may be used as an extract point if required for system balance.';
-        warnings.push(`"${name}" (${area} m²) — classified as transfer with optional extract.`);
-      } else {
-        room.ventilationClassification = 'extract';
-        room.optionalExtract = true;
-        room.classificationReason = 'Internal store may be used as an extract point if required for system balance.';
-        warnings.push(`"${name}" (${area} m²) — large internal store classified as extract candidate.`);
+        room.classificationReason = 'Internal store — transfer. May be used as an extract point for system balance.';
+        warnings.push(`"${name}" (${area} m²) — transfer, optionalExtract flagged.`);
       }
       out.push(room);
       continue;
     }
 
-    // ── 8. JAN room ───────────────────────────────────────────
+    // ── 11. JAN heuristic ────────────────────────────────────
     if (/\bjan\b/i.test(name)) {
       if (area >= 4) {
-        if (room.ventilationClassification !== 'supply') {
-          room.ventilationClassification = 'supply';
-          room.roomType = 'Study / Office';
-          warnings.push(`"${name}" classified as supply — appears to be a usable enclosed room, not a janitor closet.`);
-        }
+        room.ventilationClassification = 'supply';
+        room.roomType = 'Study / Office';
+        warnings.push(`"${name}" classified as supply — appears to be a habitable room, not a janitor closet.`);
       } else {
         room.ventilationClassification = 'ignore';
         room.roomType = 'Store';
-        warnings.push(`"${name}" (${area} m²) treated as a small utility space — classified as ignore.`);
+        warnings.push(`"${name}" (${area} m²) — classified as ignore (small utility space).`);
       }
       out.push(room);
       continue;
     }
 
-    // ── 9. Person-name heuristic (last resort) ────────────────
-    // Single capitalised word not in the known room vocabulary → likely a person's bedroom
+    // ── 12. Person-name heuristic ─────────────────────────────
     const isPersonName = /^[A-Z][a-z]{2,}$/.test(name) && !KNOWN_ROOM_WORDS.has(nameLo);
     if (isPersonName && room.ventilationClassification !== 'supply') {
       room.ventilationClassification = 'supply';
@@ -456,38 +490,58 @@ function postProcessRooms(rooms, warnings) {
   return out;
 }
 
-// ── System prompt — Stage 1: room identification only ─────────
-// Goal: produce a reliable room schedule. Nothing else.
-// Airflow, outlets, floor area and MVHR design are handled in later stages.
-const SYSTEM_PROMPT = `You are reading an architectural floor plan.
-Your ONLY job is to identify every room and space visible on the plan and classify it.
-Do not calculate airflow. Do not calculate outlets. Do not estimate floor area.
+// ── System prompt — Stage 1: MVHR Room Classification Engine ──
+const SYSTEM_PROMPT = `You are an MVHR room classification engine.
+Analyse the residential floor plan and classify every identified space.
+Do NOT perform airflow calculations, diffuser sizing, duct sizing, balancing or equipment selection.
+Return structured JSON only.
+
+════ MVHR AIR MOVEMENT PRINCIPLE ════
+Supply rooms → Transfer areas → Extract rooms
+Supply = habitable rooms where occupants spend extended time.
+Extract = moisture-producing or odour-producing rooms.
+Transfer = circulation spaces that allow air movement between supply and extract.
+Ignore = non-habitable service spaces with no dedicated ventilation.
 
 ════ STEP 1: READ EVERY ROOM LABEL ════
-Scan the entire plan and list every labelled space. Use the exact text you can see as "labelSeen".
+Scan the entire plan. List every labelled space. Use the exact text visible as "labelSeen".
+Do NOT return empty rooms[]. If a label is unclear, use a generic name and set confidence 0.5.
+Omitting rooms is an error.
 
-If ANY of these words appear on the plan they MUST appear in rooms[]:
-  Kitchen  Scullery  Pantry  Butlers Pantry
-  Living   Lounge    Dining  Meals   Family  Rumpus  Theatre  Activity  Retreat
-  Bedroom  Master    Bed     Study   Office
-  Bath     Bathroom  Ensuite WC      Powder  Toilet  Laundry
-  Entry    Hall      Hallway Passage Corridor  Lobby  Landing
-  WIR      Robe      Store   Garage  Alfresco  Verandah  Porch  Carport
+These words MUST appear in rooms[] if visible on the plan:
+  Kitchen  Scullery  Pantry  Butler's Pantry
+  Living  Lounge  Dining  Meals  Family  Rumpus  Theatre  Media  Activity  Retreat  Sitting
+  Bedroom  Master  Bed  Study  Office  Library  Playroom  Gym  Sunroom
+  Bath  Bathroom  Ensuite  WC  Powder  Toilet  Laundry  Mudroom  Utility
+  Entry  Hall  Hallway  Passage  Corridor  Lobby  Landing  Stair
+  WIR  Store  Garage  Alfresco  Verandah  Porch  Carport
 
-Do NOT return empty rooms[].
-If labels are unclear, use a generic name and set confidence 0.5.
-Include uncertain rooms — omitting rooms is an error.
-
-Rooms labelled with a person's name (PAUL, JAN, JANE, TOM, etc.) are habitable rooms
-(bedroom or study) — classify as supply.
+Rooms labelled with a person's name (PAUL, JANE, TOM etc.) are bedrooms — classify as supply.
 
 ════ STEP 2: CLASSIFY EACH ROOM ════
-Set "classification" to exactly one of:
-  "supply"   — bedrooms, living, dining, study, rumpus, theatre, family, retreat, lounge, activity, office
-  "extract"  — kitchen, scullery, butler's pantry, bathroom, ensuite, WC, powder, toilet, laundry
-  "transfer" — entry, hall, hallway, passage, corridor, lobby, landing
-  "ignore"   — WIR, robe, BIR, CPD, garage, carport, alfresco, verandah, porch, balcony,
-               store < 4 m², linen, cupboard, HWS, HRV, plant room, joinery spaces
+
+SUPPLY — habitable rooms where occupants spend extended periods:
+  Bedroom  Master Bedroom  Guest Bedroom  Living Room  Lounge  Family Room  Dining Room
+  Rumpus Room  Media Room  Study  Home Office  Library  Playroom  Retreat  Sitting Room
+  Activity Room  Multi-Purpose Room  Multi-Use Room  Home Theatre  Sunroom
+
+EXTRACT — moisture or odour-producing rooms:
+  Kitchen  Butler's Pantry  Walk-in Pantry  Scullery  Bathroom  Ensuite  Powder Room
+  WC  Toilet  Laundry  Mudroom (with laundry)  Utility Room (with wet fixtures)
+  Gym (always extract — elevated moisture, CO₂ and odour load)
+  Pantry/Scullery/Butler's Pantry — always extract even without visible sink
+
+TRANSFER — circulation spaces:
+  Hallway  Corridor  Passage  Entry  Foyer  Stairwell  Landing
+
+IGNORE — non-habitable service spaces:
+  Garage  Carport  Plant Room  Mechanical Room  Electrical Room  HRV/MVHR cupboard
+  Roof Space  Attic  Underfloor Void  Lift Shaft  Bin Store
+  Outdoor: Balcony  Verandah  Alfresco  Porch  Deck  Courtyard
+
+WALK-IN ROBES — classify as transfer. If ≥ 4 m² and attached to a bedroom, set optionalSupply true.
+STORES — classify as transfer + set optionalExtract true (balancing flexibility). Tiny stores < 2 m² = ignore.
+JOINERY (BIR/CPD/linen/cupboards) — these are NOT rooms. Do not list them as room entries.
 
 Set "roomType" to exactly one of:
   Supply:   "Single Bedroom"  "Double Bedroom"  "Master Bedroom"  "Study / Office"
@@ -497,74 +551,109 @@ Set "roomType" to exactly one of:
   Ignore:   "WIR"  "Garage"  "Porch"  "Carport"  "Alfresco"  "Store"  "Other"
 
 ════ STEP 3: IDENTIFY FIXTURES IN EVERY ROOM ════
-Do NOT rely on the room label to decide whether a room has plumbing.
-Visually inspect the interior of EVERY room for drawn symbols and joinery outlines.
+Do NOT rely only on the room label. Visually inspect the interior of EVERY room for drawn symbols.
 
-Look specifically for these drawn elements inside each room boundary:
-  • Sink symbol       — rectangular or D-shaped outline against a wall or benchtop
-  • Basin symbol      — circular or oval outline, usually wall-mounted
-  • Vanity            — rectangular benchtop with one or two basin outlines
-  • Laundry tub       — deep square or rectangular tub symbol
-  • Kitchenette       — short run of joinery with a sink outline included
-  • Shower recess     — square or rectangular zone, often with a drain circle
-  • Bath              — large rectangular or freestanding tub outline
-  • Toilet / WC       — elongated oval or rectangular symbol
+Look for these drawn elements against the walls inside each room:
+  • Sink — rectangular or D-shaped outline on a benchtop or wall
+  • Basin — circular or oval outline, usually wall-mounted
+  • Vanity — benchtop with one or two basin outlines
+  • Shower recess — square/rectangular zone with drain circle
+  • Toilet / WC — elongated oval or rectangular symbol
+  • Laundry tub — deep square/rectangular tub
+  • Kitchenette — short joinery run with a sink outline
 
-Small plumbing fixtures are commonly drawn as simple outlines against walls and are easy to
-miss. Check every wall inside the room, not just the labelled centre.
-
-These room types often contain plumbing fixtures even when not labelled as wet rooms —
-inspect them carefully:
+Small fixtures are drawn as simple outlines and easy to miss. Check every wall.
+Inspect these room types carefully even if not labelled as wet rooms:
   Multi-Use Room  Study  Office  Utility  Workshop  Studio  Store  Mudroom
-  Scullery  Pantry  Retreat  Activity  Rumpus  Gym  Cellar  Bar
+  Retreat  Activity  Rumpus  Gym  Cellar  Bar  Scullery  Pantry
 
-WET FIXTURES — if any are visible inside the room, add to fixtures[] and set classification "extract":
-  sink  basin  vanity  toilet  WC  shower  bath  laundry tub  tub  trough  kitchenette
+WET FIXTURES → add to fixtures[] AND set classification "extract":
+  sink  basin  vanity  toilet  wc  urinal  shower  laundry tub  utility sink
+  kitchen sink  bar sink  prep sink  trough  kitchenette
 
-DRY FIXTURES — add to fixtures[] for information only, do NOT classify as extract alone:
+DRY FIXTURES → add to fixtures[] for information only, do NOT change classification:
   oven  cooktop  fridge  dishwasher
 
-FIXTURE RULE (highest priority — overrides room name):
-• Any wet fixture present → classification = "extract"
-• Oven / cooktop / fridge / dishwasher alone → do not change classification
-• Examples:
-    Multi-Use Room + sink symbol    = extract
-    Study + basin symbol            = extract
-    Utility Room + basin            = extract
-    Studio + kitchenette with sink  = extract
-    Mudroom + laundry tub           = extract
-    Scullery + sink + dishwasher    = extract  (sink is wet)
-    Rumpus + fridge only            = supply   (fridge alone is not wet)
+MOISTURE FIXTURES → add to fixtures[], do NOT trigger extract alone:
+  bath  freestanding bath  spa bath  sauna
+  If a habitable (supply) room contains only moisture fixtures and no wet fixtures:
+    → keep classification = "supply"
+    → set containsSecondaryExtractZone = true
 
-If no fixtures are visible inside the room boundary, set "fixtures": [].
+FIXTURE RULE — highest priority, overrides room name:
+  Any wet fixture present                          → classification = "extract"
+  Oven / cooktop / fridge / dishwasher alone       → no change
+  Bath / spa / sauna alone in habitable room       → supply + containsSecondaryExtractZone true
+  Bath + shower in any room                        → extract
+  Bath + toilet in any room                        → extract
 
-════ CRITICAL RULES ════
-• Thick-walled enclosed spaces with a door = rooms. List them.
-• Thin joinery lines, shelf outlines, robe zones = not rooms. Do not list as separate entries.
-• Estimate area (m²) from dimensions or proportions. If uncertain, estimate and set confidence 0.5.
-• If room extraction is impossible (blank page, not a floor plan), return analysisStatus "failed".
+Examples:
+  Bedroom + freestanding bath only  = supply + containsSecondaryExtractZone true
+  Master Suite + spa bath only      = supply + containsSecondaryExtractZone true
+  Bedroom + bath + shower           = extract
+  Bedroom + bath + toilet           = extract
+  Multi-Use Room + sink             = extract
+  Bedroom + shower (no bath)        = extract
+  Rumpus + fridge only              = supply
+  Store + laundry tub               = extract
+  Retreat + spa bath only           = supply + containsSecondaryExtractZone true
+
+════ ZONE-WITHIN-ZONE ════
+Some rooms contain two ventilation functions. Preserve the primary classification and set
+"containsSecondaryExtractZone": true so Stage 2 can allocate a secondary extract terminal.
+
+BEDROOM WITH BATH (no shower or toilet present):
+  → classification = "supply"
+  → containsSecondaryExtractZone = true
+  Rationale: a freestanding bath, spa bath or soaking tub does not produce sustained moisture
+  the way a shower or toilet does. The room's primary function remains habitable supply.
+  Examples:
+    Bedroom + freestanding bath only → supply + containsSecondaryExtractZone true
+    Master Suite + bath              → supply + containsSecondaryExtractZone true
+    Retreat + spa bath               → supply + containsSecondaryExtractZone true
+
+BEDROOM WITH BATH + SHOWER OR TOILET:
+  → classification = "extract"  (wet fixture takes priority)
+  Examples:
+    Bedroom + bath + shower  → extract
+    Bedroom + bath + toilet  → extract
+
+BEDROOM WITH OPEN ENSUITE (no physical door):
+  → classification = "supply"
+  → containsSecondaryExtractZone = true
+  The intended air path is supply → bedroom → ensuite → extract.
+
+════ CONFIDENCE ════
+0.95+ = clear  |  0.85–0.95 = likely  |  0.70–0.85 = inferred  |  < 0.70 = uncertain
 
 ════ RESPONSE FORMAT ════
-Return ONLY valid JSON. No markdown. No prose. No other fields.
+Return ONLY valid JSON. No markdown. No prose.
 
 {
   "rooms": [
     { "name": "Master Bedroom", "labelSeen": "MASTER BED",
       "roomType": "Master Bedroom", "classification": "supply",
-      "area": 19.2, "confidence": 0.94, "fixtures": [] },
+      "area": 19.2, "confidence": 0.94,
+      "fixtures": [], "containsSecondaryExtractZone": false },
     { "name": "Kitchen", "labelSeen": "KITCHEN",
       "roomType": "Kitchen", "classification": "extract",
-      "area": 16.4, "confidence": 0.97, "fixtures": ["sink", "kitchen joinery"] },
+      "area": 16.4, "confidence": 0.97,
+      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false },
     { "name": "Multi-Use Room", "labelSeen": "MULTI USE",
       "roomType": "Other", "classification": "extract",
-      "area": 12.0, "confidence": 0.85, "fixtures": ["sink"] },
+      "area": 12.0, "confidence": 0.85,
+      "fixtures": ["sink"], "containsSecondaryExtractZone": false },
     { "name": "Rumpus Room", "labelSeen": "RUMPUS",
       "roomType": "Rumpus Room", "classification": "supply",
-      "area": 22.0, "confidence": 0.95, "fixtures": ["fridge"] },
-    { "name": "Hallway", "labelSeen": "HALL",
-      "roomType": "Hallway", "classification": "transfer",
-      "area": 8.2, "confidence": 0.9, "fixtures": [] }
-  ]
+      "area": 22.0, "confidence": 0.95,
+      "fixtures": ["fridge"], "containsSecondaryExtractZone": false },
+    { "name": "Walk-in Robe", "labelSeen": "WIR",
+      "roomType": "WIR", "classification": "transfer",
+      "area": 5.5, "confidence": 0.92,
+      "fixtures": [], "containsSecondaryExtractZone": false }
+  ],
+  "warnings": [],
+  "assumptions": []
 }`;
 
 // ── Stage 2 recovery prompt ────────────────────────────────────
@@ -572,29 +661,34 @@ Return ONLY valid JSON. No markdown. No prose. No other fields.
 // Same schema as Stage 1 but explicitly named as recovery to reduce cognitive overlap.
 const ROOM_RECOVERY_PROMPT = `You are reading an architectural floor plan.
 Stage 1 analysis returned no rooms. Your job is to recover the room schedule.
+Apply the same MVHR classification rules as Stage 1.
 
-Read every visible room label on the plan and return a room entry for each one.
-Use the exact label text you can see as "labelSeen".
+Read every visible room label. Use the exact text as "labelSeen".
+Do not return joinery, BIR, CPD, linen or shelf outlines as rooms.
+Estimate area (m²) if visible. Use confidence 0.5 for uncertain rooms.
+Rooms labelled with a person's name (PAUL, JAN, JANE etc.) are bedrooms — classify as supply.
 
-Classification rules:
-  "supply"   — bedrooms, living, dining, study, rumpus, family, theatre, office, habitable rooms
-  "extract"  — kitchen, bathroom, ensuite, WC, powder, toilet, laundry, pantry, scullery
-  "transfer" — entry, hall, hallway, passage, corridor, lobby, landing
-  "ignore"   — WIR, robe, BIR, CPD, garage, carport, alfresco, verandah, porch, store < 4 m²,
-               cupboards, joinery, HWS, HRV, plant spaces
+CLASSIFICATION:
+  supply   — bedroom, living, dining, study, rumpus, family, theatre, media, retreat, lounge,
+             activity, multi-use, multi-purpose, office, library, playroom, sunroom
+  extract  — kitchen, scullery, butler's pantry, pantry, bathroom, ensuite, WC, powder,
+             toilet, laundry, mudroom, utility, gym
+  transfer — entry, hall, hallway, passage, corridor, lobby, landing, stair
+  ignore   — garage, carport, alfresco, verandah, porch, deck, outdoor areas,
+             plant room, electrical room, HRV/MVHR cupboard, HWS, bin store
+  WIR      — transfer (set optionalSupply true if ≥ 4 m²)
+  Store    — transfer + optionalExtract true (ignore if < 2 m²)
 
-Rooms labelled with a person's name (PAUL, JAN, JANE, etc.) are habitable — classify as supply.
-Do not return cupboards, joinery, shelving or robe outlines as rooms.
-Estimate area (m²) if visible. Set confidence 0.5 for uncertain rooms.
-Do NOT rely on room labels to detect plumbing. Visually inspect every room's interior for
-drawn fixture symbols — sink outlines, basin circles, vanity benchtops, laundry tubs, shower
-recesses. Small fixtures are drawn against walls and easy to miss; check all four walls.
-Rooms like Multi-Use Room, Study, Office, Utility, Studio, Mudroom, Workshop often contain
-sinks even when not labelled as wet rooms.
-Wet fixtures (sink, basin, vanity, toilet, WC, shower, bath, laundry tub, tub, trough,
-kitchenette) → add to fixtures[] and set classification "extract".
-Dry fixtures (oven, cooktop, fridge, dishwasher) → add to fixtures[] but do NOT trigger extract.
-Multi-Use Room + sink = extract. Rumpus + fridge only = supply.
+FIXTURE INSPECTION — do NOT rely on room labels for plumbing:
+Inspect every room interior for drawn symbols against walls.
+Wet fixtures → add to fixtures[] AND set classification "extract":
+  sink  basin  vanity  toilet  wc  urinal  shower  laundry tub  utility sink  trough  kitchenette
+Dry fixtures → add to fixtures[] only, do NOT change classification:
+  oven  cooktop  fridge  dishwasher
+Moisture fixtures → add to fixtures[], only trigger extract if shower or toilet also present:
+  bath  freestanding bath  spa  sauna
+
+If a bedroom has an open ensuite zone, set "containsSecondaryExtractZone": true.
 
 Return ONLY valid JSON. No markdown. No prose.
 
@@ -602,11 +696,15 @@ Return ONLY valid JSON. No markdown. No prose.
   "rooms": [
     { "name": "Master Bedroom", "labelSeen": "MASTER BED",
       "roomType": "Master Bedroom", "classification": "supply",
-      "area": 18.0, "confidence": 0.8, "fixtures": [] },
+      "area": 18.0, "confidence": 0.8,
+      "fixtures": [], "containsSecondaryExtractZone": false },
     { "name": "Kitchen", "labelSeen": "KITCHEN",
       "roomType": "Kitchen", "classification": "extract",
-      "area": 14.0, "confidence": 0.9, "fixtures": ["sink", "kitchen joinery"] }
-  ]
+      "area": 14.0, "confidence": 0.9,
+      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false }
+  ],
+  "warnings": [],
+  "assumptions": []
 }`;
 
 // ── Handler ───────────────────────────────────────────────────
@@ -821,12 +919,15 @@ export default async function handler(req, res) {
   const transfer  = allRooms.filter(r => r.ventilationClassification === 'transfer');
   const ignore    = allRooms.filter(r => r.ventilationClassification === 'ignore');
 
-  // ── Collect AI warnings ──────────────────────────────────────
+  // ── Collect AI warnings and assumptions ─────────────────────
   if (Array.isArray(parsed.warnings)) {
     for (const w of parsed.warnings) {
       if (typeof w === 'string' && w.trim()) warnings.push(w.trim());
     }
   }
+  const assumptions = Array.isArray(parsed.assumptions)
+    ? parsed.assumptions.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim())
+    : [];
 
   // Token counts accumulate across both calls
   let totalInputTokens  = inputTokens;
@@ -934,6 +1035,7 @@ export default async function handler(req, res) {
       stage1RoomCount,
       stage2RoomCount,
       warnings,
+      assumptions,
       model:            MODEL,
       inputTokens:     totalInputTokens,
       outputTokens:    totalOutputTokens,
@@ -949,6 +1051,7 @@ export default async function handler(req, res) {
   const analysisJson = {
     supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
     warnings,
+    assumptions,
     analysisStatus: 'success',
     recoveryMode,
   };
@@ -1013,6 +1116,7 @@ export default async function handler(req, res) {
     stage2RoomCount,
     rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
     warnings,
+    assumptions,
     model:                  MODEL,
     inputTokens:            totalInputTokens,
     outputTokens:           totalOutputTokens,
