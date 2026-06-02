@@ -320,7 +320,7 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
-            <th>Opt. Extract</th>
+            <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
@@ -342,7 +342,7 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
-            <th>Opt. Extract</th>
+            <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
@@ -364,7 +364,7 @@ details summary:hover { background: var(--primary-light); }
             <th>Label Seen</th>
             <th>Room Type</th>
             <th>Classification</th>
-            <th>Opt. Extract</th>
+            <th>Optional</th>
             <th>Reason</th>
             <th>Confidence</th>
           </tr>
@@ -694,9 +694,11 @@ function renderRoomRows(rooms) {
       transfer: 'color:#1e40af;background:#dbeafe',
       ignore:   'color:var(--muted);background:var(--input-bg)',
     }[r.ventilationClassification] || '';
-    const optExtract = r.optionalExtract
-      ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#92400e;background:#fef3c7">Yes</span>'
-      : '<span style="color:var(--muted);font-size:12px">—</span>';
+    const optExtract = r.optionalSupply
+      ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#166534;background:#dcfce7">Supply</span>'
+      : r.optionalExtract
+        ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#92400e;background:#fef3c7">Extract</span>'
+        : '<span style="color:var(--muted);font-size:12px">—</span>';
     const reason = r.classificationReason
       ? `<span style="font-size:11px;color:var(--muted)">${esc(r.classificationReason)}</span>`
       : '<span style="color:var(--muted);font-size:12px">—</span>';

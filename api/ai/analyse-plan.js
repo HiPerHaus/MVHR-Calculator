@@ -125,6 +125,7 @@ function validateRoom(raw, floorIndex) {
     ventilationClassification: ventClass,
     confidence,
     optionalExtract:           false,
+    optionalSupply:            false,
     classificationReason:      null,
   };
 }
@@ -144,14 +145,15 @@ const FAILURE_SUGGESTIONS = [
 // Applied after BOTH Stage 1 and Stage 2 extractions.
 // Precedence order (highest first):
 //   1. Service/equipment → exclude
-//   2. Known joinery/storage labels → exclude or demote to ignore
-//   3. Outdoor/non-ventilated label patterns → force ignore
-//   4. Circulation label patterns → force transfer
-//   5. Wet-room label patterns → force extract
-//   6. Habitable label patterns → force supply
-//   7. Store size rules → exclude small, demote large-if-supply
-//   8. JAN heuristic
-//   9. Person-name heuristic (last — only when nothing else matched)
+//   2. WIR size rules → size-based supply/transfer/ignore + optionalSupply
+//   3. Known joinery/storage labels (BIR/CPD/robe/wardrobe/linen etc.) → exclude or demote to ignore
+//   4. Outdoor/non-ventilated label patterns → force ignore
+//   5. Circulation label patterns → force transfer
+//   6. Wet-room label patterns → force extract
+//   7. Habitable label patterns → force supply
+//   8. Store size rules → size-based extract/transfer/ignore + optionalExtract
+//   9. JAN heuristic
+//  10. Person-name heuristic (last — only when nothing else matched)
 
 // ── Pattern sets ─────────────────────────────────────────────
 
@@ -165,13 +167,14 @@ const SERVICE_PATTERNS = [
   /\bequipment\b/i,
 ];
 
-// Joinery/built-in storage — NOT architectural rooms
-// If area >= 4 m² we treat them as WIR/ignore rather than excluding entirely
+// Joinery/built-in storage — NOT architectural rooms.
+// These are always excluded or demoted, never promoted to supply/transfer.
+// WIR (walk-in robe) is NOT in this list — it gets its own size-based rule below.
 const JOINERY_PATTERNS = [
   /\bcpd\b/i,         // coat pantry door / cupboard
   /\bbir\b/i,         // built-in robe
-  /\brobe\b/i,
-  /\bwardrobe\b/i,
+  /\brobe\b/i,        // robe joinery (not WIR — caught separately)
+  /\bwardrobe\b/i,    // wardrobe joinery
   /\blinen\b/i,
   /\bbroom\b/i,
   /\bshelv/i,
@@ -182,6 +185,7 @@ const JOINERY_PATTERNS = [
 ];
 
 // Labels that should always be ignore (outdoor / non-ventilated)
+// Note: WIR is intentionally excluded here — it has its own size-based rule.
 const IGNORE_LABEL_PATTERNS = [
   /\bverandah\b/i, /\bveranda\b/i,
   /\bporch\b/i,
@@ -191,7 +195,6 @@ const IGNORE_LABEL_PATTERNS = [
   /\bbalcon/i,        // balcony, balconies
   /\bdeck\b/i,
   /\bcourtyard\b/i,
-  /\bwir\b/i,         // walk-in robe
 ];
 
 // Labels that should always be transfer (circulation)
@@ -250,6 +253,7 @@ const KNOWN_ROOM_WORDS = new Set([
 ]);
 
 const STORE_PATTERN = /\bstore\b/i;
+const WIR_PATTERN   = /\bwir\b/i;
 
 function postProcessRooms(rooms, warnings) {
   const out = [];
@@ -266,7 +270,32 @@ function postProcessRooms(rooms, warnings) {
       continue;
     }
 
-    // ── 2. Joinery / built-in storage ─────────────────────────
+    // ── 2. WIR (walk-in robe) — size-based ───────────────────────
+    // Separate enclosed WIR is treated as a room, not joinery.
+    // BIR/robe/wardrobe joinery is handled in rule 3 below.
+    if (WIR_PATTERN.test(name)) {
+      const WIR_REASON = 'Separate WIR may be used as a low-flow supply point if required for system balance or air movement.';
+      room.roomType = 'WIR';
+      if (area < 2) {
+        room.ventilationClassification = 'ignore';
+        room.classificationReason = 'WIR too small for an MVHR terminal — classified as ignore.';
+        warnings.push(`"${name}" (${area} m²) — small WIR, classified as ignore.`);
+      } else if (area <= 5) {
+        room.ventilationClassification = 'transfer';
+        room.optionalSupply = true;
+        room.classificationReason = WIR_REASON;
+        warnings.push(`"${name}" (${area} m²) — WIR classified as transfer with optional supply.`);
+      } else {
+        room.ventilationClassification = 'supply';
+        room.optionalSupply = true;
+        room.classificationReason = WIR_REASON;
+        warnings.push(`"${name}" (${area} m²) — large WIR classified as supply with optional supply flag.`);
+      }
+      out.push(room);
+      continue;
+    }
+
+    // ── 3. Joinery / built-in storage ─────────────────────────
     // CPD, BIR, linen, broom, shelving, fridge recess, cupboard, cabinet, joinery:
     // always ignore (or exclude if tiny). Only promote to WIR/ignore if genuinely room-sized (≥ 4 m²).
     if (JOINERY_PATTERNS.some(p => p.test(name))) {
