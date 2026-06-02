@@ -663,7 +663,7 @@ async function analysePlan() {
       if (uploadErr) throw new Error('Storage upload failed: ' + uploadErr.message);
 
       body = {
-        testMode:    true,
+        testMode: false,
         projectId:   projectIdVal,
         storagePath,              // e.g. "plan-uploads/temp/<userId>/<filename>"
       };
@@ -673,7 +673,7 @@ async function analysePlan() {
       setStatus('active', 'Reading file…');
       const base64 = await fileToBase64(_selectedFile);
       body = {
-        testMode:  true,
+        testMode: false,
         projectId: projectIdVal,
         imageData: base64,
       };
@@ -778,7 +778,7 @@ async function startPdfPipeline() {
     const regRes = await fetch('/api/ai/upload-pdf', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
-      body:    JSON.stringify({ storagePath, projectId: projectIdVal, testMode: true }),
+      body:    JSON.stringify({ storagePath, projectId: projectIdVal, testMode: false }),
     });
     const regData = await regRes.json();
     if (!regRes.ok) throw new Error(regData.error || 'Job registration failed');
@@ -1001,7 +1001,7 @@ async function confirmPages() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
         body:    JSON.stringify({
-          testMode:    true,
+          testMode: false,
           projectId:   document.getElementById('projectIdInput').value.trim() || null,
           pdfUploadId: _pdfJobId,
           pdfPageId:   pageId,
