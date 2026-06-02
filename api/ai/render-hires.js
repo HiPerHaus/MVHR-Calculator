@@ -44,9 +44,13 @@ export default async function handler(req, res) {
     const mupdf = await import('mupdf');
 
     // ── Download PDF ───────────────────────────────────────────────────────
-    const objectPath = storagePath.replace(`${BUCKET}/`, '');
+    // Strip leading "plan-uploads/" prefix from legacy storage_path values.
+    const normalisedStoragePath = storagePath.startsWith(`${BUCKET}/`)
+      ? storagePath.slice(BUCKET.length + 1)
+      : storagePath;
+
     const { data: pdfBlob, error: dlErr } = await supabase.storage
-      .from(BUCKET).download(objectPath);
+      .from(BUCKET).download(normalisedStoragePath);
 
     if (dlErr || !pdfBlob) throw new Error(`Failed to download PDF: ${dlErr?.message}`);
 

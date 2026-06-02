@@ -165,11 +165,34 @@ export default async function handler(req, res) {
     const [mupdf, sharpFn] = await Promise.all([getMupdf(), getSharp()]);
 
     // ── Download PDF ─────────────────────────────────────────────────────────
-    const objectPath = storagePath.replace(`${BUCKET}/`, '');
-    const { data: pdfBlob, error: dlErr } = await supabase.storage
-      .from(BUCKET).download(objectPath);
+    // Normalise: strip leading "plan-uploads/" prefix from legacy rows where
+    // storage_path was stored as "plan-uploads/temp/..." instead of "temp/...".
+    const rawStoragePath       = storagePath;
+    const normalisedStoragePath = storagePath.startsWith(`${BUCKET}/`)
+      ? storagePath.slice(BUCKET.length + 1)
+      : storagePath;
 
-    if (dlErr || !pdfBlob) throw new Error(`Failed to download PDF: ${dlErr?.message}`);
+    console.log(JSON.stringify({
+      event:               'render-pdf:download',
+      storageBucket:       BUCKET,
+      rawStoragePath,
+      normalisedStoragePath,
+      jobId,
+    }));
+
+    const { data: pdfBlob, error: dlErr } = await supabase.storage
+      .from(BUCKET).download(normalisedStoragePath);
+
+    if (dlErr || !pdfBlob) {
+      console.error(JSON.stringify({
+        event:               'render-pdf:download-error',
+        storageBucket:       BUCKET,
+        normalisedStoragePath,
+        error:               dlErr?.message ?? 'no blob returned',
+        jobId,
+      }));
+      throw new Error(`Failed to download PDF: ${dlErr?.message}`);
+    }
 
     const pdfBuffer = Buffer.from(await pdfBlob.arrayBuffer());
 
