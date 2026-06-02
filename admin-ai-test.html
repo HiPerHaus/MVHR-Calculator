@@ -552,10 +552,12 @@ async function analysePlan() {
     }
 
     if (!res.ok) {
-      const msg = data?.error || res.statusText;
-      if (res.status === 402 || msg?.toLowerCase().includes('credit')) {
+      const msg = data?.error || data?.message || data;
+      const msgText = typeof msg === "string" ? msg : msg?.error || msg?.message || JSON.stringify(msg || "");
+      const msgLower = msgText.toLowerCase();
+      if (res.status === 402 || msgLower.includes('credit')) {
         throw new Error('Insufficient credits available.');
-      } else if (res.status === 422 || msg?.toLowerCase().includes('invalid')) {
+      } else if (res.status === 422 || msgLower.includes('invalid')) {
         throw new Error('AI model returned an invalid response.');
       } else {
         throw new Error('Request failed: ' + msg);
