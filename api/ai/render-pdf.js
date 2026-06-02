@@ -31,6 +31,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { waitUntil } from '@vercel/functions';
+import { createRequire } from 'module';
+
+// pdfjs-dist v4 ships ESM-only and always tries to resolve pdf.worker.mjs,
+// which does not exist in Vercel's /var/task bundle. Pin to v3's CommonJS
+// legacy build, which honours disableWorker: true without touching workerSrc.
+const require  = createRequire(import.meta.url);
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -46,14 +53,7 @@ const RENDER_BATCH_SIZE   = 3;     // Pages to render concurrently
 // Hard limit — PDFs exceeding this are rejected (not silently truncated).
 const MAX_PAGES           = 100;
 
-// ── Lazy-load heavy deps (avoids cold-start penalty for other routes) ─────
-async function getPdfJs() {
-  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  // Do NOT touch GlobalWorkerOptions.workerSrc — pdfjs v4 rejects both '' and false.
-  // disableWorker: true on getDocument() is sufficient for Node/Vercel serverless.
-  return { getDocument };
-}
-
+// ── Lazy-load canvas + sharp (heavy — skip on cold starts for other routes) ─
 async function getCanvas() {
   const { createCanvas } = await import('@napi-rs/canvas');
   return createCanvas;
@@ -239,9 +239,8 @@ export default async function handler(req, res) {
     .eq('id', uploadId);
 
   try {
-    // ── Load dependencies ────────────────────────────────────────────────────
-    const [{ getDocument }, createCanvasFn, sharpFn] = await Promise.all([
-      getPdfJs(),
+    // ── Load canvas + sharp ──────────────────────────────────────────────────
+    const [createCanvasFn, sharpFn] = await Promise.all([
       getCanvas(),
       getSharp(),
     ]);
@@ -259,8 +258,8 @@ export default async function handler(req, res) {
     const pdfArrayBuffer = await pdfBlob.arrayBuffer();
     const pdfData        = new Uint8Array(pdfArrayBuffer);
 
-    // ── Open PDF ─────────────────────────────────────────────────────────────
-    const pdfDoc    = await getDocument({
+    // ── Open PDF (no worker — CJS v3 legacy build) ───────────────────────────
+    const pdfDoc    = await pdfjsLib.getDocument({
       data:            pdfData,
       disableWorker:   true,
       useWorkerFetch:  false,

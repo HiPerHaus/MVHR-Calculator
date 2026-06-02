@@ -27,6 +27,10 @@
 // Response 500: render or upload error
 
 import { createClient } from '@supabase/supabase-js';
+import { createRequire } from 'module';
+
+const require  = createRequire(import.meta.url);
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -39,13 +43,6 @@ const PDF_POINTS_PER_INCH = 72;
 const BUCKET              = 'plan-uploads';
 
 // ── Lazy deps ─────────────────────────────────────────────────────────────
-async function getPdfJs() {
-  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  // Do NOT touch GlobalWorkerOptions.workerSrc — pdfjs v4 rejects both '' and false.
-  // disableWorker: true on getDocument() is sufficient for Node/Vercel serverless.
-  return { getDocument };
-}
-
 async function getCanvas() {
   const { createCanvas } = await import('@napi-rs/canvas');
   return createCanvas;
@@ -101,11 +98,8 @@ export default async function handler(req, res) {
   const t0 = Date.now();
 
   try {
-    // ── Load deps ──────────────────────────────────────────────────────────
-    const [{ getDocument }, createCanvasFn] = await Promise.all([
-      getPdfJs(),
-      getCanvas(),
-    ]);
+    // ── Load canvas ────────────────────────────────────────────────────────
+    const createCanvasFn = await getCanvas();
 
     // ── Download PDF ───────────────────────────────────────────────────────
     const objectPath = storagePath.replace(`${BUCKET}/`, '');
@@ -119,8 +113,8 @@ export default async function handler(req, res) {
 
     const pdfData = new Uint8Array(await pdfBlob.arrayBuffer());
 
-    // ── Render page ────────────────────────────────────────────────────────
-    const pdfDoc  = await getDocument({
+    // ── Open PDF (CJS v3 legacy build — no worker) ─────────────────────────
+    const pdfDoc  = await pdfjsLib.getDocument({
       data:            pdfData,
       disableWorker:   true,
       useWorkerFetch:  false,
