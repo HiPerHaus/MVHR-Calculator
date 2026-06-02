@@ -60,14 +60,35 @@ export default async function handler(req, res) {
   const jobId = req.query.jobId;
   if (!jobId) return res.status(400).json({ error: 'jobId is required' });
 
+  console.log('[job-status] incoming request', {
+    jobId,
+    userId: user.id,
+    supabaseUrl: process.env.SUPABASE_URL,
+    query: `pdf_uploads.job_id = '${jobId}'`,
+  });
+
   // ── Fetch upload row ──────────────────────────────────────────────────────
+  // Use maybeSingle() — single() errors with 406 when 0 rows are returned.
   const { data: upload, error: uploadErr } = await supabase
     .from('pdf_uploads')
     .select('id, job_id, status, page_count, error_detail, user_id')
     .eq('job_id', jobId)
-    .single();
+    .maybeSingle();
 
-  if (uploadErr || !upload) {
+  console.log('[job-status] query result', {
+    jobId,
+    found: !!upload,
+    status: upload?.status ?? null,
+    uploadErr: uploadErr?.message ?? null,
+    uploadErrCode: uploadErr?.code ?? null,
+  });
+
+  if (uploadErr) {
+    console.error('[job-status] Supabase error fetching upload row', uploadErr);
+    return res.status(500).json({ error: `Database error: ${uploadErr.message}` });
+  }
+
+  if (!upload) {
     return res.status(404).json({ error: 'Job not found' });
   }
 
@@ -109,26 +130,10 @@ export default async function handler(req, res) {
   }
 
   // ── Fetch pages ───────────────────────────────────────────────────────────
+  // Use select('*') so future schema additions don't require changes here.
   const { data: pages, error: pagesErr } = await supabase
     .from('pdf_pages')
-    .select(`
-      id,
-      page_number,
-      page_type,
-      page_role,
-      classification_confidence,
-      classification_reason,
-      thumb_path,
-      user_selected,
-      floor_index,
-      floor_level,
-      floor_name,
-      has_floor_levels,
-      has_ceiling_heights,
-      has_roof_geometry,
-      has_elevation_data,
-      has_section_data
-    `)
+    .select('*')
     .eq('pdf_upload_id', upload.id)
     .order('page_number', { ascending: true });
 
@@ -163,23 +168,23 @@ export default async function handler(req, res) {
   }
 
   // ── Build response pages ──────────────────────────────────────────────────
+  // All optional columns use ?. / ?? null so missing columns don't throw.
   const responsePages = pages.map(p => ({
-    pageId:           p.id,
-    pageNumber:       p.page_number,
-    pageType:         p.page_type,
-    pageRole:         p.page_role ?? null,
-    confidence:       p.classification_confidence ?? null,
-    reason:           p.classification_reason ?? null,
-    thumbUrl:         p.thumb_path ? (signedUrlMap[p.thumb_path] ?? null) : null,
-    userSelected:     p.user_selected,
-    floorIndex:       p.floor_index ?? null,
-    floorLevel:       p.floor_level ?? null,
-    floorName:        p.floor_name ?? null,
-    hasFloorLevels:   p.has_floor_levels ?? null,
-    hasCeilingHeights:p.has_ceiling_heights ?? null,
-    hasRoofGeometry:  p.has_roof_geometry ?? null,
-    hasElevationData: p.has_elevation_data ?? null,
-    hasSectionData:   p.has_section_data ?? null,
+    pageId:            p.id,
+    pageNumber:        p.page_number,
+    pageType:          p.page_type   ?? null,
+    confidence:        p.classification_confidence ?? null,
+    reason:            p.classification_reason     ?? null,
+    thumbUrl:          p.thumb_path ? (signedUrlMap[p.thumb_path] ?? null) : null,
+    userSelected:      p.user_selected ?? false,
+    floorIndex:        p.floor_index   ?? null,
+    floorLevel:        p.floor_level   ?? null,
+    floorName:         p.floor_name    ?? null,
+    hasFloorLevels:    p.has_floor_levels    ?? null,
+    hasCeilingHeights: p.has_ceiling_heights ?? null,
+    hasRoofGeometry:   p.has_roof_geometry   ?? null,
+    hasElevationData:  p.has_elevation_data  ?? null,
+    hasSectionData:    p.has_section_data    ?? null,
   }));
 
   const candidatePages = responsePages
