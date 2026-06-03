@@ -203,7 +203,7 @@ export default async function handler(req, res) {
 
       const { data: logs } = await supabase
         .from('plan_analysis_log')
-        .select('id, floor_index, parsed_rooms, analysis_status, created_at')
+        .select('id, floor_index, parsed_rooms, analysis_status, created_at, model_used, input_tokens, output_tokens, credits_deducted')
         .in('id', logIds)
         .order('floor_index', { ascending: true });
 
@@ -218,7 +218,7 @@ export default async function handler(req, res) {
             return {
               logId:           log.id,
               floorIndex:      log.floor_index ?? page.floorIndex ?? 0,
-              floorName:       page.floorName ?? `Floor ${log.floor_index ?? 0}`,
+              floorName:       page.floorName ?? (log.floor_index === 0 ? 'Ground Floor' : `Floor ${log.floor_index ?? 1}`),
               // Support both storage formats:
               // - new: parsed_rooms.rooms.supply (analysisJson stores rooms nested)
               // - legacy: parsed_rooms.supply (flat top-level — old rows before this fix)
@@ -228,11 +228,22 @@ export default async function handler(req, res) {
                 transfer: parsed.transfer ?? [],
                 ignore:   parsed.ignore   ?? [],
               },
-              warnings:        parsed.warnings        ?? [],
-              assumptions:     parsed.assumptions     ?? [],
+              warnings:         parsed.warnings         ?? [],
+              assumptions:      parsed.assumptions      ?? [],
               occupancySummary: parsed.occupancySummary ?? null,
               reviewCandidates: parsed.reviewCandidates ?? [],
-              analysisStatus:  log.analysis_status   ?? 'success',
+              analysisStatus:   log.analysis_status    ?? 'success',
+              // Metadata for summary cards
+              model:            log.model_used          ?? null,
+              logId:            log.id,
+              inputTokens:      log.input_tokens        ?? null,
+              outputTokens:     log.output_tokens       ?? null,
+              creditsDeducted:  log.credits_deducted    ?? null,
+              stage1RoomCount:  parsed.rooms
+                ? (parsed.rooms.supply?.length ?? 0) + (parsed.rooms.extract?.length ?? 0) +
+                  (parsed.rooms.transfer?.length ?? 0) + (parsed.rooms.ignore?.length ?? 0)
+                : null,
+              recoveryMode:     parsed.recoveryMode     ?? false,
             };
           })
           .filter(Boolean)

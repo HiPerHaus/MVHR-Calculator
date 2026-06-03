@@ -561,6 +561,14 @@ function postProcessRooms(rooms, warnings) {
     else if (EXTRACT_LABEL_PATTERNS.some(p => p.test(name))) {
       room.ventilationClassification = 'extract';
       if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
+      // Pantry / scullery / butler's pantry: extract is correct but not always mandatory.
+      // Set optionalExtract so the sizing engine can treat it as transfer if system balance allows.
+      if (/\bpantry\b/i.test(name) || /\bscullery\b/i.test(name) || /\bbutler/i.test(name)) {
+        room.optionalExtract = true;
+        if (!room.classificationReason) {
+          room.classificationReason = 'Pantry — extract (odour/moisture load). optionalExtract flagged; may be treated as transfer depending on system balance.';
+        }
+      }
       out.push(room);
       matched = true;
     }
@@ -667,7 +675,9 @@ EXTRACT — moisture or odour-producing rooms:
   Kitchen  Butler's Pantry  Walk-in Pantry  Scullery  Bathroom  Ensuite  Powder Room
   WC  Toilet  Laundry  Mudroom (with laundry)  Utility Room (with wet fixtures)
   Gym (always extract — elevated moisture, CO₂ and odour load)
-  Pantry/Scullery/Butler's Pantry — always extract even without visible sink
+  Pantry/Scullery/Butler's Pantry — classify as extract with optionalExtract true.
+  A standalone Pantry without a visible sink may be extract (odour load) or transfer depending
+  on system balance requirements — set optionalExtract true so the sizing engine can decide.
 
 TRANSFER — circulation spaces:
   Hallway  Corridor  Passage  Entry  Foyer  Stairwell  Landing

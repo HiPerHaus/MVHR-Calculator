@@ -458,8 +458,8 @@ details summary:hover { background: var(--primary-light); }
     </div>
     <div class="table-total" id="extractTotal"></div>
 
-    <!-- Transfer & Ignore Rooms -->
-    <div class="section-label" style="margin-top:20px">Transfer &amp; Ignore Rooms</div>
+    <!-- Transfer Rooms -->
+    <div class="section-label" style="margin-top:20px">Transfer Spaces</div>
     <div style="overflow-x:auto">
       <table class="data-table" id="otherTable">
         <thead>
@@ -481,6 +481,28 @@ details summary:hover { background: var(--primary-light); }
       </table>
     </div>
     <div class="table-total" id="otherTotal"></div>
+
+    <!-- Ignored spaces — collapsed -->
+    <div id="ignoreSection" style="display:none;margin-top:16px">
+      <details>
+        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;padding:6px 0">
+          Ignored external &amp; service spaces
+        </summary>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Room Name</th><th>Label Seen</th><th>Room Type</th>
+                <th>Classification</th><th>Fixtures</th><th>Beds</th>
+                <th>Optional</th><th>Reason</th><th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="ignoreBody"></tbody>
+          </table>
+        </div>
+        <div class="table-total" id="ignoreTotal" style="color:var(--muted)"></div>
+      </details>
+    </div>
   </div>
 
   <!-- ── Section 5: Raw JSON ── -->
@@ -850,6 +872,14 @@ async function pollJobStatus() {
           if (r.occupancySummary) occupancySummary = r.occupancySummary;
           pageResults.push({ floorName: r.floorName, data: r });
         }
+        // Aggregate per-floor metadata for the summary cards.
+        // Token counts and model are summed/taken from the first floor result.
+        const firstFloor = data.analysisResults[0] ?? {};
+        const totalInputTokens  = data.analysisResults.reduce((s, r) => s + (r.inputTokens  ?? 0), 0);
+        const totalOutputTokens = data.analysisResults.reduce((s, r) => s + (r.outputTokens ?? 0), 0);
+        const totalCredits      = data.analysisResults.reduce((s, r) => s + (r.creditsDeducted ?? 0), 0);
+        const allStage1         = data.analysisResults.reduce((s, r) => s + (r.stage1RoomCount ?? 0), 0);
+
         const merged = {
           analysisStatus: 'success',
           rooms: allRooms,
@@ -858,6 +888,17 @@ async function pollJobStatus() {
           occupancySummary,
           reviewCandidates: allReviewCandidates,
           _pageResults: pageResults,
+          // Summary card fields — promoted from per-floor data
+          model:           firstFloor.model           ?? null,
+          logId:           firstFloor.logId           ?? null,
+          creditsDeducted: totalCredits  > 0 ? totalCredits  : null,
+          inputTokens:     totalInputTokens  > 0 ? totalInputTokens  : null,
+          outputTokens:    totalOutputTokens > 0 ? totalOutputTokens : null,
+          stage1RoomCount: allStage1   > 0 ? allStage1   : null,
+          stage2RoomCount: data.analysisResults.some(r => r.stage2RoomCount != null)
+            ? data.analysisResults.reduce((s, r) => s + (r.stage2RoomCount ?? 0), 0)
+            : null,
+          recoveryMode: data.analysisResults.some(r => r.recoveryMode),
         };
         _lastResult = merged;
         setStatus('success', `Complete — ${data.analysisResults.length} floor(s) analysed`);
@@ -1203,14 +1244,32 @@ function renderResults(data) {
   const extractRooms  = data.rooms?.extract  || [];
   const transferRooms = data.rooms?.transfer || [];
   const ignoreRooms   = data.rooms?.ignore   || [];
-  const otherRooms    = [...transferRooms, ...ignoreRooms];
 
-  document.getElementById('supplyBody').innerHTML  = renderRoomRows(supplyRooms)  || emptyRow();
-  document.getElementById('extractBody').innerHTML = renderRoomRows(extractRooms) || emptyRow();
-  document.getElementById('otherBody').innerHTML   = renderRoomRows(otherRooms)   || emptyRow();
+  // Outdoor / service spaces (Porch, Verandah, Carport, Garage etc.) are ignored from
+  // ventilation. Show supply, extract, transfer in main table; collapse ignore separately.
+  const OUTDOOR_TYPES = new Set(['Garage','Porch','Carport','Alfresco','Store','Other']);
+  const outdoorIgnore  = ignoreRooms.filter(r => OUTDOOR_TYPES.has(r.roomType) ||
+    /\b(porch|verandah|veranda|carport|alfresco|garage|outdoor|external|court)\b/i.test(r.name));
+  const serviceIgnore  = ignoreRooms.filter(r => !outdoorIgnore.includes(r));
+
+  document.getElementById('supplyBody').innerHTML   = renderRoomRows(supplyRooms)   || emptyRow();
+  document.getElementById('extractBody').innerHTML  = renderRoomRows(extractRooms)  || emptyRow();
+  document.getElementById('otherBody').innerHTML    = renderRoomRows(transferRooms) || emptyRow();
   document.getElementById('supplyTotal').textContent  = `Total: ${supplyRooms.length} supply room${supplyRooms.length !== 1 ? 's' : ''}`;
   document.getElementById('extractTotal').textContent = `Total: ${extractRooms.length} extract room${extractRooms.length !== 1 ? 's' : ''}`;
-  document.getElementById('otherTotal').textContent   = `Total: ${otherRooms.length} transfer/ignore room${otherRooms.length !== 1 ? 's' : ''}`;
+  document.getElementById('otherTotal').textContent   = `Total: ${transferRooms.length} transfer space${transferRooms.length !== 1 ? 's' : ''}`;
+
+  // Ignored spaces — collapsed details block
+  const ignoreSection = document.getElementById('ignoreSection');
+  if (ignoreRooms.length) {
+    document.getElementById('ignoreBody').innerHTML = renderRoomRows(ignoreRooms) || emptyRow();
+    document.getElementById('ignoreTotal').textContent =
+      `${ignoreRooms.length} ignored space${ignoreRooms.length !== 1 ? 's' : ''} (external / service — no MVHR terminal)`;
+    ignoreSection.style.display = '';
+  } else {
+    ignoreSection.style.display = 'none';
+  }
+
   document.getElementById('roomsCard').style.display = '';
 
   // Raw JSON
