@@ -547,14 +547,41 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Mark complete ──────────────────────────────────────────────────────
+    // ── Mark complete only if at least one selected page analysed successfully ─
     const completedAt = new Date().toISOString();
+
+    if (pageUpdates.length === 0 || successCount === 0) {
+      const reason = pageUpdates.length === 0
+        ? 'No habitable floor plan pages selected for analysis'
+        : 'No selected pages analysed successfully';
+
+      await supabase
+        .from('pdf_uploads')
+        .update({
+          status: 'error',
+          analysed_page_count: successCount,
+          error_detail: reason,
+          completed_at: completedAt,
+        })
+        .eq('id', uploadId);
+
+      return res.status(200).json({
+        jobId,
+        uploadId,
+        status: 'error',
+        selectedPages: pageUpdates.length,
+        successCount,
+        error: reason,
+      });
+    }
+
     await supabase
       .from('pdf_uploads')
       .update({
-        status:               'complete',
-        analysed_page_count:  successCount,
-        completed_at:         completedAt,
+        status:              'complete',
+        analysed_page_count: successCount,
+        error_detail:        null,
+        completed_at:        completedAt,
       })
       .eq('id', uploadId);
 
