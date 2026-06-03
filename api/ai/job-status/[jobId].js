@@ -50,7 +50,10 @@ export default async function handler(req, res) {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  const internalSecret = req.headers['x-internal-secret'];
+  const isInternal = process.env.INTERNAL_API_SECRET && internalSecret === process.env.INTERNAL_API_SECRET;
+
+  if (!token && !isInternal) return res.status(401).json({ error: 'Unauthorized' });
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
   if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
