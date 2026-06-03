@@ -290,25 +290,60 @@ function escapeHtml(str) {
 
 function isHabitableAnalysisPage(page) {
   // The classifier has already made the binary floor_plan decision.
-  // Trust it — don't second-guess with keyword matching on reason text,
-  // which varies by classifier version and will produce false negatives.
+  // Trust it, but apply a secondary rejection pass as a safety net for
+  // classifier false positives (e.g. Internal Elevations tagged as floor_plan).
   if (page.page_type !== 'floor_plan') return false;
 
-  // Reject structural/construction pages that occasionally get tagged floor_plan
-  // by the classifier but are clearly not habitable space layouts.
   const reason = [
     page.classification_reason,
     page.sheet_title,
     page.floor_name,
+    page.floor_plan_type,
+    page.detected_floor,
   ].filter(Boolean).join(' ').toLowerCase();
 
-  const rejectTerms = [
-    'slab', 'framing', 'structural', 'wall framing', 'wall layout',
-    'roof layout', 'footing', 'bracing', 'tiedown', 'tie-down',
-    'deck joist', 'floor joist', 'suspended slab', 'ramp slab',
+  // ── Hard reject: elevation / section / detail sheets ─────────────────────
+  // These draw vertical wall views or cut-through sections, not horizontal room layouts.
+  // Internal Elevations sheets often contain room names as headings (Ensuite, WC, Laundry)
+  // which confuse the binary classifier into marking them as floor_plan. Reject here.
+  const ELEVATION_SECTION_TERMS = [
+    'internal elevation',
+    'internal elevations',
+    'elevation',      // "south elevation", "kitchen elevation"
+    'elevations',
+    'section',        // "section aa", "building section"
+    'detail',         // "detail sheet", "construction detail"
+    'construction detail',
+    'roof plan',
+    'reflected ceiling',
+    'ceiling plan',
+    'services plan',
+    'electrical plan',
+    'hydraulic plan',
+    'structural plan',
+    'framing plan',
+    'bracing plan',
   ];
 
-  return !rejectTerms.some(term => reason.includes(term));
+  if (ELEVATION_SECTION_TERMS.some(term => reason.includes(term))) {
+    console.log(JSON.stringify({
+      event:      'auto-analyse:page-rejected-secondary-filter',
+      pageNumber: page.page_number,
+      reason:     reason.slice(0, 200),
+    }));
+    return false;
+  }
+
+  // ── Hard reject: structural / construction sheets ─────────────────────────
+  const STRUCTURAL_TERMS = [
+    'slab plan', 'slab layout', 'suspended slab', 'ramp slab',
+    'wall framing', 'floor joist', 'deck joist', 'footing',
+    'bracing', 'tiedown', 'tie-down', 'setout plan',
+  ];
+
+  if (STRUCTURAL_TERMS.some(term => reason.includes(term))) return false;
+
+  return true;
 }
 
 export default async function handler(req, res) {

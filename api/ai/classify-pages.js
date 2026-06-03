@@ -83,45 +83,60 @@ Examples of INVALID pages:
 * Energy Reports
 Strong indicators of a valid MVHR floor plan:
 
-* Room names such as:
-   * Bedroom
-   * Bed 1
-   * Bed 2
-   * Living
-   * Lounge
-   * Kitchen
-   * Dining
-   * Pantry
-   * Laundry
-   * Bathroom
-   * Ensuite
-   * WC
-   * WIR
-   * Study
-   * Office
-   * Entry
-   * Hallway
-   * Store
-   * Media
-   * Rumpus
-Strong indicators of an invalid page:
+* Top-down (bird's-eye) view of the building interior
+* Room boundaries drawn as horizontal plan walls
+* Door symbols shown as arcs swinging from a hinge point
+* North arrow or compass rose
+* Room names INSIDE room boundaries (not as titles above a drawing):
+   * Bedroom / Bed 1 / Bed 2 / Master
+   * Living / Lounge / Family / Dining / Meals
+   * Kitchen / Pantry / Scullery
+   * Bathroom / Bath / Ensuite
+   * WC / Laundry
+   * WIR / Store / Entry / Hallway
+   * Study / Office / Rumpus / Media
 
-* Large contour maps
-* Property boundaries
-* Setbacks
-* Site dimensions
-* Roof slopes
-* Electrical symbols
-* Ceiling symbols
-* Elevation markers
-* Construction details
-* Structural notes
-IMPORTANT:
-A building footprint shown on a Site Plan is NOT a floor plan.
-A slab outline shown on a Slab Plan is NOT a floor plan.
+CRITICAL DISTINCTION — Room names vs. Elevation headings:
+A floor plan shows room names INSIDE the room boundaries on a top-down view.
+An Internal Elevations sheet shows room names as HEADINGS above elevation drawings.
+
+Internal Elevations sheets look like this:
+  "ENSUITE ELEVATION"    — heading above a wall drawing showing tiles, shower, mirror
+  "WC ELEVATION"         — heading above a wall drawing showing toilet, cistern, basin
+  "LAUNDRY ELEVATION"    — heading above a wall drawing showing joinery, appliances
+  "KITCHEN ELEVATION A"  — heading above a cabinet/bench drawing
+These sheets contain room names but are NOT floor plans.
+The primary content is vertical wall views, not horizontal room layouts.
+
+How to tell the difference:
+  Floor plan      → walls form enclosed room shapes viewed from above; doors shown as arcs
+  Internal Elev.  → single wall faces shown flat-on; cabinets shown in front-elevation;
+                    multiple drawings tiled across the page; heights/vertical dimensions visible
+  Building Elev.  → external facade view; no internal rooms visible; floor level markers
+  Section         → vertical cut through building; ceiling heights; floor-to-floor dimensions
+
+Strong indicators of an INVALID page:
+
+* Title contains "Elevation", "Elevations", "Internal Elevation", "Elev" — REJECT
+* Title contains "Section", "Detail", "Construction" — REJECT
+* Title contains "Roof Plan", "Site Plan", "Slab", "Electrical", "Services" — REJECT
+* Multiple tiled wall-face drawings on one sheet — REJECT (Internal Elevations)
+* Drawings showing cabinet fronts, tile patterns, or wall faces in portrait orientation — REJECT
+* Large contour maps, property boundaries, setbacks — REJECT
+* Ceiling grid or lighting layout — REJECT (Reflected Ceiling Plan)
+* Structural grid, steel members, bracing — REJECT
+
+IMPORTANT RULES:
+A sheet titled "Internal Elevations" is NEVER a floor plan even if it shows room names.
+A sheet titled "Elevations" is NEVER a floor plan even if it shows room shapes.
+A sheet titled "Section" is NEVER a floor plan.
+A detail sheet with a small reference floor plan in a corner is NOT a floor plan — reject it.
+The PRIMARY purpose of the sheet determines its classification, not incidental reference drawings.
+A building footprint on a Site Plan is NOT a floor plan.
+A slab outline on a Slab Plan is NOT a floor plan.
 A reflected ceiling plan is NOT a floor plan.
-An electrical layout is NOT a floor plan.
-Only select pages where internal rooms can actually be analysed for MVHR supply and extract requirements.
+Only select pages where room layouts are visible from above and rooms can be analysed for MVHR.
+
 For each page return:
 { "pageNumber": number, "isFloorPlan": true|false, "confidence": 0.0-1.0, "reason": "short explanation" }
 After evaluating all pages return a summary object:
