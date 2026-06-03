@@ -308,8 +308,12 @@ details summary:hover { background: var(--primary-light); }
     <div class="card-title">Analysis Summary</div>
     <div class="summary-grid">
       <div class="summary-item">
-        <div class="summary-label">Model Used</div>
+        <div class="summary-label">Primary Model</div>
         <div class="summary-value mono" id="sumModel">—</div>
+      </div>
+      <div class="summary-item" id="sumRecoveryModelItem" style="display:none">
+        <div class="summary-label">Recovery Model</div>
+        <div class="summary-value mono" id="sumRecoveryModel">—</div>
       </div>
       <div class="summary-item">
         <div class="summary-label">Credits Deducted</div>
@@ -365,7 +369,7 @@ details summary:hover { background: var(--primary-light); }
 
     <!-- Recovery mode notice — shown when recoveryMode=true -->
     <div id="recoveryNotice" style="display:none;margin-top:14px;padding:10px 14px;background:var(--amber-bg);border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:var(--amber)">
-      🔄 <strong>Stage 2 recovery used.</strong> Stage 1 returned no rooms; a focused recovery pass extracted the room schedule. Review classifications and airflow values before use.
+      🔄 <strong>Stage 2 recovery used.</strong> <span id="recoveryTriggerReason">Stage 1 returned insufficient rooms; a focused recovery pass was run.</span> Review classifications and airflow values before use.
     </div>
 
     <!-- Log error (shown only when logError is non-null) -->
@@ -1129,7 +1133,20 @@ function renderResults(data) {
   // Summary
   const failed = data.analysisStatus === 'failed';
 
-  document.getElementById('sumModel').textContent        = data.model || '—';
+  // Primary model = EXTRACTION_MODEL (Sonnet); Recovery model = RECOVERY_MODEL (Opus) if used
+  const primaryModel = data._pageResults?.[0]?.data?.stage1Model ?? data.model ?? '—';
+  const recoveryModel = data._pageResults?.[0]?.data?.stage2Model ?? null;
+  const escalationReason = data._pageResults?.[0]?.data?.escalationReason ?? null;
+
+  document.getElementById('sumModel').textContent        = primaryModel;
+
+  const recoveryModelItem = document.getElementById('sumRecoveryModelItem');
+  if (data.recoveryMode && recoveryModel) {
+    document.getElementById('sumRecoveryModel').textContent = recoveryModel;
+    recoveryModelItem.style.display = '';
+  } else {
+    recoveryModelItem.style.display = 'none';
+  }
   document.getElementById('sumCredits').textContent      = data.creditsDeducted != null ? data.creditsDeducted : '—';
   document.getElementById('sumInputTokens').textContent  = data.inputTokens != null ? data.inputTokens.toLocaleString() : '—';
   document.getElementById('sumOutputTokens').textContent = data.outputTokens != null ? data.outputTokens.toLocaleString() : '—';
@@ -1165,7 +1182,13 @@ function renderResults(data) {
   }
 
   // Recovery notice (success via Stage 2 only)
-  document.getElementById('recoveryNotice').style.display = (!failed && data.recoveryMode) ? '' : 'none';
+  if (!failed && data.recoveryMode) {
+    document.getElementById('recoveryTriggerReason').textContent =
+      escalationReason ?? 'Stage 1 returned insufficient rooms; a focused recovery pass was run.';
+    document.getElementById('recoveryNotice').style.display = '';
+  } else {
+    document.getElementById('recoveryNotice').style.display = 'none';
+  }
 
   // Failure card
   const failureCard = document.getElementById('failureCard');
@@ -1411,11 +1434,12 @@ function clearAll() {
 }
 
 function resetResults() {
-  document.getElementById('summaryCard').style.display    = 'none';
-  document.getElementById('failureCard').style.display    = 'none';
-  document.getElementById('roomsCard').style.display      = 'none';
-  document.getElementById('rawCard').style.display        = 'none';
-  document.getElementById('recoveryNotice').style.display = 'none';
+  document.getElementById('summaryCard').style.display        = 'none';
+  document.getElementById('failureCard').style.display        = 'none';
+  document.getElementById('roomsCard').style.display          = 'none';
+  document.getElementById('rawCard').style.display            = 'none';
+  document.getElementById('recoveryNotice').style.display     = 'none';
+  document.getElementById('sumRecoveryModelItem').style.display = 'none';
 }
 
 function showError(msg) {

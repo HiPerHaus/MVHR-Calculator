@@ -75,8 +75,19 @@ const supabase = createClient(
 // ── Rate limiting — 10 AI calls per minute per instance ──────
 const limiter = rateLimit({ windowMs: 60_000, max: 10 });
 
-// ── Constants ────────────────────────────────────────────────
-const MODEL = 'claude-opus-4-5';
+// ── Model strategy ───────────────────────────────────────────
+// Stage 1 (extraction):  Sonnet — fast, cheap, handles most plans correctly.
+// Stage 2 (recovery):    Opus   — only when Sonnet fails escalation checks.
+// Classification:        Haiku  — see classify-pages.js.
+//
+// Escalation triggers (Sonnet → Opus):
+//   1. JSON parse failure after retry
+//   2. Zero rooms returned after postProcessRooms
+//   3. Room count below MINIMUM_ROOM_COUNT (likely missed rooms, not a sparse plan)
+//   4. forceOpus flag set by caller (manual high-accuracy mode)
+const EXTRACTION_MODEL  = 'claude-sonnet-4-6';
+const RECOVERY_MODEL    = 'claude-opus-4-5';
+const MINIMUM_ROOM_COUNT = 3;   // plans with fewer rooms after Stage 1 trigger Opus recovery
 
 // Valid room types (must match frontend PHPP_SUPPLY_DEFAULTS / PHPP_EXTRACT_DEFAULTS)
 const SUPPLY_TYPES   = new Set(['Single Bedroom','Double Bedroom','Master Bedroom','Study / Office','Living Room','Dining Room','Rumpus Room','Other']);
@@ -1541,7 +1552,7 @@ export default async function handler(req, res) {
   let claudeResponse;
   try {
     claudeResponse = await anthropic.messages.create({
-      model:      MODEL,
+      model:      EXTRACTION_MODEL,
       max_tokens: 4096,
       system:     SYSTEM_PROMPT,
       messages: [
@@ -1569,7 +1580,7 @@ export default async function handler(req, res) {
       user_id:      user.id,
       floor_index:  floorIndex,
       credits_deducted: 0,
-      model_used:   MODEL,
+      model_used:   EXTRACTION_MODEL,
       status:       'error',
       error_detail: e.message,
     });
@@ -1605,7 +1616,7 @@ export default async function handler(req, res) {
     console.log('analyse-plan: retrying Stage 1 with JSON-only prompt');
     try {
       const retryResponse = await anthropic.messages.create({
-        model:      MODEL,
+        model:      EXTRACTION_MODEL,
         max_tokens: 4096,
         system:     SYSTEM_PROMPT,
         messages: [
@@ -1641,7 +1652,7 @@ export default async function handler(req, res) {
       user_id:      user.id,
       floor_index:  floorIndex,
       credits_deducted: 0,
-      model_used:   MODEL,
+      model_used:   EXTRACTION_MODEL,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       raw_response: rawText,
@@ -1705,10 +1716,21 @@ export default async function handler(req, res) {
   let finalExtract  = stage1Cleaned.filter(r => r.ventilationClassification === 'extract');
   let finalTransfer = stage1Cleaned.filter(r => r.ventilationClassification === 'transfer');
   let finalIgnore   = stage1Cleaned.filter(r => r.ventilationClassification === 'ignore');
-  let recoveryMode  = false;
-  let stage2RoomCount = null; // null when Stage 2 was not invoked
-  // 'success' | 'failed'
-  let analysisStatus = stage1RoomCount > 0 ? 'success' : null; // resolved below
+  let recoveryMode     = false;
+  let stage2RoomCount  = null;   // null when Stage 2 was not invoked
+  let modelUsed        = EXTRACTION_MODEL;
+  let escalationReason = null;   // set when Sonnet → Opus escalation fires
+  // 'success' | 'failed' | null (null triggers Stage 2)
+  let analysisStatus = stage1RoomCount > 0 ? 'success' : null;
+
+  // ── Escalation check: did Stage 1 (Sonnet) produce usable results? ───────
+  // Even if Stage 1 returned rooms, escalate to Opus if the count is suspiciously
+  // low for a plan that was classified as a floor plan (likely missed rooms).
+  if (analysisStatus === 'success' && stage1RoomCount < MINIMUM_ROOM_COUNT) {
+    escalationReason = `Stage 1 (${EXTRACTION_MODEL}) returned only ${stage1RoomCount} room(s) — below minimum threshold of ${MINIMUM_ROOM_COUNT}. Escalating to ${RECOVERY_MODEL}.`;
+    console.log(JSON.stringify({ event: 'analyse-plan:escalation', reason: escalationReason }));
+    analysisStatus = null;  // force Stage 2
+  }
 
   // ── Stage 3: targeted fixture re-inspection for flagged rooms ─
   // Runs after Stage 1 (or Stage 2) when any room has requiresManualReview = true.
@@ -1807,15 +1829,18 @@ If still uncertain:
     }
   }
 
-  // ── Stage 2: recovery pass when Stage 1 returns no rooms ─────
+  // ── Stage 2: Opus recovery when Stage 1 (Sonnet) fails escalation ──────
   if (analysisStatus === null) {
-    console.log('analyse-plan: Stage 1 returned empty rooms — attempting Stage 2 recovery');
+    if (!escalationReason) {
+      escalationReason = `Stage 1 (${EXTRACTION_MODEL}) returned 0 rooms. Escalating to ${RECOVERY_MODEL}.`;
+    }
+    console.log(JSON.stringify({ event: 'analyse-plan:stage2-recovery', reason: escalationReason, model: RECOVERY_MODEL }));
 
     let stage2Rooms = [];
     try {
       const stage2Response = await anthropic.messages.create({
-        model:      MODEL,
-        max_tokens: 2048,
+        model:      RECOVERY_MODEL,
+        max_tokens: 4096,
         system:     ROOM_RECOVERY_PROMPT,
         messages: [
           {
@@ -1849,12 +1874,13 @@ If still uncertain:
 
     if (stage2Rooms.length > 0) {
       recoveryMode   = true;
+      modelUsed      = RECOVERY_MODEL;
       analysisStatus = 'success';
       finalSupply    = stage2Rooms.filter(r => r.ventilationClassification === 'supply');
       finalExtract   = stage2Rooms.filter(r => r.ventilationClassification === 'extract');
       finalTransfer  = stage2Rooms.filter(r => r.ventilationClassification === 'transfer');
       finalIgnore    = stage2Rooms.filter(r => r.ventilationClassification === 'ignore');
-      warnings.push('Room schedule extracted via Stage 2 recovery pass — review classifications and airflow values before use.');
+      warnings.push(`Room schedule extracted via ${RECOVERY_MODEL} recovery pass — review classifications and airflow values before use.`);
     } else {
       analysisStatus = 'failed';
     }
@@ -1921,7 +1947,7 @@ If still uncertain:
         user_id:           user.id,
         floor_index:       floorIndex,
         credits_deducted:  0,
-        model_used:        MODEL,
+        model_used:        modelUsed,
         input_tokens:      totalInputTokens,
         output_tokens:     totalOutputTokens,
         raw_response:      rawText,
@@ -2000,6 +2026,11 @@ If still uncertain:
     analysisStatus: 'success',
     recoveryMode,
     occupancySummary,
+    // Model metadata — stored so job-status can surface them in the admin UI
+    modelUsed,
+    stage1Model:        EXTRACTION_MODEL,
+    stage2Model:        recoveryMode ? RECOVERY_MODEL : null,
+    escalationReason:   escalationReason ?? null,
   };
 
   // ── Deduct credits only on success ──────────────────────────
@@ -2039,7 +2070,7 @@ If still uncertain:
       user_id:           user.id,
       floor_index:       floorIndex,
       credits_deducted:  deductErr ? 0 : creditCost,
-      model_used:        MODEL,
+      model_used:        modelUsed,
       input_tokens:      totalInputTokens,
       output_tokens:     totalOutputTokens,
       raw_response:      rawText,
