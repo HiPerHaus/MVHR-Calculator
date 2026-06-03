@@ -477,6 +477,20 @@ export default async function handler(req, res) {
       await supabase.from('pdf_pages').update({ user_selected: false }).in('id', unselectedIds);
     }
 
+    console.log(JSON.stringify({
+      event: 'auto-analyse:selected-pages',
+      uploadId,
+      jobId,
+      selectedCount: selectedPages.length,
+      selectedPages: selectedPages.map(p => ({
+        page: p.page_number,
+        type: p.page_type,
+        reason: p.classification_reason,
+        title: p.sheet_title,
+        floorName: p.floor_name,
+      })),
+    }));
+
     // ── Run analyse-plan for each selected page ────────────────────────────
     const analysisResults = [];
     let successCount = 0;
