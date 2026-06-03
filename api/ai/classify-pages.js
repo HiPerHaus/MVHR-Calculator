@@ -40,35 +40,101 @@ function validateInternalToken(req) {
 }
 
 // ── Classification system prompt ───────────────────────────────────────────
-const CLASSIFICATION_SYSTEM = `You are an expert architectural document classifier.
-You will receive one or more images from an architectural plan set.
-For EACH image, determine the page type and return a JSON classification.
+const CLASSIFICATION_SYSTEM = `You are an architectural drawing classifier for an MVHR design platform.
+Your task is NOT to analyse rooms.
+Your task is ONLY to identify which pages in a drawing set contain usable architectural floor plans suitable for MVHR room extraction.
+A usable floor plan must show:
 
-PAGE TYPES:
-- floor_plan       Horizontal cut showing rooms, walls, doors, windows, internal room labels
-- site_plan        Site boundary, building footprint, north arrow, setbacks, survey information
-- elevation        External facade view — height dimensions, floor level markers, cladding materials visible
-- section          Vertical cross-section through the building — ceiling heights, floor-to-floor dimensions
-- roof_plan        Roof geometry viewed from above — ridge lines, eaves, slope annotations
-- detail           Enlarged construction node or junction — door head, window sill, wall connection
-- schedule         Tabular data — door schedule, window schedule, room finish schedule
-- specification    Written specification, notes sheet, or legend page
-- unknown          Cannot be confidently classified
+* Internal room layouts
+* Room names or room boundaries
+* Internal walls and doors
+* The actual habitable spaces within the building
+Examples of VALID MVHR floor plans:
 
-STRONG FLOOR PLAN INDICATORS (confidence ≥ 0.85):
-- Room name labels visible inside rooms (BEDROOM, KITCHEN, LIVING, BATHROOM, etc.)
-- Internal walls forming a plan layout with door swing arcs
-- Window symbols on wall lines
-- Area or dimension annotations inside rooms
-- North arrow or compass rose
-- Room numbers or reference codes
+* Ground Floor Plan
+* First Floor Plan
+* Upper Floor Plan
+* Basement Plan
+* Mezzanine Plan
+* Architectural Floor Plan
+* Floor Plan with room labels
+* Floor Plan with dimensions
+Examples of INVALID pages:
 
-RESPONSE FORMAT:
-Return ONLY a JSON object — no markdown, no prose, no explanation.
-{"pages":[{"pageNumber":1,"pageType":"floor_plan","confidence":0.97,"reason":"one sentence"}]}
+* Site Plans
+* Survey Plans
+* Location Plans
+* Roof Plans
+* Reflected Ceiling Plans
+* Electrical Plans
+* Hydraulic Plans
+* Structural Plans
+* Framing Plans
+* Slab Plans
+* Setout Plans
+* Construction Sequence Plans
+* Door Schedules
+* Window Schedules
+* Elevations
+* Sections
+* Details
+* Specifications
+* Notes Sheets
+* Energy Reports
+Strong indicators of a valid MVHR floor plan:
 
-Be concise in 'reason' — one sentence maximum.
-If you cannot see the image clearly, return pageType: "unknown" with low confidence.`;
+* Room names such as:
+   * Bedroom
+   * Bed 1
+   * Bed 2
+   * Living
+   * Lounge
+   * Kitchen
+   * Dining
+   * Pantry
+   * Laundry
+   * Bathroom
+   * Ensuite
+   * WC
+   * WIR
+   * Study
+   * Office
+   * Entry
+   * Hallway
+   * Store
+   * Media
+   * Rumpus
+Strong indicators of an invalid page:
+
+* Large contour maps
+* Property boundaries
+* Setbacks
+* Site dimensions
+* Roof slopes
+* Electrical symbols
+* Ceiling symbols
+* Elevation markers
+* Construction details
+* Structural notes
+IMPORTANT:
+A building footprint shown on a Site Plan is NOT a floor plan.
+A slab outline shown on a Slab Plan is NOT a floor plan.
+A reflected ceiling plan is NOT a floor plan.
+An electrical layout is NOT a floor plan.
+Only select pages where internal rooms can actually be analysed for MVHR supply and extract requirements.
+For each page return:
+{ "pageNumber": number, "isFloorPlan": true|false, "confidence": 0.0-1.0, "reason": "short explanation" }
+After evaluating all pages return a summary object:
+{ "selectedPages": [page numbers], "rejectedPages": [page numbers], "summary": "why the selected pages were chosen" }
+
+Return ONLY valid JSON — no markdown, no prose, no explanation outside the JSON.`;
+
+// Map isFloorPlan result to internal pageType vocabulary.
+// The classifier now returns a binary decision; we preserve the full
+// taxonomy for non-floor-plan pages as 'unknown' (sufficient for MVHR).
+function isFloorPlanToPageType(isFloorPlan) {
+  return isFloorPlan === true ? 'floor_plan' : 'unknown';
+}
 
 // ── JSON extraction helpers ───────────────────────────────────────────────
 // Strip markdown fences and extract the first JSON object or array found.
@@ -114,7 +180,10 @@ function deriveBooleans(pageType) {
 // `page` must be the full fetched row (id, page_number, pdf_upload_id) so
 // the upsert never hits NOT NULL constraints on those columns.
 function buildUpdate(page, r, fallbackReason) {
-  const pageType = validatePageType(r?.pageType);
+  // Support both old {pageType} and new {isFloorPlan} response shapes.
+  const rawPageType = r?.pageType
+    ?? isFloorPlanToPageType(r?.isFloorPlan);
+  const pageType = validatePageType(rawPageType);
   return {
     id:                        page.id,
     pdf_upload_id:             page.pdf_upload_id,
@@ -149,7 +218,7 @@ async function classifyOnePage(page, signedUrl) {
       role:    'user',
       content: [
         { type: 'image', source: { type: 'url', url: signedUrl } },
-        { type: 'text',  text: 'Classify this image. Return JSON only — no prose, no markdown.\n{"pages":[{"pageNumber":1,"pageType":"...","confidence":0.0,"reason":"..."}]}' },
+        { type: 'text',  text: 'Evaluate this image. Return JSON only — no prose, no markdown.\n{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.0,"reason":"..."}],"selectedPages":[1],"rejectedPages":[],"summary":"..."}' },
       ],
     }],
   });
@@ -180,11 +249,11 @@ async function classifyBatch(batchPages, urlMap) {
         {
           type: 'text',
           text: [
-            `Classify each of the ${imageBlocks.length} images above.`,
+            `Evaluate each of the ${imageBlocks.length} images above for MVHR floor plan suitability.`,
             pageListText,
             '',
             'Return ONLY JSON — no markdown, no prose.',
-            '{"pages":[{"pageNumber":N,"pageType":"...","confidence":0.0,"reason":"..."}]}',
+            '{"pages":[{"pageNumber":N,"isFloorPlan":true|false,"confidence":0.0,"reason":"..."}],"selectedPages":[...],"rejectedPages":[...],"summary":"..."}',
           ].join('\n'),
         },
       ],
@@ -508,7 +577,7 @@ export default async function handler(req, res) {
 // ── Validation ─────────────────────────────────────────────────────────────
 const VALID_PAGE_TYPES = new Set([
   'floor_plan', 'site_plan', 'elevation', 'section',
-  'roof_plan', 'detail', 'schedule', 'specification', 'unknown',
+  'roof_plan', 'detail', 'schedule', 'specification', 'unknown', 'unclassified',
 ]);
 
 function validatePageType(raw) {
