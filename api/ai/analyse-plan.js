@@ -1647,23 +1647,15 @@ export default async function handler(req, res) {
   }
 
   if (!parsed) {
-    await supabase.from('plan_analysis_log').insert({
-      ...(isUuid(projectId) ? { project_id: projectId } : {}),
-      user_id:      user.id,
-      floor_index:  floorIndex,
-      credits_deducted: 0,
-      model_used:   EXTRACTION_MODEL,
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      raw_response: rawText,
-      status:       'error',
-      error_detail: `JSON parse failed after retry: ${parseError?.message}`,
-    });
-
-    return res.status(422).json({
-      error: `AI returned an unparseable response (parse stage: ${parseError?.message ?? 'unknown'}). No credits deducted.`,
-      rawSnippet: rawText.slice(0, 300),
-    });
+    // Stage 1 parse failed — do NOT return 422.
+    // Fall through with empty rooms so Stage 2 (Opus) recovery runs.
+    // The audit log insert will happen in the success/failure path below after Stage 2.
+    console.warn(JSON.stringify({
+      event:      'analyse-plan:stage1-parse-failed',
+      model:      EXTRACTION_MODEL,
+      parseError: parseError?.message ?? 'unknown',
+      rawSnippet: rawText.slice(0, 200),
+    }));
   }
 
   // ── Resolve rooms — new flat format: parsed.rooms[] with classification field.
@@ -1720,6 +1712,12 @@ export default async function handler(req, res) {
   let stage2RoomCount  = null;   // null when Stage 2 was not invoked
   let modelUsed        = EXTRACTION_MODEL;
   let escalationReason = null;   // set when Sonnet → Opus escalation fires
+
+  // If Stage 1 JSON parse failed entirely, force escalation with a specific reason.
+  if (!parsed) {
+    escalationReason = `Stage 1 JSON parse failed (${EXTRACTION_MODEL}): ${parseError?.message ?? 'unknown'}. Escalating to ${RECOVERY_MODEL}.`;
+  }
+
   // 'success' | 'failed' | null (null triggers Stage 2)
   let analysisStatus = stage1RoomCount > 0 ? 'success' : null;
 
@@ -1787,7 +1785,7 @@ If still uncertain:
 
     try {
       const stage3Response = await anthropic.messages.create({
-        model:      MODEL,
+        model:      EXTRACTION_MODEL,
         max_tokens: 1024,
         system:     stage3Prompt,
         messages: [{
@@ -1980,7 +1978,7 @@ If still uncertain:
       stage2RoomCount,
       warnings,
       assumptions,
-      model:            MODEL,
+      model:            modelUsed,
       inputTokens:     totalInputTokens,
       outputTokens:    totalOutputTokens,
       creditsDeducted: 0,
@@ -2108,7 +2106,7 @@ If still uncertain:
     reviewCandidates,
     warnings,
     assumptions,
-    model:                  MODEL,
+    model:                  modelUsed,
     inputTokens:            totalInputTokens,
     outputTokens:           totalOutputTokens,
     creditsDeducted:        deductErr ? 0 : creditCost,
