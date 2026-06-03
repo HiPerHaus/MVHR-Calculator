@@ -381,22 +381,26 @@ export default async function handler(req, res) {
       // ── If batch succeeded, extract results ────────────────────────────────
       if (batchResult) {
         const resultPages = batchResult?.pages ?? (Array.isArray(batchResult) ? batchResult : []);
-        const resultMap   = {};
-        for (const r of resultPages) {
-          if (r?.pageNumber != null) resultMap[r.pageNumber] = r;
-        }
 
-        for (const p of validBatch) {
-          const r = resultMap[p.page_number];
+        // IMPORTANT: never trust AI-returned pageNumber — the model numbers pages
+        // relative to the batch (1,2,3,4) not relative to the PDF (e.g. 9,10,11,12).
+        // Always map by array position: resultPages[idx] → validBatch[idx].
+        for (let idx = 0; idx < validBatch.length; idx++) {
+          const p = validBatch[idx];
+          const r = resultPages[idx];
+
           if (r) {
             updates.push(buildUpdate(p, r, null));
+            console.log(`[classify-pages] batch pos ${idx} → page ${p.page_number}: isFloorPlan=${r.isFloorPlan} confidence=${r.confidence}`);
           } else {
-            // Batch succeeded but this page was missing — classify individually.
-            console.warn(`[classify-pages] page ${p.page_number} missing from batch result — classifying individually`);
+            // Batch returned fewer results than pages sent — classify individually.
+            console.warn(`[classify-pages] page ${p.page_number} missing from batch result at position ${idx} — classifying individually`);
             try {
               const r2 = await classifyOnePage(p, urlMap[p.page_number]);
               updates.push(buildUpdate(p, r2, 'Individual fallback'));
+              console.log(`[classify-pages] individual fallback page ${p.page_number}: isFloorPlan=${r2?.isFloorPlan}`);
             } catch (indErr) {
+              console.error(`[classify-pages] individual fallback failed for page ${p.page_number}:`, indErr.message);
               updates.push(unclassifiedRecord(p, `Individual classification failed: ${indErr.message}`));
             }
           }
@@ -454,7 +458,9 @@ export default async function handler(req, res) {
       batchCount:           Math.ceil(pages.length / MAX_BATCH_SIZE),
     }));
 
-    const classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
+    // classifiedCount is set below from the DB integrity check result (actual DB state).
+    // This placeholder is overwritten after the integrity query completes.
+    let classifiedCount = updates.filter(u => u.page_type !== 'unclassified').length;
 
     // Use actual pdf_pages rows as source of truth.
     // Supabase JS v2: count option must be on select('*', { count, head }) — but to
@@ -491,6 +497,39 @@ export default async function handler(req, res) {
         classify_completed_at: classifyCompletedAt,
       })
       .eq('id', uploadId);
+
+    // ── Integrity check: verify every page has been written ──────────────
+    // Query the actual DB state after upsert — catches any silent upsert failures.
+    const { data: unclassifiedRows } = await supabase
+      .from('pdf_pages')
+      .select('id, page_number')
+      .eq('pdf_upload_id', uploadId)
+      .eq('page_type', 'unclassified');
+
+    const unclassifiedCount = unclassifiedRows?.length ?? 0;
+    const expectedClassified = renderedCount;
+    const actualClassified   = renderedCount - unclassifiedCount;
+
+    console.log(JSON.stringify({
+      event:               'classify-pages:integrity-check',
+      uploadId,
+      jobId,
+      renderedCount,
+      unclassifiedCount,
+      actualClassified,
+      expectedClassified,
+      pass:                unclassifiedCount === 0,
+      unclassifiedPages:   (unclassifiedRows ?? []).map(r => r.page_number),
+    }));
+
+    if (unclassifiedCount > 0) {
+      console.warn(`[classify-pages] Classification integrity check: ${unclassifiedCount} page(s) remain unclassified. Expected ${expectedClassified} classified, found ${actualClassified}.`);
+      // Non-fatal: log and continue — auto-analyse will skip non-floor-plan pages anyway.
+      // Fatal failure (all unclassified) is caught by classifiedCount === 0 gate below.
+    }
+
+    // Use the DB-verified count from this point forward.
+    classifiedCount = actualClassified;
 
     // ── Gate: only hand off to auto-analyse if pages actually exist ────────
     if (renderedCount === 0) {
