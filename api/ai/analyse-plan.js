@@ -1982,7 +1982,8 @@ If still uncertain:
   }
 
   const analysisJson = {
-    supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore,
+    // Rooms are nested under "rooms" so job-status can read parsed_rooms.rooms.supply etc.
+    rooms: { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },
     warnings,
     assumptions,
     reviewCandidates,

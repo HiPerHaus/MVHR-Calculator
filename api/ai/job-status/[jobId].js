@@ -219,7 +219,15 @@ export default async function handler(req, res) {
               logId:           log.id,
               floorIndex:      log.floor_index ?? page.floorIndex ?? 0,
               floorName:       page.floorName ?? `Floor ${log.floor_index ?? 0}`,
-              rooms:           parsed.rooms           ?? { supply: [], extract: [], transfer: [], ignore: [] },
+              // Support both storage formats:
+              // - new: parsed_rooms.rooms.supply (analysisJson stores rooms nested)
+              // - legacy: parsed_rooms.supply (flat top-level — old rows before this fix)
+              rooms:           parsed.rooms ?? {
+                supply:   parsed.supply   ?? [],
+                extract:  parsed.extract  ?? [],
+                transfer: parsed.transfer ?? [],
+                ignore:   parsed.ignore   ?? [],
+              },
               warnings:        parsed.warnings        ?? [],
               assumptions:     parsed.assumptions     ?? [],
               occupancySummary: parsed.occupancySummary ?? null,
