@@ -79,7 +79,10 @@ function selectFloorPlanPages(pages) {
   if (!selected.length) selected = floorPlans.filter(p => (p.classification_confidence ?? 0) >= FALLBACK_THRESHOLD);
   if (!selected.length) selected = floorPlans;
   if (!selected.length) selected = pages.filter(p => p.page_type === 'site_plan');
-  if (!selected.length) selected = pages.slice(0, 1);
+  // Never fall back to page 1 (or any unknown page) — return empty and let
+  // the caller set status='error' with a clear reason rather than wasting an
+  // analysis credit on a cover sheet or index page.
+  // (The old pages.slice(0, 1) fallback was the direct cause of page 1 being analysed.)
 
   // Deduplicate: if the same floor_level appears multiple times, keep highest confidence.
   const seen = new Map();
@@ -286,63 +289,26 @@ function escapeHtml(str) {
 // ── Handler ────────────────────────────────────────────────────────────────
 
 function isHabitableAnalysisPage(page) {
-  const text = [
-    page.page_type,
-    page.classification_reason,
-    page.sheet_title,
-    page.sheet_number,
-    page.floor_plan_type,
-    page.detected_floor,
-    page.floor_name,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
+  // The classifier has already made the binary floor_plan decision.
+  // Trust it — don't second-guess with keyword matching on reason text,
+  // which varies by classifier version and will produce false negatives.
   if (page.page_type !== 'floor_plan') return false;
 
+  // Reject structural/construction pages that occasionally get tagged floor_plan
+  // by the classifier but are clearly not habitable space layouts.
+  const reason = [
+    page.classification_reason,
+    page.sheet_title,
+    page.floor_name,
+  ].filter(Boolean).join(' ').toLowerCase();
+
   const rejectTerms = [
-    'garage floor plan',
-    'garage space',
-    'garage and ground floor layouts',
-    'slab',
-    'framing',
-    'structural',
-    'wall framing',
-    'wall layout',
-    'roof layout',
-    'footing',
-    'bracing',
-    'tiedown',
-    'tie-down',
-    'deck joist',
-    'floor joist',
-    'suspended slab',
-    'ramp slab',
+    'slab', 'framing', 'structural', 'wall framing', 'wall layout',
+    'roof layout', 'footing', 'bracing', 'tiedown', 'tie-down',
+    'deck joist', 'floor joist', 'suspended slab', 'ramp slab',
   ];
 
-  if (rejectTerms.some(term => text.includes(term))) return false;
-
-  const positiveTerms = [
-    'living',
-    'kitchen',
-    'bedroom',
-    'bedrooms',
-    'bath',
-    'ensuite',
-    'laundry',
-    'lounge',
-    'dining',
-    'entry',
-    'habitable',
-    'room labels',
-    'internal walls',
-    'doors',
-    'windows',
-    'area schedule',
-  ];
-
-  return positiveTerms.some(term => text.includes(term));
+  return !rejectTerms.some(term => reason.includes(term));
 }
 
 export default async function handler(req, res) {
