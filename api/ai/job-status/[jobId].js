@@ -50,18 +50,10 @@ export default async function handler(req, res) {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const token = req.headers.authorization?.replace('Bearer ', '');
-  const internalSecret = req.headers['x-internal-secret'];
-  const isInternal = process.env.INTERNAL_API_SECRET && internalSecret === process.env.INTERNAL_API_SECRET;
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
-  if (!token && !isInternal) return res.status(401).json({ error: 'Unauthorized' });
-
-  let user = null;
-
-  if (!isInternal) {
-    const { data: { user: authedUser }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !authedUser) return res.status(401).json({ error: 'Invalid token' });
-    user = authedUser;
-  }
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
 
   // ── Extract jobId from path ───────────────────────────────────────────────
   // Vercel dynamic routes: req.query.jobId
