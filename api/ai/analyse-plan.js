@@ -1926,6 +1926,16 @@ If still uncertain:
 
     if (logErr) console.error('plan_analysis_log insert error (failure):', logErr);
 
+    // ── Write analysis_log_id back to pdf_pages (failure path) ──────────────
+    // Must be awaited — Vercel freezes the function once the response is flushed.
+    if (pdfPageId && logRow?.id) {
+      const { error: pageUpdateErr } = await supabase
+        .from('pdf_pages')
+        .update({ analysis_log_id: logRow.id })
+        .eq('id', pdfPageId);
+      if (pageUpdateErr) console.error('analyse-plan: pdf_pages analysis_log_id writeback failed (failure path):', pageUpdateErr);
+    }
+
     return res.status(200).json({
       analysisStatus:   'failed',
       failureReason:    'room_extraction_failed',
@@ -2035,15 +2045,14 @@ If still uncertain:
 
   // ── Write analysis_log_id back to pdf_pages ──────────────────
   // Links this analysis run to the specific page that was analysed.
-  // Fire-and-forget: non-blocking, failure is logged only.
+  // Must be awaited — Vercel freezes the function once the response is flushed,
+  // so a fire-and-forget .then() will never execute.
   if (pdfPageId && logRow?.id) {
-    supabase
+    const { error: pageUpdateErr } = await supabase
       .from('pdf_pages')
       .update({ analysis_log_id: logRow.id })
-      .eq('id', pdfPageId)
-      .then(({ error: pageUpdateErr }) => {
-        if (pageUpdateErr) console.error('analyse-plan: pdf_pages analysis_log_id writeback failed:', pageUpdateErr);
-      });
+      .eq('id', pdfPageId);
+    if (pageUpdateErr) console.error('analyse-plan: pdf_pages analysis_log_id writeback failed:', pageUpdateErr);
   }
 
   // ── Return structured result ─────────────────────────────────
