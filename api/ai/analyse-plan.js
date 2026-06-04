@@ -221,8 +221,17 @@ function validateRoom(raw, floorIndex) {
   const requiresManualReview = raw.requiresManualReview === true;
 
   // bedSpaces / potentialBedSpaces: occupancy estimation (not ventilation classification).
-  const bedSpaces          = typeof raw.bedSpaces === 'number' && raw.bedSpaces >= 0
-    ? Math.round(raw.bedSpaces) : (spaceType === 'bedroom' ? 2 : 0);
+  // Fallback rule: Master Bedroom / Bedroom 1 → 2, all other bedrooms → 1, non-bedrooms → 0.
+  // This mirrors the prompt rule so the server always produces correct values even if the AI
+  // omits the field.
+  function bedroomFallbackSpaces(roomName, sType) {
+    if (sType !== 'bedroom') return 0;
+    const lname = (roomName || '').toLowerCase();
+    if (/master|bed(?:room)?\s*1\b|bed\s*1\b|primary|main\s*bed/.test(lname)) return 2;
+    return 1;
+  }
+  const bedSpaces = typeof raw.bedSpaces === 'number' && raw.bedSpaces >= 0
+    ? Math.round(raw.bedSpaces) : bedroomFallbackSpaces(name, spaceType);
   const potentialBedSpaces = typeof raw.potentialBedSpaces === 'number' && raw.potentialBedSpaces >= 0
     ? Math.round(raw.potentialBedSpaces) : 0;
 
@@ -661,7 +670,7 @@ Transfer = circulation spaces that allow air movement between supply and extract
 Ignore = non-habitable service spaces with no dedicated ventilation.
 
 ════ STEP 1: READ EVERY ROOM LABEL ════
-Scan the entire plan. List every labelled space. Use the exact text visible as "labelSeen".
+Scan the entire plan. List every labelled space. Use the room name as "name" (title case).
 Do NOT return empty rooms[]. If a label is unclear, use a generic name and set confidence 0.5.
 Omitting rooms is an error.
 
@@ -702,12 +711,7 @@ WALK-IN ROBES — classify as transfer. If ≥ 4 m² and attached to a bedroom, 
 STORES — classify as transfer + set optionalExtract true (balancing flexibility). Tiny stores < 2 m² = ignore.
 JOINERY (BIR/CPD/linen/cupboards) — these are NOT rooms. Do not list them as room entries.
 
-Set "roomType" to exactly one of:
-  Supply:   "Single Bedroom"  "Double Bedroom"  "Master Bedroom"  "Study / Office"
-            "Living Room"  "Dining Room"  "Rumpus Room"  "Other"
-  Extract:  "Kitchen"  "Bathroom"  "Ensuite"  "Laundry"  "WC"  "Pantry"  "Other"
-  Transfer: "Hallway"  "Entry"  "Corridor"  "Other"
-  Ignore:   "WIR"  "Garage"  "Porch"  "Carport"  "Alfresco"  "Store"  "Other"
+Set "name" to the room name as it would appear in a room schedule (title case).
 
 ════ HABITABLE ROOM KITCHENETTE RULE ════
 If a habitable room contains a sink AND cabinetry or a benchtop:
@@ -1146,39 +1150,39 @@ Examples:
 ════ BED SPACE DETECTION RULE ════
 This is NOT a ventilation classification task.
 This is an occupancy estimation task only.
-Estimate likely sleeping capacity conservatively. The user will always be able to override values.
+Estimate likely sleeping capacity conservatively for Australian residential MVHR design.
+Do NOT assume 2 occupants in every bedroom — this significantly overestimates airflow requirements.
 
 For every zone set "bedSpaces" and "potentialBedSpaces". Default both to 0.
 
 PERMANENT BED SPACES — bedSpaces:
-  Master Bedroom              → 2  (assume double unless clearly single-occupancy)
-  Double Bedroom / Bedroom    → 2  (Bedroom 2, Bedroom 3, Guest Bedroom, Bedroom)
-  Single / Child / Nursery    → 1  (Small Bedroom, Child's Room, Nursery, Baby's Room)
+  Master Bedroom / Bedroom 1  → 2  (primary double bedroom)
+  All other bedrooms          → 1  (Bedroom 2, Bedroom 3, Bedroom 4, Bedroom 5 etc.)
+  Guest Bedroom               → 1
+  Nursery / Baby's Room       → 1
+  Single / Child's Room       → 1
   All non-bedroom zones       → 0
 
-CONVERTIBLE BED SPACES — potentialBedSpaces:
-  A non-bedroom zone that has a door, appears to have a window, and is of suitable size
-  (roughly ≥ 8 m²) may be suitable for future bedroom conversion:
-    Study  Multi-Purpose Room  Multi-Use Room  Retreat  Studio  Activity Room
-    → potentialBedSpaces = 1
-  Add an assumption: "Multi-Use Room appears suitable for future bedroom conversion."
-  All other zones: potentialBedSpaces = 0
+Examples:
+  3-bedroom: Master(2) + Bed 2(1) + Bed 3(1)       = 4 total
+  4-bedroom: Master(2) + Bed 2(1) + Bed 3(1) + Bed 4(1) = 5 total
+  5-bedroom: Master(2) + Bed 2–5(1 each)            = 6 total
 
-ROOMS THAT ARE NOT BEDROOMS (bedSpaces = 0 unless fixtures suggest otherwise):
+ZONES THAT ARE ALWAYS 0 (bedSpaces = 0):
   Study  Home Office  Library  Retreat  Sitting Room  Media Room  Theatre
   Living Room  Lounge  Dining Room  Gym  Games Room  Activity Room
   Multi-Purpose Room  Multi-Use Room  Studio  Rumpus Room
+  Walk-in Robe  WIR  WTR  Hallway  Corridor  Entry  all circulation
 
-PROJECT-LEVEL OCCUPANCY SUMMARY:
-After listing all rooms[], add a top-level "occupancySummary" object:
-  {
-    "suggestedOccupancy":          <sum of all bedSpaces>,
-    "totalBedSpaces":              <sum of all bedSpaces>,
-    "potentialAdditionalBedSpaces":<sum of all potentialBedSpaces>
-  }
+CONVERTIBLE BED SPACES — potentialBedSpaces:
+  A non-bedroom zone with a door, apparent window, and area ≥ 8 m² may convert to a bedroom:
+    Study  Multi-Purpose Room  Multi-Use Room  Retreat  Activity Room
+    → potentialBedSpaces = 1
+  All other zones: potentialBedSpaces = 0
 
 Do not attempt to predict actual residents.
 Only estimate available sleeping capacity.
+Do NOT output an occupancySummary object — the server recalculates it from room bedSpaces.
 
 ════ ZONE-WITHIN-ZONE ════
 Some rooms contain two ventilation functions. Preserve the primary classification and set
@@ -1213,50 +1217,43 @@ Return ONLY valid JSON. No markdown. No prose.
 
 {
   "rooms": [
-    { "name": "Master Bedroom", "labelSeen": "MASTER BED",
-      "roomType": "Master Bedroom", "classification": "supply",
+    { "name": "Master Bedroom", "classification": "supply",
       "spaceType": "bedroom", "airflowDriver": "occupancy",
       "area": 19.2, "confidence": 0.94, "terminalPriority": "high",
       "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null,
       "bedSpaces": 2, "potentialBedSpaces": 0 },
-    { "name": "Kitchen", "labelSeen": "KITCHEN",
-      "roomType": "Kitchen", "classification": "extract",
+    { "name": "Bedroom 2", "classification": "supply",
+      "spaceType": "bedroom", "airflowDriver": "occupancy",
+      "area": 11.4, "confidence": 0.97, "terminalPriority": "high",
+      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null,
+      "bedSpaces": 1, "potentialBedSpaces": 0 },
+    { "name": "Kitchen", "classification": "extract",
       "spaceType": "kitchen", "airflowDriver": "fixed_extract",
       "area": 16.4, "confidence": 0.97, "terminalPriority": "high",
       "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Multi-Use Room", "labelSeen": "MULTI USE",
-      "roomType": "Other", "classification": "extract",
-      "spaceType": "kitchen", "airflowDriver": "fixed_extract",
+    { "name": "Multi-Use Room", "classification": "extract",
+      "spaceType": "kitchenette", "airflowDriver": "fixed_extract",
       "area": 12.0, "confidence": 0.85, "terminalPriority": "medium",
       "fixtures": ["sink"], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Rumpus Room", "labelSeen": "RUMPUS",
-      "roomType": "Rumpus Room", "classification": "supply",
+    { "name": "Rumpus Room", "classification": "supply",
       "spaceType": "living", "airflowDriver": "occupancy",
       "area": 22.0, "confidence": 0.95, "terminalPriority": "high",
-      "fixtures": ["fridge"], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Walk-in Robe", "labelSeen": "WIR",
-      "roomType": "WIR", "classification": "transfer",
+      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
+    { "name": "Walk-in Robe", "classification": "transfer",
       "spaceType": "robe", "airflowDriver": "optional",
       "area": 5.5, "confidence": 0.92, "terminalPriority": "low",
       "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Master Bedroom", "labelSeen": "MASTER SUITE",
-      "roomType": "Master Bedroom", "classification": "supply",
+    { "name": "Master Bedroom", "classification": "supply",
       "spaceType": "bedroom", "airflowDriver": "occupancy",
       "area": 22.0, "confidence": 0.93, "terminalPriority": "high",
       "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": true, "parentRoom": null },
-    { "name": "Master Bedroom - Bath Zone", "labelSeen": "FREESTANDING BATH",
-      "roomType": "Bathroom", "classification": "extract",
+    { "name": "Master Bedroom - Bath Zone", "classification": "extract",
       "spaceType": "wet_area", "airflowDriver": "fixed_extract",
       "area": 4.0, "confidence": 0.88, "terminalPriority": "high",
       "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": false, "parentRoom": "Master Bedroom" }
   ],
   "warnings": ["Master Bedroom split: primary room supply, bath zone created as secondary extract."],
-  "assumptions": ["Multi-Use Room appears suitable for future bedroom conversion."],
-  "occupancySummary": {
-    "suggestedOccupancy": 6,
-    "totalBedSpaces": 6,
-    "potentialAdditionalBedSpaces": 1
-  }
+  "assumptions": ["Multi-Use Room appears suitable for future bedroom conversion."]
 }`;
 
 // ── Stage 2 recovery prompt ────────────────────────────────────
@@ -1266,7 +1263,7 @@ const ROOM_RECOVERY_PROMPT = `You are reading an architectural floor plan.
 Stage 1 analysis returned no rooms. Your job is to recover the room schedule.
 Apply the same MVHR classification rules as Stage 1.
 
-Read every visible room label. Use the exact text as "labelSeen".
+Read every visible room label. Use it as the "name" field (title case).
 Do not return joinery, BIR, CPD, linen or shelf outlines as rooms.
 Estimate area (m²) if visible. Use confidence 0.5 for uncertain rooms.
 Rooms labelled with a person's name (PAUL, JAN, JANE etc.) are bedrooms — classify as supply.
@@ -1305,12 +1302,10 @@ Return ONLY valid JSON. No markdown. No prose.
 
 {
   "rooms": [
-    { "name": "Master Bedroom", "labelSeen": "MASTER BED",
-      "roomType": "Master Bedroom", "classification": "supply",
+    { "name": "Master Bedroom", "classification": "supply",
       "area": 18.0, "confidence": 0.8,
       "fixtures": [], "containsSecondaryExtractZone": false },
-    { "name": "Kitchen", "labelSeen": "KITCHEN",
-      "roomType": "Kitchen", "classification": "extract",
+    { "name": "Kitchen", "classification": "extract",
       "area": 14.0, "confidence": 0.9,
       "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false }
   ],
@@ -1667,10 +1662,8 @@ export default async function handler(req, res) {
   const transfer  = allRooms.filter(r => r.ventilationClassification === 'transfer');
   const ignore    = allRooms.filter(r => r.ventilationClassification === 'ignore');
 
-  // ── Extract AI occupancy summary (if provided) ───────────────
-  // Validated and recalculated from room data after postProcessRooms runs.
-  // Raw AI value stored here; recalculated summary is computed below.
-  const rawOccupancySummary = parsed.occupancySummary ?? null;
+  // occupancySummary is recalculated server-side from room bedSpaces values (see below).
+  // The AI is no longer asked to output it — any AI-returned value is intentionally ignored.
 
   // ── Collect AI warnings and assumptions ─────────────────────
   if (Array.isArray(parsed.warnings)) {
