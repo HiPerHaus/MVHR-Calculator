@@ -31,17 +31,20 @@
 //   stage1RoomCount: number,
 //   stage2RoomCount: number | null,
 //   rooms: {
-//     supply:   [{ name, labelSeen, roomType, area, floor, ventilationClassification, confidence,
-//                  fixtures, optionalExtract, optionalSupply, containsSecondaryExtractZone,
-//                  classificationReason, parentRoom, terminalPriority, spaceType }],
-//                  terminalPriority: 'high' | 'medium' | 'low' | 'none'
-//                  spaceType: 'bedroom' | 'living' | 'dining' | 'kitchen' | 'kitchenette' |
-//                             'wet_area' | 'laundry' | 'office' | 'gym' | 'robe' |
-//                             'circulation' | 'service' | 'other'
-//                  airflowDriver: 'occupancy' | 'area' | 'fixed_extract' | 'transfer' | 'optional'
-//                  requiresManualReview: boolean — ambiguous room with no detected fixtures
-//                  bedSpaces: number (permanent sleeping capacity; 0 for non-bedrooms)
-//                  potentialBedSpaces: number (convertible rooms; 0 if not applicable)
+//     supply:   [Room]  — where Room has fields:
+//       AI-sourced (read from AI output, validated):
+//         name, area, spaceType, confidence, fixtures, parentRoom, bedSpaces, potentialBedSpaces
+//       Server-derived (never from AI):
+//         labelSeen, roomType, ventilationClassification, optionalExtract, optionalSupply,
+//         containsSecondaryExtractZone, classificationReason, terminalPriority, airflowDriver,
+//         requiresManualReview, floor
+//       spaceType: 'bedroom'|'living'|'dining'|'kitchen'|'kitchenette'|'wet_area'|'laundry'|
+//                  'office'|'gym'|'robe'|'circulation'|'service'|'other'
+//       airflowDriver: 'occupancy'|'area'|'fixed_extract'|'transfer'|'optional'
+//       terminalPriority: 'high'|'medium'|'low'|'none'
+//       requiresManualReview: boolean — confidence<0.75 or ambiguous name with no fixtures
+//       bedSpaces: number (permanent sleeping capacity; 0 for non-bedrooms)
+//       potentialBedSpaces: number (convertible rooms; 0 if not applicable)
 // Top-level response also includes:
 //   occupancySummary:  { suggestedOccupancy, totalBedSpaces, potentialAdditionalBedSpaces }
 //   reviewCandidates:  [{ room, reason, roomBoundaryHint }]
@@ -127,143 +130,218 @@ function extractJson(text) {
 
 // Validate and normalise a single room object from AI output.
 // Stage 1 focus: name, label, type, classification, confidence, area only.
-// Airflow, outlets and open-plan detection are deferred to later stages.
+// ── Server-side derivation functions ──────────────────────────────────────────
+// These replace AI-generated fields with deterministic values.
+// The AI is no longer asked to produce airflowDriver, terminalPriority, roomType,
+// optionalSupply, or optionalExtract.
+
+const SPACE_TYPE_VALUES = new Set([
+  'bedroom','living','dining','kitchen','kitchenette','wet_area','laundry',
+  'office','gym','robe','circulation','service','other',
+]);
+
+// spaceType → airflowDriver (fully deterministic)
+const SPACE_TYPE_TO_DRIVER = {
+  bedroom:     'occupancy',   living:       'occupancy',
+  dining:      'area',        kitchen:      'fixed_extract',
+  kitchenette: 'fixed_extract', wet_area:   'fixed_extract',
+  laundry:     'fixed_extract', office:     'occupancy',
+  gym:         'occupancy',   robe:         'optional',
+  circulation: 'transfer',    service:      'optional',
+  other:       'occupancy',
+};
+
+function deriveAirflowDriver(spaceType) {
+  return SPACE_TYPE_TO_DRIVER[spaceType] ?? 'occupancy';
+}
+
+// spaceType + ventClass → terminalPriority
+// 'medium' for ambiguous habitable rooms that may share a terminal.
+const SPACE_TYPE_TO_TERMINAL = {
+  bedroom:     'high',   living:       'high',
+  dining:      'high',   kitchen:      'high',
+  kitchenette: 'medium', wet_area:     'high',
+  laundry:     'high',   office:       'medium',
+  gym:         'medium', robe:         'low',
+  circulation: 'none',   service:      'none',
+  other:       'medium',
+};
+
+function deriveTerminalPriority(spaceType, ventClass) {
+  if (ventClass === 'transfer' || ventClass === 'ignore') return 'none';
+  return SPACE_TYPE_TO_TERMINAL[spaceType] ?? 'high';
+}
+
+// name → roomType (canonical label for display/legacy use)
+const NAME_LOWER_TO_ROOM_TYPE = {
+  'single bedroom': 'Single Bedroom', 'double bedroom': 'Double Bedroom',
+  'master bedroom': 'Master Bedroom', 'bedroom':        'Double Bedroom',
+  'study':          'Study / Office', 'study / office': 'Study / Office',
+  'home office':    'Study / Office', 'office':         'Study / Office',
+  'living room':    'Living Room',    'living':         'Living Room',
+  'lounge':         'Living Room',    'dining room':    'Dining Room',
+  'dining':         'Dining Room',    'rumpus room':    'Rumpus Room',
+  'rumpus':         'Rumpus Room',    'kitchen':        'Kitchen',
+  'bathroom':       'Bathroom',       'ensuite':        'Ensuite',
+  'laundry':        'Laundry',        'wc':             'WC',
+  'toilet':         'WC',             'pantry':         'Pantry',
+  'hallway':        'Hallway',        'hall':           'Hallway',
+  'entry':          'Entry',          'corridor':       'Corridor',
+  'wir':            'WIR',            'walk-in robe':   'WIR',
+  'garage':         'Garage',         'porch':          'Porch',
+  'carport':        'Carport',        'alfresco':       'Alfresco',
+  'store':          'Store',          'storage':        'Store',
+};
+
+function deriveRoomType(name, spaceType) {
+  const lower = (name || '').toLowerCase().trim();
+  if (NAME_LOWER_TO_ROOM_TYPE[lower]) return NAME_LOWER_TO_ROOM_TYPE[lower];
+  // Fall back to spaceType-based label
+  const SPACE_TO_TYPE = {
+    bedroom: 'Double Bedroom', living: 'Living Room', dining: 'Dining Room',
+    kitchen: 'Kitchen', kitchenette: 'Kitchen', wet_area: 'Bathroom',
+    laundry: 'Laundry', office: 'Study / Office', gym: 'Other',
+    robe: 'WIR', circulation: 'Hallway', service: 'Other', other: 'Other',
+  };
+  return SPACE_TO_TYPE[spaceType] ?? 'Other';
+}
+
+// spaceType-driven hard overrides for ventilationClassification.
+// The AI classification is used only when no server rule applies ('other' spaceType).
+// Returns { classification, reason } or null when no override applies.
+function deriveVentilationOverride(spaceType, fixtures) {
+  const hasWetFixture = Array.isArray(fixtures) &&
+    fixtures.some(f => WET_FIXTURE_PATTERNS.some(p => p.test(f)));
+
+  switch (spaceType) {
+    case 'robe':        return { classification: 'transfer', reason: 'spaceType=robe → transfer' };
+    case 'circulation': return { classification: 'transfer', reason: 'spaceType=circulation → transfer' };
+    case 'service':     return { classification: 'ignore',   reason: 'spaceType=service → ignore' };
+    case 'kitchen':     return { classification: 'extract',  reason: 'spaceType=kitchen → extract' };
+    case 'kitchenette': return { classification: 'extract',  reason: 'spaceType=kitchenette → extract' };
+    case 'wet_area':    return { classification: 'extract',  reason: 'spaceType=wet_area → extract' };
+    case 'laundry':     return { classification: 'extract',  reason: 'spaceType=laundry → extract' };
+    case 'bedroom':     return { classification: 'supply',   reason: 'spaceType=bedroom → supply' };
+    case 'living':      return { classification: 'supply',   reason: 'spaceType=living → supply' };
+    case 'dining':      return { classification: 'supply',   reason: 'spaceType=dining → supply' };
+    case 'office':      return { classification: hasWetFixture ? 'extract' : 'supply',
+                                 reason: hasWetFixture ? 'spaceType=office + wet fixture → extract' : 'spaceType=office → supply' };
+    case 'gym':         return { classification: 'extract',  reason: 'spaceType=gym → extract' };
+    default:            return null; // 'other' — trust AI classification
+  }
+}
+
+// Optional supply/extract flags — derived from spaceType + area, never from AI.
+function deriveOptionalFlags(spaceType, area, ventClass) {
+  const a = area || 0;
+  return {
+    optionalSupply:  spaceType === 'robe' && a >= 4,
+    optionalExtract: spaceType === 'service' && a >= 2,
+  };
+}
+
+// Bedroom fallback: master → 2, all others → 1, non-bedrooms → 0.
+function bedroomFallbackSpaces(name, spaceType) {
+  if (spaceType !== 'bedroom') return 0;
+  if (/master|bed(?:room)?\s*1\b|bed\s*1\b|primary|main\s*bed/i.test(name)) return 2;
+  return 1;
+}
+
+// ── validateRoom ──────────────────────────────────────────────────────────────
+// Accepts AI room object, normalises all fields, applies server-side overrides.
 // Returns null if the room cannot be used.
 function validateRoom(raw, floorIndex) {
   if (!raw || typeof raw !== 'object') return null;
 
-  const name     = typeof raw.name === 'string'     ? raw.name.trim()     : '';
-  // 'labelSeen' = the exact text printed on the plan (new format).
-  // Fall back to name if the AI didn't include a separate labelSeen field.
+  const name      = typeof raw.name === 'string'     ? raw.name.trim()     : '';
   const labelSeen = typeof raw.labelSeen === 'string' ? raw.labelSeen.trim() : name;
-  const roomType  = typeof raw.roomType === 'string'  ? raw.roomType.trim()  : '';
   const area      = typeof raw.area === 'number' && raw.area > 0
     ? Math.round(raw.area * 10) / 10 : null;
   const confidence = typeof raw.confidence === 'number'
     ? Math.min(1, Math.max(0, raw.confidence)) : null;
 
-  // fixtures: AI-reported plumbing/wet-area indicators visible in the room
   const fixtures = Array.isArray(raw.fixtures)
     ? raw.fixtures.filter(f => typeof f === 'string' && f.trim()).map(f => f.trim().toLowerCase())
     : [];
 
-  // Coerce roomType to nearest valid value
-  let resolvedType = ALL_TYPES.has(roomType) ? roomType : null;
-  if (!resolvedType) {
-    const lower = roomType.toLowerCase();
-    for (const t of ALL_TYPES) {
-      if (t.toLowerCase() === lower) { resolvedType = t; break; }
-    }
-  }
-  if (!resolvedType) resolvedType = 'Other';
-
-  // Accept 'classification' (new Stage 1 format) or 'ventilationClassification' (legacy)
-  const rawClass = raw.classification ?? raw.ventilationClassification ?? null;
-  let ventClass  = typeof rawClass === 'string' ? rawClass.toLowerCase().trim() : null;
-  if (!VENT_CLASSIFICATIONS.has(ventClass)) {
-    if (SUPPLY_TYPES.has(resolvedType))        ventClass = 'supply';
-    else if (EXTRACT_TYPES.has(resolvedType))  ventClass = 'extract';
-    else if (TRANSFER_TYPES.has(resolvedType)) ventClass = 'transfer';
-    else if (IGNORE_TYPES.has(resolvedType))   ventClass = 'ignore';
-    else                                        ventClass = 'supply';
-  }
-
-  // parentRoom: name of the primary room this zone was split from (secondary zones only)
   const parentRoom = typeof raw.parentRoom === 'string' && raw.parentRoom.trim()
-    ? raw.parentRoom.trim()
-    : null;
+    ? raw.parentRoom.trim() : null;
 
-  // spaceType: functional space category used by the sizing engine for airflow lookup.
-  const SPACE_TYPE_VALUES = new Set([
-    'bedroom','living','dining','kitchen','kitchenette','wet_area','laundry',
-    'office','gym','robe','circulation','service','other',
-  ]);
+  // ── spaceType: AI value validated; fallback to name-pattern lookup ──────
   const rawSpaceType = typeof raw.spaceType === 'string'
     ? raw.spaceType.toLowerCase().trim() : null;
-  // Fallback: infer from roomType when AI doesn't set it
-  const ROOM_TYPE_TO_SPACE_TYPE = {
-    'Single Bedroom':  'bedroom',  'Double Bedroom': 'bedroom',
-    'Master Bedroom':  'bedroom',  'Study / Office': 'office',
-    'Living Room':     'living',   'Dining Room':    'dining',
-    'Rumpus Room':     'living',   'Other':          'other',
-    'Kitchen':         'kitchen',  'Bathroom':       'wet_area',
-    'Ensuite':         'wet_area', 'Laundry':        'laundry',
-    'WC':              'wet_area', 'Pantry':         'kitchen',
-    'Hallway':         'circulation', 'Entry':        'circulation',
-    'Corridor':        'circulation', 'WIR':          'robe',
-    'Garage':          'service',  'Porch':          'service',
-    'Carport':         'service',  'Alfresco':       'service',
-    'Store':           'service',
+  const NAME_TO_SPACE = {
+    bedroom: /\bbed(?:room)?\b|\bmaster\b|\bnursery\b|\bguest\s+bed/i,
+    kitchen: /\bkitchen\b|\bscullery\b|\bbutler\b|\bpantry\b/i,
+    wet_area: /\bbath(?:room)?\b|\bensuite\b|\bwc\b|\btoilet\b|\bpowder\b/i,
+    laundry: /\blaundry\b|\butility\b/i,
+    circulation: /\bhall(?:way)?\b|\bentry\b|\bcorridor\b|\bpassage\b|\bstair|\blobby\b|\bfoyer\b|\blanding\b/i,
+    robe: /\bwir\b|\bwtr\b|\brobe\b|\bdressing\b/i,
+    service: /\bgarage\b|\bcarport\b|\bpatio\b|\bbalcon|\balfresco\b|\bverandah\b|\bporch\b|\bdeck\b|\bstore\b|\bstorage\b/i,
+    living: /\bliving\b|\blounge\b|\bfamily\b|\brumpus\b|\brumpus\b|\bretreat\b|\bactivity\b|\bmedia\b|\btheatre\b|\bsitting\b/i,
+    dining: /\bdining\b|\bmeals\b/i,
+    office: /\bstudy\b|\boffice\b|\blibrary\b/i,
+    gym: /\bgym\b|\bexercise\b/i,
   };
-  const spaceType = SPACE_TYPE_VALUES.has(rawSpaceType)
-    ? rawSpaceType
-    : ROOM_TYPE_TO_SPACE_TYPE[resolvedType] ?? 'other';
-
-  // airflowDriver: sizing methodology for the calculation stage.
-  const AIRFLOW_DRIVER_VALUES = new Set(['occupancy','area','fixed_extract','transfer','optional']);
-  const rawDriver = typeof raw.airflowDriver === 'string'
-    ? raw.airflowDriver.toLowerCase().trim() : null;
-  // Fallback: derive from spaceType when AI doesn't set it
-  const SPACE_TYPE_TO_DRIVER = {
-    bedroom:     'occupancy',   living:       'occupancy',
-    dining:      'area',        kitchen:      'fixed_extract',
-    kitchenette: 'fixed_extract', wet_area:   'fixed_extract',
-    laundry:     'fixed_extract', office:     'occupancy',
-    gym:         'occupancy',   robe:         'optional',
-    circulation: 'transfer',    service:      'optional',
-    other:       'occupancy',
-  };
-  const airflowDriver = AIRFLOW_DRIVER_VALUES.has(rawDriver)
-    ? rawDriver
-    : SPACE_TYPE_TO_DRIVER[spaceType] ?? 'occupancy';
-
-  // requiresManualReview: true when the AI completed inspection but fixture presence is uncertain.
-  const requiresManualReview = raw.requiresManualReview === true;
-
-  // bedSpaces / potentialBedSpaces: occupancy estimation (not ventilation classification).
-  // Fallback rule: Master Bedroom / Bedroom 1 → 2, all other bedrooms → 1, non-bedrooms → 0.
-  // This mirrors the prompt rule so the server always produces correct values even if the AI
-  // omits the field.
-  function bedroomFallbackSpaces(roomName, sType) {
-    if (sType !== 'bedroom') return 0;
-    const lname = (roomName || '').toLowerCase();
-    if (/master|bed(?:room)?\s*1\b|bed\s*1\b|primary|main\s*bed/.test(lname)) return 2;
-    return 1;
+  let spaceType = SPACE_TYPE_VALUES.has(rawSpaceType) ? rawSpaceType : null;
+  if (!spaceType) {
+    for (const [st, pattern] of Object.entries(NAME_TO_SPACE)) {
+      if (pattern.test(name)) { spaceType = st; break; }
+    }
   }
+  spaceType = spaceType ?? 'other';
+
+  // ── ventilationClassification: fully server-derived ─────────────────────
+  // AI no longer outputs classification — derived here from spaceType + fixtures.
+  // For spaceType='other' (no rule applies): wet fixture → extract, else → supply.
+  const override = deriveVentilationOverride(spaceType, fixtures);
+  let ventClass;
+  if (override) {
+    ventClass = override.classification;
+  } else {
+    // spaceType='other': use fixture evidence; postProcessRooms label rules run next
+    const hasWetFixture = fixtures.some(f => WET_FIXTURE_PATTERNS.some(p => p.test(f)));
+    ventClass = hasWetFixture ? 'extract' : 'supply';
+  }
+
+  // ── requiresManualReview: server-derived ─────────────────────────────────
+  // Ambiguous room name + no fixture evidence → flag for human review.
+  // Also fires when AI confidence is genuinely low (< 0.75).
+  const AMBIGUOUS_REVIEW_PATTERNS = [
+    /\bmulti.?use\b/i,  /\bmulti.?purpose\b/i, /\bmpr\b/i,
+    /\bstudio\b/i,      /\bretreat\b/i,         /\bactivity\b/i,
+    /\boffice\b/i,      /\bhome.?office\b/i,    /\brumpus\b/i,
+    /\bgym\b/i,         /\bworkshop\b/i,        /\bhobby\b/i,
+    /\bcellar\b/i,      /\bgames\b/i,
+  ];
+  const requiresManualReview =
+    (confidence !== null && confidence < 0.75) ||
+    (AMBIGUOUS_REVIEW_PATTERNS.some(p => p.test(name)) && fixtures.length === 0);
+
+  // ── All derived fields ──────────────────────────────────────────────────
+  const airflowDriver    = deriveAirflowDriver(spaceType);
+  const terminalPriority = deriveTerminalPriority(spaceType, ventClass);
+  const roomType         = deriveRoomType(name, spaceType);
+  const { optionalSupply, optionalExtract } = deriveOptionalFlags(spaceType, area, ventClass);
+
   const bedSpaces = typeof raw.bedSpaces === 'number' && raw.bedSpaces >= 0
     ? Math.round(raw.bedSpaces) : bedroomFallbackSpaces(name, spaceType);
   const potentialBedSpaces = typeof raw.potentialBedSpaces === 'number' && raw.potentialBedSpaces >= 0
     ? Math.round(raw.potentialBedSpaces) : 0;
 
-  // terminalPriority: design-stage hint for terminal allocation.
-  // 'high'   — normally requires its own dedicated terminal
-  // 'medium' — often has its own terminal but may share
-  // 'low'    — terminal optional, used for balancing or project-specific reasons
-  // 'none'   — normally no terminal (hallways, circulation, service spaces)
-  // AI may set this; falls back to a sensible default derived from ventClass.
-  const TERMINAL_PRIORITY_VALUES = new Set(['high','medium','low','none']);
-  const rawPriority = typeof raw.terminalPriority === 'string'
-    ? raw.terminalPriority.toLowerCase().trim() : null;
-  const terminalPriority = TERMINAL_PRIORITY_VALUES.has(rawPriority)
-    ? rawPriority
-    : ventClass === 'supply'   ? 'high'
-    : ventClass === 'extract'  ? 'high'
-    : ventClass === 'transfer' ? 'none'
-    : 'none';
-
   return {
-    name:                      name || resolvedType,
-    labelSeen:                 labelSeen || name || resolvedType,
-    roomType:                  resolvedType,
+    name:                      name || roomType,
+    labelSeen:                 labelSeen || name || roomType,
+    roomType,
     area:                      area ?? 0,
     floor:                     floorIndex,
     ventilationClassification: ventClass,
     confidence,
     fixtures,
-    optionalExtract:                false,
-    optionalSupply:                 false,
-    containsSecondaryExtractZone:   raw.containsSecondaryExtractZone === true,
-    classificationReason:           null,
+    optionalExtract,
+    optionalSupply,
+    containsSecondaryExtractZone: false, // placeholder — overwritten by deriveRelationalFields()
+    classificationReason:         null,
     parentRoom,
     terminalPriority,
     spaceType,
@@ -272,6 +350,22 @@ function validateRoom(raw, floorIndex) {
     potentialBedSpaces,
     requiresManualReview,
   };
+}
+
+// ── deriveRelationalFields ───────────────────────────────────────────────
+// Computes containsSecondaryExtractZone for every room by checking whether
+// any other room in the same list references it as parentRoom AND is extract.
+// Call this ONCE after all rooms are finalised (after Stage 3 / reclassification).
+function deriveRelationalFields(rooms) {
+  const extractChildParents = new Set(
+    rooms
+      .filter(r => r.ventilationClassification === 'extract' && r.parentRoom)
+      .map(r => r.parentRoom)
+  );
+  return rooms.map(r => ({
+    ...r,
+    containsSecondaryExtractZone: extractChildParents.has(r.name),
+  }));
 }
 
 // Suggestions returned to the client when both AI passes fail.
@@ -465,27 +559,26 @@ function postProcessRooms(rooms, warnings) {
     const nameLo = name.toLowerCase();
     let matched  = false;
 
-    // ── 0. Ambiguous label + no fixtures → requiresManualReview ──
-    // Applied before all classification rules so every downstream path inherits the flag.
+    // ── 0. Ambiguous label + no fixtures → cap confidence ────────
+    // requiresManualReview is already set server-side in validateRoom.
+    // This rule only enforces the confidence cap for ambiguous unresolved rooms.
     const AMBIGUOUS_LABEL_PATTERNS = [
       /\bmulti.?use\b/i, /\bmulti.?purpose\b/i, /\bmpr\b/i,
       /\bstudio\b/i,     /\bretreat\b/i,         /\bactivity\b/i,
-      /\boffice\b/i,     /\bhome office\b/i,      /\brumpus\b/i,
-      /\bgym\b/i,        /\bworkshop\b/i,         /\bhobby\b/i,
+      /\boffice\b/i,     /\bhome.?office\b/i,    /\brumpus\b/i,
+      /\bgym\b/i,        /\bworkshop\b/i,        /\bhobby\b/i,
       /\bcellar\b/i,     /\bgames\b/i,
     ];
     if (
       AMBIGUOUS_LABEL_PATTERNS.some(p => p.test(name)) &&
       (!Array.isArray(room.fixtures) || room.fixtures.length === 0)
     ) {
-      room.requiresManualReview = true;
       if (room.confidence != null && room.confidence > 0.85) room.confidence = 0.85;
-      warnings.push(`"${name}" — ambiguous room type with no fixtures detected. Flagged for manual review.`);
     }
 
     // ── 1. Service / equipment → exclude ─────────────────────
     if (SERVICE_PATTERNS.some(p => p.test(name))) {
-      warnings.push(`"${name}" identified as a service/equipment space — excluded.`);
+      // Routine exclusion — no warning needed.
       continue;
     }
 
@@ -496,11 +589,15 @@ function postProcessRooms(rooms, warnings) {
       const wetFixture = room.fixtures.find(f => WET_FIXTURE_PATTERNS.some(p => p.test(f)));
 
       if (wetFixture) {
-        // Has a real wet fixture → extract
+        // Has a real wet fixture → extract.
+        // Only warn when this overrides an unexpected classification (e.g. a labelled bedroom).
+        const wasSupply = room.ventilationClassification === 'supply';
         room.ventilationClassification = 'extract';
         if (!EXTRACT_TYPES.has(room.roomType)) room.roomType = 'Other';
         room.classificationReason = `Contains wet fixture (${wetFixture}) — classified as extract regardless of room name.`;
-        warnings.push(`"${name}" reclassified as extract — ${wetFixture} detected.`);
+        if (wasSupply && /\bbed\b|\bbedroom\b|\bmaster\b/i.test(name)) {
+          warnings.push(`"${name}" reclassified as extract — unexpected wet fixture (${wetFixture}) detected.`);
+        }
         out.push(room);
         continue;
       }
@@ -508,12 +605,12 @@ function postProcessRooms(rooms, warnings) {
       // No wet fixture — check for moisture-only fixtures (bath/spa/sauna)
       const moistureFixture = room.fixtures.find(f => MOISTURE_FIXTURE_PATTERNS.some(p => p.test(f)));
       if (moistureFixture && room.ventilationClassification === 'supply') {
-        // Habitable room with bath/spa alone: stay supply, flag secondary zone
+        // Habitable room with bath/spa alone: stay supply, flag secondary zone.
         room.containsSecondaryExtractZone = true;
         if (!room.classificationReason) {
           room.classificationReason = `Habitable room with ${moistureFixture} — supply preserved. Secondary extract zone flagged for diffuser allocation.`;
         }
-        warnings.push(`"${name}" contains ${moistureFixture} — classified as supply with secondary extract zone.`);
+        warnings.push(`"${name}" contains ${moistureFixture} — supply with secondary extract zone.`);
         // Fall through — room continues to label-pattern rules which will confirm supply
       }
     }
@@ -528,10 +625,8 @@ function postProcessRooms(rooms, warnings) {
       if (area >= 4) {
         room.optionalSupply = true;
         room.classificationReason = 'Walk-in Robe — transfer. May be used as a low-flow supply point if required for system balance.';
-        warnings.push(`Walk-in Robe (${area} m²) — transfer, optionalSupply flagged.`);
       } else {
         room.classificationReason = 'Walk-in Robe — transfer. Too small to warrant a supply terminal.';
-        warnings.push(`Walk-in Robe (${area} m²) — classified as transfer.`);
       }
       out.push(room);
       continue;
@@ -543,11 +638,9 @@ function postProcessRooms(rooms, warnings) {
         room.ventilationClassification = 'ignore';
         room.roomType = 'WIR';
         room.classificationReason = 'Room-sized built-in storage — classified as ignore.';
-        warnings.push(`"${name}" (${area} m²) treated as built-in storage — classified as ignore.`);
         out.push(room);
-      } else {
-        warnings.push(`"${name}" treated as built-in joinery — excluded.`);
       }
+      // Small joinery excluded silently.
       continue;
     }
 
@@ -611,12 +704,10 @@ function postProcessRooms(rooms, warnings) {
       if (area < 2) {
         room.ventilationClassification = 'ignore';
         room.classificationReason = 'Store too small for an MVHR terminal.';
-        warnings.push(`"${name}" (${area} m²) — too small for a terminal, classified as ignore.`);
       } else {
         room.ventilationClassification = 'transfer';
         room.optionalExtract = true;
         room.classificationReason = 'Internal store — transfer. May be used as an extract point for system balance.';
-        warnings.push(`"${name}" (${area} m²) — transfer, optionalExtract flagged.`);
       }
       out.push(room);
       continue;
@@ -684,59 +775,55 @@ These words MUST appear in rooms[] if visible on the plan:
 
 Rooms labelled with a person's name (PAUL, JANE, TOM etc.) are bedrooms — classify as supply.
 
-════ STEP 2: CLASSIFY EACH ROOM ════
+════ STEP 2: ASSIGN SPACE TYPES ════
+The server derives ventilation classification, airflow drivers, and terminal priorities from
+spaceType and fixtures[]. Your job is to assign the correct spaceType and list all visible
+fixtures accurately. These two fields are the primary inputs to the ventilation engine.
 
-SUPPLY — habitable rooms where occupants spend extended periods:
-  Bedroom  Master Bedroom  Guest Bedroom  Living Room  Lounge  Family Room  Dining Room
-  Rumpus Room  Media Room  Study  Home Office  Library  Playroom  Retreat  Sitting Room
-  Activity Room  Multi-Purpose Room  Multi-Use Room  Home Theatre  Sunroom
+HABITABLE SUPPLY SPACES — assign spaceType:
+  Bedroom  Master Bedroom  Guest Bedroom             → "bedroom"
+  Living  Lounge  Family  Rumpus  Theatre  Media
+  Activity  Retreat  Sitting  Multi-Use  Sunroom      → "living"
+  Dining  Meals  Breakfast                            → "dining"
+  Study  Office  Home Office  Library  Workroom       → "office"
+  Gym  Home Gym  Exercise Room                        → "gym"
 
-EXTRACT — moisture or odour-producing rooms:
-  Kitchen  Butler's Pantry  Walk-in Pantry  Scullery  Bathroom  Ensuite  Powder Room
-  WC  Toilet  Laundry  Mudroom (with laundry)  Utility Room (with wet fixtures)
-  Gym (always extract — elevated moisture, CO₂ and odour load)
-  Pantry/Scullery/Butler's Pantry — classify as extract with optionalExtract true.
-  A standalone Pantry without a visible sink may be extract (odour load) or transfer depending
-  on system balance requirements — set optionalExtract true so the sizing engine can decide.
+MOISTURE/ODOUR-PRODUCING SPACES — assign spaceType:
+  Kitchen  Scullery  Butler's Pantry  Walk-in Pantry  → "kitchen"
+  Bathroom  Ensuite  Powder Room  WC  Toilet          → "wet_area"
+  Laundry  Mudroom (with laundry)  Utility (wet)      → "laundry"
+  Habitable room + sink + cabinetry                   → "kitchenette"
 
-TRANSFER — circulation spaces:
-  Hallway  Corridor  Passage  Entry  Foyer  Stairwell  Landing
+CIRCULATION SPACES — assign spaceType:
+  Hallway  Corridor  Entry  Foyer  Passage  Landing  Stair  Lobby  → "circulation"
 
-IGNORE — non-habitable service spaces:
-  Garage  Carport  Plant Room  Mechanical Room  Electrical Room  HRV/MVHR cupboard
-  Roof Space  Attic  Underfloor Void  Lift Shaft  Bin Store
-  Outdoor: Balcony  Verandah  Alfresco  Porch  Deck  Courtyard
+STORAGE/SERVICE SPACES — assign spaceType:
+  Walk-in Robe  WIR  Dressing Room                   → "robe"
+  Garage  Carport  Plant Room  Electrical  HWS
+  Attic  Roof Space  Outdoor areas                   → "service"
 
-WALK-IN ROBES — classify as transfer. If ≥ 4 m² and attached to a bedroom, set optionalSupply true.
-STORES — classify as transfer + set optionalExtract true (balancing flexibility). Tiny stores < 2 m² = ignore.
-JOINERY (BIR/CPD/linen/cupboards) — these are NOT rooms. Do not list them as room entries.
+JOINERY (BIR/CPD/linen/cupboards) — NOT rooms. Do not list them as room entries.
 
 Set "name" to the room name as it would appear in a room schedule (title case).
 
 ════ HABITABLE ROOM KITCHENETTE RULE ════
 If a habitable room contains a sink AND cabinetry or a benchtop:
-  → Treat the space as a kitchenette zone.
-  → classification  = "extract"
-  → spaceType       = "kitchenette"
-  → airflowDriver   = "fixed_extract"
-  → terminalPriority = "medium"
-  → Reason: food preparation and appliance use generate moisture, odours and contaminants.
+  → Set spaceType = "kitchenette"
+  → Food preparation and appliance use generate moisture, odours and contaminants.
+  → The server will classify this zone as extract.
 
 Applies to:
   Multi-Use Room  Studio  Retreat  Activity Room  Rumpus  Office  Guest Room
   Any habitable room not normally expected to contain a sink.
 
 Confidence guidance:
-  Sink + visible cabinetry or benchtop → high confidence kitchenette → extract
-  Sink only (no visible cabinetry)     → still classify as extract, add assumption:
-    "Sink detected without visible cabinetry — classified as extract pending manual review."
+  Sink + visible cabinetry or benchtop → high confidence → spaceType "kitchenette"
+  Sink only (no visible cabinetry)     → still set spaceType "kitchenette", add assumption:
+    "Sink detected without visible cabinetry — classified as kitchenette pending manual review."
 
 spaceType distinction:
   "kitchen"     — dedicated kitchen room (primary food preparation space)
   "kitchenette" — habitable room with sink and cabinetry (secondary/incidental food prep)
-
-Both use airflowDriver = "fixed_extract", but kitchenette → terminalPriority "medium"
-vs kitchen → terminalPriority "high".
 
 ════ MANDATORY INSPECTION OF AMBIGUOUS ROOMS ════
 The following room types MUST undergo a detailed visual inspection before classification.
@@ -813,32 +900,21 @@ Confidence Penalty:
     Confidence above 0.90 is only permitted when all walls, joinery and connected spaces
     are clearly visible and have been inspected in the second pass.
 
-Assumptions Requirement:
-  If an ambiguous room is classified as supply after inspection, add an entry to assumptions[]:
-    "Multi-Use Room classified as supply. No sink, basin, shower, toilet, kitchenette or
-    laundry fixtures detected after detailed inspection."
-  If an ambiguous room is classified as extract due to a fixture, add an entry to assumptions[]:
-    "Multi-Use Room reclassified as extract. Sink detected during second inspection pass."
-  This creates an audit trail showing what the model inspected and why it classified as it did.
-
 Manual Review Flag:
-  If you have completed the second inspection pass of an ambiguous room and still cannot
-  confirm whether wet fixtures are present:
+  If you cannot confirm whether wet fixtures are present after two inspection passes:
     → Set "requiresManualReview": true on that room entry.
-    → Do NOT confidently assign classification = "supply" in this state.
-    → Keep the classification as your best estimate but record the uncertainty.
-    → Add an assumption: "Multi-Use Room flagged for manual review — fixture presence uncertain
-      after two inspection passes."
-  If you are confident no fixtures are present after the second pass:
-    → Set "requiresManualReview": false.
-    → Add an assumption confirming what was inspected.
-  The default value is false. Only set true when genuine uncertainty remains after inspection.
+    → Keep your best-estimate classification but lower confidence to ≤ 0.80.
+  If you are confident no fixtures are present: set requiresManualReview: false.
+  Default is false. Only set true when genuine uncertainty remains.
 
-Warning Requirement:
-  If you inspect a room from the ambiguous list and find no fixtures, add a note in assumptions[]:
-    e.g. "Inspected Multi-Use Room — no wet fixtures visible; classified as supply."
-  If you find a fixture, list it in fixtures[] and add a note in assumptions[]:
-    e.g. "Multi-Use Room contains a sink — reclassified as extract."
+Assumptions — write only when genuinely informative:
+  Only add to assumptions[] when the classification decision requires an explanation that
+  is NOT already visible in ventilationClassification, spaceType, or fixtures[].
+  Maximum 5 assumptions total. For a normal house: 0–2 is expected.
+  DO NOT write assumptions for: Kitchen → extract, Bathroom → extract, Bedroom → supply,
+  Living → supply, Garage → ignore. These are standard outcomes.
+  GOOD: "Study assumed non-bedroom — no bed or wardrobe visible."
+  BAD:  "Kitchen classified as extract — sink detected."
 
 ════ AMBIGUOUS ROOM ESCALATION ════
 If a room is classified as any of the following AND no fixtures are confidently identified:
@@ -868,29 +944,25 @@ If a fixture is only partially visible or resolution is insufficient:
   Set requiresManualReview = true and add a warning.
 
 ════ REVIEW CANDIDATES ════
-Return a top-level "reviewCandidates" array listing every room that requires further human review.
-Only include rooms where fixture presence is uncertain or the room type is ambiguous.
+Only include a room in reviewCandidates[] when ALL of the following are true:
+  • confidence < 0.80, OR room function cannot be determined
+  • The uncertainty materially affects occupancy OR airflow calculations
+  • The room is NOT a standard room (kitchen, bathroom, laundry, bedroom, living)
+    unless a fixture cannot be identified despite two inspection passes
 
-For each candidate, include:
-  "room"             — exact room name as it appears in rooms[]
-  "reason"           — why this room requires review (one sentence)
-  "roomBoundaryHint" — plain-language description of where the room sits on the plan,
-                       to support a future room-crop AI pass.
-                       Example: "Lower-right corner adjacent Laundry and Entry"
+Maximum 3 reviewCandidates. For a standard detached house: 0–1 is expected.
 
-Example output:
-"reviewCandidates": [
-  {
-    "room": "Multi-Use Room",
-    "reason": "Possible kitchenette. Fixture visibility insufficient at this drawing scale.",
-    "roomBoundaryHint": "Lower-right corner of floor plan, adjacent to Laundry and Entry"
-  },
-  {
-    "room": "Studio",
-    "reason": "Sink symbol partially visible on north wall. Could not confirm.",
-    "roomBoundaryHint": "Upper-left area, adjacent to Master Bedroom"
-  }
-]
+DO NOT create reviewCandidates for:
+  Kitchen  Bathroom  Laundry  Ensuite  WC  Bedroom  Living Room  Dining  Garage
+  unless confidence < 0.80 or a fixture cannot be confirmed after two passes.
+
+For each candidate include:
+  "room"             — exact room name from rooms[]
+  "reason"           — one sentence: what is uncertain and why it matters
+  "roomBoundaryHint" — where it sits on the plan (supports future crop-analysis pass)
+
+GOOD: { "room": "MPR", "reason": "Could not determine if bedroom or media room.", "roomBoundaryHint": "Upper-right, adjacent to Bedroom 3" }
+BAD:  { "room": "Living Room", "reason": "May contain a kitchenette." }
 
 If no rooms require review: "reviewCandidates": []
 
@@ -920,27 +992,25 @@ DRY FIXTURES → add to fixtures[] for information only, do NOT change classific
 
 MOISTURE FIXTURES → add to fixtures[], do NOT trigger extract alone:
   bath  freestanding bath  spa bath  sauna
-  If a habitable (supply) room contains only moisture fixtures and no wet fixtures:
-    → keep classification = "supply"
-    → set containsSecondaryExtractZone = true
+  A habitable room with only moisture fixtures (no wet fixture) stays spaceType "bedroom"/"living" etc.
+  The server marks it with a secondary extract zone for the bath area.
 
-FIXTURE RULE — highest priority, overrides room name:
-  Any wet fixture present                          → classification = "extract"
-  Oven / cooktop / fridge / dishwasher alone       → no change
-  Bath / spa / sauna alone in habitable room       → supply + containsSecondaryExtractZone true
-  Bath + shower in any room                        → extract
-  Bath + toilet in any room                        → extract
+FIXTURE RULE — highest priority, use to determine correct spaceType:
+  Wet fixture in any room                          → spaceType reflects wet function (kitchenette/wet_area)
+  Oven / cooktop / fridge / dishwasher alone       → spaceType unchanged
+  Bath / spa / sauna alone in habitable room       → keep habitable spaceType; split off a wet_area zone
+  Bath + shower or toilet in any room              → spaceType "wet_area"
 
-Examples:
-  Bedroom + freestanding bath only  = supply + containsSecondaryExtractZone true
-  Master Suite + spa bath only      = supply + containsSecondaryExtractZone true
-  Bedroom + bath + shower           = extract
-  Bedroom + bath + toilet           = extract
-  Multi-Use Room + sink             = extract
-  Bedroom + shower (no bath)        = extract
-  Rumpus + fridge only              = supply
-  Store + laundry tub               = extract
-  Retreat + spa bath only           = supply + containsSecondaryExtractZone true
+Examples (for spaceType assignment and zone splitting):
+  Bedroom + freestanding bath only  → Bedroom spaceType "bedroom" + Bath Zone spaceType "wet_area"
+  Master Suite + spa bath only      → Master Suite spaceType "bedroom" + Bath Zone spaceType "wet_area"
+  Bedroom + bath + shower           → spaceType "wet_area"
+  Bedroom + bath + toilet           → spaceType "wet_area"
+  Multi-Use Room + sink             → spaceType "kitchenette"
+  Bedroom + shower (no bath)        → spaceType "wet_area"
+  Rumpus + fridge only              → spaceType "living"
+  Store + laundry tub               → spaceType "laundry"
+  Retreat + spa bath only           → Retreat spaceType "living" + Bath Zone spaceType "wet_area"
 
 ════ ROOM SPLITTING RULE ════
 Some architectural spaces contain multiple ventilation zones.
@@ -948,25 +1018,25 @@ If a room contains a clearly identifiable wet area that would normally be classi
 to the main room — do NOT classify the entire room using a single ventilation classification.
 
 Instead:
-  1. Create the primary room entry using the dominant room function.
-  2. Create a separate secondary zone entry for the wet area.
-  3. Set containsSecondaryExtractZone = true on the primary room entry.
-  4. Set "parentRoom" on the secondary zone entry to the primary room's name.
-  5. Add a warning describing the split.
+  1. Create the primary room entry using the dominant room function and its spaceType.
+  2. Create a separate secondary zone entry for the wet area with the correct spaceType.
+  3. Set "parentRoom" on the secondary zone entry to the primary room's name.
+  4. Add a warning describing the split.
+  (The server automatically derives containsSecondaryExtractZone from these parentRoom links.)
 
 Examples:
-  Bedroom + freestanding bath       → Bedroom (supply, containsSecondaryExtractZone true)
-                                       Bath Zone (extract, parentRoom "Bedroom")
-  Bedroom + ensuite                 → Bedroom (supply, containsSecondaryExtractZone true)
-                                       Ensuite (extract, parentRoom "Bedroom")
-  Gym + shower                      → Gym (extract — elevated CO₂/moisture load)
-                                       Shower Zone (extract, parentRoom "Gym")
-  Retreat + wet bar                 → Retreat (supply, containsSecondaryExtractZone true)
-                                       Wet Bar Zone (extract, parentRoom "Retreat")
-  Studio + kitchenette              → Studio (supply, containsSecondaryExtractZone true)
-                                       Kitchenette Zone (extract, parentRoom "Studio")
-  Living / Kitchen open-plan        → Living (supply)
-                                       Kitchen Zone (extract, parentRoom "Living")
+  Bedroom + freestanding bath       → Bedroom (spaceType "bedroom", parentRoom null)
+                                       Bath Zone (spaceType "wet_area", parentRoom "Bedroom")
+  Bedroom + ensuite                 → Bedroom (spaceType "bedroom", parentRoom null)
+                                       Ensuite (spaceType "wet_area", parentRoom "Bedroom")
+  Gym + shower                      → Gym (spaceType "gym", parentRoom null)
+                                       Shower Zone (spaceType "wet_area", parentRoom "Gym")
+  Retreat + wet bar                 → Retreat (spaceType "living", parentRoom null)
+                                       Wet Bar Zone (spaceType "kitchenette", parentRoom "Retreat")
+  Studio + kitchenette              → Studio (spaceType "living", parentRoom null)
+                                       Kitchenette Zone (spaceType "kitchenette", parentRoom "Studio")
+  Living / Kitchen open-plan        → Living (spaceType "living", parentRoom null)
+                                       Kitchen Zone (spaceType "kitchen", parentRoom "Living")
 
 NEVER convert an entire habitable room to extract simply because a smaller wet area exists within it.
 The primary room's classification must reflect its dominant occupancy function.
@@ -978,32 +1048,32 @@ Large open-plan spaces frequently contain multiple ventilation zones with differ
 
 Examples:
   Living / Dining / Kitchen
-    → Living Room    = supply zone
-    → Dining         = supply zone
-    → Kitchen        = extract zone
+    → Living Room    (spaceType "living",   parentRoom null)
+    → Dining         (spaceType "dining",   parentRoom "Living / Dining / Kitchen")
+    → Kitchen        (spaceType "kitchen",  parentRoom "Living / Dining / Kitchen")
 
   Living / Dining / Kitchen / Scullery
-    → Living Room    = supply zone
-    → Dining         = supply zone
-    → Kitchen        = extract zone
-    → Scullery       = extract zone
+    → Living Room    (spaceType "living",   parentRoom null)
+    → Dining         (spaceType "dining",   parentRoom "Living / Dining / Kitchen / Scullery")
+    → Kitchen        (spaceType "kitchen",  parentRoom "Living / Dining / Kitchen / Scullery")
+    → Scullery       (spaceType "kitchen",  parentRoom "Living / Dining / Kitchen / Scullery")
 
   Master Suite
-    → Bedroom        = supply zone
-    → Ensuite        = extract zone
-    → WIR            = transfer zone
+    → Bedroom        (spaceType "bedroom",  parentRoom null)
+    → Ensuite        (spaceType "wet_area", parentRoom "Master Bedroom")
+    → WIR            (spaceType "robe",     parentRoom "Master Bedroom")
 
   Gym + Shower
-    → Gym            = supply zone (CO₂/moisture load — see also Gym rule)
-    → Shower Zone    = extract zone
+    → Gym            (spaceType "gym",      parentRoom null)
+    → Shower Zone    (spaceType "wet_area", parentRoom "Gym")
 
   Retreat + Wet Bar
-    → Retreat        = supply zone
-    → Wet Bar Zone   = extract zone
+    → Retreat        (spaceType "living",      parentRoom null)
+    → Wet Bar Zone   (spaceType "kitchenette", parentRoom "Retreat")
 
   Studio + Kitchenette
-    → Studio         = supply zone
-    → Kitchenette    = extract zone
+    → Studio         (spaceType "living",      parentRoom null)
+    → Kitchenette    (spaceType "kitchenette", parentRoom "Studio")
 
 When a single architectural space contains areas that would normally receive different classifications:
   1. Split the space into airflow zones.
@@ -1023,11 +1093,11 @@ When determining ventilation classification, apply in this order:
   4. Room label         (lowest priority — use only when nothing else is visible)
 
 Visible fixtures always override room labels:
-  Room labelled "Studio"         + sink          → extract zone
-  Room labelled "Multi-Use Room" + shower        → extract zone
-  Room labelled "Retreat"        + kitchenette   → extract zone
-  Room labelled "Bedroom"        + bath only     → supply zone + secondary extract zone
-  Room labelled "Living"         + kitchen bench → split: living = supply, kitchen = extract
+  Room labelled "Studio"         + sink          → spaceType "kitchenette" (not "living")
+  Room labelled "Multi-Use Room" + shower        → spaceType "wet_area"
+  Room labelled "Retreat"        + kitchenette   → spaceType "kitchenette"
+  Room labelled "Bedroom"        + bath only     → spaceType "bedroom", split bath zone as "wet_area"
+  Room labelled "Living"         + kitchen bench → split: living "living", kitchen zone "kitchen"
 
 The objective is to identify the airflow zones that will ultimately receive MVHR terminals.
 Every zone should represent a distinct airflow destination, not simply a room name.
@@ -1035,48 +1105,23 @@ Every zone should represent a distinct airflow destination, not simply a room na
 ════ ZONE OUTPUT FORMAT ════
 Each zone is a room entry in the rooms[] array.
 Secondary zones created by splitting must set "parentRoom" to the architectural room name.
-Set "terminalPriority" per the TERMINAL PRIORITY RULE above.
 
 Example output for open-plan Living / Dining / Kitchen:
-  { "name": "Living Room", "classification": "supply",  "parentRoom": null,                       "terminalPriority": "high" }
-  { "name": "Dining",      "classification": "supply",  "parentRoom": "Living / Dining / Kitchen", "terminalPriority": "high" }
-  { "name": "Kitchen",     "classification": "extract", "parentRoom": "Living / Dining / Kitchen", "terminalPriority": "high" }
+  { "name": "Living Room", "classification": "supply",  "parentRoom": null }
+  { "name": "Dining",      "classification": "supply",  "parentRoom": "Living / Dining / Kitchen" }
+  { "name": "Kitchen",     "classification": "extract", "parentRoom": "Living / Dining / Kitchen" }
 
 Example output for Master Suite:
-  { "name": "Master Bedroom",           "classification": "supply",  "parentRoom": null,             "terminalPriority": "high", "containsSecondaryExtractZone": true }
-  { "name": "Master Bedroom - Ensuite", "classification": "extract", "parentRoom": "Master Bedroom", "terminalPriority": "high" }
+  { "name": "Master Bedroom",           "classification": "supply",  "parentRoom": null,             "containsSecondaryExtractZone": true }
+  { "name": "Master Bedroom - Ensuite", "classification": "extract", "parentRoom": "Master Bedroom" }
 
 Example output for Pantry adjacent to Kitchen:
-  { "name": "Kitchen", "classification": "extract", "parentRoom": null,      "terminalPriority": "high" }
-  { "name": "Pantry",  "classification": "extract", "parentRoom": "Kitchen", "terminalPriority": "low"  }
+  { "name": "Kitchen", "classification": "extract", "parentRoom": null }
+  { "name": "Pantry",  "classification": "extract", "parentRoom": "Kitchen" }
 
 Do NOT create separate zones for:
   Hallways  Corridors  Small cupboards  Joinery  Storage recesses
 unless they independently require a ventilation terminal.
-
-════ TERMINAL PRIORITY RULE ════
-Not all airflow zones require their own MVHR terminal.
-For every zone, assign a "terminalPriority" value reflecting normal MVHR design practice —
-not project-specific decisions, which are made at the sizing stage.
-
-HIGH — normally requires its own dedicated terminal:
-  Bedroom  Master Bedroom  Living Room  Lounge  Dining Room  Family Room
-  Kitchen  Bathroom  Ensuite  WC  Powder Room  Toilet  Laundry
-
-MEDIUM — often has its own terminal but may share airflow with an adjacent zone:
-  Gym  Home Office  Study  Multi-Use Room  Retreat  Activity Room  Studio  Rumpus  Media Room
-
-LOW — terminal optional; used for balancing or project-specific reasons:
-  Pantry  Scullery  Walk-in Pantry  Butler's Pantry
-  Walk-in Robe (WIR)  Dressing Room  Internal Store
-
-NONE — normally no terminal:
-  Hallway  Corridor  Entry  Foyer  Stair  Landing
-  Mudroom  Porch  Small Cupboard  Joinery  Plant Room  Garage  Outdoor areas
-
-terminalPriority reflects whether a zone would typically receive a terminal in a standard
-MVHR design. It does NOT mean a terminal is mandatory — the sizing engine will decide that
-based on airflow balance, room volume and project requirements.
 
 ════ SPACE TYPE RULE ════
 For every airflow zone, assign a "spaceType" that represents the functional use of the zone.
@@ -1107,45 +1152,6 @@ Notes:
   • A Retreat or Rumpus without wet fixtures → "living"
   • A Studio with a sink → spaceType "kitchen" (or "wet_area" if sink only), classification = extract
   • Mudroom without laundry fixtures → "circulation"
-
-════ AIRFLOW DRIVER RULE ════
-For every airflow zone assign an "airflowDriver".
-The airflowDriver identifies which sizing methodology applies at the calculation stage.
-
-  "occupancy"      — habitable rooms where airflow is primarily driven by occupants:
-                     Bedroom  Master Bedroom  Guest Bedroom  Living Room  Lounge  Family Room
-                     Retreat  Home Office  Study  Library  Multi-Use Room  Activity Room  Studio
-                     Gym  Rumpus  Media Room  Playroom  Sunroom
-
-  "area"           — larger habitable spaces where floor area influences the airflow rate:
-                     Open-Plan Living  Dining Room  Meals  Dining  Large Family Room
-                     (Use "area" instead of "occupancy" when the space is open-plan or > ~40 m²)
-
-  "fixed_extract"  — wet rooms and service areas where extract rates are typically prescribed:
-                     Kitchen  Scullery  Butler's Pantry  Pantry
-                     Kitchenette (habitable room with sink + cabinetry)
-                     Bathroom  Ensuite  WC  Powder Room  Toilet
-                     Laundry  Mudroom (wet)  Utility Room (wet)
-
-  "transfer"       — circulation spaces that move air between supply and extract zones:
-                     Hallway  Corridor  Passage  Entry  Foyer  Stair  Landing  Lobby
-
-  "optional"       — spaces that may receive airflow for balancing but are not compliance-required:
-                     Walk-in Robe (WIR)  Dressing Room  Internal Store  Cupboard  Plant Room
-
-Examples:
-  Bedroom         → "occupancy"
-  Living Room     → "occupancy"
-  Open-Plan Living/Dining (> 40 m²) → "area"
-  Dining Room     → "area"
-  Kitchen         → "fixed_extract"
-  Ensuite         → "fixed_extract"
-  WC              → "fixed_extract"
-  Laundry         → "fixed_extract"
-  Pantry          → "fixed_extract"
-  Hallway         → "transfer"
-  Walk-in Robe    → "optional"
-  Internal Store  → "optional"
 
 ════ BED SPACE DETECTION RULE ════
 This is NOT a ventilation classification task.
@@ -1185,74 +1191,120 @@ Only estimate available sleeping capacity.
 Do NOT output an occupancySummary object — the server recalculates it from room bedSpaces.
 
 ════ ZONE-WITHIN-ZONE ════
-Some rooms contain two ventilation functions. Preserve the primary classification and set
-"containsSecondaryExtractZone": true so Stage 2 can allocate a secondary extract terminal.
+Some rooms contain two ventilation functions. Create split zone entries using parentRoom.
+The server derives containsSecondaryExtractZone automatically from the parentRoom links.
 
 BEDROOM WITH BATH (no shower or toilet present):
-  → classification = "supply"
-  → containsSecondaryExtractZone = true
+  → Keep bedroom as spaceType "bedroom" (primary zone, parentRoom null)
+  → Create a secondary zone: spaceType "wet_area", parentRoom = bedroom name
   Rationale: a freestanding bath, spa bath or soaking tub does not produce sustained moisture
-  the way a shower or toilet does. The room's primary function remains habitable supply.
+  the way a shower or toilet does. The bedroom's primary function remains habitable.
   Examples:
-    Bedroom + freestanding bath only → supply + containsSecondaryExtractZone true
-    Master Suite + bath              → supply + containsSecondaryExtractZone true
-    Retreat + spa bath               → supply + containsSecondaryExtractZone true
+    Bedroom + freestanding bath only → Bedroom ("bedroom") + Bath Zone ("wet_area", parentRoom)
+    Master Suite + bath              → Master Suite ("bedroom") + Bath Zone ("wet_area", parentRoom)
+    Retreat + spa bath               → Retreat ("living") + Spa Zone ("wet_area", parentRoom)
 
 BEDROOM WITH BATH + SHOWER OR TOILET:
-  → classification = "extract"  (wet fixture takes priority)
+  → The entire space becomes spaceType "wet_area" (wet fixture takes priority)
   Examples:
-    Bedroom + bath + shower  → extract
-    Bedroom + bath + toilet  → extract
+    Bedroom + bath + shower  → spaceType "wet_area"
+    Bedroom + bath + toilet  → spaceType "wet_area"
 
 BEDROOM WITH OPEN ENSUITE (no physical door):
-  → classification = "supply"
-  → containsSecondaryExtractZone = true
+  → Keep bedroom as spaceType "bedroom" (primary zone)
+  → Create ensuite as spaceType "wet_area" with parentRoom = bedroom name
   The intended air path is supply → bedroom → ensuite → extract.
 
 ════ CONFIDENCE ════
-0.95+ = clear  |  0.85–0.95 = likely  |  0.70–0.85 = inferred  |  < 0.70 = uncertain
+Confidence represents uncertainty in room identification — not boundary approximation.
+  Clearly labelled Bedroom / Kitchen / Bathroom → 0.90–0.98
+  Room labelled MPR / Activity / Flex          → 0.60–0.80
+  Unlabelled room inferred from context        → 0.50–0.75
+Do NOT reduce confidence because room dimensions are estimated or boundaries are approximate.
+
+════ OUTPUT CONSTRAINTS ════
+The objective is to extract room data, not to explain every decision.
+Room objects are the primary output. warnings[], assumptions[], reviewCandidates[] are
+secondary and must only be created when genuinely necessary.
+
+DO NOT EXPLAIN OBVIOUS SPACE TYPES.
+Do not create warnings, assumptions or reviewCandidates for any of the following — these
+are normal outcomes and require no explanation:
+  Kitchen with sink · Bathroom with toilet/shower/bath · Laundry with tub
+  Bedroom with clear label · Living room with no wet fixtures · Dining room
+  Garage · Patio · Balcony · Hallway · Stair · Walk-in Robe · Store room
+
+When a room's spaceType is clear: set it and return the room. Do not explain.
+The shortest correct output is preferred.
+
+WARNINGS — maximum 5. Only for:
+  • Unreadable or missing room labels
+  • Ambiguous function that could not be resolved
+  • Plan inconsistency (e.g. duplicate rooms, impossible area)
+  • Fixture partially visible where classification may be affected
+  BAD: "Kitchen reclassified as extract — sink detected."
+  GOOD: "Room labelled 'MPR' — function could not be determined at this scale."
+
+ASSUMPTIONS — maximum 5. Expected per house: 0–2.
+  Only when the decision is non-obvious AND not visible in ventilationClassification,
+  spaceType, or fixtures[].
+  BAD: "Bed 2 classified as supply." GOOD: "Study assumed non-bedroom."
+
+REVIEW CANDIDATES — maximum 3. Expected per house: 0–1.
+  Only when ALL apply: confidence < 0.80 AND uncertainty materially affects occupancy
+  or ventilation design AND room is not a standard room type.
+  Do not create reviewCandidates because a room could theoretically contain fixtures.
+  Avoid speculative reviews.
+  BAD: "Living room may contain a kitchenette."
+  GOOD: "Room labelled MPR could function as either a bedroom or media room."
+
+DUPLICATE CHECK — before returning:
+  • No duplicate Living rooms, Kitchens, Bathrooms, or Hallways unless physically separate
+  • No duplicate reviewCandidates for the same room
 
 ════ RESPONSE FORMAT ════
 Return ONLY valid JSON. No markdown. No prose.
 
+Room fields: name · spaceType · area · confidence · fixtures · parentRoom · bedSpaces · potentialBedSpaces
+Do NOT output: classification · ventilationClassification · containsSecondaryExtractZone · requiresManualReview
+The server derives all classification, priority, and review fields from spaceType and fixtures.
+
 {
   "rooms": [
-    { "name": "Master Bedroom", "classification": "supply",
-      "spaceType": "bedroom", "airflowDriver": "occupancy",
-      "area": 19.2, "confidence": 0.94, "terminalPriority": "high",
-      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null,
+    { "name": "Master Bedroom",
+      "spaceType": "bedroom", "area": 19.2, "confidence": 0.94,
+      "fixtures": [], "parentRoom": null,
       "bedSpaces": 2, "potentialBedSpaces": 0 },
-    { "name": "Bedroom 2", "classification": "supply",
-      "spaceType": "bedroom", "airflowDriver": "occupancy",
-      "area": 11.4, "confidence": 0.97, "terminalPriority": "high",
-      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null,
+    { "name": "Bedroom 2",
+      "spaceType": "bedroom", "area": 11.4, "confidence": 0.97,
+      "fixtures": [], "parentRoom": null,
       "bedSpaces": 1, "potentialBedSpaces": 0 },
-    { "name": "Kitchen", "classification": "extract",
-      "spaceType": "kitchen", "airflowDriver": "fixed_extract",
-      "area": 16.4, "confidence": 0.97, "terminalPriority": "high",
-      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Multi-Use Room", "classification": "extract",
-      "spaceType": "kitchenette", "airflowDriver": "fixed_extract",
-      "area": 12.0, "confidence": 0.85, "terminalPriority": "medium",
-      "fixtures": ["sink"], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Rumpus Room", "classification": "supply",
-      "spaceType": "living", "airflowDriver": "occupancy",
-      "area": 22.0, "confidence": 0.95, "terminalPriority": "high",
-      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Walk-in Robe", "classification": "transfer",
-      "spaceType": "robe", "airflowDriver": "optional",
-      "area": 5.5, "confidence": 0.92, "terminalPriority": "low",
-      "fixtures": [], "containsSecondaryExtractZone": false, "parentRoom": null },
-    { "name": "Master Bedroom", "classification": "supply",
-      "spaceType": "bedroom", "airflowDriver": "occupancy",
-      "area": 22.0, "confidence": 0.93, "terminalPriority": "high",
-      "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": true, "parentRoom": null },
-    { "name": "Master Bedroom - Bath Zone", "classification": "extract",
-      "spaceType": "wet_area", "airflowDriver": "fixed_extract",
-      "area": 4.0, "confidence": 0.88, "terminalPriority": "high",
-      "fixtures": ["freestanding bath"], "containsSecondaryExtractZone": false, "parentRoom": "Master Bedroom" }
+    { "name": "Kitchen",
+      "spaceType": "kitchen", "area": 16.4, "confidence": 0.97,
+      "fixtures": ["sink", "dishwasher"], "parentRoom": null,
+      "bedSpaces": 0, "potentialBedSpaces": 0 },
+    { "name": "Multi-Use Room",
+      "spaceType": "kitchenette", "area": 12.0, "confidence": 0.72,
+      "fixtures": ["sink"], "parentRoom": null,
+      "bedSpaces": 0, "potentialBedSpaces": 0 },
+    { "name": "Rumpus Room",
+      "spaceType": "living", "area": 22.0, "confidence": 0.95,
+      "fixtures": [], "parentRoom": null,
+      "bedSpaces": 0, "potentialBedSpaces": 0 },
+    { "name": "Walk-in Robe",
+      "spaceType": "robe", "area": 5.5, "confidence": 0.92,
+      "fixtures": [], "parentRoom": null,
+      "bedSpaces": 0, "potentialBedSpaces": 0 },
+    { "name": "Master Suite",
+      "spaceType": "bedroom", "area": 22.0, "confidence": 0.93,
+      "fixtures": ["freestanding bath"], "parentRoom": null,
+      "bedSpaces": 2, "potentialBedSpaces": 0 },
+    { "name": "Master Suite - Bath Zone",
+      "spaceType": "wet_area", "area": 4.0, "confidence": 0.88,
+      "fixtures": ["freestanding bath"], "parentRoom": "Master Suite",
+      "bedSpaces": 0, "potentialBedSpaces": 0 }
   ],
-  "warnings": ["Master Bedroom split: primary room supply, bath zone created as secondary extract."],
+  "warnings": ["Master Suite split: bedroom primary, bath zone added as secondary zone."],
   "assumptions": ["Multi-Use Room appears suitable for future bedroom conversion."]
 }`;
 
@@ -1261,53 +1313,58 @@ Return ONLY valid JSON. No markdown. No prose.
 // Same schema as Stage 1 but explicitly named as recovery to reduce cognitive overlap.
 const ROOM_RECOVERY_PROMPT = `You are reading an architectural floor plan.
 Stage 1 analysis returned no rooms. Your job is to recover the room schedule.
-Apply the same MVHR classification rules as Stage 1.
 
 Read every visible room label. Use it as the "name" field (title case).
 Do not return joinery, BIR, CPD, linen or shelf outlines as rooms.
 Estimate area (m²) if visible. Use confidence 0.5 for uncertain rooms.
-Rooms labelled with a person's name (PAUL, JAN, JANE etc.) are bedrooms — classify as supply.
+Rooms labelled with a person's name (PAUL, JAN, JANE etc.) are bedrooms — spaceType "bedroom".
 
-CLASSIFICATION:
-  supply   — bedroom, living, dining, study, rumpus, family, theatre, media, retreat, lounge,
-             activity, multi-use, multi-purpose, office, library, playroom, sunroom
-  extract  — kitchen, scullery, butler's pantry, pantry, bathroom, ensuite, WC, powder,
-             toilet, laundry, mudroom, utility, gym
-  transfer — entry, hall, hallway, passage, corridor, lobby, landing, stair
-  ignore   — garage, carport, alfresco, verandah, porch, deck, outdoor areas,
-             plant room, electrical room, HRV/MVHR cupboard, HWS, bin store
-  WIR      — transfer (set optionalSupply true if ≥ 4 m²)
-  Store    — transfer + optionalExtract true (ignore if < 2 m²)
+SPACE TYPE ASSIGNMENT:
+  "bedroom"     — bedroom, master, guest, nursery, personal room
+  "living"      — living, lounge, family, rumpus, theatre, media, retreat, activity, multi-use
+  "dining"      — dining, meals
+  "kitchen"     — kitchen, scullery, butler's pantry, pantry
+  "wet_area"    — bathroom, ensuite, WC, powder, toilet
+  "laundry"     — laundry, mudroom (with fixtures), utility (with fixtures)
+  "office"      — study, office, library
+  "gym"         — gym, exercise
+  "robe"        — WIR, walk-in robe, dressing room
+  "circulation" — entry, hall, hallway, passage, corridor, lobby, landing, stair
+  "service"     — garage, carport, alfresco, verandah, porch, deck, outdoor areas,
+                   plant room, electrical, HRV/MVHR, HWS, bin store
+  "other"       — anything else
 
-AMBIGUOUS ROOM INSPECTION — inspect every wall before classifying:
+AMBIGUOUS ROOM INSPECTION — inspect every wall before assigning spaceType:
   Multi-Use  Multi-Purpose  MPR  Activity  Retreat  Rumpus  Games  Studio  Gym  Cellar  Bar
   Office  Study  Workshop  Utility  Craft  Hobby  Theatre  Media  Flex  Sunroom
   For each: check every wall for sink, basin, vanity, shower, toilet, laundry tub, kitchenette.
-  Tile hatching, benchtop runs with cutouts, and plumbing symbols count as fixture evidence.
+  If wet fixtures found → spaceType "kitchenette" or "wet_area" depending on fixture type.
   If fixture presence is uncertain, include it in fixtures[] (missing = worse than false positive).
-  Add a note in assumptions[] for each ambiguous room you inspect.
 
 FIXTURE INSPECTION — do NOT rely on room labels for plumbing:
 Inspect every room interior for drawn symbols against walls.
-Wet fixtures → add to fixtures[] AND set classification "extract":
+Wet fixtures → add to fixtures[] (server classifies accordingly):
   sink  basin  vanity  toilet  wc  urinal  shower  laundry tub  utility sink  trough  kitchenette
-Dry fixtures → add to fixtures[] only, do NOT change classification:
+Dry fixtures → add to fixtures[] for information only:
   oven  cooktop  fridge  dishwasher
-Moisture fixtures → add to fixtures[], only trigger extract if shower or toilet also present:
+Moisture fixtures → add to fixtures[]:
   bath  freestanding bath  spa  sauna
 
-If a bedroom has an open ensuite zone, set "containsSecondaryExtractZone": true.
+If a room is a split zone (e.g. ensuite within a master suite), set parentRoom to the primary room name.
 
 Return ONLY valid JSON. No markdown. No prose.
+Do NOT output: classification · containsSecondaryExtractZone · requiresManualReview
 
 {
   "rooms": [
-    { "name": "Master Bedroom", "classification": "supply",
-      "area": 18.0, "confidence": 0.8,
-      "fixtures": [], "containsSecondaryExtractZone": false },
-    { "name": "Kitchen", "classification": "extract",
-      "area": 14.0, "confidence": 0.9,
-      "fixtures": ["sink", "dishwasher"], "containsSecondaryExtractZone": false }
+    { "name": "Master Bedroom",
+      "spaceType": "bedroom", "area": 18.0, "confidence": 0.8,
+      "fixtures": [], "parentRoom": null,
+      "bedSpaces": 2, "potentialBedSpaces": 0 },
+    { "name": "Kitchen",
+      "spaceType": "kitchen", "area": 14.0, "confidence": 0.9,
+      "fixtures": ["sink", "dishwasher"], "parentRoom": null,
+      "bedSpaces": 0, "potentialBedSpaces": 0 }
   ],
   "warnings": [],
   "assumptions": []
@@ -1692,9 +1749,11 @@ export default async function handler(req, res) {
   let totalOutputTokens = outputTokens;
 
   // ── Stage 1 post-processing ───────────────────────────────────
-  // Apply architectural cleanup before deciding whether rooms were found.
+  // Apply architectural cleanup then derive relational fields (containsSecondaryExtractZone).
   const stage1RawCount = supply.length + extract.length + transfer.length + ignore.length;
-  const stage1Cleaned  = postProcessRooms([...supply, ...extract, ...transfer, ...ignore], warnings);
+  const stage1Cleaned  = deriveRelationalFields(
+    postProcessRooms([...supply, ...extract, ...transfer, ...ignore], warnings)
+  );
   const stage1RoomCount = stage1Cleaned.length; // post-filter count (debug field)
 
   let finalSupply   = stage1Cleaned.filter(r => r.ventilationClassification === 'supply');
@@ -1855,8 +1914,8 @@ If still uncertain:
       if (stage2Parsed) {
         const raw2 = Array.isArray(stage2Parsed.rooms) ? stage2Parsed.rooms : [];
         const validated2 = raw2.map(r => validateRoom(r, floorIndex)).filter(Boolean);
-        // Apply same architectural cleanup to Stage 2 results
-        stage2Rooms = postProcessRooms(validated2, warnings);
+        // Apply same architectural cleanup + relational derivation to Stage 2 results
+        stage2Rooms = deriveRelationalFields(postProcessRooms(validated2, warnings));
         stage2RoomCount = stage2Rooms.length;
       }
     } catch (e) {
@@ -1904,10 +1963,14 @@ If still uncertain:
             updatedRoom.ventilationClassification = 'extract';
             if (!EXTRACT_TYPES.has(updatedRoom.roomType)) updatedRoom.roomType = 'Other';
             updatedRoom.classificationReason = `Stage 3 re-inspection: ${newWetFixture} detected — reclassified as extract.`;
-            warnings.push(`"${room.name}" reclassified as extract after Stage 3 fixture review — ${newWetFixture} detected.`);
+            // Only warn on unexpected reclassification (e.g. a labelled bedroom)
+            if (/\bbed\b|\bmaster\b|\bstudy\b|\boffice\b/i.test(room.name)) {
+              warnings.push(`"${room.name}" reclassified as extract after Stage 3 — ${newWetFixture} detected.`);
+            }
           }
-          if (update.reviewNote) {
-            assumptions.push(`Stage 3 review — "${room.name}": ${update.reviewNote}`);
+          // Only add assumption if Stage 3 changed something worth noting
+          if (update.reviewNote && (newWetFixture || update.requiresManualReview)) {
+            assumptions.push(`Stage 3: "${room.name}" — ${update.reviewNote}`);
           }
           return updatedRoom;
         });
@@ -1925,6 +1988,14 @@ If still uncertain:
           finalIgnore   = finalIgnore.filter(r   => r.ventilationClassification !== 'extract');
           finalExtract  = [...finalExtract, ...reclassified];
         }
+
+        // Re-derive containsSecondaryExtractZone after Stage 3 may have changed classifications
+        const allStage3 = [...finalSupply, ...finalExtract, ...finalTransfer, ...finalIgnore];
+        const withRelational = deriveRelationalFields(allStage3);
+        finalSupply   = withRelational.filter(r => r.ventilationClassification === 'supply');
+        finalExtract  = withRelational.filter(r => r.ventilationClassification === 'extract');
+        finalTransfer = withRelational.filter(r => r.ventilationClassification === 'transfer');
+        finalIgnore   = withRelational.filter(r => r.ventilationClassification === 'ignore');
       }
     }
   }
@@ -1995,18 +2066,28 @@ If still uncertain:
   };
 
   // Merge server-side flagged rooms into reviewCandidates so the array is always complete.
-  // Rooms flagged by rule 0 (postProcessRooms) that aren't already in the AI's list are added.
+  // Only add rooms where requiresManualReview is still true after Stage 3 re-inspection.
   const allFinalForReview = [...finalSupply, ...finalExtract, ...finalTransfer, ...finalIgnore];
   const existingCandidateNames = new Set(reviewCandidates.map(c => c.room));
   for (const room of allFinalForReview) {
     if (room.requiresManualReview && !existingCandidateNames.has(room.name)) {
       reviewCandidates.push({
         room:             room.name,
-        reason:           'Ambiguous room type with no fixtures detected — flagged by server-side rule.',
+        reason:           'Ambiguous room type — fixture presence uncertain after inspection.',
         roomBoundaryHint: '',
       });
     }
   }
+
+  // ── Enforce output caps ───────────────────────────────────────
+  // Truncate to the maximums specified in the prompt. Any genuine outliers that
+  // exceeded the cap would already have been de-duped by the prompt rules.
+  const MAX_WARNINGS          = 5;
+  const MAX_ASSUMPTIONS       = 5;
+  const MAX_REVIEW_CANDIDATES = 3;
+  if (warnings.length          > MAX_WARNINGS)          warnings.splice(MAX_WARNINGS);
+  if (assumptions.length       > MAX_ASSUMPTIONS)       assumptions.splice(MAX_ASSUMPTIONS);
+  if (reviewCandidates.length  > MAX_REVIEW_CANDIDATES) reviewCandidates.splice(MAX_REVIEW_CANDIDATES);
 
   const analysisJson = {
     // Rooms are nested under "rooms" so job-status can read parsed_rooms.rooms.supply etc.
