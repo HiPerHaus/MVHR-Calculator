@@ -232,7 +232,9 @@ function deriveVentilationOverride(spaceType, fixtures) {
 }
 
 // Optional supply/extract flags — derived from spaceType + area, never from AI.
+// Ignore rooms must never carry optional flags — they are outside MVHR scope entirely.
 function deriveOptionalFlags(spaceType, area, ventClass) {
+  if (ventClass === 'ignore') return { optionalSupply: false, optionalExtract: false };
   const a = area || 0;
   return {
     optionalSupply:  spaceType === 'robe' && a >= 4,
@@ -435,6 +437,7 @@ const JOINERY_PATTERNS = [
 const IGNORE_LABEL_PATTERNS = [
   /\bverandah\b/i, /\bveranda\b/i,
   /\bporch\b/i,
+  /\bpatio\b/i,
   /\balfresco\b/i,
   /\bgarage\b/i,
   /\bcarport\b/i,
@@ -507,7 +510,7 @@ const KNOWN_ROOM_WORDS = new Set([
   'bedroom','master','living','dining','meals','kitchen','bathroom','bath','ensuite',
   'laundry','hallway','hall','passage','entry','corridor','foyer','lobby','study','office',
   'rumpus','pantry','wc','toilet','powder','wir','robe','garage','porch','carport',
-  'alfresco','verandah','veranda','store','other','lounge','family','theatre','media',
+  'alfresco','verandah','veranda','patio','store','other','lounge','family','theatre','media',
   'activity','games','gym','cellar','bar','studio','landing','stair','stairs',
   'utility','balcony','deck','courtyard','jan','scullery','butler','mudroom','library',
   'playroom','retreat','sitting','sunroom','kitchen','kitchenette',
@@ -729,14 +732,28 @@ function postProcessRooms(rooms, warnings) {
     }
 
     // ── 12. Person-name heuristic ─────────────────────────────
+    // Skipped for service spaceTypes — these are never habitable rooms.
     const isPersonName = /^[A-Z][a-z]{2,}$/.test(name) && !KNOWN_ROOM_WORDS.has(nameLo);
-    if (isPersonName && room.ventilationClassification !== 'supply') {
+    if (isPersonName && room.ventilationClassification !== 'supply' && room.spaceType !== 'service') {
       room.ventilationClassification = 'supply';
       if (!SUPPLY_TYPES.has(room.roomType)) room.roomType = 'Other';
       warnings.push(`"${name}" interpreted as a habitable room (personal label) — classified as supply.`);
     }
 
     out.push(room);
+  }
+
+  // ── Final sweep: hard-clear optional flags on all ignore rooms ───────────
+  // Ensures service/outdoor spaces (Garage, Alfresco, Balcony, Patio etc.) are
+  // never presented as optional ventilation locations in the UI, regardless of
+  // how they were derived or which rule path they followed.
+  for (const room of out) {
+    if (room.ventilationClassification === 'ignore') {
+      room.optionalSupply      = false;
+      room.optionalExtract     = false;
+      room.terminalPriority    = 'none';
+      room.requiresManualReview = false;
+    }
   }
 
   return out;

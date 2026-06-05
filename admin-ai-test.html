@@ -864,7 +864,7 @@ async function pollJobStatus() {
       if (data.analysisResults?.length) {
         const allRooms = { supply: [], extract: [], transfer: [], ignore: [] };
         const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
-        let occupancySummary = null;
+        let occTotalBedSpaces = 0, occTotalPotential = 0;
         const pageResults = [];
         for (const r of data.analysisResults) {
           for (const key of ['supply', 'extract', 'transfer', 'ignore']) {
@@ -873,9 +873,18 @@ async function pollJobStatus() {
           allWarnings.push(...(r.warnings ?? []));
           allAssumptions.push(...(r.assumptions ?? []));
           allReviewCandidates.push(...(r.reviewCandidates ?? []));
-          if (r.occupancySummary) occupancySummary = r.occupancySummary;
+          // Sum occupancy across all floors — do NOT overwrite with last floor's value.
+          if (r.occupancySummary) {
+            occTotalBedSpaces += r.occupancySummary.totalBedSpaces ?? r.occupancySummary.suggestedOccupancy ?? 0;
+            occTotalPotential += r.occupancySummary.potentialAdditionalBedSpaces ?? 0;
+          }
           pageResults.push({ floorName: r.floorName, data: r });
         }
+        const occupancySummary = occTotalBedSpaces > 0 ? {
+          suggestedOccupancy:           occTotalBedSpaces,
+          totalBedSpaces:               occTotalBedSpaces,
+          potentialAdditionalBedSpaces: occTotalPotential,
+        } : null;
         // Aggregate per-floor metadata for the summary cards.
         // Token counts and model are summed/taken from the first floor result.
         const firstFloor = data.analysisResults[0] ?? {};
@@ -1062,7 +1071,7 @@ async function confirmPages() {
     const allRooms = { supply: [], extract: [], transfer: [], ignore: [] };
     const allWarnings = [];
     let   allAssumptions = [];
-    let   occupancySummary = null;
+    let   occTotalBedSpaces2 = 0, occTotalPotential2 = 0;
     let   reviewCandidates = [];
     const pageResults = [];
 
@@ -1095,7 +1104,11 @@ async function confirmPages() {
       }
       allWarnings.push(...(pageData.warnings ?? []));
       allAssumptions = [...allAssumptions, ...(pageData.assumptions ?? [])];
-      if (pageData.occupancySummary) occupancySummary = pageData.occupancySummary;
+      // Sum occupancy — do NOT overwrite with last floor's value.
+      if (pageData.occupancySummary) {
+        occTotalBedSpaces2 += pageData.occupancySummary.totalBedSpaces ?? pageData.occupancySummary.suggestedOccupancy ?? 0;
+        occTotalPotential2 += pageData.occupancySummary.potentialAdditionalBedSpaces ?? 0;
+      }
       reviewCandidates.push(...(pageData.reviewCandidates ?? []));
 
       pageResults.push({
@@ -1105,12 +1118,17 @@ async function confirmPages() {
     }
 
     // Build merged result
+    const occupancySummary2 = occTotalBedSpaces2 > 0 ? {
+      suggestedOccupancy:           occTotalBedSpaces2,
+      totalBedSpaces:               occTotalBedSpaces2,
+      potentialAdditionalBedSpaces: occTotalPotential2,
+    } : null;
     const merged = {
       analysisStatus:  'success',
       rooms:           allRooms,
       warnings:        allWarnings,
       assumptions:     allAssumptions,
-      occupancySummary,
+      occupancySummary: occupancySummary2,
       reviewCandidates,
       _pageResults:    pageResults,
     };
@@ -1338,11 +1356,13 @@ function renderRoomRows(rooms) {
     const fixtureList = Array.isArray(r.fixtures) && r.fixtures.length
       ? r.fixtures.map(f => `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#fef3c7;color:#92400e;margin-right:3px">${esc(f)}</span>`).join('')
       : '<span style="color:var(--muted);font-size:12px">—</span>';
-    const optExtract = r.optionalSupply
-      ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#166534;background:#dcfce7">Supply</span>'
-      : r.optionalExtract
-        ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#92400e;background:#fef3c7">Extract</span>'
-        : '<span style="color:var(--muted);font-size:12px">—</span>';
+    const optExtract = r.ventilationClassification === 'ignore'
+      ? '<span style="color:var(--muted);font-size:12px">—</span>'
+      : r.optionalSupply
+        ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#166534;background:#dcfce7">Supply</span>'
+        : r.optionalExtract
+          ? '<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;color:#92400e;background:#fef3c7">Extract</span>'
+          : '<span style="color:var(--muted);font-size:12px">—</span>';
     const reason = r.classificationReason
       ? `<span style="font-size:11px;color:var(--muted)">${esc(r.classificationReason)}</span>`
       : '<span style="color:var(--muted);font-size:12px">—</span>';
