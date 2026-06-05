@@ -777,6 +777,20 @@ Extract = moisture-producing or odour-producing rooms.
 Transfer = circulation spaces that allow air movement between supply and extract.
 Ignore = non-habitable service spaces with no dedicated ventilation.
 
+════ STEP 0: IDENTIFY THE FLOOR ════
+Read the floor or sheet title printed on this plan drawing.
+Return it as "floorName" at the TOP LEVEL of the JSON response (alongside "rooms").
+
+Common titles: GROUND FLOOR  FIRST FLOOR  SECOND FLOOR  UPPER FLOOR  LOWER GROUND  BASEMENT  MEZZANINE
+Normalise to title case: "Ground Floor"  "First Floor"  "Lower Ground"  "Basement"
+If the title includes "PLAN" (e.g. "GROUND FLOOR PLAN"), strip "Plan" → "Ground Floor".
+
+Rules:
+  • Read the title as printed — do NOT infer from page order or context.
+  • Page 1 is NOT automatically the ground floor.
+  • If the title is clearly visible: use it exactly (normalised to title case).
+  • If no title is visible: use "Unknown Floor" and add a warning.
+
 ════ STEP 1: READ EVERY ROOM LABEL ════
 Scan the entire plan. List every labelled space. Use the room name as "name" (title case).
 Do NOT return empty rooms[]. If a label is unclear, use a generic name and set confidence 0.5.
@@ -1254,12 +1268,22 @@ are normal outcomes and require no explanation:
 When a room's spaceType is clear: set it and return the room. Do not explain.
 The shortest correct output is preferred.
 
+MULTI-FLOOR PROJECTS — do NOT warn about cross-floor issues:
+This sheet may be one of several in a multi-storey project.
+NEVER generate warnings for any of the following — they cannot be assessed from a single sheet:
+  • No master bedroom visible / no Bed 1 detected
+  • Occupancy may be incomplete
+  • Master bedroom likely on another floor
+  • No double bedroom identified
+  • Low occupancy estimate
+Only warn about things that are genuinely unclear or missing ON THIS SHEET.
+
 WARNINGS — maximum 5. Only for:
   • Unreadable or missing room labels
   • Ambiguous function that could not be resolved
   • Plan inconsistency (e.g. duplicate rooms, impossible area)
-  • Fixture partially visible where classification may be affected
-  BAD: "Kitchen reclassified as extract — sink detected."
+  • Fixture partially visible where spaceType may be affected
+  BAD: "Kitchen classified as extract — sink detected."
   GOOD: "Room labelled 'MPR' — function could not be determined at this scale."
 
 ASSUMPTIONS — maximum 5. Expected per house: 0–2.
@@ -1282,11 +1306,13 @@ DUPLICATE CHECK — before returning:
 ════ RESPONSE FORMAT ════
 Return ONLY valid JSON. No markdown. No prose.
 
+Top-level fields: floorName · rooms · warnings · assumptions · reviewCandidates
 Room fields: name · spaceType · area · confidence · fixtures · parentRoom · bedSpaces · potentialBedSpaces
 Do NOT output: classification · ventilationClassification · containsSecondaryExtractZone · requiresManualReview
 The server derives all classification, priority, and review fields from spaceType and fixtures.
 
 {
+  "floorName": "First Floor",
   "rooms": [
     { "name": "Master Bedroom",
       "spaceType": "bedroom", "area": 19.2, "confidence": 0.94,
@@ -1369,10 +1395,19 @@ Moisture fixtures → add to fixtures[]:
 
 If a room is a split zone (e.g. ensuite within a master suite), set parentRoom to the primary room name.
 
+Also read the floor/sheet title printed on the plan and return it as "floorName" at the top level.
+Normalise to title case (e.g. "FIRST FLOOR PLAN" → "First Floor").
+If no title is visible: use "Unknown Floor".
+Do NOT infer floor name from page order.
+
+Do NOT generate warnings about missing master bedrooms or incomplete occupancy — this sheet
+may be one of several floors in a multi-storey project.
+
 Return ONLY valid JSON. No markdown. No prose.
 Do NOT output: classification · containsSecondaryExtractZone · requiresManualReview
 
 {
+  "floorName": "Ground Floor",
   "rooms": [
     { "name": "Master Bedroom",
       "spaceType": "bedroom", "area": 18.0, "confidence": 0.8,
@@ -1727,8 +1762,14 @@ export default async function handler(req, res) {
     }));
   }
 
-  // ── Resolve rooms — new flat format: parsed.rooms[] with classification field.
-  // validateRoom accepts both 'classification' (new) and 'ventilationClassification' (legacy).
+  // ── Detect floor name from AI output ────────────────────────────────────
+  // AI reads the sheet title printed on the plan (e.g. "FIRST FLOOR" → "First Floor").
+  // Falls back to null when parse failed; the caller can supply a label if needed.
+  const floorName = typeof parsed?.floorName === 'string' && parsed.floorName.trim()
+    ? parsed.floorName.trim()
+    : null;
+
+  // ── Resolve rooms — new flat format: parsed.rooms[] with spaceType field.
   const rawRooms  = Array.isArray(parsed?.rooms) ? parsed.rooms : [];
   const allRooms  = rawRooms.map(r => validateRoom(r, floorIndex)).filter(Boolean);
   const supply    = allRooms.filter(r => r.ventilationClassification === 'supply');
@@ -2115,6 +2156,7 @@ If still uncertain:
     analysisStatus: 'success',
     recoveryMode,
     occupancySummary,
+    floorName,            // AI-detected floor/sheet title (e.g. "First Floor", "Ground Floor")
     // Model metadata — stored so job-status can surface them in the admin UI
     modelUsed,
     stage1Model:        EXTRACTION_MODEL,
@@ -2190,6 +2232,7 @@ If still uncertain:
   return res.status(200).json({
     analysisStatus:         'success',
     recoveryMode,
+    floorName,              // AI-detected floor/sheet title from the plan drawing
     stage1RoomCount,
     stage2RoomCount,
     rooms:                  { supply: finalSupply, extract: finalExtract, transfer: finalTransfer, ignore: finalIgnore },

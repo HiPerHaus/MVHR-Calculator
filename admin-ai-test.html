@@ -893,10 +893,22 @@ async function pollJobStatus() {
         const totalCredits      = data.analysisResults.reduce((s, r) => s + (r.creditsDeducted ?? 0), 0);
         const allStage1         = data.analysisResults.reduce((s, r) => s + (r.stage1RoomCount ?? 0), 0);
 
+        // Suppress per-floor occupancy warnings that don't apply to the merged project
+        const MASTER_BED_PATTERNS = [/master/i, /\bbed(?:room)?\s*1\b/i, /primary\s+bed/i, /main\s+bed/i];
+        const hasMasterBed = [...allRooms.supply, ...allRooms.extract, ...allRooms.transfer, ...allRooms.ignore]
+          .some(r => MASTER_BED_PATTERNS.some(p => p.test(r.name)));
+        const CROSS_FLOOR_WARNING_PATTERNS = [
+          /master\s*bedroom/i, /no\s+master/i, /occupancy.*incomplete/i,
+          /another\s+floor/i, /other\s+floor/i,
+        ];
+        const filteredWarnings = hasMasterBed
+          ? allWarnings.filter(w => !CROSS_FLOOR_WARNING_PATTERNS.some(p => p.test(w)))
+          : allWarnings;
+
         const merged = {
           analysisStatus: 'success',
           rooms: allRooms,
-          warnings: allWarnings,
+          warnings: filteredWarnings,
           assumptions: allAssumptions,
           occupancySummary,
           reviewCandidates: allReviewCandidates,
@@ -1028,8 +1040,9 @@ function updateSelectedCount() {
 }
 
 function guessFloorName(level) {
-  const names = ['Ground Floor Plan', 'First Floor Plan', 'Second Floor Plan', 'Third Floor Plan'];
-  return names[level] ?? `Level ${level} Plan`;
+  // Last-resort fallback only — AI-detected floorName should take priority everywhere this is used
+  const names = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
+  return names[level] ?? `Level ${level}`;
 }
 
 // ── Confirm pages + trigger analysis ─────────────────────────
@@ -1112,10 +1125,22 @@ async function confirmPages() {
       reviewCandidates.push(...(pageData.reviewCandidates ?? []));
 
       pageResults.push({
-        floorName: pageConf.floorName || `Floor ${i}`,
+        floorName: pageData.floorName || pageConf.floorName || `Floor ${i}`,
         data: pageData,
       });
     }
+
+    // Suppress per-floor occupancy warnings that don't apply to the merged project
+    const MASTER_BED_PATTERNS2 = [/master/i, /\bbed(?:room)?\s*1\b/i, /primary\s+bed/i, /main\s+bed/i];
+    const hasMasterBed2 = [...allRooms.supply, ...allRooms.extract, ...allRooms.transfer, ...allRooms.ignore]
+      .some(r => MASTER_BED_PATTERNS2.some(p => p.test(r.name)));
+    const CROSS_FLOOR_WARNING_PATTERNS2 = [
+      /master\s*bedroom/i, /no\s+master/i, /occupancy.*incomplete/i,
+      /another\s+floor/i, /other\s+floor/i,
+    ];
+    const filteredWarnings2 = hasMasterBed2
+      ? allWarnings.filter(w => !CROSS_FLOOR_WARNING_PATTERNS2.some(p => p.test(w)))
+      : allWarnings;
 
     // Build merged result
     const occupancySummary2 = occTotalBedSpaces2 > 0 ? {
@@ -1126,7 +1151,7 @@ async function confirmPages() {
     const merged = {
       analysisStatus:  'success',
       rooms:           allRooms,
-      warnings:        allWarnings,
+      warnings:        filteredWarnings2,
       assumptions:     allAssumptions,
       occupancySummary: occupancySummary2,
       reviewCandidates,
