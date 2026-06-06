@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Room Schedule</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --warn-bg: #fff7ed; --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+  --amber: #d97706; --amber-bg: #fffbeb;
+  --supply-bg: #eff6ff; --supply-text: #1d4ed8;
+  --extract-bg: #fdf4ff; --extract-text: #7e22ce;
+  --transfer-bg: #f0fdf4; --transfer-text: #166534;
+  --ignore-bg: #f9fafb;  --ignore-text: #6b7280;
+  --row-hover: #f8fafc;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box { background: #fff; border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; }
+.login-title { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 20px; }
+.login-field { margin-bottom: 14px; }
+.login-field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+.login-field input { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+.login-field input:focus { border-color: var(--accent); }
+.btn-login { width: 100%; background: var(--primary); color: #fff; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.btn-login:hover { background: var(--accent); }
+.login-error { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 12px; display: none; }
+.login-error.visible { display: block; }
+
+/* ── Header ── */
+header {
+  background: var(--primary); color: #fff;
+  padding: 0 28px;
+  display: flex; align-items: stretch; justify-content: space-between;
+  height: 56px;
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.header-logo { font-size: 11px; font-weight: 800; letter-spacing: 2.5px; text-transform: uppercase; color: rgba(255,255,255,.55); }
+.header-sep { width: 1px; height: 22px; background: rgba(255,255,255,.2); }
+.header-project { font-size: 15px; font-weight: 700; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-user { font-size: 12px; opacity: .6; }
+.btn-signout { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); color: #fff; border-radius: 7px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.btn-signout:hover { background: rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav {
+  background: #fff; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 28px; gap: 0;
+  overflow-x: auto;
+}
+.stage-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 14px 20px; border: none; background: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  border-bottom: 3px solid transparent; white-space: nowrap;
+  transition: color .15s;
+}
+.stage-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.stage-btn.done   { color: var(--accent); }
+.stage-btn.locked { cursor: default; opacity: .45; }
+.stage-num {
+  width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--border); color: var(--muted);
+}
+.stage-btn.active .stage-num { background: var(--primary); color: #fff; }
+.stage-btn.done   .stage-num { background: var(--accent);  color: #fff; }
+
+/* ── Main ── */
+main { max-width: 1260px; margin: 0 auto; padding: 24px 28px 60px; }
+
+/* ── Page header ── */
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+.page-title { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 4px; }
+.page-subtitle { font-size: 13px; color: var(--muted); }
+.page-actions { display: flex; gap: 10px; align-items: center; }
+
+/* ── Buttons ── */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: none; border-radius: 9px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; }
+.btn-primary  { background: var(--primary); color: #fff; }
+.btn-primary:hover  { background: var(--accent); }
+.btn-secondary { background: #fff; color: var(--text); border: 1.5px solid var(--border); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-success  { background: #16a34a; color: #fff; }
+.btn-success:hover  { background: #15803d; }
+.btn-danger   { background: var(--critical-bg); color: var(--critical); border: 1px solid #fecaca; }
+.btn-danger:hover { background: #fecaca; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 7px; }
+.btn-icon { padding: 5px 8px; background: none; border: none; cursor: pointer; color: var(--muted); border-radius: 6px; font-size: 14px; }
+.btn-icon:hover { background: var(--bg); color: var(--text); }
+
+/* ── Status bar ── */
+.status-bar {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 20px; margin-bottom: 16px;
+}
+.stat-item { display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.stat-value { font-size: 18px; font-weight: 900; color: var(--primary); }
+.stat-value.supply  { color: var(--supply-text); }
+.stat-value.extract { color: var(--extract-text); }
+.stat-value.warn    { color: var(--warn); }
+.stat-sep { width: 1px; height: 36px; background: var(--border); }
+.stat-spacer { flex: 1; }
+
+/* ── Confirmed badge ── */
+.confirmed-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--ok-bg); border: 1px solid var(--ok-border);
+  color: #166534; border-radius: 20px; padding: 5px 14px;
+  font-size: 12px; font-weight: 700;
+}
+
+/* ── Floor tabs ── */
+.floor-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.floor-tab {
+  padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 700;
+  border: 1.5px solid var(--border); background: #fff; color: var(--muted);
+  cursor: pointer; transition: .15s;
+}
+.floor-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.floor-tab-all { border-style: dashed; }
+
+/* ── Table card ── */
+.table-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+}
+.table-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.table-toolbar-left { display: flex; align-items: center; gap: 10px; }
+.toolbar-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--accent); }
+.room-count-badge { background: var(--primary-light); color: var(--primary); border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+
+/* ── Room table ── */
+.room-table { width: 100%; border-collapse: collapse; }
+.room-table th {
+  text-align: left; font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); padding: 9px 10px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.room-table td { padding: 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.room-table tr:last-child td { border-bottom: none; }
+.room-table tbody tr:hover { background: var(--row-hover); }
+.room-table tbody tr.ignore-row { opacity: .55; }
+
+/* Editable cell */
+.cell-inner {
+  padding: 8px 10px; display: flex; align-items: center;
+  min-height: 42px;
+}
+.editable { cursor: text; }
+.editable:hover .edit-hint { opacity: 1; }
+.edit-hint { opacity: 0; font-size: 11px; color: var(--muted); margin-left: 5px; transition: opacity .15s; }
+input.cell-input, select.cell-input {
+  width: 100%; border: 1.5px solid var(--accent); border-radius: 6px;
+  padding: 5px 8px; font-size: 13px; background: #fff; outline: none;
+  font-family: inherit;
+}
+select.cell-input { cursor: pointer; }
+
+/* Classification badge */
+.class-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.class-supply   { background: var(--supply-bg);   color: var(--supply-text); }
+.class-extract  { background: var(--extract-bg);  color: var(--extract-text); }
+.class-transfer { background: var(--transfer-bg); color: var(--transfer-text); }
+.class-ignore   { background: var(--ignore-bg);   color: var(--ignore-text); }
+
+/* Type chip */
+.type-chip {
+  display: inline-block; padding: 2px 9px; border-radius: 10px;
+  font-size: 11px; font-weight: 700; background: var(--bg); color: var(--muted);
+  text-transform: capitalize;
+}
+
+/* Optional dot */
+.opt-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.opt-supply   { background: var(--supply-text); }
+.opt-extract  { background: var(--extract-text); }
+.opt-none     { background: #d1d5db; }
+
+/* Review flag */
+.review-flag { font-size: 11px; color: var(--amber); font-weight: 700; margin-left: 4px; }
+
+/* Confidence */
+.conf-bar { width: 36px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.conf-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+.conf-low .conf-fill { background: var(--warn); }
+
+/* Row actions */
+.row-actions { display: flex; gap: 2px; padding: 0 6px; }
+
+/* ── Add room row ── */
+.add-row td { padding: 0; border-top: 2px dashed var(--border); background: #fcfeff; }
+.add-row:hover td { background: #f0fdf4; }
+.add-row .cell-inner { color: var(--accent); font-weight: 700; font-size: 13px; cursor: pointer; }
+.add-row .cell-inner:hover { color: var(--primary); }
+
+/* ── Occupancy override ── */
+.occ-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 20px; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 20px;
+}
+.occ-label { font-size: 13px; font-weight: 700; color: var(--primary); flex-shrink: 0; }
+.occ-desc  { font-size: 12px; color: var(--muted); flex: 1; }
+.occ-input-wrap { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.occ-input {
+  width: 64px; border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; font-size: 16px; font-weight: 800; text-align: center;
+  color: var(--primary); outline: none;
+}
+.occ-input:focus { border-color: var(--accent); }
+.occ-source { font-size: 11px; color: var(--muted); }
+
+/* ── Warnings ── */
+.warnings-card {
+  background: var(--warn-bg); border: 1px solid #fed7aa; border-radius: 12px;
+  padding: 16px 18px; margin-bottom: 16px;
+}
+.warnings-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--warn); margin-bottom: 10px; }
+.warning-item { display: flex; gap: 8px; font-size: 13px; color: #7c2d12; margin-bottom: 6px; }
+.warning-item:last-child { margin-bottom: 0; }
+.warning-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex-shrink: 0; margin-top: 5px; }
+
+/* ── Review candidates ── */
+.review-card {
+  background: var(--amber-bg); border: 1px solid #fde68a; border-radius: 12px;
+  padding: 16px 18px; margin-bottom: 16px;
+}
+.review-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--amber); margin-bottom: 10px; }
+.review-item { font-size: 13px; color: #78350f; margin-bottom: 5px; display: flex; gap: 8px; }
+
+/* ── Confirm section ── */
+.confirm-card {
+  background: #f0fdf4; border: 1.5px solid var(--ok-border); border-radius: 14px;
+  padding: 22px 24px; display: flex; align-items: center; gap: 20px;
+}
+.confirm-card.confirmed { background: var(--ok-bg); }
+.confirm-text h3 { font-size: 15px; font-weight: 800; color: var(--primary); margin-bottom: 4px; }
+.confirm-text p  { font-size: 13px; color: var(--muted); }
+.confirm-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+/* ── Loading / error states ── */
+.page-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; gap: 14px; }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); }
+.error-box { background: var(--critical-bg); border: 1px solid #fecaca; border-radius: 10px; padding: 16px 18px; color: var(--critical); font-size: 13px; }
+
+/* ── Empty state ── */
+.empty-state { padding: 48px 20px; text-align: center; color: var(--muted); }
+.empty-icon { font-size: 32px; margin-bottom: 10px; }
+.empty-title { font-size: 15px; font-weight: 700; color: var(--primary); margin-bottom: 6px; }
+.empty-desc  { font-size: 13px; margin-bottom: 18px; }
+
+/* ── Save indicator ── */
+.save-indicator {
+  font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+  opacity: 0; transition: opacity .3s;
+}
+.save-indicator.visible { opacity: 1; }
+.save-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.save-dot.saving { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div id="loginError" class="login-error"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header>
+  <div class="header-left">
+    <div class="header-logo">HiPer Studio</div>
+    <div class="header-sep"></div>
+    <div class="header-project" id="projectName">Loading…</div>
+  </div>
+  <div class="header-right">
+    <div class="header-user" id="headerUser"></div>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage navigation ── -->
+<nav class="stage-nav">
+  <button class="stage-btn done"   onclick="alert('Stage 1 complete')">
+    <span class="stage-num">✓</span> Room Extraction
+  </button>
+  <button class="stage-btn active">
+    <span class="stage-num">2</span> Room Schedule
+  </button>
+  <button class="stage-btn locked" disabled>
+    <span class="stage-num">3</span> Airflow Design
+  </button>
+  <button class="stage-btn locked" disabled>
+    <span class="stage-num">4</span> Unit Selection
+  </button>
+  <button class="stage-btn locked" disabled>
+    <span class="stage-num">5</span> Duct Design
+  </button>
+  <button class="stage-btn locked" disabled>
+    <span class="stage-num">6</span> BOM &amp; Export
+  </button>
+</nav>
+
+<!-- ── Main content ── -->
+<main id="mainContent">
+  <div class="page-loading" id="pageLoading">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading room schedule…</div>
+  </div>
+  <div id="pageError" style="display:none"></div>
+  <div id="pageBody" style="display:none">
+
+    <!-- Page header -->
+    <div class="page-header">
+      <div>
+        <div class="page-title">Room Schedule</div>
+        <div class="page-subtitle" id="pageSubtitle">Review and confirm rooms before airflow calculations</div>
+      </div>
+      <div class="page-actions">
+        <div class="save-indicator" id="saveIndicator">
+          <div class="save-dot" id="saveDot"></div>
+          <span id="saveText">Saved</span>
+        </div>
+        <button class="btn btn-secondary" onclick="reseedRooms()" id="reseedBtn">↺ Re-import from Analysis</button>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="status-bar">
+      <div class="stat-item">
+        <div class="stat-label">Total Rooms</div>
+        <div class="stat-value" id="statTotal">—</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-item">
+        <div class="stat-label">Supply</div>
+        <div class="stat-value supply" id="statSupply">—</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-item">
+        <div class="stat-label">Extract</div>
+        <div class="stat-value extract" id="statExtract">—</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-item">
+        <div class="stat-label">Transfer</div>
+        <div class="stat-value" id="statTransfer">—</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-item">
+        <div class="stat-label">Occupancy</div>
+        <div class="stat-value" id="statOccupancy">—</div>
+      </div>
+      <div class="stat-spacer"></div>
+      <div id="confirmedBadge" style="display:none">
+        <span class="confirmed-badge">✓ Schedule Confirmed</span>
+      </div>
+    </div>
+
+    <!-- Warnings -->
+    <div class="warnings-card" id="warningsCard" style="display:none">
+      <div class="warnings-title">⚠ Warnings</div>
+      <div id="warningsList"></div>
+    </div>
+
+    <!-- Review candidates -->
+    <div class="review-card" id="reviewCard" style="display:none">
+      <div class="review-title">Rooms requiring manual review</div>
+      <div id="reviewList"></div>
+    </div>
+
+    <!-- Floor tabs -->
+    <div class="floor-tabs" id="floorTabs"></div>
+
+    <!-- Room table -->
+    <div class="table-card">
+      <div class="table-toolbar">
+        <div class="table-toolbar-left">
+          <div class="toolbar-title">Rooms</div>
+          <div class="room-count-badge" id="visibleCount">0 rooms</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="addRoom()">+ Add Room</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="room-table" id="roomTable">
+          <thead>
+            <tr>
+              <th style="width:200px">Name</th>
+              <th style="width:130px">Floor</th>
+              <th style="width:130px">Room Type</th>
+              <th style="width:80px">Area (m²)</th>
+              <th style="width:110px">Classification</th>
+              <th style="width:80px">Bed Spaces</th>
+              <th style="width:80px">Optional</th>
+              <th style="width:70px">Confidence</th>
+              <th style="width:80px">Source</th>
+              <th style="width:72px"></th>
+            </tr>
+          </thead>
+          <tbody id="roomTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Occupancy override -->
+    <div class="occ-card">
+      <div class="occ-label">Design Occupancy</div>
+      <div class="occ-desc">Override the occupancy used for airflow calculations. Leave blank to use the value derived from bedroom count.</div>
+      <div class="occ-input-wrap">
+        <input type="number" class="occ-input" id="occOverride" min="1" max="99" placeholder="—" oninput="saveOccupancyOverride()">
+        <div class="occ-source" id="occSource"></div>
+      </div>
+    </div>
+
+    <!-- Confirm section -->
+    <div class="confirm-card" id="confirmCard">
+      <div class="confirm-text">
+        <h3>Confirm Room Schedule</h3>
+        <p>Once confirmed, this schedule will be used for airflow calculations. You can still edit rooms and re-confirm.</p>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn btn-success" id="confirmBtn" onclick="confirmSchedule()">Confirm Room Schedule →</button>
+      </div>
+    </div>
+
+  </div><!-- /pageBody -->
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+
+const API_BASE = '/api/studio';
+
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── State ─────────────────────────────────────────────────────
+let _session    = null;
+let _projectId  = null;
+let _rooms      = [];       // all rooms (all floors)
+let _activeFloor = 'all';
+let _saving     = false;
+let _saveTimer  = null;
+let _confirmed  = false;
+let _occOverride = null;
+
+// ── URL helpers ───────────────────────────────────────────────
+function getProjectIdFromUrl() {
+  // Matches /studio/projects/{id}/rooms
+  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  if (m) return m[1];
+  // Fallback: ?projectId=...
+  return new URLSearchParams(location.search).get('projectId');
+}
+
+// ── Auth ──────────────────────────────────────────────────────
+async function doLogin() {
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginError');
+  errEl.classList.remove('visible');
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.add('visible');
+    return;
+  }
+  _session = data.session;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('headerUser').textContent = data.user.email;
+  await loadPage();
+}
+
+async function doSignOut() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+// ── API calls ─────────────────────────────────────────────────
+async function apiGet(path) {
+  const r = await fetch(path, {
+    headers: { Authorization: `Bearer ${_session.access_token}` }
+  });
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${_session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+async function apiPatch(path, body) {
+  const r = await fetch(path, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${_session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+async function apiDelete(path) {
+  const r = await fetch(path, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${_session.access_token}` }
+  });
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+// ── Page init ─────────────────────────────────────────────────
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    _session = session;
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('headerUser').textContent = session.user.email;
+    await loadPage();
+  }
+  // else: show login overlay (already visible)
+}
+
+async function loadPage() {
+  _projectId = getProjectIdFromUrl();
+  if (!_projectId) {
+    showError('No project ID in URL. Navigate from a project page.');
+    return;
+  }
+
+  try {
+    // Load project details
+    const { data: project } = await sb
+      .from('projects')
+      .select('id, name, schedule_confirmed_at, ai_analysis_json')
+      .eq('id', _projectId)
+      .single();
+
+    if (!project) { showError('Project not found.'); return; }
+
+    document.getElementById('projectName').textContent = project.name || 'Project';
+    document.title = `${project.name || 'Project'} — Room Schedule — HiPer Studio`;
+    _confirmed = !!project.schedule_confirmed_at;
+
+    // Load or seed rooms
+    const { rooms } = await apiGet(`${API_BASE}/rooms?projectId=${_projectId}`);
+
+    if (!rooms.length && project.ai_analysis_json) {
+      // Auto-seed from AI analysis on first open
+      const seeded = await apiPost(`${API_BASE}/seed-rooms`, { projectId: _projectId });
+      _rooms = seeded.rooms ?? [];
+    } else {
+      _rooms = rooms;
+    }
+
+    // Load occupancy override from project metadata (stored in ai_analysis_json for now)
+    _occOverride = project.ai_analysis_json?.occupancyOverride ?? null;
+    if (_occOverride) document.getElementById('occOverride').value = _occOverride;
+
+    // Load warnings + review candidates from analysis
+    const analysis = project.ai_analysis_json;
+    renderWarnings(analysis?.warnings ?? []);
+    renderReviewCandidates(analysis?.reviewCandidates ?? []);
+
+    // Render
+    renderFloorTabs();
+    renderTable();
+    updateStats();
+
+    if (_confirmed) showConfirmedState();
+
+    document.getElementById('pageLoading').style.display = 'none';
+    document.getElementById('pageBody').style.display    = 'block';
+
+    // Empty state: no AI analysis at all
+    if (!_rooms.length && !project.ai_analysis_json) {
+      showError('No AI analysis found for this project. Run analysis from the admin test page first.');
+    }
+
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ── Warnings & review ─────────────────────────────────────────
+function renderWarnings(warnings) {
+  if (!warnings.length) return;
+  const card = document.getElementById('warningsCard');
+  const list = document.getElementById('warningsList');
+  list.innerHTML = warnings.map(w =>
+    `<div class="warning-item"><div class="warning-dot"></div><div>${escHtml(w)}</div></div>`
+  ).join('');
+  card.style.display = 'block';
+}
+
+function renderReviewCandidates(candidates) {
+  if (!candidates.length) return;
+  const card = document.getElementById('reviewCard');
+  const list = document.getElementById('reviewList');
+  list.innerHTML = candidates.map(r =>
+    `<div class="review-item"><div class="warning-dot" style="background:var(--amber)"></div><div><strong>${escHtml(r.name)}</strong> — ${escHtml(r.reason ?? 'Needs manual review')}</div></div>`
+  ).join('');
+  card.style.display = 'block';
+}
+
+// ── Floor tabs ────────────────────────────────────────────────
+function renderFloorTabs() {
+  const floors = [...new Set(_rooms.map(r => r.floor).filter(Boolean))].sort();
+  const tabs = document.getElementById('floorTabs');
+  if (floors.length <= 1) { tabs.style.display = 'none'; return; }
+
+  tabs.innerHTML = `<button class="floor-tab floor-tab-all ${_activeFloor === 'all' ? 'active' : ''}" onclick="setFloor('all')">All Floors</button>` +
+    floors.map(f =>
+      `<button class="floor-tab ${_activeFloor === f ? 'active' : ''}" onclick="setFloor('${escHtml(f)}')">${escHtml(f)}</button>`
+    ).join('');
+}
+
+function setFloor(floor) {
+  _activeFloor = floor;
+  renderFloorTabs();
+  renderTable();
+}
+
+// ── Table render ──────────────────────────────────────────────
+function visibleRooms() {
+  if (_activeFloor === 'all') return _rooms;
+  return _rooms.filter(r => r.floor === _activeFloor);
+}
+
+function renderTable() {
+  const tbody   = document.getElementById('roomTableBody');
+  const visible = visibleRooms();
+
+  document.getElementById('visibleCount').textContent =
+    visible.length === 1 ? '1 room' : `${visible.length} rooms`;
+
+  if (!visible.length) {
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">
+      <div class="empty-icon">🏠</div>
+      <div class="empty-title">No rooms yet</div>
+      <div class="empty-desc">Import from AI analysis or add rooms manually.</div>
+      <button class="btn btn-primary" onclick="reseedRooms()">Import from Analysis</button>
+    </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = visible.map(r => roomRow(r)).join('') +
+    `<tr class="add-row" onclick="addRoom()">
+      <td colspan="10"><div class="cell-inner">+ Add room</div></td>
+    </tr>`;
+}
+
+function roomRow(r) {
+  const classLabel = r.classification || 'supply';
+  const optLabel = r.optional_supply  ? '<span class="opt-dot opt-supply" title="Optional supply"></span>'
+                 : r.optional_extract ? '<span class="opt-dot opt-extract" title="Optional extract"></span>'
+                 :                      '<span class="opt-dot opt-none"></span>';
+  const conf = r.confidence != null
+    ? `<div class="conf-bar ${r.confidence < 0.65 ? 'conf-low' : ''}"><div class="conf-fill" style="width:${Math.round(r.confidence * 100)}%"></div></div>`
+    : '<span style="color:var(--muted);font-size:11px">—</span>';
+
+  const floorDisplay = r.floor
+    ? `<span style="font-size:12px;color:var(--muted)">${escHtml(r.floor)}</span>`
+    : `<span style="font-size:11px;color:var(--border)">—</span>`;
+
+  return `<tr class="${classLabel === 'ignore' ? 'ignore-row' : ''}" data-id="${r.id}">
+    <td><div class="cell-inner editable" onclick="editCell(this,'name','${r.id}')">
+      <span>${escHtml(r.name)}</span><span class="edit-hint">✎</span>
+    </div></td>
+    <td><div class="cell-inner">${floorDisplay}</div></td>
+    <td><div class="cell-inner editable" onclick="editCell(this,'room_type','${r.id}')">
+      <span class="type-chip">${escHtml(roomTypeLabel(r.room_type))}</span>
+    </div></td>
+    <td><div class="cell-inner editable" onclick="editCell(this,'area','${r.id}')">
+      <span>${r.area != null ? r.area : '<span style="color:var(--muted)">—</span>'}</span>
+    </div></td>
+    <td><div class="cell-inner editable" onclick="editCell(this,'classification','${r.id}')">
+      <span class="class-badge class-${classLabel}">${classLabel}</span>
+    </div></td>
+    <td><div class="cell-inner editable" onclick="editCell(this,'bed_spaces','${r.id}')">
+      <span>${r.bed_spaces > 0 ? r.bed_spaces : '<span style="color:var(--muted)">—</span>'}</span>
+    </div></td>
+    <td><div class="cell-inner">${optLabel}</div></td>
+    <td><div class="cell-inner">${conf}</div></td>
+    <td><div class="cell-inner">
+      <span style="font-size:11px;color:var(--muted)">${r.source === 'manual' ? '✎ manual' : 'AI'}</span>
+    </div></td>
+    <td><div class="row-actions">
+      <button class="btn-icon" title="Delete room" onclick="deleteRoom('${r.id}')">🗑</button>
+    </div></td>
+  </tr>`;
+}
+
+// ── Inline editing ────────────────────────────────────────────
+function editCell(cellEl, field, id) {
+  const span = cellEl.querySelector('span:first-child');
+  const currentVal = getRoomField(id, field);
+
+  let input;
+  if (field === 'room_type') {
+    input = document.createElement('select');
+    input.className = 'cell-input';
+    const types = [
+      ['bedroom','Bedroom'],['living','Living'],['dining','Dining'],
+      ['kitchen','Kitchen'],['kitchenette','Kitchenette'],['wet_area','Wet Area'],
+      ['laundry','Laundry'],['office','Office'],['gym','Gym'],
+      ['robe','Robe / WIR'],['circulation','Circulation'],
+      ['service','Service'],['other','Other'],
+    ];
+    input.innerHTML = types.map(([v,l]) =>
+      `<option value="${v}"${v === currentVal ? ' selected' : ''}>${l}</option>`
+    ).join('');
+  } else if (field === 'classification') {
+    input = document.createElement('select');
+    input.className = 'cell-input';
+    const classes = ['supply','extract','transfer','ignore'];
+    input.innerHTML = classes.map(c =>
+      `<option value="${c}"${c === currentVal ? ' selected' : ''}>${c}</option>`
+    ).join('');
+  } else if (field === 'area' || field === 'bed_spaces') {
+    input = document.createElement('input');
+    input.type = 'number'; input.min = '0';
+    input.className = 'cell-input';
+    input.value = currentVal ?? '';
+  } else {
+    input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'cell-input';
+    input.value = currentVal ?? '';
+  }
+
+  cellEl.innerHTML = '';
+  cellEl.appendChild(input);
+  input.focus();
+  if (input.select) input.select();
+
+  async function commit() {
+    let val = input.value;
+    if (field === 'area' || field === 'bed_spaces') val = val === '' ? null : parseFloat(val);
+    await patchRoom(id, { [field]: val });
+    renderTable();
+    updateStats();
+  }
+
+  input.addEventListener('blur',   () => { commit(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { input.blur(); }
+    if (e.key === 'Escape') { renderTable(); }
+  });
+}
+
+function getRoomField(id, field) {
+  const r = _rooms.find(x => x.id === id);
+  return r ? r[field] : null;
+}
+
+// ── CRUD ──────────────────────────────────────────────────────
+async function patchRoom(id, fields) {
+  setSaving(true);
+  try {
+    const { room } = await apiPatch(`${API_BASE}/rooms?id=${id}`, fields);
+    const idx = _rooms.findIndex(r => r.id === id);
+    if (idx !== -1) _rooms[idx] = room;
+  } catch(e) {
+    alert('Failed to save: ' + e.message);
+  } finally {
+    setSaving(false);
+  }
+}
+
+async function deleteRoom(id) {
+  if (!confirm('Delete this room?')) return;
+  try {
+    await apiDelete(`${API_BASE}/rooms?id=${id}`);
+    _rooms = _rooms.filter(r => r.id !== id);
+    renderFloorTabs();
+    renderTable();
+    updateStats();
+  } catch(e) {
+    alert('Failed to delete: ' + e.message);
+  }
+}
+
+async function addRoom() {
+  const name = prompt('Room name:');
+  if (!name?.trim()) return;
+
+  const floor = _activeFloor !== 'all' ? _activeFloor : null;
+  try {
+    const { room } = await apiPost(`${API_BASE}/rooms`, {
+      projectId: _projectId,
+      name: name.trim(),
+      floor,
+      room_type:      'other',
+      classification: 'supply',
+      source:         'manual',
+      sort_order:     _rooms.length,
+    });
+    _rooms.push(room);
+    renderFloorTabs();
+    renderTable();
+    updateStats();
+  } catch(e) {
+    alert('Failed to add room: ' + e.message);
+  }
+}
+
+async function reseedRooms() {
+  if (!confirm('Re-import rooms from the latest AI analysis? This will replace all unconfirmed rooms.')) return;
+  setSaving(true);
+  try {
+    const seeded = await apiPost(`${API_BASE}/seed-rooms`, { projectId: _projectId });
+    _rooms = seeded.rooms ?? [];
+    renderFloorTabs();
+    renderTable();
+    updateStats();
+  } catch(e) {
+    alert('Re-import failed: ' + e.message);
+  } finally {
+    setSaving(false);
+  }
+}
+
+// ── Occupancy override ────────────────────────────────────────
+let _occDebounce = null;
+function saveOccupancyOverride() {
+  const val = document.getElementById('occOverride').value;
+  clearTimeout(_occDebounce);
+  _occDebounce = setTimeout(async () => {
+    _occOverride = val ? parseInt(val) : null;
+    updateStats();
+    // Persist to project metadata via Supabase directly
+    // (stored in ai_analysis_json.occupancyOverride — a light-touch patch)
+    await sb.from('projects')
+      .update({ ai_analysis_json: { ...(await getProjectAnalysis()), occupancyOverride: _occOverride } })
+      .eq('id', _projectId);
+  }, 800);
+}
+
+async function getProjectAnalysis() {
+  const { data } = await sb.from('projects').select('ai_analysis_json').eq('id', _projectId).single();
+  return data?.ai_analysis_json ?? {};
+}
+
+// ── Stats ─────────────────────────────────────────────────────
+function updateStats() {
+  const active = _rooms.filter(r => r.classification !== 'ignore');
+  document.getElementById('statTotal').textContent    = active.length;
+  document.getElementById('statSupply').textContent   = active.filter(r => r.classification === 'supply').length;
+  document.getElementById('statExtract').textContent  = active.filter(r => r.classification === 'extract').length;
+  document.getElementById('statTransfer').textContent = active.filter(r => r.classification === 'transfer').length;
+
+  const derivedOcc = _rooms.reduce((s, r) => s + (r.bed_spaces ?? 0), 0);
+  const occ = _occOverride || derivedOcc;
+  document.getElementById('statOccupancy').textContent = occ > 0 ? `${occ} person${occ !== 1 ? 's' : ''}` : '—';
+
+  const occSrc = document.getElementById('occSource');
+  if (_occOverride) {
+    occSrc.textContent = '(override)';
+    occSrc.style.color = 'var(--amber)';
+  } else if (derivedOcc > 0) {
+    occSrc.textContent = `(from bedrooms: ${derivedOcc})`;
+    occSrc.style.color = 'var(--muted)';
+  } else {
+    occSrc.textContent = '';
+  }
+}
+
+// ── Confirm schedule ──────────────────────────────────────────
+async function confirmSchedule() {
+  const btn = document.getElementById('confirmBtn');
+  btn.disabled = true;
+  btn.textContent = 'Confirming…';
+
+  try {
+    // Mark all rooms confirmed
+    for (const r of _rooms) {
+      if (!r.is_confirmed) {
+        await apiPatch(`${API_BASE}/rooms?id=${r.id}`, { is_confirmed: true });
+        r.is_confirmed = true;
+      }
+    }
+
+    // Update project schedule_confirmed_at
+    await sb.from('projects')
+      .update({ schedule_confirmed_at: new Date().toISOString() })
+      .eq('id', _projectId);
+
+    _confirmed = true;
+    showConfirmedState();
+  } catch(e) {
+    alert('Failed to confirm: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Confirm Room Schedule →';
+  }
+}
+
+function showConfirmedState() {
+  document.getElementById('confirmedBadge').style.display = 'inline-flex';
+  const card = document.getElementById('confirmCard');
+  card.classList.add('confirmed');
+  card.querySelector('h3').textContent = '✓ Room Schedule Confirmed';
+  card.querySelector('p').textContent  = 'Airflow calculations will use this confirmed room schedule. You can edit rooms and re-confirm at any time.';
+  document.getElementById('confirmBtn').textContent = 'Re-confirm Room Schedule';
+  document.getElementById('confirmBtn').disabled    = false;
+  // Unlock Stage 3
+  document.querySelectorAll('.stage-btn.locked')[0]?.classList.remove('locked');
+}
+
+// ── Save indicator ────────────────────────────────────────────
+function setSaving(saving) {
+  _saving = saving;
+  const el   = document.getElementById('saveIndicator');
+  const dot  = document.getElementById('saveDot');
+  const text = document.getElementById('saveText');
+  el.classList.add('visible');
+  if (saving) {
+    dot.classList.add('saving');
+    text.textContent = 'Saving…';
+  } else {
+    dot.classList.remove('saving');
+    text.textContent = 'Saved';
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function roomTypeLabel(t) {
+  const map = {
+    bedroom:'Bedroom', living:'Living', dining:'Dining', kitchen:'Kitchen',
+    kitchenette:'Kitchenette', wet_area:'Wet Area', laundry:'Laundry',
+    office:'Office', gym:'Gym', robe:'Robe / WIR',
+    circulation:'Circulation', service:'Service', other:'Other',
+  };
+  return map[t] ?? (t || 'Other');
+}
+
+function showError(msg) {
+  document.getElementById('pageLoading').style.display = 'none';
+  const el = document.getElementById('pageError');
+  el.innerHTML = `<div class="error-box">⚠ ${escHtml(msg)}</div>`;
+  el.style.display = 'block';
+}
+
+// ── Keyboard: Enter to sign in ────────────────────────────────
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
