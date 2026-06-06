@@ -231,6 +231,9 @@ details summary:hover { background: var(--primary-light); }
       <div id="projectIdHint" style="font-size:11px;color:var(--muted);margin-top:4px">
         Leave blank to run in test mode without saving to a project.
       </div>
+      <div id="projectIdWarning" style="display:none;margin-top:6px;padding:7px 10px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:11px;color:#7a5c00;line-height:1.4">
+        ⚠️ <strong>No Project ID</strong> — analysis will run in test mode and won't be linked to any project. The room schedule (Stage 2) will not be populated. Add a Project ID above to link results.
+      </div>
     </div>
 
     <label class="upload-area" id="uploadArea" for="fileInput">
@@ -667,6 +670,7 @@ async function analysePlan() {
 
   try {
     const projectIdVal = document.getElementById('projectIdInput').value.trim() || null;
+    warnIfNoProjectId();
     let body;
 
     if (_selectedFile.size > INLINE_SIZE_LIMIT) {
@@ -800,6 +804,7 @@ async function startPdfPipeline() {
     // 2. Register job with upload-pdf
     setStatus('active', 'Registering job…');
     const projectIdVal = document.getElementById('projectIdInput').value.trim() || null;
+    warnIfNoProjectId();
 
     const regRes = await fetch('/api/ai/upload-pdf', {
       method:  'POST',
@@ -1605,11 +1610,25 @@ function onProjectIdInput(el) {
     hint.style.color = 'var(--accent)';
     hint.textContent = '✓ Valid UUID — result will be saved to this project.';
     el.style.borderColor = 'var(--accent)';
+    // Hide warning if user just entered a valid ID
+    document.getElementById('projectIdWarning').style.display = 'none';
   } else {
     hint.style.color = 'var(--warn)';
     hint.textContent = 'Must be a valid UUID or leave blank.';
     el.style.borderColor = 'var(--warn)';
   }
+}
+
+// Show a non-blocking warning banner when starting an upload with no project ID.
+// Auto-hides after 12 s or when user clears/types into projectIdInput.
+let _projectIdWarnTimer = null;
+function warnIfNoProjectId() {
+  const val = document.getElementById('projectIdInput').value.trim();
+  if (val) return; // project linked — no warning needed
+  const banner = document.getElementById('projectIdWarning');
+  banner.style.display = 'block';
+  clearTimeout(_projectIdWarnTimer);
+  _projectIdWarnTimer = setTimeout(() => { banner.style.display = 'none'; }, 12_000);
 }
 </script>
 </body>

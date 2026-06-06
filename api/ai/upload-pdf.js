@@ -81,6 +81,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'projectId must be a valid UUID' });
   }
 
+  console.log(JSON.stringify({
+    event:       'upload-pdf:received-project-id',
+    projectId:   projectId ?? null,
+    hasValidUuid: isUuid(projectId),
+    testMode:    testMode || false,
+    userId:      user.id,
+  }));
+
   // ── Admin check for testMode ──────────────────────────────────────────────
   if (testMode) {
     const { data: profile } = await supabase
@@ -127,6 +135,15 @@ export default async function handler(req, res) {
     })
     .select('id, job_id, status')
     .single();
+
+  if (!insertErr) {
+    console.log(JSON.stringify({
+      event:     'upload-pdf:saved-project-id',
+      uploadId:  uploadRow.id,
+      jobId:     uploadRow.job_id,
+      projectId: projectId ?? null,
+    }));
+  }
 
   if (insertErr) {
     // Duplicate job_id means this job was already registered.
