@@ -288,10 +288,39 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { uploadId, jobId, userId, pageCount, projectId } = req.body ?? {};
+  const { uploadId, jobId, userId, pageCount } = req.body ?? {};
+  let { projectId } = req.body ?? {};
 
   if (!uploadId || !jobId || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, userId required' });
+  }
+
+  // ── Recover projectId from pdf_uploads if not in request body ────────────
+  // upload-pdf saves project_id to the uploads row; the internal-call chain may
+  // not always carry it forward in the body, so we treat the DB as the source of
+  // truth and recover it here so every downstream call (auto-analyse → analyse-plan)
+  // can write project_id to plan_analysis_log.
+  if (!projectId) {
+    const { data: uploadRow } = await supabase
+      .from('pdf_uploads')
+      .select('project_id')
+      .eq('id', uploadId)
+      .single();
+
+    if (uploadRow?.project_id) {
+      projectId = uploadRow.project_id;
+      console.log(JSON.stringify({
+        event:     'classify-pages:projectId-recovered',
+        uploadId,
+        projectId,
+      }));
+    } else {
+      console.warn(JSON.stringify({
+        event:     'classify-pages:projectId-missing',
+        uploadId,
+        note:      'pdf_uploads.project_id is also null — plan_analysis_log rows will be unlinked',
+      }));
+    }
   }
 
   // Record classify start time

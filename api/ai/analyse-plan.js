@@ -2185,6 +2185,37 @@ If still uncertain:
     warnings.push('Warning: credit deduction encountered an issue. Contact support if your balance is incorrect.');
   }
 
+  // ── Diagnostic: log the projectId actually received ─────────
+  console.log(JSON.stringify({
+    event:        'analyse-plan:project-link',
+    projectId:    projectId ?? null,
+    hasValidUuid: isUuid(projectId),
+    testMode:     testMode  || false,
+    internalCall: internalCall || false,
+    floorIndex,
+  }));
+
+  if (!isUuid(projectId) && !testMode) {
+    // Non-test call with no valid projectId — this will create an unlinked log row.
+    // For internal calls (auto-analyse pipeline) this is acceptable only when the upload
+    // genuinely has no associated project. Log a warning so it is visible in Vercel logs.
+    if (internalCall) {
+      console.warn(JSON.stringify({
+        event:   'analyse-plan:unlinked-internal-call',
+        note:    'Internal analysis with no projectId — plan_analysis_log.project_id will be null',
+        pdfPageId:   pdfPageId   ?? null,
+        pdfUploadId: pdfUploadId ?? null,
+      }));
+    } else {
+      // Direct (non-internal) call without projectId and not in testMode.
+      // This should have been caught by the UUID guard above — log as unexpected.
+      console.error(JSON.stringify({
+        event: 'analyse-plan:unexpected-missing-projectId',
+        note:  'Non-test, non-internal call reached log insert without a valid projectId',
+      }));
+    }
+  }
+
   // ── Persist analysis to projects.ai_analysis_json ───────────
   if (isUuid(projectId)) {
     await supabase
@@ -2197,7 +2228,7 @@ If still uncertain:
   const { data: logRow, error: logErr } = await supabase
     .from('plan_analysis_log')
     .insert({
-      ...(isUuid(projectId) ? { project_id: projectId } : {}),
+      project_id:        isUuid(projectId) ? projectId : null,
       user_id:           user.id,
       floor_index:       floorIndex,
       credits_deducted:  deductErr ? 0 : creditCost,

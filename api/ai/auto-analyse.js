@@ -353,10 +353,37 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { uploadId, jobId, userId, projectId } = req.body ?? {};
+  const { uploadId, jobId, userId } = req.body ?? {};
+  let { projectId } = req.body ?? {};
 
   if (!uploadId || !jobId || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, userId required' });
+  }
+
+  // ── Recover projectId from pdf_uploads if not in request body ────────────
+  // Treat the DB row as the source of truth — the internal-call chain may
+  // lose projectId when it is not explicitly forwarded at every hop.
+  if (!projectId) {
+    const { data: uploadRow } = await supabase
+      .from('pdf_uploads')
+      .select('project_id')
+      .eq('id', uploadId)
+      .single();
+
+    if (uploadRow?.project_id) {
+      projectId = uploadRow.project_id;
+      console.log(JSON.stringify({
+        event:     'auto-analyse:projectId-recovered',
+        uploadId,
+        projectId,
+      }));
+    } else {
+      console.warn(JSON.stringify({
+        event:     'auto-analyse:projectId-missing',
+        uploadId,
+        note:      'plan_analysis_log rows for this run will have project_id = null',
+      }));
+    }
   }
 
   // Log secret availability early — the most common cause of 401s on internal calls.
