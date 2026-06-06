@@ -535,11 +535,12 @@ export default async function handler(req, res) {
         analysisResults.push({
           pageId:      pageUpdate.id,
           pageNumber:  page?.page_number,
-          floorName:   pageUpdate.floor_name,
+          floorName:   result.floorName ?? pageUpdate.floor_name,   // prefer AI-detected name
           floorIndex:  pageUpdate.floor_index,
           supplyCount: result.rooms?.supply?.length ?? 0,
           extractCount: result.rooms?.extract?.length ?? 0,
           success:     true,
+          result,    // full response — used for merged ai_analysis_json below
         });
         successCount++;
 
@@ -599,6 +600,70 @@ export default async function handler(req, res) {
         completed_at:        completedAt,
       })
       .eq('id', uploadId);
+
+    // ── Persist merged analysis to projects.ai_analysis_json ──────────────
+    // Build a merged JSON containing all floors so Stage 2 (seed-rooms) has
+    // a single source of truth without needing to read plan_analysis_log.
+    if (projectId) {
+      try {
+        const successPages = analysisResults.filter(r => r.success && r.result);
+
+        if (successPages.length > 0) {
+          const mergedRooms = { supply: [], extract: [], transfer: [], ignore: [] };
+          const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
+          let totalBedSpaces = 0, totalPotential = 0;
+
+          for (const ar of successPages) {
+            for (const cat of ['supply','extract','transfer','ignore']) {
+              mergedRooms[cat].push(...(ar.result.rooms?.[cat] ?? []));
+            }
+            allWarnings.push(...(ar.result.warnings ?? []));
+            allAssumptions.push(...(ar.result.assumptions ?? []));
+            allReviewCandidates.push(...(ar.result.reviewCandidates ?? []));
+            if (ar.result.occupancySummary) {
+              totalBedSpaces += ar.result.occupancySummary.totalBedSpaces ?? ar.result.occupancySummary.suggestedOccupancy ?? 0;
+              totalPotential += ar.result.occupancySummary.potentialAdditionalBedSpaces ?? 0;
+            }
+          }
+
+          const mergedJson = {
+            rooms:            mergedRooms,
+            warnings:         allWarnings,
+            assumptions:      allAssumptions,
+            reviewCandidates: allReviewCandidates,
+            analysisStatus:   'success',
+            occupancySummary: totalBedSpaces > 0 ? {
+              suggestedOccupancy:           totalBedSpaces,
+              totalBedSpaces,
+              potentialAdditionalBedSpaces: totalPotential,
+            } : null,
+            _pageResults: successPages.map(ar => ({
+              floorName: ar.floorName,
+              data:      ar.result,
+            })),
+          };
+
+          const { error: projectUpdateErr } = await supabase
+            .from('projects')
+            .update({ ai_analysis_json: mergedJson })
+            .eq('id', projectId);
+
+          if (projectUpdateErr) {
+            console.error('auto-analyse: projects.ai_analysis_json update failed:', projectUpdateErr.message);
+          } else {
+            console.log(JSON.stringify({
+              event:      'auto-analyse:project-updated',
+              projectId,
+              floorCount: successPages.length,
+              totalRooms: mergedRooms.supply.length + mergedRooms.extract.length + mergedRooms.transfer.length,
+            }));
+          }
+        }
+      } catch (mergeErr) {
+        // Non-fatal — log and continue.
+        console.error('auto-analyse: merge/project-update error:', mergeErr.message);
+      }
+    }
 
     console.log(JSON.stringify({
       event:        'auto-analyse:complete',

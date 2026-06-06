@@ -3,9 +3,19 @@
 // POST /api/studio/seed-rooms
 // Body: { projectId }
 //
-// Reads projects.ai_analysis_json for the given project,
-// deletes existing unconfirmed rows, inserts fresh rows.
-// Confirmed rows (is_confirmed=true) are preserved.
+// Source priority:
+//   1. projects.ai_analysis_json  — merged multi-floor JSON (preferred)
+//   2. plan_analysis_log rows     — fallback when ai_analysis_json is absent:
+//        all successful rows for project_id, one per floor_index (most recent),
+//        ordered by floor_index asc.
+//
+// Shape handling (flexible):
+//   _pageResults[].data.rooms   — multi-floor from admin test / auto-analyse merge
+//   rooms                       — single-floor or flat merged
+//   parsed_rooms.rooms          — plan_analysis_log shape
+//
+// Deletes unconfirmed rows for the project, then inserts fresh rows.
+// Confirmed rows (is_confirmed=true) are always preserved.
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
@@ -19,16 +29,17 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
-// Map ventilationClassification → classification column
-function classificationFromRoom(r) {
+// Map ventilationClassification (or classification) → classification column value.
+// Also accepts category-key inference if the room doesn't carry the field.
+function classificationFromRoom(r, categoryKey) {
   const vc = r.ventilationClassification ?? r.classification;
   if (['supply','extract','transfer','ignore'].includes(vc)) return vc;
-  // Fallback: infer from the category key the room appeared under in ai_analysis_json
+  if (['supply','extract','transfer','ignore'].includes(categoryKey)) return categoryKey;
   return 'supply';
 }
 
 // Convert a single AI room object → project_rooms row
-function aiRoomToRow({ room, floor, projectId, userId, sortOrder }) {
+function aiRoomToRow({ room, floor, categoryKey, projectId, userId, sortOrder }) {
   return {
     project_id:       projectId,
     user_id:          userId,
@@ -36,7 +47,7 @@ function aiRoomToRow({ room, floor, projectId, userId, sortOrder }) {
     floor:            floor ?? null,
     room_type:        room.spaceType ?? 'other',
     area:             typeof room.area === 'number' ? room.area : null,
-    classification:   classificationFromRoom(room),
+    classification:   classificationFromRoom(room, categoryKey),
     bed_spaces:       typeof room.bedSpaces === 'number' ? room.bedSpaces : 0,
     optional_supply:  room.optionalSupply  === true,
     optional_extract: room.optionalExtract === true,
@@ -45,6 +56,18 @@ function aiRoomToRow({ room, floor, projectId, userId, sortOrder }) {
     sort_order:       sortOrder,
     is_confirmed:     false,
   };
+}
+
+// Emit rows from a rooms object { supply:[], extract:[], transfer:[], ignore:[] }
+// Returns the number of rows appended.
+function emitRoomsFromObject({ roomsObj, floor, projectId, userId, rows, startOrder }) {
+  let sortOrder = startOrder;
+  for (const cat of ['supply','extract','transfer','ignore']) {
+    for (const room of (roomsObj[cat] ?? [])) {
+      rows.push(aiRoomToRow({ room, floor, categoryKey: cat, projectId, userId, sortOrder: sortOrder++ }));
+    }
+  }
+  return sortOrder;
 }
 
 export default async function handler(req, res) {
@@ -64,11 +87,11 @@ export default async function handler(req, res) {
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
-  // ── Validate input ────────────────────────────────────────
+  // ── Validate input ─────────────────────────────────────────
   const { projectId } = req.body || {};
   if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-  // ── Load project ──────────────────────────────────────────
+  // ── Load project ───────────────────────────────────────────
   const { data: project, error: projErr } = await supabase
     .from('projects')
     .select('id, ai_analysis_json')
@@ -77,51 +100,103 @@ export default async function handler(req, res) {
 
   if (projErr || !project) return res.status(404).json({ error: 'Project not found' });
 
-  const analysis = project.ai_analysis_json;
-  if (!analysis) return res.status(422).json({ error: 'No AI analysis found for this project. Run analysis first.' });
+  // ── Resolve analysis source ────────────────────────────────
+  // Primary: projects.ai_analysis_json (merged, includes _pageResults for multi-floor)
+  // Fallback: all successful plan_analysis_log rows for this project
+  let analysis = project.ai_analysis_json;
+  let source    = 'ai_analysis_json';
 
-  // ── Build rows from analysis ──────────────────────────────
-  // ai_analysis_json shape:
-  //   { rooms: { supply:[], extract:[], transfer:[], ignore:[] }, _pageResults: [{floorName, data}] }
-  // _pageResults gives us per-floor data; fall back to flat rooms if absent.
+  if (!analysis || (!analysis.rooms && !analysis._pageResults)) {
+    // Fall back to plan_analysis_log — read all successful rows ordered by floor_index
+    const { data: logs, error: logsErr } = await supabase
+      .from('plan_analysis_log')
+      .select('parsed_rooms, floor_index, created_at')
+      .eq('project_id', projectId)
+      .eq('analysis_status', 'success')
+      .order('floor_index', { ascending: true })
+      .order('created_at',   { ascending: false });
+
+    if (logsErr) {
+      return res.status(500).json({ error: `Failed to read analysis log: ${logsErr.message}` });
+    }
+
+    if (!logs?.length) {
+      return res.status(422).json({
+        error: 'No AI analysis found for this project. Run analysis first, and make sure to include the Project ID in the analysis request.',
+      });
+    }
+
+    // Deduplicate: keep the most-recent row per floor_index (logs are ordered created_at desc per floor)
+    const floorMap = new Map();
+    for (const log of logs) {
+      const key = log.floor_index ?? 0;
+      if (!floorMap.has(key)) floorMap.set(key, log); // first = most recent (desc sort)
+    }
+
+    const sortedFloors = [...floorMap.values()].sort((a, b) => (a.floor_index ?? 0) - (b.floor_index ?? 0));
+
+    // Build a synthetic analysis object with _pageResults for consistent downstream handling
+    analysis = {
+      _pageResults: sortedFloors.map(log => ({
+        floorName: log.parsed_rooms?.floorName ?? null,
+        data:      log.parsed_rooms ?? {},
+      })),
+      rooms: (() => {
+        // Also build a flat merged rooms for the single-floor path
+        const merged = { supply: [], extract: [], transfer: [], ignore: [] };
+        for (const log of sortedFloors) {
+          const r = log.parsed_rooms?.rooms ?? log.parsed_rooms ?? {};
+          for (const cat of ['supply','extract','transfer','ignore']) {
+            merged[cat].push(...(r[cat] ?? []));
+          }
+        }
+        return merged;
+      })(),
+    };
+    source = 'plan_analysis_log';
+  }
+
+  // ── Build rows from analysis ───────────────────────────────
+  // Shape 1: _pageResults → iterate per floor (multi-floor preferred)
+  // Shape 2: flat rooms   → single-floor or legacy merged
 
   const rows = [];
   let sortOrder = 0;
 
   if (analysis._pageResults?.length) {
-    // Multi-floor: emit rooms per floor in floor order
+    // Multi-floor: iterate floors in order, preserve floor name on each room
     for (const page of analysis._pageResults) {
-      const floor   = page.floorName ?? null;
-      const pageRooms = page.data?.rooms ?? {};
-      for (const cat of ['supply','extract','transfer','ignore']) {
-        for (const room of (pageRooms[cat] ?? [])) {
-          rows.push(aiRoomToRow({ room, floor, projectId, userId: user.id, sortOrder: sortOrder++ }));
-        }
-      }
+      const floor    = page.floorName ?? null;
+      const roomsObj = page.data?.rooms ?? {};
+      sortOrder = emitRoomsFromObject({ roomsObj, floor, projectId, userId: user.id, rows, startOrder: sortOrder });
     }
-  } else {
-    // Single-floor or legacy flat shape
-    const flatRooms = analysis.rooms ?? {};
-    for (const cat of ['supply','extract','transfer','ignore']) {
-      for (const room of (flatRooms[cat] ?? [])) {
-        rows.push(aiRoomToRow({ room, floor: null, projectId, userId: user.id, sortOrder: sortOrder++ }));
-      }
-    }
+  } else if (analysis.rooms) {
+    // Flat single-floor
+    sortOrder = emitRoomsFromObject({
+      roomsObj: analysis.rooms,
+      floor: analysis.floorName ?? null,
+      projectId,
+      userId: user.id,
+      rows,
+      startOrder: sortOrder,
+    });
   }
 
-  if (rows.length === 0) return res.status(422).json({ error: 'AI analysis contains no rooms to import.' });
+  if (rows.length === 0) {
+    return res.status(422).json({ error: 'AI analysis contains no rooms to import.' });
+  }
 
-  // ── Delete existing unconfirmed rows ──────────────────────
+  // ── Delete existing unconfirmed rows ───────────────────────
   const { error: delErr } = await supabase
     .from('project_rooms')
     .delete()
-    .eq('project_id', projectId)
-    .eq('user_id',    user.id)
+    .eq('project_id',   projectId)
+    .eq('user_id',      user.id)
     .eq('is_confirmed', false);
 
   if (delErr) return res.status(500).json({ error: `Failed to clear old rooms: ${delErr.message}` });
 
-  // ── Insert new rows ───────────────────────────────────────
+  // ── Insert new rows ────────────────────────────────────────
   const { data: inserted, error: insErr } = await supabase
     .from('project_rooms')
     .insert(rows)
@@ -130,8 +205,9 @@ export default async function handler(req, res) {
   if (insErr) return res.status(500).json({ error: `Failed to insert rooms: ${insErr.message}` });
 
   return res.status(200).json({
-    ok:          true,
-    roomCount:   inserted.length,
-    rooms:       inserted,
+    ok:        true,
+    source,
+    roomCount: inserted.length,
+    rooms:     inserted,
   });
 }

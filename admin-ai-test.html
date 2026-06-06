@@ -928,6 +928,7 @@ async function pollJobStatus() {
         _lastResult = merged;
         setStatus('success', `Complete — ${data.analysisResults.length} floor(s) analysed`);
         renderResults(merged);
+        persistMergedAnalysis(merged); // save merged JSON to projects.ai_analysis_json if projectId set
       } else {
         setStatus('success', 'Analysis complete');
       }
@@ -1162,6 +1163,7 @@ async function confirmPages() {
     stopTimer();
     setStatus('success', `Completed — ${analysisPages.length} floor(s) analysed`);
     renderResults(merged);
+    persistMergedAnalysis(merged); // save merged JSON to projects.ai_analysis_json if projectId set
 
   } catch(e) {
     stopTimer();
@@ -1172,6 +1174,43 @@ async function confirmPages() {
 }
 
 // ── Render results ────────────────────────────────────────────
+// ── Persist merged result to projects.ai_analysis_json ────────────────────
+// Called after every successful multi-floor merge when a projectId is provided.
+// Silently skipped in pure test-mode runs (no projectId).
+async function persistMergedAnalysis(merged) {
+  const projectId = document.getElementById('projectIdInput')?.value.trim();
+  if (!projectId || !/^[0-9a-f-]{36}$/i.test(projectId)) return; // no project linked
+
+  // Build a clean JSON: rooms + pageResults + occupancy + warnings (no UI-only fields)
+  const toSave = {
+    rooms:            merged.rooms,
+    warnings:         merged.warnings  ?? [],
+    assumptions:      merged.assumptions ?? [],
+    reviewCandidates: merged.reviewCandidates ?? [],
+    analysisStatus:   'success',
+    occupancySummary: merged.occupancySummary ?? null,
+    _pageResults:     (merged._pageResults ?? []).map(p => ({
+      floorName: p.floorName,
+      data:      p.data,
+    })),
+  };
+
+  try {
+    const { error } = await _sb
+      .from('projects')
+      .update({ ai_analysis_json: toSave })
+      .eq('id', projectId);
+
+    if (error) {
+      console.warn('[admin-ai-test] projects.ai_analysis_json update failed:', error.message);
+    } else {
+      console.log('[admin-ai-test] projects.ai_analysis_json updated for project', projectId);
+    }
+  } catch (e) {
+    console.warn('[admin-ai-test] persistMergedAnalysis error:', e.message);
+  }
+}
+
 function renderResults(data) {
   // Summary
   const failed = data.analysisStatus === 'failed';
