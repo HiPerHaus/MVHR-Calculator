@@ -2,7 +2,7 @@
 // HiPer Studio — Projects API
 // GET  /api/studio/projects              → list user projects + credit balance
 // POST /api/studio/projects              → create new project (costs 10 credits)
-//       body: { action: 'create', name, site_address?, storeys? }
+//       body: { action: 'create', name, site_address? }
 //       body: { action: 'copy',   sourceProjectId, name }
 // PATCH /api/studio/projects             → rename project
 //       body: { projectId, name }
@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     const [projectsResult, profileResult] = await Promise.all([
       supabase
         .from('projects')
-        .select('id, name, site_address, storeys, created_at, updated_at')
+        .select('id, name, site_address, created_at, updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false }),
       supabase
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
 
     // ── CREATE ──
     if (action === 'create') {
-      const { name, site_address, storeys } = req.body;
+      const { name, site_address } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: 'name required' });
 
       // Deduct credits atomically
@@ -99,9 +99,8 @@ export default async function handler(req, res) {
           user_id: user.id,
           name:    name.trim(),
           site_address: site_address?.trim() || null,
-          storeys: storeys ?? null,
         })
-        .select('id, name, site_address, storeys, created_at, updated_at')
+        .select('id, name, site_address, created_at, updated_at')
         .single();
 
       if (insertErr) {
@@ -156,7 +155,7 @@ export default async function handler(req, res) {
       const { data: newProject, error: projErr } = await supabase
         .from('projects')
         .insert({ ...sourceFields, name: name.trim() })
-        .select('id, name, site_address, storeys, created_at, updated_at')
+        .select('id, name, site_address, created_at, updated_at')
         .single();
 
       if (projErr) {
@@ -197,7 +196,7 @@ export default async function handler(req, res) {
       .update({ name: name.trim() })
       .eq('id', projectId)
       .eq('user_id', user.id)
-      .select('id, name, site_address, storeys, created_at, updated_at')
+      .select('id, name, site_address, created_at, updated_at')
       .single();
 
     if (updateErr) {

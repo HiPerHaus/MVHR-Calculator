@@ -260,11 +260,8 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
       <input type="text" id="newProjectAddress" placeholder="e.g. 12 Example St, Adelaide SA" maxlength="200">
     </div>
     <div class="modal-field">
-      <label>Storeys (optional)</label>
-      <select id="newProjectStoreys">
         <option value="">— Unknown —</option>
         <option value="1">1 storey</option>
-        <option value="2">2 storeys</option>
         <option value="3">3 storeys</option>
       </select>
     </div>
@@ -494,7 +491,6 @@ el('copyModalConfirmBtn').addEventListener('click', async () => {
 el('newProjectBtn').addEventListener('click', () => {
   el('newProjectName').value    = '';
   el('newProjectAddress').value = '';
-  el('newProjectStoreys').value = '';
   el('newModalStatus').classList.remove('visible');
   el('newProjectModal').classList.add('open');
   setTimeout(() => el('newProjectName').focus(), 50);
@@ -505,7 +501,6 @@ el('newModalCancelBtn').addEventListener('click', () => el('newProjectModal').cl
 el('newModalCreateBtn').addEventListener('click', async () => {
   const name    = el('newProjectName').value.trim();
   const address = el('newProjectAddress').value.trim();
-  const storeys = el('newProjectStoreys').value;
 
   if (!name) {
     el('newModalStatus').textContent = 'Project name is required';
@@ -520,7 +515,6 @@ el('newModalCreateBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'POST',
     headers,
-    body:    JSON.stringify({ action: 'create', name, address: address || null, storeys: storeys ? Number(storeys) : null }),
   });
 
   const data = await r.json();
