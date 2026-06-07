@@ -295,11 +295,12 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
 </div>
 
 <script>
-const SUPABASE_URL  = 'https://lbxdrgpmcpbgtqmhrbpd.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxieGRyZ3BtY3BiZ3RxbWhyYnBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMwNzI0NDMsImV4cCI6MjA1ODY0ODQ0M30.s7AFrMaHv5J0rGpojFQj1hYvGfFXHoNMUgCFPDqEYqU';
+const SUPABASE_URL      = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
 
-const { createClient } = supabase;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+console.log('SUPABASE_URL', SUPABASE_URL);
+console.log('SUPABASE_ANON_KEY exists', !!SUPABASE_ANON_KEY);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── State ──────────────────────────────────────────────────────────────────
 let _session   = null;
