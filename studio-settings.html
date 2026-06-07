@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Settings</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+  --amber: #d97706; --amber-bg: #fffbeb;
+  --supply-text: #1d4ed8; --extract-text: #7e22ce;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-project { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active  { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done    { color:var(--accent); }
+.stage-btn.locked  { cursor:default; opacity:.45; pointer-events:none; }
+.stage-btn.settings-link { margin-left:auto; color:var(--muted); }
+.stage-btn.settings-link.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Layout ── */
+main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
+.page-header { margin-bottom:24px; }
+.page-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary   { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn-ghost { background:transparent; color:var(--muted); border:1.5px solid var(--border); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn-sm { padding:5px 12px; font-size:12px; border-radius:7px; }
+
+/* ── Card ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px 28px; margin-bottom:20px; }
+.card-title { font-size:13px; font-weight:800; color:var(--primary); margin-bottom:4px; }
+.card-desc  { font-size:12px; color:var(--muted); margin-bottom:20px; line-height:1.5; }
+.section-sep { border:none; border-top:1px solid var(--border); margin:20px 0; }
+
+/* ── Form fields ── */
+.field-group { margin-bottom:20px; }
+.field-label { display:block; font-size:12px; font-weight:700; color:var(--text); margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
+.field-help  { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.4; }
+.field-row   { display:flex; align-items:center; gap:10px; }
+
+/* ── Range slider ── */
+.range-wrap { display:flex; align-items:center; gap:14px; }
+.range-input { flex:1; accent-color:var(--primary); height:6px; }
+.range-value { font-size:20px; font-weight:900; color:var(--primary); min-width:52px; text-align:right; }
+.range-labels { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px; }
+
+/* ── Method selector ── */
+.method-selector { display:flex; gap:10px; }
+.method-option { display:flex; align-items:center; gap:8px; padding:10px 16px; border:2px solid var(--border); border-radius:8px; cursor:pointer; flex:1; }
+.method-option.selected { border-color:var(--primary); background:var(--primary-light); }
+.method-option input[type=radio] { accent-color:var(--primary); width:15px; height:15px; }
+.method-label { font-weight:700; font-size:13px; }
+
+/* ── Room rates table ── */
+.rates-table { width:100%; border-collapse:collapse; }
+.rates-table th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--border); }
+.rates-table td { padding:7px 10px; border-bottom:1px solid #f0f4f8; vertical-align:middle; }
+.rates-table tr:last-child td { border-bottom:none; }
+.rates-table tbody tr:hover td { background:#f8fafc; }
+.rate-input { width:80px; padding:5px 9px; border:1.5px solid var(--border); border-radius:7px; font-size:14px; font-weight:700; text-align:right; outline:none; }
+.rate-input:focus { border-color:var(--accent); }
+.rate-input.changed { border-color:var(--primary); background:var(--primary-light); }
+.rate-lps { font-size:12px; color:var(--muted); min-width:60px; }
+.rate-type { font-size:11px; background:var(--bg); color:var(--muted); padding:2px 7px; border-radius:8px; display:inline-block; }
+
+/* ── Save bar ── */
+.save-bar { position:sticky; bottom:0; background:#fff; border-top:1px solid var(--border); padding:14px 28px; display:flex; align-items:center; justify-content:space-between; gap:12px; box-shadow:0 -4px 12px rgba(0,0,0,.06); }
+.save-status { font-size:13px; color:var(--muted); }
+.save-status.success { color:#166534; font-weight:700; }
+.save-status.error   { color:var(--critical); font-weight:700; }
+.save-actions { display:flex; gap:10px; }
+
+/* ── Spinner ── */
+.spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:4px; }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-project">Settings</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage nav ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn locked" href="#"><span class="stage-num">1</span>Project Details</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">2</span>Upload Plans</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">3</span>Room Schedule</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">4</span>Airflow Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn settings-link active" href="/studio/settings">⚙ Settings</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="appMain" style="display:none">
+
+  <div class="page-header">
+    <div class="page-title">Settings</div>
+    <div class="page-subtitle">Design preferences and room airflow defaults. Changes apply to future calculations.</div>
+  </div>
+
+  <!-- ── Unit Selection Preferences ── -->
+  <div class="card">
+    <div class="card-title">Unit Selection</div>
+    <div class="card-desc">Controls how MVHR units are ranked when selecting equipment in Stage 4.</div>
+
+    <div class="field-group">
+      <label class="field-label">Preferred operating rate</label>
+      <div class="range-wrap">
+        <input type="range" class="range-input" id="loadPctSlider" min="45" max="75" step="5" value="60" oninput="onLoadPctChange(this.value)">
+        <div class="range-value" id="loadPctDisplay">60%</div>
+      </div>
+      <div class="range-labels"><span>45%</span><span>55%</span><span>65%</span><span>75%</span></div>
+      <div class="field-help">The MVHR unit will be selected so it runs at approximately this percentage of its rated capacity during normal operation. A lower value selects a larger unit with more headroom; higher values select a closer-sized unit.<br>Min 45% · Max 75% · Default 60%</div>
+    </div>
+
+    <hr class="section-sep">
+
+    <div class="field-group" style="margin-bottom:0">
+      <label class="field-label">Default design method</label>
+      <div class="method-selector" id="methodSelector">
+        <label class="method-option selected" id="optPH">
+          <input type="radio" name="designMethod" value="passive_house" checked onchange="onMethodChange('passive_house')">
+          <div class="method-label">Passive House</div>
+        </label>
+        <label class="method-option" id="optAS">
+          <input type="radio" name="designMethod" value="as1668" onchange="onMethodChange('as1668')">
+          <div class="method-label">AS1668 / NCC</div>
+        </label>
+      </div>
+      <div class="field-help" style="margin-top:8px">Sets the default airflow method when starting a new Stage 3 calculation. Can be changed per project.</div>
+    </div>
+  </div>
+
+  <!-- ── Room Airflow Defaults ── -->
+  <div class="card">
+    <div class="card-title">Room Airflow Defaults</div>
+    <div class="card-desc">These values are used for all new Stage 3 airflow calculations. Changing them here does not retroactively update saved designs — recalculate the project to apply new rates.</div>
+
+    <div style="display:flex; justify-content:flex-end; margin-bottom:14px;">
+      <button class="btn btn-ghost btn-sm" onclick="resetToDefaults()">↺ Reset to defaults</button>
+    </div>
+
+    <!-- Supply rates -->
+    <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); margin-bottom:8px;">Supply rates</div>
+    <table class="rates-table" style="margin-bottom:20px;">
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th style="text-align:right">m³/h</th>
+          <th style="text-align:left; padding-left:16px">l/s</th>
+        </tr>
+      </thead>
+      <tbody id="supplyRatesBody"></tbody>
+    </table>
+
+    <!-- Extract rates -->
+    <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--extract-text); margin-bottom:8px;">Extract rates</div>
+    <table class="rates-table">
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th style="text-align:right">m³/h</th>
+          <th style="text-align:left; padding-left:16px">l/s</th>
+        </tr>
+      </thead>
+      <tbody id="extractRatesBody"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<!-- ── Save bar ── -->
+<div class="save-bar" id="saveBar" style="display:none">
+  <div class="save-status" id="saveStatus"></div>
+  <div class="save-actions">
+    <button class="btn btn-secondary" onclick="cancelChanges()">Discard</button>
+    <button class="btn btn-primary" id="saveBtn" onclick="saveSettings()">Save settings</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL      = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const API_BASE          = '/api/studio';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── State ─────────────────────────────────────────────────────
+let _token    = null;
+let _settings = null;  // current saved settings
+let _dirty    = false; // unsaved changes pending
+
+const DEFAULT_RATES = {
+  bedroom_single_m3h:       20,
+  bedroom_double_m3h:       30,
+  bedroom_extra_person_m3h: 10,
+  living_m3h:               40,
+  second_living_m3h:        25,
+  dining_m3h:               20,
+  kitchen_extract_m3h:      40,
+  bathroom_extract_m3h:     40,
+  ensuite_extract_m3h:      30,
+  laundry_extract_m3h:      40,
+  wc_extract_m3h:           20,
+};
+
+const SUPPLY_FIELDS = [
+  { key: 'bedroom_single_m3h',       label: 'Single bedroom (1 bed space)' },
+  { key: 'bedroom_double_m3h',       label: 'Double bedroom (2 bed spaces)' },
+  { key: 'bedroom_extra_person_m3h', label: 'Extra bed space (each additional)' },
+  { key: 'living_m3h',               label: 'Living room (main)' },
+  { key: 'second_living_m3h',        label: 'Second living / retreat / rumpus' },
+  { key: 'dining_m3h',               label: 'Dining room' },
+];
+
+const EXTRACT_FIELDS = [
+  { key: 'kitchen_extract_m3h',   label: 'Kitchen' },
+  { key: 'bathroom_extract_m3h',  label: 'Bathroom (standard)' },
+  { key: 'ensuite_extract_m3h',   label: 'Ensuite' },
+  { key: 'laundry_extract_m3h',   label: 'Laundry' },
+  { key: 'wc_extract_m3h',        label: 'WC / toilet room / powder room' },
+];
+
+// ── Auth ──────────────────────────────────────────────────────
+async function doLogin() {
+  const email = el('loginEmail').value.trim();
+  const pass  = el('loginPassword').value;
+  const errEl = el('loginError');
+  errEl.classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) { errEl.textContent = error.message; errEl.classList.add('visible'); }
+}
+
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
+
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (!session) {
+    document.getElementById('loginOverlay').classList.add('show-login');
+  }
+});
+
+sb.auth.onAuthStateChange((_ev, session) => {
+  if (!session) {
+    document.getElementById('loginOverlay').classList.add('show-login');
+    document.getElementById('appHeader').style.display = 'none';
+    document.getElementById('stageNav').style.display  = 'none';
+    document.getElementById('appMain').style.display   = 'none';
+    document.getElementById('saveBar').style.display   = 'none';
+    return;
+  }
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('appHeader').style.display = 'flex';
+  document.getElementById('stageNav').style.display  = 'flex';
+  document.getElementById('appMain').style.display   = 'block';
+  document.getElementById('saveBar').style.display   = 'flex';
+  document.getElementById('headerUser').textContent  = session.user?.email ?? '';
+  _token = session.access_token;
+  init();
+});
+
+// ── Init ──────────────────────────────────────────────────────
+async function init() {
+  const res = await apiGet(`${API_BASE}/settings`);
+  if (!res.ok) { showStatus('Failed to load settings', 'error'); return; }
+  const { settings } = await res.json();
+  _settings = settings;
+  applyToForm(settings);
+  _dirty = false;
+  updateSaveBar();
+}
+
+function applyToForm(s) {
+  // Load %
+  const pct = s.preferred_unit_load_percent ?? 60;
+  el('loadPctSlider').value  = pct;
+  el('loadPctDisplay').textContent = `${pct}%`;
+
+  // Design method
+  const dm = s.default_design_method ?? 'passive_house';
+  document.querySelector(`input[name="designMethod"][value="${dm}"]`).checked = true;
+  el('optPH').classList.toggle('selected', dm === 'passive_house');
+  el('optAS').classList.toggle('selected', dm === 'as1668');
+
+  // Room rates
+  const rates = { ...DEFAULT_RATES, ...(s.room_airflow_defaults ?? {}) };
+  renderRatesTable('supplyRatesBody',  SUPPLY_FIELDS,  rates);
+  renderRatesTable('extractRatesBody', EXTRACT_FIELDS, rates);
+}
+
+// ── Render rates tables ───────────────────────────────────────
+function renderRatesTable(tbodyId, fields, rates) {
+  const tbody = el(tbodyId);
+  tbody.innerHTML = '';
+  for (const f of fields) {
+    const val = rates[f.key] ?? DEFAULT_RATES[f.key];
+    const lps = r1(val / 3.6);
+    const isDef = val === DEFAULT_RATES[f.key];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span style="font-size:13px">${esc(f.label)}</span></td>
+      <td style="text-align:right">
+        <input type="number" class="rate-input${isDef ? '' : ' changed'}"
+          id="rate_${f.key}" data-key="${f.key}" data-default="${DEFAULT_RATES[f.key]}"
+          value="${val}" min="0" max="100" step="1"
+          oninput="onRateChange('${f.key}', this)">
+      </td>
+      <td style="padding-left:16px">
+        <span class="rate-lps" id="lps_${f.key}">${lps} l/s</span>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+// ── Change handlers ───────────────────────────────────────────
+function onLoadPctChange(val) {
+  el('loadPctDisplay').textContent = `${val}%`;
+  setDirty();
+}
+
+function onMethodChange(val) {
+  el('optPH').classList.toggle('selected', val === 'passive_house');
+  el('optAS').classList.toggle('selected', val === 'as1668');
+  setDirty();
+}
+
+function onRateChange(key, input) {
+  const val = parseFloat(input.value);
+  const lpsEl = el(`lps_${key}`);
+  if (!isNaN(val) && val >= 0) {
+    lpsEl.textContent = `${r1(val / 3.6)} l/s`;
+    input.classList.toggle('changed', val !== parseFloat(input.dataset.default));
+  }
+  setDirty();
+}
+
+function setDirty() {
+  _dirty = true;
+  updateSaveBar();
+}
+
+function updateSaveBar() {
+  el('saveBtn').disabled = !_dirty;
+  if (!_dirty) el('saveStatus').textContent = '';
+}
+
+// ── Reset ─────────────────────────────────────────────────────
+function resetToDefaults() {
+  if (!confirm('Reset all room airflow rates to default values?')) return;
+  const allFields = [...SUPPLY_FIELDS, ...EXTRACT_FIELDS];
+  for (const f of allFields) {
+    const input = el(`rate_${f.key}`);
+    if (!input) continue;
+    input.value = DEFAULT_RATES[f.key];
+    input.classList.remove('changed');
+    const lpsEl = el(`lps_${f.key}`);
+    if (lpsEl) lpsEl.textContent = `${r1(DEFAULT_RATES[f.key] / 3.6)} l/s`;
+  }
+  setDirty();
+}
+
+function cancelChanges() {
+  if (_settings) applyToForm(_settings);
+  _dirty = false;
+  updateSaveBar();
+  showStatus('Changes discarded', '');
+  setTimeout(() => el('saveStatus').textContent = '', 2000);
+}
+
+// ── Save ──────────────────────────────────────────────────────
+async function saveSettings() {
+  el('saveBtn').disabled = true;
+  showStatus('', '');
+
+  const loadPct  = parseInt(el('loadPctSlider').value, 10);
+  const method   = document.querySelector('input[name="designMethod"]:checked')?.value ?? 'passive_house';
+
+  const rates = {};
+  const allFields = [...SUPPLY_FIELDS, ...EXTRACT_FIELDS];
+  for (const f of allFields) {
+    const input = el(`rate_${f.key}`);
+    if (!input) continue;
+    const val = parseFloat(input.value);
+    if (isNaN(val) || val < 0 || val > 100) {
+      showStatus(`Invalid value for "${f.label}" — must be 0–100 m³/h`, 'error');
+      el('saveBtn').disabled = false;
+      return;
+    }
+    rates[f.key] = val;
+  }
+
+  const res = await apiPost(`${API_BASE}/settings`, {
+    preferred_unit_load_percent: loadPct,
+    default_design_method:       method,
+    room_airflow_defaults:       rates,
+  });
+
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: 'Save failed' }));
+    showStatus(error ?? 'Save failed', 'error');
+    el('saveBtn').disabled = false;
+    return;
+  }
+
+  const { settings } = await res.json();
+  _settings = settings;
+  _dirty    = false;
+  updateSaveBar();
+  showStatus('✓ Settings saved', 'success');
+  setTimeout(() => el('saveStatus').textContent = '', 3000);
+
+  // Refresh changed-state highlights
+  applyToForm(settings);
+}
+
+function showStatus(msg, type) {
+  const el2 = el('saveStatus');
+  el2.textContent = msg;
+  el2.className   = `save-status${type ? ' ' + type : ''}`;
+}
+
+// ── API helpers ───────────────────────────────────────────────
+const apiGet  = url => fetch(url, { headers: { Authorization: 'Bearer ' + _token } });
+const apiPost = (url, body) => fetch(url, {
+  method:  'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+  body:    JSON.stringify(body),
+});
+
+// ── Utilities ─────────────────────────────────────────────────
+const el  = id => document.getElementById(id);
+const r1  = v  => Math.round(v * 10) / 10;
+const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+</script>
+</body>
+</html>

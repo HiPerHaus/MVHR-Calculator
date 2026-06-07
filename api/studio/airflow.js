@@ -43,6 +43,23 @@ const isEnsuite = n => /ensuite|en-suite|en\s+suite/i.test(n ?? '');
 // AS1668 / NCC: 1.5 m³/h per m² (higher ventilation requirement).
 const AREA_RATE = { passive_house: 1.0, as1668: 1.5 };
 
+// ── Default room airflow rates (m³/h) ─────────────────────────
+// These match the defaults in api/studio/settings.js.
+// The POST handler loads user overrides and merges over these.
+const DEFAULT_ROOM_RATES = {
+  bedroom_single_m3h:       20,
+  bedroom_double_m3h:       30,
+  bedroom_extra_person_m3h: 10,
+  living_m3h:               40,
+  second_living_m3h:        25,
+  dining_m3h:               20,
+  kitchen_extract_m3h:      40,
+  bathroom_extract_m3h:     40,
+  ensuite_extract_m3h:      30,
+  laundry_extract_m3h:      40,
+  wc_extract_m3h:           20,
+};
+
 // Ignored room types and classifications for area calculation
 const AREA_EXCLUDE_CLS   = new Set(['ignore']);
 const AREA_EXCLUDE_TYPES = new Set(['service']); // garage, balcony captured by cls=ignore
@@ -57,24 +74,24 @@ const AREA_EXPECTED_TYPES = new Set([
 const AREA_COMPLETENESS_THRESHOLD = 0.80; // 80%
 
 // ── Extract rate lookup ───────────────────────────────────────
-// Fixed design extract rates (m³/h). These never change during balancing.
-function extractRate(room) {
+// Design extract rates (m³/h). Accepts user-customised rates object.
+function extractRate(room, rates = DEFAULT_ROOM_RATES) {
   const t = room.room_type;
   const n = room.name ?? '';
-  if (t === 'kitchen' || t === 'kitchenette') return 40;
-  if (t === 'laundry')  return 40;
+  if (t === 'kitchen' || t === 'kitchenette') return rates.kitchen_extract_m3h;
+  if (t === 'laundry')  return rates.laundry_extract_m3h;
   if (t === 'wet_area') {
-    if (isWC(n))      return 20;
-    if (isEnsuite(n)) return 30;
-    return 40; // standard bathroom
+    if (isWC(n))      return rates.wc_extract_m3h;
+    if (isEnsuite(n)) return rates.ensuite_extract_m3h;
+    return rates.bathroom_extract_m3h; // standard bathroom
   }
   if (t === 'service') return 15;
   return 0;
 }
 
 // ── Supply rate lookup ────────────────────────────────────────
-// Fixed design supply rates (m³/h) per room type.
-function supplyRate(room) {
+// Design supply rates (m³/h) per room type. Accepts user-customised rates object.
+function supplyRate(room, rates = DEFAULT_ROOM_RATES) {
   const t = room.room_type;
   const cls = room.classification;
   const n = room.name ?? '';
@@ -85,16 +102,18 @@ function supplyRate(room) {
   switch (t) {
     case 'bedroom': {
       const beds = Math.max(room.bed_spaces || 1, 1);
-      return beds === 1 ? 20 : 30; // single=20, double/master=30
+      if (beds === 1) return rates.bedroom_single_m3h;
+      // Double + extra person per additional space beyond double
+      return rates.bedroom_double_m3h + (beds - 2) * rates.bedroom_extra_person_m3h;
     }
     case 'living': {
-      // Retreat / rumpus / media / family = secondary living: 25 m³/h
-      // Main living = 40 m³/h (balancer can adjust up to 50)
+      // Retreat / rumpus / media / family = secondary living
+      // Main living = primary rate (balancer can adjust ±10 m³/h)
       const nm = (room.name ?? '').toLowerCase();
-      if (/retreat|rumpus|media|games|family|lounge 2|living 2/i.test(nm)) return 25;
-      return 40;
+      if (/retreat|rumpus|media|games|family|lounge 2|living 2/i.test(nm)) return rates.second_living_m3h;
+      return rates.living_m3h;
     }
-    case 'dining':   return 20;
+    case 'dining':   return rates.dining_m3h;
     case 'office':   return 20;
     case 'gym':      return 30;
     default:
@@ -202,7 +221,7 @@ function calcWetRoomFlow(rooms) {
  * Assign supply and extract m³/h to every confirmed room.
  * Returns array of room result objects.
  */
-function allocateRooms(rooms) {
+function allocateRooms(rooms, rates = DEFAULT_ROOM_RATES) {
   return rooms.map(room => {
     const cls = room.classification;
     const t   = room.room_type;
@@ -217,17 +236,17 @@ function allocateRooms(rooms) {
     }
 
     // Extract rooms
-    const eRate = extractRate(room);
+    const eRate = extractRate(room, rates);
     if (eRate > 0) {
       let driver = `${t}`;
       if (t === 'wet_area') {
-        driver = isWC(n) ? 'wc_20' : isEnsuite(n) ? 'ensuite_30' : 'bathroom_40';
+        driver = isWC(n) ? `wc_${rates.wc_extract_m3h}` : isEnsuite(n) ? `ensuite_${rates.ensuite_extract_m3h}` : `bathroom_${rates.bathroom_extract_m3h}`;
       }
       return mkRoom(room, 0, eRate, driver);
     }
 
     // Supply rooms
-    const sRate = supplyRate(room);
+    const sRate = supplyRate(room, rates);
     if (sRate > 0) {
       const driver = t === 'bedroom'
         ? `bedroom_${Math.max(room.bed_spaces || 1, 1)}bed`
@@ -344,7 +363,8 @@ function balanceDesign(roomResults, rooms) {
 }
 
 // ── Main calculation ──────────────────────────────────────────
-function calculateAirflow(rooms, method) {
+function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
+  const rates = { ...DEFAULT_ROOM_RATES, ...userRates };
   // 1. Whole-house design basis
   const { occupancyCount, occupancyFlowM3h } = calcOccupancyFlow(rooms);
   const { treatedAreaM2, areaFlowM3h, hasAreaData, areaWithCount, areaExpectedCount } = calcAreaFlow(rooms, method);
@@ -399,7 +419,7 @@ function calculateAirflow(rooms, method) {
   }));
 
   // 2. Room allocations (fixed rates, independent of design airflow)
-  let roomResults = allocateRooms(rooms);
+  let roomResults = allocateRooms(rooms, rates);
 
   // Log raw allocation before balancing
   console.log(JSON.stringify({
@@ -459,15 +479,20 @@ function calculateAirflow(rooms, method) {
 
 // ── MVHR unit matching ────────────────────────────────────────
 //
-// Required capacity = designFlow × 1.15 (15% headroom).
-// Units with flow_max ≥ required get full capacity score.
-// Units with flow_max between designFlow and required get partial score.
-// Sort: meets_capacity → PHI → hr_eff → low SFP.
+// Preferred unit capacity = designFlow / (preferredLoadPct / 100).
+// e.g. design = 180 m³/h, preferred load = 60% → preferred capacity = 300 m³/h.
 //
-async function matchMvhrUnits(supabase, designM3h) {
-  const required = Math.ceil(designM3h * 1.15);
+// Scoring:
+//   - Best when actual operating % is within ±10% of preferred load.
+//   - Marginal if more than ±20% away.
+//   - Penalise if actual op% > 85% (undersized) or < 35% (grossly oversized).
+//   - PHI certification bonus.
+//   - High HR efficiency bonus, low SFP bonus.
+//
+async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60) {
+  const preferredCapacityM3h = designM3h / (preferredLoadPct / 100);
 
-  // Fetch all units capable of the design flow (some will miss the 15% margin)
+  // Fetch units capable of the design flow
   const { data: units, error } = await supabase
     .from('mvhr_units')
     .select('id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, frost_protection, phi_cert_id')
@@ -477,23 +502,41 @@ async function matchMvhrUnits(supabase, designM3h) {
   if (error || !units?.length) return [];
 
   const scored = units.map(u => {
-    const meetsRequired = u.flow_max >= required;
-    const phiCertified  = !!u.phi_cert_id;
-    // Suitability: how well the unit matches (design / max). 75–90% is the sweet spot.
-    const utilisation   = designM3h / u.flow_max;
-    const suitability   = Math.round(Math.min(100, utilisation * 100));
+    const phiCertified     = !!u.phi_cert_id;
+    // Actual operating percentage at design airflow
+    const actualOpPct      = Math.round((designM3h / u.flow_max) * 100);
+    const deltaFromPref    = Math.abs(actualOpPct - preferredLoadPct);
 
-    // Score components (higher = better)
-    const capacityScore = meetsRequired ? 2000 : 1000 - Math.round((required - u.flow_max) * 5);
-    const phiScore      = phiCertified  ? 500  : 0;
-    const effScore      = (u.hr_eff || 0) * 10;
-    const sfpScore      = -(u.sfp || 1.0) * 50;   // lower SFP is better
-    // Penalise gross oversizing (>2× design flow)
-    const oversizeScore = u.flow_max > designM3h * 2 ? -200 : 0;
+    // Load score: best within ±10%, degrading beyond ±20%, penalise extremes
+    let loadScore;
+    if (actualOpPct > 85)       loadScore = -500;   // too hard — risk of noise/wear
+    else if (actualOpPct < 35)  loadScore = -300;   // way oversized
+    else if (deltaFromPref <= 10) loadScore = 1000; // sweet spot
+    else if (deltaFromPref <= 20) loadScore = 500;  // marginal
+    else                         loadScore = 100;   // outside preference
 
-    const score = capacityScore + phiScore + effScore + sfpScore + oversizeScore;
+    const phiScore  = phiCertified ? 500 : 0;
+    const effScore  = (u.hr_eff || 0) * 10;
+    const sfpScore  = -(u.sfp || 1.0) * 50; // lower SFP is better
 
-    return { ...u, meetsRequired, phiCertified, suitability, score };
+    const score = loadScore + phiScore + effScore + sfpScore;
+
+    // Load rating for display
+    const loadRating = actualOpPct > 85  ? 'too_high'
+      : actualOpPct < 35                 ? 'too_low'
+      : deltaFromPref <= 10              ? 'ideal'
+      : deltaFromPref <= 20              ? 'marginal'
+      :                                    'outside_preference';
+
+    return {
+      ...u,
+      phiCertified,
+      actual_operating_pct:      actualOpPct,
+      preferred_load_pct:        preferredLoadPct,
+      preferred_capacity_m3h:    Math.round(preferredCapacityM3h),
+      load_rating:               loadRating,
+      score,
+    };
   });
 
   scored.sort((a, b) => b.score - a.score);
@@ -574,9 +617,23 @@ export default async function handler(req, res) {
 
     if (rErr) return res.status(500).json({ error: rErr.message });
 
-    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h);
+    // Load preferred load for unit scoring on GET path too
+    let getPreferredLoadPct = 60;
+    {
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('preferred_unit_load_percent')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (settings?.preferred_unit_load_percent) getPreferredLoadPct = settings.preferred_unit_load_percent;
+    }
+    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h, getPreferredLoadPct);
     return res.status(200).json({
-      design: enrichDesign(design, null),
+      design: {
+        ...enrichDesign(design, null),
+        preferred_load_pct:     getPreferredLoadPct,
+        preferred_capacity_m3h: Math.round(design.design_airflow_m3h / (getPreferredLoadPct / 100)),
+      },
       rooms:  enrichRooms(rooms ?? []),
       units,
     });
@@ -608,8 +665,23 @@ export default async function handler(req, res) {
       });
     }
 
+    // Load user settings for room rates + preferred unit load
+    let userRates       = DEFAULT_ROOM_RATES;
+    let preferredLoadPct = 60;
+    {
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('room_airflow_defaults, preferred_unit_load_percent')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (settings) {
+        if (settings.room_airflow_defaults) userRates = { ...DEFAULT_ROOM_RATES, ...settings.room_airflow_defaults };
+        if (settings.preferred_unit_load_percent) preferredLoadPct = settings.preferred_unit_load_percent;
+      }
+    }
+
     // Calculate
-    const calc = calculateAirflow(rooms, designMethod);
+    const calc = calculateAirflow(rooms, designMethod, userRates);
 
     // Delete previous designs for this project
     await supabase
@@ -667,11 +739,15 @@ export default async function handler(req, res) {
 
     if (roomInsErr) return res.status(500).json({ error: roomInsErr.message });
 
-    const units = await matchMvhrUnits(supabase, calc.designFlowM3h);
+    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct);
 
     return res.status(200).json({
       ok:     true,
-      design: enrichDesign(design, calc),
+      design: {
+        ...enrichDesign(design, calc),
+        preferred_load_pct:       preferredLoadPct,
+        preferred_capacity_m3h:   Math.round(calc.designFlowM3h / (preferredLoadPct / 100)),
+      },
       rooms:  enrichRooms(savedRooms ?? []),
       units,
       // Diagnostic: area warning flag
