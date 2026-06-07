@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Projects</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login overlay ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-title { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-credits { font-size:12px; color:rgba(255,255,255,.7); background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2); border-radius:20px; padding:4px 12px; }
+.header-credits strong { color:#fff; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done   { color:var(--accent); }
+.stage-btn.locked { cursor:default; opacity:.45; pointer-events:none; }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Main ── */
+main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
+.page-title    { font-size:24px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); margin-bottom:40px; }
+
+/* ── Card ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; margin-bottom:20px; }
+.card-title { font-size:12px; font-weight:800; color:var(--muted); margin-bottom:16px; text-transform:uppercase; letter-spacing:.6px; }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:7px; border:none; border-radius:9px; padding:10px 20px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary  { background:var(--primary); color:#fff; }
+.btn-primary:hover  { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn-open { background:var(--accent); color:#fff; padding:14px 32px; font-size:15px; font-weight:800; border-radius:11px; }
+.btn-open:hover { background:var(--primary); }
+.btn-open:disabled, .btn:disabled { opacity:.4; cursor:not-allowed; pointer-events:none; }
+.btn-danger { background:#fff; color:var(--critical); border:1.5px solid #fecaca; }
+.btn-danger:hover { background:var(--critical-bg); }
+
+/* ── Project selector ── */
+.project-selector-wrap { position:relative; margin-bottom:20px; }
+#projectSelect {
+  width:100%; padding:12px 16px; font-size:15px; font-weight:600;
+  border:2px solid var(--border); border-radius:10px; background:var(--input-bg);
+  color:var(--text); outline:none; appearance:none; cursor:pointer;
+  transition:border-color .15s;
+}
+#projectSelect:focus { border-color:var(--accent); background:#fff; }
+.select-arrow { position:absolute; right:14px; top:50%; transform:translateY(-50%); pointer-events:none; color:var(--muted); }
+
+/* ── Open row ── */
+.open-row { display:flex; align-items:center; gap:16px; margin-bottom:28px; }
+.project-meta { font-size:12px; color:var(--muted); }
+
+/* ── Action row ── */
+.action-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding-top:20px; border-top:1px solid var(--border); }
+.action-row .spacer { flex:1; }
+
+/* ── New project card ── */
+.new-project-card { border:2px dashed var(--border); border-radius:14px; padding:28px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.new-project-card:hover { border-color:var(--accent); }
+.new-project-info h3 { font-size:15px; font-weight:800; color:var(--primary); margin-bottom:4px; }
+.new-project-info p { font-size:13px; color:var(--muted); }
+.credit-badge { display:inline-flex; align-items:center; gap:5px; background:var(--warn-bg); color:var(--warn); border:1px solid #fed7aa; border-radius:20px; padding:4px 10px; font-size:11px; font-weight:700; margin-top:6px; }
+
+/* ── Inline rename ── */
+#renameInput { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; outline:none; display:none; margin-bottom:10px; }
+#renameInput.visible { display:block; }
+#renameInput:focus { border-color:var(--accent); }
+
+/* ── Status ── */
+.status-msg { font-size:13px; border-radius:8px; padding:10px 14px; margin-bottom:16px; display:none; }
+.status-msg.visible { display:block; }
+.status-ok   { background:var(--ok-bg);       border:1px solid var(--ok-border); color:#166534; }
+.status-err  { background:var(--critical-bg); border:1px solid #fecaca;          color:var(--critical); }
+.status-info { background:#eff6ff;             border:1px solid #bfdbfe;          color:#1e40af; }
+
+/* ── Empty state ── */
+.empty-state { text-align:center; padding:48px 20px; color:var(--muted); }
+.empty-state h3 { font-size:17px; font-weight:800; color:var(--text); margin-bottom:8px; }
+.empty-state p  { font-size:13px; margin-bottom:24px; }
+
+/* ── Modal ── */
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; display:none; align-items:center; justify-content:center; }
+.modal-backdrop.open { display:flex; }
+.modal { background:#fff; border-radius:16px; padding:32px; width:480px; max-width:calc(100vw - 40px); box-shadow:0 24px 60px rgba(0,0,0,.25); }
+.modal h2 { font-size:18px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.modal-field { margin-bottom:16px; }
+.modal-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:5px; }
+.modal-field input, .modal-field select { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:inherit; outline:none; }
+.modal-field input:focus, .modal-field select:focus { border-color:var(--accent); }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; }
+.modal-status { font-size:13px; border-radius:8px; padding:9px 13px; margin-bottom:12px; display:none; }
+.modal-status.visible { display:block; }
+.modal-status.err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+
+/* ── Loading spinner (inline) ── */
+.spinner { width:16px; height:16px; border:2px solid rgba(0,0,0,.15); border-top-color:currentColor; border-radius:50%; animation:spin .7s linear infinite; }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" autocomplete="email" placeholder="you@example.com">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<!-- ── App shell ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-title">Projects</span>
+  </div>
+  <div class="header-right">
+    <span class="header-credits" id="creditBadge">⚡ <strong id="creditBalance">—</strong> credits</span>
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" id="signOutBtn">Sign out</button>
+  </div>
+</header>
+
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn active"  href="/studio/projects"><span class="stage-num">0</span>Projects</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">1</span>Project Details</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">2</span>Upload Plans</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">3</span>Room Schedule</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">4</span>Airflow Design</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn locked"  href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" href="/studio/settings">⚙ Settings</a>
+</nav>
+
+<main id="appMain" style="display:none">
+
+  <div class="page-title">Your Projects</div>
+  <div class="page-subtitle">Select a project to continue, or create a new one.</div>
+
+  <div id="statusMsg" class="status-msg"></div>
+
+  <!-- ── Project selector ── -->
+  <div id="selectorCard" class="card" style="display:none">
+    <div class="card-title">Open a project</div>
+
+    <div class="project-selector-wrap">
+      <select id="projectSelect">
+        <option value="">— Select a project —</option>
+      </select>
+      <span class="select-arrow">▾</span>
+    </div>
+
+    <div class="open-row">
+      <button class="btn btn-open" id="openBtn" disabled>Open Project →</button>
+      <span class="project-meta" id="projectMeta"></span>
+    </div>
+
+    <!-- Rename input (hidden until Rename clicked) -->
+    <input type="text" id="renameInput" placeholder="New project name…" maxlength="120">
+
+    <div class="action-row">
+      <button class="btn btn-secondary" id="renameBtn" disabled>Rename</button>
+      <button class="btn btn-secondary" id="copyBtn"   disabled>Copy Project</button>
+      <div class="spacer"></div>
+      <button class="btn btn-secondary" id="renameSaveBtn" style="display:none">Save Name</button>
+      <button class="btn btn-secondary" id="renameCancelBtn" style="display:none">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── Empty state ── -->
+  <div id="emptyState" class="empty-state" style="display:none">
+    <h3>No projects yet</h3>
+    <p>Create your first project below — it costs 10 credits.</p>
+  </div>
+
+  <!-- ── New project card ── -->
+  <div class="new-project-card" id="newProjectCard">
+    <div class="new-project-info">
+      <h3>New Project</h3>
+      <p>Start a fresh MVHR sizing project.</p>
+      <div class="credit-badge">⚡ Uses 10 credits</div>
+    </div>
+    <button class="btn btn-primary" id="newProjectBtn">+ New Project</button>
+  </div>
+
+</main>
+
+<!-- ── New Project Modal ── -->
+<div class="modal-backdrop" id="newProjectModal">
+  <div class="modal">
+    <h2>New Project</h2>
+    <div class="modal-status err" id="newModalStatus"></div>
+    <div class="modal-field">
+      <label>Project name <span style="color:var(--critical)">*</span></label>
+      <input type="text" id="newProjectName" placeholder="e.g. Smith Residence" maxlength="120" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label>Address (optional)</label>
+      <input type="text" id="newProjectAddress" placeholder="e.g. 12 Example St, Adelaide SA" maxlength="200">
+    </div>
+    <div class="modal-field">
+      <label>Storeys (optional)</label>
+      <select id="newProjectStoreys">
+        <option value="">— Unknown —</option>
+        <option value="1">1 storey</option>
+        <option value="2">2 storeys</option>
+        <option value="3">3 storeys</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="newModalCancelBtn">Cancel</button>
+      <button class="btn btn-primary"   id="newModalCreateBtn">Create — 10 credits</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Copy Project Modal ── -->
+<div class="modal-backdrop" id="copyProjectModal">
+  <div class="modal">
+    <h2>Copy Project</h2>
+    <div class="modal-status err" id="copyModalStatus"></div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      Copies the project and all its rooms. Costs 10 credits.
+    </p>
+    <div class="modal-field">
+      <label>New project name <span style="color:var(--critical)">*</span></label>
+      <input type="text" id="copyProjectName" placeholder="Copy of…" maxlength="120" autocomplete="off">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="copyModalCancelBtn">Cancel</button>
+      <button class="btn btn-primary"   id="copyModalConfirmBtn">Copy — 10 credits</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL  = 'https://lbxdrgpmcpbgtqmhrbpd.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxieGRyZ3BtY3BiZ3RxbWhyYnBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMwNzI0NDMsImV4cCI6MjA1ODY0ODQ0M30.s7AFrMaHv5J0rGpojFQj1hYvGfFXHoNMUgCFPDqEYqU';
+
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let _session   = null;
+let _projects  = [];
+let _renaming  = false;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+const el  = id => document.getElementById(id);
+const fmt = iso => iso ? new Date(iso).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '';
+
+function showStatus(msg, type = 'info') {
+  const s = el('statusMsg');
+  s.textContent   = msg;
+  s.className     = `status-msg visible status-${type}`;
+  if (type !== 'err') setTimeout(() => s.classList.remove('visible'), 4000);
+}
+
+function updateCreditDisplay(balance) {
+  el('creditBalance').textContent = balance ?? '—';
+}
+
+function populateSelector(projects) {
+  const sel = el('projectSelect');
+  sel.innerHTML = '<option value="">— Select a project —</option>';
+  projects.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value       = p.id;
+    opt.textContent = p.name;
+    opt._project    = p;
+    sel.appendChild(opt);
+  });
+}
+
+function getSelectedProject() {
+  const sel = el('projectSelect');
+  if (!sel.value) return null;
+  return _projects.find(p => p.id === sel.value) ?? null;
+}
+
+function updateActionBar() {
+  const p = getSelectedProject();
+  el('openBtn').disabled   = !p;
+  el('renameBtn').disabled = !p;
+  el('copyBtn').disabled   = !p;
+  if (p) {
+    el('projectMeta').textContent = `Updated ${fmt(p.updated_at)}`;
+  } else {
+    el('projectMeta').textContent = '';
+  }
+}
+
+async function authHeaders() {
+  const { data: { session } } = await sb.auth.getSession();
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+}
+
+// ── Load projects ─────────────────────────────────────────────────────────
+async function loadProjects() {
+  const headers = await authHeaders();
+  const r = await fetch('/api/studio/projects', { headers });
+  if (!r.ok) { showStatus('Failed to load projects', 'err'); return; }
+  const { projects, credit_balance } = await r.json();
+  _projects = projects ?? [];
+  updateCreditDisplay(credit_balance);
+  populateSelector(_projects);
+
+  if (_projects.length === 0) {
+    el('selectorCard').style.display = 'none';
+    el('emptyState').style.display   = 'block';
+  } else {
+    el('selectorCard').style.display = 'block';
+    el('emptyState').style.display   = 'none';
+    updateActionBar();
+  }
+}
+
+// ── Open project ──────────────────────────────────────────────────────────
+el('openBtn').addEventListener('click', () => {
+  const p = getSelectedProject();
+  if (!p) return;
+  window.location.href = `/studio/projects/${p.id}/details`;
+});
+
+el('projectSelect').addEventListener('change', updateActionBar);
+
+// ── Rename ────────────────────────────────────────────────────────────────
+el('renameBtn').addEventListener('click', () => {
+  const p = getSelectedProject();
+  if (!p) return;
+  _renaming = true;
+  const inp = el('renameInput');
+  inp.value = p.name;
+  inp.classList.add('visible');
+  inp.focus();
+  inp.select();
+  el('renameBtn').style.display       = 'none';
+  el('copyBtn').style.display         = 'none';
+  el('renameSaveBtn').style.display   = 'inline-flex';
+  el('renameCancelBtn').style.display = 'inline-flex';
+});
+
+el('renameCancelBtn').addEventListener('click', cancelRename);
+
+function cancelRename() {
+  _renaming = false;
+  el('renameInput').classList.remove('visible');
+  el('renameBtn').style.display       = 'inline-flex';
+  el('copyBtn').style.display         = 'inline-flex';
+  el('renameSaveBtn').style.display   = 'none';
+  el('renameCancelBtn').style.display = 'none';
+}
+
+el('renameSaveBtn').addEventListener('click', async () => {
+  const p       = getSelectedProject();
+  const newName = el('renameInput').value.trim();
+  if (!p || !newName) return;
+  if (newName === p.name) { cancelRename(); return; }
+
+  el('renameSaveBtn').disabled = true;
+  const headers = await authHeaders();
+  const r = await fetch('/api/studio/projects', {
+    method:  'PATCH',
+    headers,
+    body:    JSON.stringify({ projectId: p.id, name: newName }),
+  });
+
+  el('renameSaveBtn').disabled = false;
+  if (!r.ok) { showStatus('Rename failed', 'err'); return; }
+  const { project } = await r.json();
+  // Update local state
+  const idx = _projects.findIndex(x => x.id === project.id);
+  if (idx !== -1) _projects[idx] = project;
+  populateSelector(_projects);
+  el('projectSelect').value = project.id;
+  updateActionBar();
+  cancelRename();
+  showStatus('Project renamed', 'ok');
+});
+
+// ── Copy ──────────────────────────────────────────────────────────────────
+el('copyBtn').addEventListener('click', () => {
+  const p = getSelectedProject();
+  if (!p) return;
+  el('copyProjectName').value = `Copy of ${p.name}`;
+  el('copyModalStatus').classList.remove('visible');
+  el('copyProjectModal').classList.add('open');
+  setTimeout(() => el('copyProjectName').focus(), 50);
+});
+
+el('copyModalCancelBtn').addEventListener('click',  () => el('copyProjectModal').classList.remove('open'));
+
+el('copyModalConfirmBtn').addEventListener('click', async () => {
+  const p    = getSelectedProject();
+  const name = el('copyProjectName').value.trim();
+  if (!p || !name) return;
+
+  el('copyModalConfirmBtn').disabled = true;
+  el('copyModalStatus').classList.remove('visible');
+  const headers = await authHeaders();
+
+  const r = await fetch('/api/studio/projects', {
+    method:  'POST',
+    headers,
+    body:    JSON.stringify({ action: 'copy', sourceProjectId: p.id, name }),
+  });
+
+  const data = await r.json();
+  el('copyModalConfirmBtn').disabled = false;
+
+  if (!r.ok) {
+    const msg = data.error === 'insufficient_credits'
+      ? `Not enough credits (have ${data.balance}, need ${data.required})`
+      : (data.error ?? 'Copy failed');
+    el('copyModalStatus').textContent = msg;
+    el('copyModalStatus').classList.add('visible');
+    return;
+  }
+
+  el('copyProjectModal').classList.remove('open');
+  updateCreditDisplay(data.new_balance);
+  _projects.unshift(data.project);
+  populateSelector(_projects);
+  el('projectSelect').value = data.project.id;
+  el('selectorCard').style.display = 'block';
+  el('emptyState').style.display   = 'none';
+  updateActionBar();
+  showStatus('Project copied', 'ok');
+});
+
+// ── New project ───────────────────────────────────────────────────────────
+el('newProjectBtn').addEventListener('click', () => {
+  el('newProjectName').value    = '';
+  el('newProjectAddress').value = '';
+  el('newProjectStoreys').value = '';
+  el('newModalStatus').classList.remove('visible');
+  el('newProjectModal').classList.add('open');
+  setTimeout(() => el('newProjectName').focus(), 50);
+});
+
+el('newModalCancelBtn').addEventListener('click', () => el('newProjectModal').classList.remove('open'));
+
+el('newModalCreateBtn').addEventListener('click', async () => {
+  const name    = el('newProjectName').value.trim();
+  const address = el('newProjectAddress').value.trim();
+  const storeys = el('newProjectStoreys').value;
+
+  if (!name) {
+    el('newModalStatus').textContent = 'Project name is required';
+    el('newModalStatus').classList.add('visible');
+    return;
+  }
+
+  el('newModalCreateBtn').disabled = true;
+  el('newModalStatus').classList.remove('visible');
+  const headers = await authHeaders();
+
+  const r = await fetch('/api/studio/projects', {
+    method:  'POST',
+    headers,
+    body:    JSON.stringify({ action: 'create', name, address: address || null, storeys: storeys ? Number(storeys) : null }),
+  });
+
+  const data = await r.json();
+  el('newModalCreateBtn').disabled = false;
+
+  if (!r.ok) {
+    const msg = data.error === 'insufficient_credits'
+      ? `Not enough credits (have ${data.balance}, need ${data.required})`
+      : (data.error ?? 'Failed to create project');
+    el('newModalStatus').textContent = msg;
+    el('newModalStatus').classList.add('visible');
+    return;
+  }
+
+  el('newProjectModal').classList.remove('open');
+  updateCreditDisplay(data.new_balance);
+  // Navigate directly to the new project's details page
+  window.location.href = `/studio/projects/${data.project.id}/details`;
+});
+
+// Close modals on backdrop click
+['newProjectModal','copyProjectModal'].forEach(id => {
+  el(id).addEventListener('click', e => {
+    if (e.target === el(id)) el(id).classList.remove('open');
+  });
+});
+
+// Enter key in modals
+el('newProjectName').addEventListener('keydown',   e => { if (e.key === 'Enter') el('newModalCreateBtn').click(); });
+el('copyProjectName').addEventListener('keydown',  e => { if (e.key === 'Enter') el('copyModalConfirmBtn').click(); });
+el('renameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter')  el('renameSaveBtn').click();
+  if (e.key === 'Escape') cancelRename();
+});
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+function showApp(user) {
+  el('loginOverlay').classList.add('hidden');
+  el('appHeader').style.display = 'flex';
+  el('stageNav').style.display  = 'flex';
+  el('appMain').style.display   = 'block';
+  el('headerUser').textContent  = user.email;
+  loadProjects();
+}
+
+el('signOutBtn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  window.location.reload();
+});
+
+el('loginBtn').addEventListener('click', async () => {
+  const email    = el('loginEmail').value.trim();
+  const password = el('loginPassword').value;
+  const errEl    = el('loginError');
+  errEl.classList.remove('visible');
+  el('loginBtn').disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  el('loginBtn').disabled = false;
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.add('visible');
+  }
+});
+
+el('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') el('loginBtn').click(); });
+
+// Eager session check — prevents login flicker
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    _session = session;
+    showApp(session.user);
+  } else {
+    el('loginOverlay').classList.add('show-login');
+  }
+})();
+
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session && !_session) {
+    _session = session;
+    showApp(session.user);
+  }
+  if (event === 'SIGNED_OUT') {
+    _session = null;
+    el('loginOverlay').classList.remove('hidden');
+    el('loginOverlay').classList.add('show-login');
+    el('appHeader').style.display = 'none';
+    el('stageNav').style.display  = 'none';
+    el('appMain').style.display   = 'none';
+  }
+});
+</script>
+</body>
+</html>
