@@ -33,6 +33,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-login:hover { background:var(--accent); }
 .login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
 .login-error.visible { display:block; }
+/* ── Auth-check state — prevents login flicker on page transitions ── */
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
 
 /* ── Header ── */
 header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
@@ -154,6 +161,10 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
 <!-- ── Login overlay ── -->
 <div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
   <div class="login-box">
     <div class="login-logo">HiPer Studio</div>
     <div class="login-title">Sign in to continue</div>
@@ -379,14 +390,25 @@ async function doLogin() {
 }
 async function doSignOut() { await sb.auth.signOut(); location.reload(); }
 
+// Eager check: resolve overlay state immediately from cached session (no flicker)
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (session) {
+    document.getElementById('loginOverlay').classList.add('hidden');
+  } else {
+    document.getElementById('loginOverlay').classList.add('show-login');
+  }
+});
+
 sb.auth.onAuthStateChange((_ev, session) => {
   if (!session) {
     document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('loginOverlay').classList.add('show-login');
     ['appHeader','stageNav','appMain'].forEach(id => document.getElementById(id).style.display = 'none');
     return;
   }
   _token = session.access_token;
   document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('loginOverlay').classList.remove('show-login');
   document.getElementById('appHeader').style.display = 'flex';
   document.getElementById('stageNav').style.display  = 'flex';
   document.getElementById('appMain').style.display   = 'block';
@@ -516,9 +538,10 @@ function renderResults() {
   el('basisArea').style.display = '';
 
   // ── Stats ─────────────────────────────────────────────
-  const supplyM3h  = d.total_supply_m3h  ?? r1(d.total_supply_lps  * 3.6);
-  const extractM3h = d.total_extract_m3h ?? r1(d.total_extract_lps * 3.6);
-  const diffM3h    = Math.abs(supplyM3h - extractM3h);
+  // Always sum from room data so the header matches the table footer exactly.
+  const supplyM3h  = r1(_rooms.reduce((s, r) => s + (r.supply_m3h  ?? r1((r.supply_lps  || 0) * 3.6)), 0));
+  const extractM3h = r1(_rooms.reduce((s, r) => s + (r.extract_m3h ?? r1((r.extract_lps || 0) * 3.6)), 0));
+  const diffM3h    = r1(Math.abs(supplyM3h - extractM3h));
 
   el('statDesignM3h').textContent  = d.design_airflow_m3h;
   el('statDesignLps').textContent  = d.design_airflow_lps;

@@ -222,6 +222,12 @@ function balanceDesign(roomResults, rooms) {
   const maxFlow    = Math.max(totalSupply, totalExtract);
   const initRatio  = maxFlow > 0 ? Math.abs(totalSupply - totalExtract) / maxFlow : 0;
 
+  console.log(JSON.stringify({
+    event: 'airflow:base-supply-total',  baseSupplyM3h: totalSupply,
+    event2: 'airflow:base-extract-total', baseExtractM3h: totalExtract,
+    initDiffM3h: r1(totalSupply - totalExtract), initRatio: r1(initRatio * 100),
+  }));
+
   if (initRatio <= 0.05) {
     return { roomResults, adjustmentM3h: 0, balanceStatus: 'balanced' };
   }
@@ -232,10 +238,12 @@ function balanceDesign(roomResults, rooms) {
   for (const rule of BALANCE_RULES) {
     if (Math.abs(needed) < 1) break;
 
-    // Find all rooms matching this type that currently have supply
+    // Only adjust rooms that already carry supply (supply_m3h > 0).
+    // Ignored / transfer living rooms correctly have supply = 0 and must NOT
+    // be pulled up to the rule minimum during balancing.
     const candidates = roomResults
       .map((r, i) => ({ r, i, srcRoom: rooms[i] }))
-      .filter(({ srcRoom }) => srcRoom.room_type === rule.type);
+      .filter(({ r, srcRoom }) => srcRoom.room_type === rule.type && r.supply_m3h > 0);
 
     for (const { r, i } of candidates) {
       if (Math.abs(needed) < 1) break;
@@ -265,6 +273,13 @@ function balanceDesign(roomResults, rooms) {
   const finalMax   = Math.max(totalSupply, totalExtract);
   const finalRatio = finalMax > 0 ? Math.abs(totalSupply - totalExtract) / finalMax : 0;
 
+  console.log(JSON.stringify({
+    event: 'airflow:balance-adjustment',
+    adjustmentM3h: totalApplied, neededRemainingM3h: r1(needed),
+    finalSupplyM3h: totalSupply, finalExtractM3h: totalExtract,
+    finalDiffM3h: r1(totalSupply - totalExtract), finalRatio: r1(finalRatio * 100),
+  }));
+
   const balanceStatus = finalRatio <= 0.05
     ? 'balanced'
     : finalRatio <= 0.10
@@ -290,12 +305,33 @@ function calculateAirflow(rooms, method) {
   // 2. Room allocations (fixed rates, independent of design airflow)
   let roomResults = allocateRooms(rooms);
 
+  // Log raw allocation before balancing
+  console.log(JSON.stringify({
+    event: 'airflow:raw-rooms',
+    roomCount: roomResults.length,
+    rooms: roomResults.map(r => ({
+      name:       r.room_name,
+      floor:      r.floor,
+      type:       r.room_type,
+      driver:     r.airflow_driver,
+      supplyM3h:  r.supply_m3h,
+      extractM3h: r.extract_m3h,
+    })),
+  }));
+
   // 3. Balance supply vs extract
   const { roomResults: balanced, adjustmentM3h, balanceStatus } = balanceDesign(roomResults, rooms);
 
-  // 4. Final totals from room allocations
+  // 4. Final totals — sum directly from room values (no lps round-trip)
   const totalSupplyM3h  = r1(balanced.reduce((s, r) => s + r.supply_m3h,  0));
   const totalExtractM3h = r1(balanced.reduce((s, r) => s + r.extract_m3h, 0));
+
+  console.log(JSON.stringify({
+    event: 'airflow:final-supply-total',  finalSupplyM3h:  totalSupplyM3h,
+    event2: 'airflow:final-extract-total', finalExtractM3h: totalExtractM3h,
+    diffM3h: r1(totalSupplyM3h - totalExtractM3h),
+    balanceStatus, adjustmentM3h,
+  }));
 
   return {
     // Design basis
@@ -368,12 +404,16 @@ async function matchMvhrUnits(supabase, designM3h) {
 
 // ── Enrich helpers ────────────────────────────────────────────
 function enrichDesign(dbRow, calc) {
+  // Prefer calc values (exact, no lps round-trip) over DB lps → m³/h conversion.
+  // On GET path calc is null, so fall back to lps conversion.
+  const totalSupplyM3h  = calc?.totalSupplyM3h  ?? toM3h(dbRow.total_supply_lps);
+  const totalExtractM3h = calc?.totalExtractM3h ?? toM3h(dbRow.total_extract_lps);
+  const adjM3h          = calc?.adjustmentM3h   ?? toM3h(dbRow.balance_adjustment_lps ?? 0);
   return {
     ...dbRow,
-    // m³/h totals derived from stored lps
-    total_supply_m3h:       toM3h(dbRow.total_supply_lps),
-    total_extract_m3h:      toM3h(dbRow.total_extract_lps),
-    balance_adjustment_m3h: toM3h(dbRow.balance_adjustment_lps ?? 0),
+    total_supply_m3h:       totalSupplyM3h,
+    total_extract_m3h:      totalExtractM3h,
+    balance_adjustment_m3h: adjM3h,
     // design basis (stored directly or passed from calc)
     occupancy_flow_m3h:  dbRow.occupancy_flow_m3h  ?? calc?.occupancyFlowM3h,
     area_flow_m3h:       dbRow.area_flow_m3h        ?? calc?.areaFlowM3h,
