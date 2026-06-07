@@ -261,8 +261,6 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
     </div>
     <div class="modal-field">
         <option value="">— Unknown —</option>
-        <option value="1">1 storey</option>
-        <option value="3">3 storeys</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -421,7 +419,7 @@ el('renameSaveBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'PATCH',
     headers,
-    body:    JSON.stringify({ projectId: p.id, name: newName }),
+    body: JSON.stringify({ action: 'create', projectId: p.id, name: newName }),
   });
 
   el('renameSaveBtn').disabled = false;
@@ -461,7 +459,7 @@ el('copyModalConfirmBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'POST',
     headers,
-    body:    JSON.stringify({ action: 'copy', sourceProjectId: p.id, name }),
+    body: JSON.stringify({ action: 'create',  action: 'copy', sourceProjectId: p.id, name }),
   });
 
   const data = await r.json();
