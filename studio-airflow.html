@@ -185,7 +185,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>AI Extraction</a>
+  <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
   <a class="stage-btn active" id="stageBtn3" href="#"><span class="stage-num">3</span>Airflow Design</a>
   <a class="stage-btn locked" id="stageBtn4" href="#"><span class="stage-num">4</span>Unit Selection</a>
@@ -398,7 +398,7 @@ async function init() {
   _projectId = getProjectIdFromUrl();
   if (_projectId) {
     const stage4 = `/studio/projects/${_projectId}/unit-selection`;
-    document.getElementById('stageBtn1').href      = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn1').href      = `/studio/projects/${_projectId}/upload`;
     document.getElementById('stageBtn2').href      = `/studio/projects/${_projectId}/rooms`;
     document.getElementById('stageBtn3').href      = `/studio/projects/${_projectId}/airflow`;
     document.getElementById('stageBtn4').href      = stage4;

@@ -326,9 +326,9 @@ select.cell-input { cursor: pointer; }
 
 <!-- ── Stage navigation ── -->
 <nav class="stage-nav">
-  <button class="stage-btn done"   onclick="alert('Stage 1 complete')">
-    <span class="stage-num">✓</span> Room Extraction
-  </button>
+  <a class="stage-btn done" id="stageBtn1" href="#">
+    <span class="stage-num">✓</span> Upload Plans
+  </a>
   <button class="stage-btn active">
     <span class="stage-num">2</span> Room Schedule
   </button>
@@ -600,6 +600,10 @@ async function loadPage() {
     document.getElementById('projectName').textContent = project.name || 'Project';
     document.title = `${project.name || 'Project'} — Room Schedule — HiPer Studio`;
     _confirmed = !!project.schedule_confirmed_at;
+
+    // Wire up Stage 1 nav link
+    const s1 = document.getElementById('stageBtn1');
+    if (s1) s1.href = `/studio/projects/${_projectId}/upload`;
 
     // Load or seed rooms
     const { rooms } = await apiGet(`${API_BASE}/rooms?projectId=${_projectId}`);

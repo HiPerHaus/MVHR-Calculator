@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Upload Plans</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+  --amber: #d97706; --amber-bg: #fffbeb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-project { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done   { color:var(--accent); }
+.stage-btn.locked { cursor:default; opacity:.45; pointer-events:none; }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Main ── */
+main { max-width: 860px; margin: 0 auto; padding: 32px 28px 80px; }
+
+/* ── Page header ── */
+.page-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); margin-bottom:28px; }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary  { background:var(--primary); color:#fff; }
+.btn-primary:hover  { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn-sm { padding:5px 11px; font-size:12px; border-radius:7px; }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+
+/* ── Card ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; margin-bottom:20px; }
+
+/* ── Upload dropzone ── */
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 12px;
+  padding: 56px 32px; text-align: center;
+  cursor: pointer; transition: border-color .2s, background .2s;
+  background: #fafcfe;
+}
+.dropzone:hover, .dropzone.drag-over {
+  border-color: var(--accent); background: #f0fdf4;
+}
+.dropzone-icon { font-size: 42px; margin-bottom: 12px; line-height:1; }
+.dropzone-title { font-size:16px; font-weight:800; color:var(--primary); margin-bottom:6px; }
+.dropzone-sub { font-size:13px; color:var(--muted); margin-bottom:20px; }
+.dropzone-btn { display:inline-flex; align-items:center; gap:7px; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:10px 22px; font-size:14px; font-weight:700; cursor:pointer; }
+.dropzone-btn:hover { background:var(--accent); }
+.dropzone-hint { font-size:11px; color:var(--muted); margin-top:12px; }
+
+/* ── Progress ── */
+.progress-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; margin-bottom:20px; }
+.progress-title { font-size:15px; font-weight:800; color:var(--primary); margin-bottom:20px; }
+
+.progress-steps { display:flex; flex-direction:column; gap:0; }
+.step {
+  display:flex; align-items:center; gap:14px;
+  padding:11px 0;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.step:last-child { border-bottom: none; }
+.step-icon {
+  width:30px; height:30px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; font-weight:800;
+  background: var(--border); color: var(--muted);
+  transition: background .3s, color .3s;
+}
+.step.done .step-icon     { background: var(--ok-bg); color: var(--accent); }
+.step.active .step-icon   { background: var(--primary); color: #fff; }
+.step.error .step-icon    { background: var(--critical-bg); color: var(--critical); }
+.step-label { font-size:13px; font-weight:600; color:var(--muted); flex:1; }
+.step.done .step-label    { color: var(--text); }
+.step.active .step-label  { color: var(--primary); font-weight:700; }
+.step.error .step-label   { color: var(--critical); }
+.step-spinner { width:16px; height:16px; border:2px solid rgba(26,71,49,.15); border-top-color:var(--primary); border-radius:50%; animation: spin .7s linear infinite; flex-shrink:0; }
+
+/* ── Summary ── */
+.summary-card { background:var(--ok-bg); border:1px solid var(--ok-border); border-radius:14px; padding:28px; margin-bottom:20px; }
+.summary-title { font-size:16px; font-weight:800; color:#166534; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.summary-items { display:flex; flex-direction:column; gap:8px; }
+.summary-item { display:flex; align-items:center; gap:10px; font-size:14px; color:#166534; }
+.summary-check { font-size:16px; }
+.summary-actions { display:flex; gap:10px; margin-top:20px; flex-wrap:wrap; }
+.redirect-note { font-size:12px; color:#166534; opacity:.75; margin-top:10px; }
+
+/* ── Already complete ── */
+.already-card { background:var(--card); border:1px solid var(--ok-border); border-radius:14px; padding:28px; margin-bottom:20px; }
+.already-title { font-size:16px; font-weight:800; color:var(--primary); margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.already-sub { font-size:13px; color:var(--muted); margin-bottom:20px; }
+.already-actions { display:flex; gap:10px; flex-wrap:wrap; }
+
+/* ── Error banner ── */
+.error-banner { background:var(--critical-bg); border:1px solid #fecaca; border-radius:12px; padding:18px 20px; margin-bottom:20px; display:none; }
+.error-banner.visible { display:block; }
+.error-title { font-size:13px; font-weight:800; color:var(--critical); margin-bottom:4px; }
+.error-msg { font-size:12px; color:var(--critical); opacity:.85; }
+
+/* ── Spinner ── */
+@keyframes spin { to { transform:rotate(360deg); } }
+.spinner-lg { width:28px; height:28px; border:3px solid rgba(26,71,49,.15); border-top-color:var(--primary); border-radius:50%; animation:spin .8s linear infinite; }
+
+.init-row { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:13px; padding:40px 0; justify-content:center; }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-project" id="headerProject">Loading…</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage nav ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">1</span>Upload Plans</a>
+  <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">2</span>Room Schedule</a>
+  <a class="stage-btn locked" id="stageBtn3" href="#"><span class="stage-num">3</span>Airflow Design</a>
+  <a class="stage-btn locked" id="stageBtn4" href="#"><span class="stage-num">4</span>Unit Selection</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Duct Layout</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Report</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="appMain" style="display:none">
+  <div class="page-title">Upload Plans</div>
+  <div class="page-subtitle" id="pageSubtitle">Upload your PDF floor plans to begin AI room extraction.</div>
+
+  <!-- Init spinner -->
+  <div id="initRow" class="init-row"><div class="spinner-lg"></div><span>Checking project…</span></div>
+
+  <!-- Error banner -->
+  <div class="error-banner" id="errorBanner">
+    <div class="error-title" id="errorTitle">Upload failed</div>
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <!-- Already complete -->
+  <div id="alreadyCard" class="already-card" style="display:none">
+    <div class="already-title">✓ Analysis Already Completed</div>
+    <div class="already-sub" id="alreadySub">This project has an existing AI room extraction. You can proceed to the room schedule, or re-run the analysis with new plans.</div>
+    <div class="already-actions">
+      <a class="btn btn-primary" id="alreadyViewBtn" href="#">View Room Schedule →</a>
+      <button class="btn btn-secondary" onclick="showUploadForRerun()">Upload New Plans</button>
+    </div>
+  </div>
+
+  <!-- Upload card -->
+  <div id="uploadCard" class="card" style="display:none">
+    <input type="file" id="fileInput" accept=".pdf,application/pdf" style="display:none" onchange="onFileSelected(this.files[0])">
+    <div class="dropzone" id="dropzone"
+         onclick="document.getElementById('fileInput').click()"
+         ondragover="onDragOver(event)"
+         ondragleave="onDragLeave(event)"
+         ondrop="onDrop(event)">
+      <div class="dropzone-icon">📄</div>
+      <div class="dropzone-title">Drop your PDF here</div>
+      <div class="dropzone-sub">Multi-page floor plan PDFs supported</div>
+      <button class="dropzone-btn" onclick="event.stopPropagation();document.getElementById('fileInput').click()">
+        Select PDF
+      </button>
+      <div class="dropzone-hint">PDF files only · Max 50 MB</div>
+    </div>
+  </div>
+
+  <!-- Progress card -->
+  <div id="progressCard" class="progress-card" style="display:none">
+    <div class="progress-title" id="progressTitle">Uploading plans…</div>
+    <div class="progress-steps">
+      <div class="step" id="stepUpload">
+        <div class="step-icon" id="stepUploadIcon">1</div>
+        <div class="step-label">Uploading PDF</div>
+        <div class="step-spinner" id="stepUploadSpinner" style="display:none"></div>
+      </div>
+      <div class="step" id="stepRender">
+        <div class="step-icon" id="stepRenderIcon">2</div>
+        <div class="step-label">Rendering pages</div>
+        <div class="step-spinner" id="stepRenderSpinner" style="display:none"></div>
+      </div>
+      <div class="step" id="stepClassify">
+        <div class="step-icon" id="stepClassifyIcon">3</div>
+        <div class="step-label">Classifying sheets</div>
+        <div class="step-spinner" id="stepClassifySpinner" style="display:none"></div>
+      </div>
+      <div class="step" id="stepAnalyse">
+        <div class="step-icon" id="stepAnalyseIcon">4</div>
+        <div class="step-label">Running AI room extraction</div>
+        <div class="step-spinner" id="stepAnalyseSpinner" style="display:none"></div>
+      </div>
+      <div class="step" id="stepBuild">
+        <div class="step-icon" id="stepBuildIcon">5</div>
+        <div class="step-label">Building room schedule</div>
+        <div class="step-spinner" id="stepBuildSpinner" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary card (shown on complete) -->
+  <div id="summaryCard" class="summary-card" style="display:none">
+    <div class="summary-title">✓ Analysis Complete</div>
+    <div class="summary-items" id="summaryItems"></div>
+    <div class="summary-actions">
+      <a class="btn btn-primary" id="summaryViewBtn" href="#">View Room Schedule →</a>
+    </div>
+    <div class="redirect-note" id="redirectNote">Redirecting to room schedule in <span id="redirectCountdown">3</span>s…</div>
+  </div>
+
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const BUCKET        = 'plan-uploads';
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── State ─────────────────────────────────────────────────────
+let _projectId = null;
+let _token     = null;
+let _userId    = null;
+let _jobId     = null;
+let _pollTimer = null;
+
+// ── Helpers ───────────────────────────────────────────────────
+function el(id) { return document.getElementById(id); }
+function uuidv4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+function getProjectIdFromUrl() {
+  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
+}
+function showError(title, msg) {
+  el('errorTitle').textContent = title;
+  el('errorMsg').textContent   = msg || '';
+  el('errorBanner').classList.add('visible');
+}
+function hideError() { el('errorBanner').classList.remove('visible'); }
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const email = el('loginEmail').value.trim();
+  const pass  = el('loginPassword').value;
+  const errEl = el('loginError');
+  errEl.classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) { errEl.textContent = error.message; errEl.classList.add('visible'); }
+}
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
+
+sb.auth.onAuthStateChange((_ev, session) => {
+  if (!session) {
+    el('loginOverlay').classList.remove('hidden');
+    ['appHeader','stageNav','appMain'].forEach(id => el(id).style.display = 'none');
+    return;
+  }
+  _token  = session.access_token;
+  _userId = session.user.id;
+  el('loginOverlay').classList.add('hidden');
+  el('appHeader').style.display = 'flex';
+  el('stageNav').style.display  = 'flex';
+  el('appMain').style.display   = 'block';
+  el('headerUser').textContent  = session.user.email;
+  init();
+});
+
+// ── Init ─────────────────────────────────────────────────────
+async function init() {
+  _projectId = getProjectIdFromUrl();
+
+  if (_projectId) {
+    const roomsUrl   = `/studio/projects/${_projectId}/rooms`;
+    const airflowUrl = `/studio/projects/${_projectId}/airflow`;
+    el('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
+    el('stageBtn2').href = roomsUrl;
+    el('stageBtn3').href = airflowUrl;
+    el('alreadyViewBtn').href  = roomsUrl;
+    el('summaryViewBtn').href  = roomsUrl;
+
+    const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
+    if (proj?.name) {
+      el('headerProject').textContent = proj.name;
+      el('pageSubtitle').textContent  = `${proj.name} · Stage 1`;
+      document.title = `HiPer Studio — ${proj.name} — Upload Plans`;
+    } else {
+      el('pageSubtitle').textContent = 'Upload your PDF floor plans to begin AI room extraction.';
+    }
+  }
+
+  // Check for existing completed analysis
+  await checkExistingAnalysis();
+}
+
+async function checkExistingAnalysis() {
+  el('initRow').style.display = 'flex';
+
+  if (!_projectId) {
+    el('initRow').style.display = 'none';
+    el('uploadCard').style.display = 'block';
+    return;
+  }
+
+  const { data: existing } = await sb
+    .from('pdf_uploads')
+    .select('id, job_id, status, created_at')
+    .eq('project_id', _projectId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  el('initRow').style.display = 'none';
+
+  if (existing?.status === 'complete') {
+    // Show already-complete state with summary info
+    await showAlreadyComplete(existing);
+  } else if (existing && ['pending','rendering','classifying','awaiting_confirmation','analysing'].includes(existing.status)) {
+    // Pipeline still running — resume polling
+    _jobId = existing.job_id;
+    el('uploadCard').style.display   = 'none';
+    el('progressCard').style.display = 'block';
+    startPolling();
+  } else {
+    // No analysis yet
+    el('uploadCard').style.display = 'block';
+  }
+}
+
+async function showAlreadyComplete(upload) {
+  // Get summary stats from project_rooms
+  let roomCount = null, floorCount = null;
+  if (_projectId) {
+    const { data: rooms } = await sb
+      .from('project_rooms')
+      .select('id, floor')
+      .eq('project_id', _projectId)
+      .neq('classification', 'ignore');
+    if (rooms) {
+      roomCount  = rooms.length;
+      floorCount = new Set(rooms.map(r => r.floor).filter(Boolean)).size || null;
+    }
+  }
+
+  const when = upload.created_at
+    ? new Date(upload.created_at).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' })
+    : null;
+  const parts = [roomCount ? `${roomCount} rooms in schedule` : null, when ? `Analysed ${when}` : null].filter(Boolean);
+  el('alreadySub').textContent = parts.length
+    ? parts.join(' · ') + '. You can proceed to the room schedule, or re-run with new plans.'
+    : 'This project has an existing AI room extraction. Proceed to the room schedule, or re-run with new plans.';
+
+  el('alreadyCard').style.display = 'block';
+  // Unlock Stage 2 in nav
+  el('stageBtn2').classList.remove('locked');
+}
+
+function showUploadForRerun() {
+  el('alreadyCard').style.display = 'none';
+  el('uploadCard').style.display  = 'block';
+  hideError();
+}
+
+// ── Drag and drop ─────────────────────────────────────────────
+function onDragOver(e) { e.preventDefault(); el('dropzone').classList.add('drag-over'); }
+function onDragLeave(e) { el('dropzone').classList.remove('drag-over'); }
+function onDrop(e) {
+  e.preventDefault();
+  el('dropzone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) onFileSelected(file);
+}
+
+// ── Upload flow ───────────────────────────────────────────────
+async function onFileSelected(file) {
+  hideError();
+
+  if (!file || file.type !== 'application/pdf') {
+    showError('Invalid file', 'Please select a PDF file.');
+    return;
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    showError('File too large', `Maximum file size is 50 MB. Your file is ${(file.size/1024/1024).toFixed(1)} MB.`);
+    return;
+  }
+
+  el('uploadCard').style.display   = 'none';
+  el('alreadyCard').style.display  = 'none';
+  el('progressCard').style.display = 'block';
+
+  _jobId = uuidv4();
+  const storagePath = `${BUCKET}/temp/${_userId}/${_jobId}/original.pdf`;
+
+  // Step 1: upload to storage
+  setStep('stepUpload', 'active');
+  el('progressTitle').textContent = 'Uploading PDF…';
+
+  const { error: uploadErr } = await sb.storage
+    .from(BUCKET)
+    .upload(`temp/${_userId}/${_jobId}/original.pdf`, file, {
+      contentType: 'application/pdf',
+      upsert: false,
+    });
+
+  if (uploadErr) {
+    setStep('stepUpload', 'error');
+    showError('Upload failed', uploadErr.message);
+    el('progressCard').style.display = 'none';
+    el('uploadCard').style.display   = 'block';
+    return;
+  }
+
+  setStep('stepUpload', 'done');
+
+  // Step 2: register with backend
+  setStep('stepRender', 'active');
+  el('progressTitle').textContent = 'Rendering pages…';
+
+  const regRes = await fetch('/api/ai/upload-pdf', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+    body:    JSON.stringify({ storagePath, projectId: _projectId ?? null }),
+  });
+
+  if (!regRes.ok) {
+    const err = await regRes.json().catch(() => ({}));
+    setStep('stepRender', 'error');
+    showError('Registration failed', err.error || 'Could not start processing.');
+    el('progressCard').style.display = 'none';
+    el('uploadCard').style.display   = 'block';
+    return;
+  }
+
+  startPolling();
+}
+
+// ── Polling ───────────────────────────────────────────────────
+function startPolling() {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(pollStatus, 3000);
+  pollStatus(); // immediate first poll
+}
+
+async function pollStatus() {
+  if (!_jobId) return;
+  try {
+    const res  = await fetch(`/api/ai/job-status/${_jobId}`, {
+      headers: { Authorization: 'Bearer ' + _token },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    applyStatus(data);
+  } catch(e) {
+    // network glitch — keep polling
+  }
+}
+
+function applyStatus(data) {
+  const s = data.status;
+
+  // Map pipeline status → step states
+  if (s === 'pending') {
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'active');
+    el('progressTitle').textContent = 'Rendering pages…';
+  } else if (s === 'rendering') {
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'active');
+    el('progressTitle').textContent = 'Rendering pages…';
+  } else if (s === 'classifying') {
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'done');
+    setStep('stepClassify', 'active');
+    el('progressTitle').textContent = 'Classifying sheets…';
+  } else if (s === 'awaiting_confirmation') {
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'done');
+    setStep('stepClassify', 'done');
+    setStep('stepAnalyse',  'active');
+    el('progressTitle').textContent = 'Selecting floor plans…';
+  } else if (s === 'analysing') {
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'done');
+    setStep('stepClassify', 'done');
+    setStep('stepAnalyse',  'active');
+    el('progressTitle').textContent = 'Running AI room extraction…';
+  } else if (s === 'complete') {
+    clearInterval(_pollTimer);
+    setStep('stepUpload',   'done');
+    setStep('stepRender',   'done');
+    setStep('stepClassify', 'done');
+    setStep('stepAnalyse',  'done');
+    setStep('stepBuild',    'active');
+    el('progressTitle').textContent = 'Building room schedule…';
+
+    // Brief pause then show summary
+    setTimeout(() => showComplete(data), 1200);
+  } else if (s === 'error') {
+    clearInterval(_pollTimer);
+    setStep('stepAnalyse', 'error');
+    showError('Analysis failed', data.errorDetail || 'The AI analysis encountered an error. Please try again.');
+    el('progressCard').style.display = 'none';
+    el('uploadCard').style.display   = 'block';
+  }
+}
+
+function showComplete(data) {
+  setStep('stepBuild', 'done');
+  el('progressCard').style.display = 'none';
+
+  // Build summary
+  const results = data.analysisResults ?? [];
+  const floorCount  = results.length;
+  const roomCount   = results.reduce((n, r) => {
+    const rooms = r.rooms ?? {};
+    return n + (rooms.supply?.length ?? 0) + (rooms.extract?.length ?? 0) + (rooms.transfer?.length ?? 0);
+  }, 0);
+  const occupancy   = results.find(r => r.occupancySummary)?.occupancySummary;
+
+  const items = [];
+  if (roomCount > 0)  items.push(`${roomCount} rooms detected`);
+  if (floorCount > 1) items.push(`${floorCount} floors detected`);
+  if (occupancy)      items.push(`${occupancy}`);
+  items.push('Analysis complete');
+
+  el('summaryItems').innerHTML = items.map(t =>
+    `<div class="summary-item"><span class="summary-check">✓</span><span>${t}</span></div>`
+  ).join('');
+
+  el('summaryCard').style.display = 'block';
+  el('stageBtn2').classList.remove('locked');
+
+  // Auto-redirect countdown
+  let countdown = 3;
+  el('redirectCountdown').textContent = countdown;
+  const timer = setInterval(() => {
+    countdown--;
+    el('redirectCountdown').textContent = countdown;
+    if (countdown <= 0) {
+      clearInterval(timer);
+      const roomsUrl = _projectId
+        ? `/studio/projects/${_projectId}/rooms`
+        : '/studio/rooms';
+      window.location.href = roomsUrl;
+    }
+  }, 1000);
+}
+
+// ── Step state helper ─────────────────────────────────────────
+function setStep(stepId, state) {
+  const stepEl   = el(stepId);
+  const iconEl   = el(stepId + 'Icon');
+  const spinEl   = el(stepId + 'Spinner');
+
+  stepEl.className = 'step ' + state;
+
+  const stepNums = {
+    stepUpload: '1', stepRender: '2', stepClassify: '3',
+    stepAnalyse: '4', stepBuild: '5',
+  };
+
+  if (state === 'done')   { iconEl.textContent = '✓'; if (spinEl) spinEl.style.display = 'none'; }
+  if (state === 'active') { iconEl.textContent = stepNums[stepId] ?? '·'; if (spinEl) spinEl.style.display = 'block'; }
+  if (state === 'error')  { iconEl.textContent = '✕'; if (spinEl) spinEl.style.display = 'none'; }
+  if (state === 'pending'){ iconEl.textContent = stepNums[stepId] ?? '·'; if (spinEl) spinEl.style.display = 'none'; }
+}
+</script>
+</body>
+</html>

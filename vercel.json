@@ -13,9 +13,10 @@
     { "source": "/api/(.*)",                          "destination": "/api/$1" },
     { "source": "/admin",                             "destination": "/admin.html" },
     { "source": "/admin-ai-test",                     "destination": "/admin-ai-test.html" },
-    { "source": "/studio/projects/:projectId/rooms",    "destination": "/studio-rooms.html" },
+    { "source": "/studio/projects/:projectId/upload",  "destination": "/studio-upload.html" },
+    { "source": "/studio/projects/:projectId/rooms",   "destination": "/studio-rooms.html" },
     { "source": "/studio/projects/:projectId/airflow", "destination": "/studio-airflow.html" },
-    { "source": "/studio/(.*)",                        "destination": "/studio-rooms.html" },
+    { "source": "/studio/(.*)",                        "destination": "/studio-upload.html" },
     { "source": "/(.*)",                              "destination": "/index.html" }
   ],
   "headers": [
