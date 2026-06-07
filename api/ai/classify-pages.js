@@ -27,6 +27,7 @@ const supabase  = createClient(
 const MODEL          = 'claude-haiku-4-5-20251001';
 const MAX_BATCH_SIZE = 4;     // small batches → simpler JSON → fewer parse failures
 const BUCKET         = 'plan-uploads';
+const TOKENS_PER_PAGE = 300; // conservative budget per page for JSON output
 
 // ── Internal auth ─────────────────────────────────────────────────────────
 function validateInternalToken(req) {
@@ -137,12 +138,18 @@ A slab outline on a Slab Plan is NOT a floor plan.
 A reflected ceiling plan is NOT a floor plan.
 Only select pages where room layouts are visible from above and rooms can be analysed for MVHR.
 
-For each page return:
-{ "pageNumber": number, "isFloorPlan": true|false, "confidence": 0.0-1.0, "reason": "short explanation" }
-After evaluating all pages return a summary object:
-{ "selectedPages": [page numbers], "rejectedPages": [page numbers], "summary": "why the selected pages were chosen" }
+OUTPUT FORMAT — STRICT:
+You MUST return ONLY a single valid JSON object.
+NO markdown code fences. NO ```json. NO backticks.
+NO prose before or after the JSON.
+NO commentary. NO explanations outside the JSON fields.
+The FIRST character of your response MUST be { and the LAST character MUST be }.
 
-Return ONLY valid JSON — no markdown, no prose, no explanation outside the JSON.`;
+Required format:
+{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.95,"reason":"brief reason"},...],"selectedPages":[1],"rejectedPages":[2],"summary":"brief"}
+
+Each page object MUST have exactly these four fields: pageNumber, isFloorPlan, confidence, reason.
+Keep reason under 80 characters.`;
 
 // Map isFloorPlan result to internal pageType vocabulary.
 // The classifier now returns a binary decision; we preserve the full
@@ -153,30 +160,67 @@ function isFloorPlanToPageType(isFloorPlan) {
 
 // ── JSON extraction helpers ───────────────────────────────────────────────
 // Strip markdown fences and extract the first JSON object or array found.
+// Multi-stage: direct → outermost braces → pages array → throws.
 function extractJson(text) {
-  // Remove markdown fences
-  let s = text.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/im, '').trim();
+  // Remove all markdown fences (including mid-string)
+  let s = text
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
 
-  // Try direct parse first
+  // Stage 1: direct parse
   try { return JSON.parse(s); } catch (_) {}
 
-  // Find the outermost { ... } or [ ... ] block
-  const firstBrace  = s.indexOf('{');
-  const firstBracket = s.indexOf('[');
-  let start = -1;
-  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
-    start = firstBrace;
-  } else if (firstBracket !== -1) {
-    start = firstBracket;
+  // Stage 2: outermost { ... }
+  const firstBrace = s.indexOf('{');
+  const lastBrace  = s.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try { return JSON.parse(s.slice(firstBrace, lastBrace + 1)); } catch (_) {}
   }
-  if (start === -1) throw new SyntaxError('No JSON structure found in response');
 
-  const lastBrace   = s.lastIndexOf('}');
-  const lastBracket = s.lastIndexOf(']');
-  const end = Math.max(lastBrace, lastBracket);
-  if (end === -1 || end < start) throw new SyntaxError('Malformed JSON structure');
+  // Stage 3: extract the "pages" array specifically
+  const pagesMatch = s.match(/"pages"\s*:\s*(\[[\s\S]*?\])/);
+  if (pagesMatch) {
+    try { return { pages: JSON.parse(pagesMatch[1]) }; } catch (_) {}
+  }
 
-  return JSON.parse(s.slice(start, end + 1));
+  // Stage 4: find any [...] array
+  const firstBracket = s.indexOf('[');
+  const lastBracket  = s.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    try { return { pages: JSON.parse(s.slice(firstBracket, lastBracket + 1)) }; } catch (_) {}
+  }
+
+  throw new SyntaxError(`No valid JSON found in AI response: ${s.slice(0, 120)}`);
+}
+
+// ── Text-based fallback classifier ───────────────────────────────────────
+// Used when JSON parsing fails entirely. Checks the raw model response text
+// for keyword signals so the page is never left unclassified.
+// Also used when the AI returns pure prose instead of JSON.
+const ELEVATION_WORDS = /\b(elevation|elevations|facade|façade|front\s+elevation|rear\s+elevation|side\s+elevation|external\s+elevation|internal\s+elevation|section|sections)\b/i;
+const FLOOR_PLAN_WORDS = /\b(floor\s*plan|ground\s*floor|first\s*floor|upper\s*floor|basement|bedroom|kitchen|bathroom|laundry|living|dining|ensuite|wc|toilet|rumpus|media\s*room)\b/i;
+
+function textFallbackClassification(rawText) {
+  const t = rawText ?? '';
+  const hasElevation = ELEVATION_WORDS.test(t);
+  const hasFloorPlan = FLOOR_PLAN_WORDS.test(t);
+
+  let isFloorPlan;
+  if (hasFloorPlan && !hasElevation) {
+    isFloorPlan = true;
+  } else if (hasElevation && !hasFloorPlan) {
+    isFloorPlan = false;
+  } else {
+    // Ambiguous or empty — default to true (include in analysis; analyse-plan handles it)
+    isFloorPlan = true;
+  }
+
+  return {
+    isFloorPlan,
+    confidence:  0.6,
+    reason:      'Fallback classification due to malformed AI JSON',
+  };
 }
 
 // Derive boolean metadata from pageType — avoids asking the AI for extra fields.
@@ -227,20 +271,28 @@ function unclassifiedRecord(page, reason) {
 async function classifyOnePage(page, signedUrl) {
   const response = await anthropic.messages.create({
     model:      MODEL,
-    max_tokens: 128,
+    max_tokens: TOKENS_PER_PAGE,
     system:     CLASSIFICATION_SYSTEM,
     messages:   [{
       role:    'user',
       content: [
         { type: 'image', source: { type: 'url', url: signedUrl } },
-        { type: 'text',  text: 'Evaluate this image. Return JSON only — no prose, no markdown.\n{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.0,"reason":"..."}],"selectedPages":[1],"rejectedPages":[],"summary":"..."}' },
+        {
+          type: 'text',
+          text: 'Evaluate this single image. Return JSON ONLY — first char must be { last char must be }.\n{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.0,"reason":"brief"}],"selectedPages":[1],"rejectedPages":[],"summary":"brief"}',
+        },
       ],
     }],
   });
 
-  const raw    = response.content?.[0]?.text ?? '';
-  const parsed = extractJson(raw);
-  return parsed?.pages?.[0] ?? parsed;
+  const raw = response.content?.[0]?.text ?? '';
+  try {
+    const parsed = extractJson(raw);
+    return parsed?.pages?.[0] ?? parsed;
+  } catch (jsonErr) {
+    console.warn(`[classify-pages] JSON parse failed for single page ${page.page_number}, using text fallback: ${jsonErr.message}`);
+    return textFallbackClassification(raw);
+  }
 }
 
 // ── Multi-page batch call ──────────────────────────────────────────────────
@@ -255,7 +307,7 @@ async function classifyBatch(batchPages, urlMap) {
 
   const response = await anthropic.messages.create({
     model:      MODEL,
-    max_tokens: 128 * activeBatch.length + 64,
+    max_tokens: TOKENS_PER_PAGE * activeBatch.length + 100,
     system:     CLASSIFICATION_SYSTEM,
     messages:   [{
       role:    'user',
@@ -267,8 +319,8 @@ async function classifyBatch(batchPages, urlMap) {
             `Evaluate each of the ${imageBlocks.length} images above for MVHR floor plan suitability.`,
             pageListText,
             '',
-            'Return ONLY JSON — no markdown, no prose.',
-            '{"pages":[{"pageNumber":N,"isFloorPlan":true|false,"confidence":0.0,"reason":"..."}],"selectedPages":[...],"rejectedPages":[...],"summary":"..."}',
+            'Return ONLY JSON — first char { last char }. No markdown. No prose.',
+            '{"pages":[{"pageNumber":N,"isFloorPlan":true,"confidence":0.0,"reason":"brief"}],"selectedPages":[...],"rejectedPages":[...],"summary":"brief"}',
           ].join('\n'),
         },
       ],
@@ -276,7 +328,7 @@ async function classifyBatch(batchPages, urlMap) {
   });
 
   const raw = response.content?.[0]?.text ?? '';
-  console.log(`[classify-pages] batch raw (${activeBatch.length} pages):`, raw.slice(0, 300));
+  console.log(`[classify-pages] batch raw (${activeBatch.length} pages):`, raw.slice(0, 400));
   return extractJson(raw);
 }
 
@@ -430,7 +482,9 @@ export default async function handler(req, res) {
               console.log(`[classify-pages] individual fallback page ${p.page_number}: isFloorPlan=${r2?.isFloorPlan}`);
             } catch (indErr) {
               console.error(`[classify-pages] individual fallback failed for page ${p.page_number}:`, indErr.message);
-              updates.push(unclassifiedRecord(p, `Individual classification failed: ${indErr.message}`));
+              // Text fallback: never leave unclassified due to JSON error
+              const fb = textFallbackClassification('');
+              updates.push(buildUpdate(p, fb, `Text fallback after individual failure: ${indErr.message}`));
             }
           }
         }
@@ -444,16 +498,20 @@ export default async function handler(req, res) {
         try {
           const r = await classifyOnePage(p, urlMap[p.page_number]);
           updates.push(buildUpdate(p, r, 'Batch failed; classified individually'));
-          console.log(`[classify-pages] individual page ${p.page_number}: ${validatePageType(r?.pageType)}`);
+          console.log(`[classify-pages] individual page ${p.page_number}: isFloorPlan=${r?.isFloorPlan}`);
         } catch (indErr) {
+          // classifyOnePage already tried text fallback internally — this means
+          // even the API call failed (network/timeout). Use default fallback.
           console.error(`[classify-pages] individual failed for page ${p.page_number}:`, indErr.message);
-          updates.push(unclassifiedRecord(p, `Classification failed: ${indErr.message}`));
+          const fb = textFallbackClassification('');
+          updates.push(buildUpdate(p, fb, `Text fallback after all attempts failed: ${indErr.message}`));
         }
       }
 
-      // Pages with no signed URL were not in activeBatch — mark them unclassified.
+      // Pages with no signed URL: can't classify by image — use text fallback (defaults to floor_plan)
       for (const p of validBatch.filter(p => !urlMap[p.page_number])) {
-        updates.push(unclassifiedRecord(p, 'No image available'));
+        const fb = textFallbackClassification('');
+        updates.push(buildUpdate(p, fb, 'No image URL available — text fallback'));
       }
     }
 

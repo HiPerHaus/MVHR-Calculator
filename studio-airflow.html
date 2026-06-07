@@ -416,7 +416,9 @@ async function init() {
     }
   }
   document.getElementById('recalcBtn').disabled = false;
-  await loadSavedDesign();
+  // Always recalculate on page load to avoid stale DB records from earlier
+  // engine versions. The calculation is fast (DB read + math only).
+  await recalculate();
 }
 
 // ── Load / recalculate ────────────────────────────────────────

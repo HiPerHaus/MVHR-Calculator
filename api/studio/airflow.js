@@ -38,9 +38,10 @@ const toM3h = lps => r1(lps * 3.6);
 const isWC      = n => /\bwc\b|water\s*closet|toilet(?!\s*room)|powder\s*room/i.test(n ?? '');
 const isEnsuite = n => /ensuite|en-suite|en\s+suite/i.test(n ?? '');
 
-// ACH rates per design method
-const ACH = { passive_house: 0.30, as1668: 0.50 };
-const CEILING_H = 2.4; // assumed ceiling height (m)
+// Per-m² airflow rates per design method (m³/h per m² of treated floor area).
+// Passive House design guide: 1 m³/h per m² (equivalent to ~0.30 ACH at 2.4m ceiling).
+// AS1668 / NCC: 1.5 m³/h per m² (higher ventilation requirement).
+const AREA_RATE = { passive_house: 1.0, as1668: 1.5 };
 
 // Ignored room types and classifications for area calculation
 const AREA_EXCLUDE_CLS   = new Set(['ignore']);
@@ -77,7 +78,13 @@ function supplyRate(room) {
       const beds = Math.max(room.bed_spaces || 1, 1);
       return beds === 1 ? 20 : 30; // single=20, double/master=30
     }
-    case 'living':   return 40;
+    case 'living': {
+      // Retreat / rumpus / media / family = secondary living: 25 m³/h
+      // Main living = 40 m³/h (balancer can adjust up to 50)
+      const nm = (room.name ?? '').toLowerCase();
+      if (/retreat|rumpus|media|games|family|lounge 2|living 2/i.test(nm)) return 25;
+      return 40;
+    }
     case 'dining':   return 20;
     case 'office':   return 20;
     case 'gym':      return 30;
@@ -109,7 +116,7 @@ function calcOccupancyFlow(rooms) {
  * hasAreaData = false when all rooms have area = 0 or null.
  */
 function calcAreaFlow(rooms, method) {
-  const ach = ACH[method] ?? 0.30;
+  const rate = AREA_RATE[method] ?? 1.0; // m³/h per m²
   let area = 0;
   let found = false;
   for (const r of rooms) {
@@ -120,7 +127,7 @@ function calcAreaFlow(rooms, method) {
     found = true;
   }
   if (!found) return { treatedAreaM2: 0, areaFlowM3h: 0, hasAreaData: false };
-  const flow = r0(area * CEILING_H * ach);
+  const flow = r0(area * rate);
   return { treatedAreaM2: r1(area), areaFlowM3h: flow, hasAreaData: true };
 }
 

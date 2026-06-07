@@ -447,12 +447,28 @@ function onDrop(e) {
 async function onFileSelected(file) {
   hideError();
 
+  // Diagnostic: confirm projectId before touching anything
+  console.log(JSON.stringify({
+    event:     'studio-upload:projectId',
+    projectId: _projectId,
+    userId:    _userId,
+    url:       location.pathname,
+  }));
+
   if (!file || file.type !== 'application/pdf') {
     showError('Invalid file', 'Please select a PDF file.');
     return;
   }
   if (file.size > MAX_FILE_SIZE) {
     showError('File too large', `Maximum file size is 50 MB. Your file is ${(file.size/1024/1024).toFixed(1)} MB.`);
+    return;
+  }
+  if (!_projectId) {
+    showError('No project linked', 'Could not extract a project ID from the URL. Navigate to this page from a project.');
+    return;
+  }
+  if (!_userId) {
+    showError('Not authenticated', 'Please sign in before uploading.');
     return;
   }
 
@@ -488,10 +504,16 @@ async function onFileSelected(file) {
   setStep('stepRender', 'active');
   el('progressTitle').textContent = 'Rendering pages…';
 
+  const uploadPayload = { storagePath, projectId: _projectId };
+  console.log(JSON.stringify({
+    event:   'studio-upload:upload-pdf-payload',
+    ...uploadPayload,
+  }));
+
   const regRes = await fetch('/api/ai/upload-pdf', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
-    body:    JSON.stringify({ storagePath, projectId: _projectId ?? null }),
+    body:    JSON.stringify(uploadPayload),
   });
 
   if (!regRes.ok) {
