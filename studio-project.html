@@ -259,9 +259,11 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
 'use strict';
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
-const SUPABASE_URL = 'https://htjpuuhhbivlvtklwjdo.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0anB1dWhoYml2bHZ0a2x3amRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxNjk5OTcsImV4cCI6MjA2MTc0NTk5N30.JsQjqKrJFKMSmBDXkXdvsRaFzmNpPuFgRVEuM9aYPDA';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const SUPABASE_URL      = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+console.log('SUPABASE_URL', SUPABASE_URL);
+console.log('SUPABASE_ANON_KEY exists', !!SUPABASE_ANON_KEY);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── URL parsing ───────────────────────────────────────────────────────────────
 function isUuid(v) {
