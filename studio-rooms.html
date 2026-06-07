@@ -947,6 +947,8 @@ async function confirmSchedule() {
 
     _confirmed = true;
     showConfirmedState();
+    // Navigate to Stage 3
+    window.location.href = `/studio/projects/${_projectId}/airflow`;
   } catch(e) {
     alert('Failed to confirm: ' + e.message);
     btn.disabled = false;

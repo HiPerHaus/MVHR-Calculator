@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Airflow Design</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f);
+  display: flex; align-items: center; justify-content: center;
+}
+#loginOverlay.hidden { display: none; }
+.login-box { background: #fff; border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; }
+.login-title { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 20px; }
+.login-field { margin-bottom: 14px; }
+.login-field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+.login-field input { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; }
+.login-field input:focus { border-color: var(--accent); }
+.btn-login { width: 100%; background: var(--primary); color: #fff; border: none; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 800; cursor: pointer; }
+.btn-login:hover { background: var(--accent); }
+.login-error { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 12px; display: none; }
+.login-error.visible { display: block; }
+
+/* ── Header ── */
+header {
+  background: var(--primary); color: #fff;
+  padding: 0 28px;
+  display: flex; align-items: stretch; justify-content: space-between;
+  height: 56px;
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.header-logo { font-size: 11px; font-weight: 800; letter-spacing: 2.5px; text-transform: uppercase; color: rgba(255,255,255,.55); }
+.header-sep { width: 1px; height: 22px; background: rgba(255,255,255,.2); }
+.header-project { font-size: 15px; font-weight: 700; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.header-user { font-size: 12px; opacity: .6; }
+.btn-signout { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); color: #fff; border-radius: 7px; padding: 6px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.btn-signout:hover { background: rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav {
+  background: #fff; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 28px; gap: 0;
+  overflow-x: auto;
+}
+.stage-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 14px 20px; border: none; background: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  border-bottom: 3px solid transparent; white-space: nowrap;
+  transition: color .15s; text-decoration: none;
+}
+.stage-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.stage-btn.done   { color: var(--accent); }
+.stage-btn.locked { cursor: default; opacity: .45; pointer-events: none; }
+.stage-num {
+  width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--border); color: var(--muted);
+}
+.stage-btn.active .stage-num { background: var(--primary); color: #fff; }
+.stage-btn.done   .stage-num { background: var(--accent);  color: #fff; }
+
+/* ── Main ── */
+main { max-width: 1000px; margin: 0 auto; padding: 48px 28px 80px; }
+
+/* ── Buttons ── */
+.btn { display: inline-flex; align-items: center; gap: 6px; border: none; border-radius: 9px; padding: 9px 18px; font-size: 13px; font-weight: 700; cursor: pointer; transition: .15s; text-decoration: none; }
+.btn-secondary { background: #fff; color: var(--text); border: 1.5px solid var(--border); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Coming soon card ── */
+.coming-soon-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+  padding: 56px 48px; text-align: center;
+  max-width: 560px; margin: 0 auto;
+}
+.coming-soon-icon { font-size: 48px; margin-bottom: 20px; }
+.coming-soon-stage { font-size: 11px; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-transform: uppercase; margin-bottom: 10px; }
+.coming-soon-title { font-size: 28px; font-weight: 900; color: var(--primary); margin-bottom: 12px; }
+.coming-soon-desc { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+.project-id-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 24px; margin-bottom: 6px; }
+.project-id-value { font-family: monospace; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 7px 14px; display: inline-block; margin-bottom: 28px; }
+.back-link { margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-project" id="headerProject">Loading…</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage nav ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>AI Extraction</a>
+  <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
+  <a class="stage-btn active" id="stageBtn3" href="#"><span class="stage-num">3</span>Airflow Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">4</span>Equipment Selection</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Duct Layout</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Report</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="appMain" style="display:none">
+  <div class="coming-soon-card">
+    <div class="coming-soon-icon">🌬️</div>
+    <div class="coming-soon-stage">Stage 3</div>
+    <div class="coming-soon-title">Airflow Design</div>
+    <div class="coming-soon-desc">
+      Airflow calculations will use the confirmed room schedule to size supply and extract rates for each room, balanced against the MVHR unit's total capacity.
+    </div>
+    <div class="coming-soon-desc" style="color:var(--accent);font-weight:700;margin-top:8px">
+      Coming soon — room schedule confirmed ✓
+    </div>
+    <div class="project-id-label">Project ID</div>
+    <div class="project-id-value" id="projectIdDisplay">—</div>
+    <div class="back-link">
+      <a class="btn btn-secondary" id="backToRoomsBtn" href="#">← Back to Room Schedule</a>
+    </div>
+  </div>
+</main>
+
+<script>
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── Project ID from URL ───────────────────────────────────────
+function getProjectIdFromUrl() {
+  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  if (m) return m[1];
+  const p = new URLSearchParams(location.search).get('projectId');
+  return p || null;
+}
+
+const _projectId = getProjectIdFromUrl();
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.classList.add('visible');
+  }
+}
+
+async function doSignOut() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+sb.auth.onAuthStateChange(async (_event, session) => {
+  if (!session) {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('appHeader').style.display = 'none';
+    document.getElementById('stageNav').style.display  = 'none';
+    document.getElementById('appMain').style.display   = 'none';
+    return;
+  }
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('appHeader').style.display = 'flex';
+  document.getElementById('stageNav').style.display  = 'flex';
+  document.getElementById('appMain').style.display   = 'block';
+  document.getElementById('headerUser').textContent  = session.user.email;
+  init();
+});
+
+async function init() {
+  // Wire up nav links
+  if (_projectId) {
+    document.getElementById('stageBtn1').href = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
+    document.getElementById('backToRoomsBtn').href = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('projectIdDisplay').textContent = _projectId;
+  } else {
+    document.getElementById('projectIdDisplay').textContent = 'No project ID in URL';
+  }
+
+  // Load project name
+  if (_projectId) {
+    const { data: project } = await sb
+      .from('projects')
+      .select('name')
+      .eq('id', _projectId)
+      .single();
+    if (project?.name) {
+      document.getElementById('headerProject').textContent = project.name;
+      document.title = `HiPer Studio — ${project.name} — Airflow Design`;
+    } else {
+      document.getElementById('headerProject').textContent = 'Airflow Design';
+    }
+  } else {
+    document.getElementById('headerProject').textContent = 'Airflow Design';
+  }
+}
+</script>
+</body>
+</html>
