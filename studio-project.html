@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Project Details</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-project { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done   { color:var(--accent); }
+.stage-btn.locked { cursor:default; opacity:.45; pointer-events:none; }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Main ── */
+main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
+
+/* ── Page header ── */
+.page-title    { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); margin-bottom:32px; }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary  { background:var(--primary); color:#fff; }
+.btn-primary:hover  { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
+
+/* ── Card ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; margin-bottom:20px; }
+.card-title { font-size:14px; font-weight:800; color:var(--primary); margin-bottom:20px; text-transform:uppercase; letter-spacing:.5px; }
+
+/* ── Form ── */
+.form-row { display:grid; gap:16px; margin-bottom:16px; }
+.form-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.form-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-row.cols-4 { grid-template-columns: 2fr 1fr 1fr 1fr; }
+.field { display:flex; flex-direction:column; gap:5px; }
+.field label { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+.field label .req { color:var(--critical); margin-left:2px; }
+.field input,
+.field select,
+.field textarea {
+  padding:9px 12px; border:1.5px solid var(--border); border-radius:8px;
+  font-size:14px; font-family:inherit; background:var(--input-bg); color:var(--text);
+  outline:none; transition:border-color .15s;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus { border-color:var(--accent); background:#fff; }
+.field input.error,
+.field select.error { border-color:#f87171; }
+.field textarea { resize:vertical; min-height:90px; }
+.field-error { font-size:12px; color:var(--critical); margin-top:2px; display:none; }
+.field-error.visible { display:block; }
+
+/* ── Actions bar ── */
+.actions { display:flex; gap:12px; align-items:center; padding-top:8px; }
+.save-status { font-size:12px; color:var(--muted); }
+.save-status.ok   { color:#16a34a; }
+.save-status.fail { color:var(--critical); }
+
+/* ── Alert banner ── */
+.alert { border-radius:10px; padding:12px 16px; font-size:13px; margin-bottom:20px; display:none; }
+.alert.visible { display:block; }
+.alert-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" autocomplete="email" placeholder="you@example.com">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password">
+    </div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <span class="header-sep"></span>
+    <span class="header-project" id="headerProject">New Project</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" id="signoutBtn">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage navigation ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">1</span>Project Details</a>
+  <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">2</span>Upload Plans</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">3</span>Room Schedule</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">4</span>Airflow Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="mainContent" style="display:none">
+
+  <div id="alertBanner" class="alert alert-error"></div>
+
+  <div class="page-title" id="pageTitle">New Project</div>
+  <div class="page-subtitle" id="pageSubtitle">Enter the project details to get started.</div>
+
+  <!-- Project card -->
+  <div class="card">
+    <div class="card-title">Project</div>
+
+    <div class="form-row">
+      <div class="field">
+        <label>Project name <span class="req">*</span></label>
+        <input type="text" id="fName" placeholder="e.g. Smith Residence" maxlength="200">
+        <div class="field-error" id="errName">Project name is required.</div>
+      </div>
+    </div>
+
+    <div class="form-row cols-2">
+      <div class="field">
+        <label>Client name</label>
+        <input type="text" id="fClientName" placeholder="e.g. John &amp; Jane Smith" maxlength="200">
+      </div>
+      <div class="field">
+        <label>Building type</label>
+        <select id="fBuildingType">
+          <option value="">— Select —</option>
+          <option value="residential_new">Residential — New Build</option>
+          <option value="residential_renovation">Residential — Renovation</option>
+          <option value="commercial">Commercial</option>
+          <option value="multi_residential">Multi-Residential</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row cols-2">
+      <div class="field">
+        <label>Number of storeys</label>
+        <input type="number" id="fStoreys" min="1" max="10" placeholder="1" value="1">
+      </div>
+    </div>
+  </div>
+
+  <!-- Site address card -->
+  <div class="card">
+    <div class="card-title">Site Address</div>
+
+    <div class="form-row">
+      <div class="field">
+        <label>Street address</label>
+        <input type="text" id="fAddress" placeholder="e.g. 123 Main Street" maxlength="300">
+      </div>
+    </div>
+
+    <div class="form-row cols-4">
+      <div class="field">
+        <label>Suburb</label>
+        <input type="text" id="fSuburb" placeholder="e.g. Norwood" maxlength="100">
+      </div>
+      <div class="field">
+        <label>State</label>
+        <select id="fState">
+          <option value="">—</option>
+          <option value="ACT">ACT</option>
+          <option value="NSW">NSW</option>
+          <option value="NT">NT</option>
+          <option value="QLD">QLD</option>
+          <option value="SA">SA</option>
+          <option value="TAS">TAS</option>
+          <option value="VIC">VIC</option>
+          <option value="WA">WA</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Postcode</label>
+        <input type="text" id="fPostcode" placeholder="5000" maxlength="4" pattern="[0-9]{4}">
+      </div>
+    </div>
+  </div>
+
+  <!-- Notes card -->
+  <div class="card">
+    <div class="card-title">Notes</div>
+    <div class="form-row">
+      <div class="field">
+        <label>Project notes</label>
+        <textarea id="fNotes" placeholder="Any additional notes about the project…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-primary" id="saveBtn">Save &amp; Continue →</button>
+    <a class="btn btn-secondary" href="/studio">Cancel</a>
+    <span class="save-status" id="saveStatus"></span>
+  </div>
+
+</main>
+
+<script>
+'use strict';
+
+// ── Supabase ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://htjpuuhhbivlvtklwjdo.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0anB1dWhoYml2bHZ0a2x3amRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxNjk5OTcsImV4cCI6MjA2MTc0NTk5N30.JsQjqKrJFKMSmBDXkXdvsRaFzmNpPuFgRVEuM9aYPDA';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── URL parsing ───────────────────────────────────────────────────────────────
+function isUuid(v) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v || '');
+}
+
+function getProjectIdFromUrl() {
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const idx = pathParts.indexOf('projects');
+  const candidate = idx >= 0 && pathParts[idx + 1] ? pathParts[idx + 1] : null;
+  return isUuid(candidate) ? candidate : (new URLSearchParams(location.search).get('projectId') || null);
+}
+
+// 'new' mode → no projectId in URL; 'edit' mode → has projectId
+const _projectId = getProjectIdFromUrl();
+const _isNew     = !_projectId;
+let   _userId    = null;
+
+console.log(JSON.stringify({ event: 'studio-project:route', pathname: location.pathname, projectId: _projectId, isNew: _isNew }));
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const el = id => document.getElementById(id);
+function showAlert(msg) {
+  const b = el('alertBanner');
+  b.textContent = msg;
+  b.classList.add('visible');
+}
+function hideAlert() { el('alertBanner').classList.remove('visible'); }
+
+function setSaveStatus(msg, cls = '') {
+  const s = el('saveStatus');
+  s.textContent = msg;
+  s.className = 'save-status ' + cls;
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+el('loginBtn').addEventListener('click', async () => {
+  const email = el('loginEmail').value.trim();
+  const pass  = el('loginPassword').value;
+  el('loginError').classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    el('loginError').textContent = error.message;
+    el('loginError').classList.add('visible');
+  }
+});
+el('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') el('loginBtn').click(); });
+el('signoutBtn').addEventListener('click', () => sb.auth.signOut());
+
+// ── Auth state ────────────────────────────────────────────────────────────────
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (!session) {
+    el('loginOverlay').classList.remove('hidden');
+    el('appHeader').style.display    = 'none';
+    el('stageNav').style.display     = 'none';
+    el('mainContent').style.display  = 'none';
+    return;
+  }
+  _userId = session.user.id;
+  el('headerUser').textContent = session.user.email;
+  el('loginOverlay').classList.add('hidden');
+  el('appHeader').style.display    = 'flex';
+  el('stageNav').style.display     = 'flex';
+  el('mainContent').style.display  = 'block';
+  await init();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  if (_isNew) {
+    // New project — form starts blank
+    el('pageTitle').textContent    = 'New Project';
+    el('pageSubtitle').textContent = 'Enter the project details to get started.';
+    el('headerProject').textContent = 'New Project';
+    // Stage 2 is locked until we save
+    el('stageBtn2').classList.add('locked');
+    el('stageBtn2').removeAttribute('href');
+  } else {
+    // Edit mode — load existing project
+    el('pageTitle').textContent    = 'Project Details';
+    el('pageSubtitle').textContent = 'Update project information.';
+    el('stageBtn1').href = `/studio/projects/${_projectId}/details`;
+    el('stageBtn2').href = `/studio/projects/${_projectId}/upload`;
+    el('stageBtn2').classList.remove('locked');
+    await loadProject();
+  }
+}
+
+// ── Load existing project ─────────────────────────────────────────────────────
+async function loadProject() {
+  const { data, error } = await sb
+    .from('projects')
+    .select('name,client_name,site_address,suburb,address_state,postcode,building_type,storey_count,notes')
+    .eq('id', _projectId)
+    .single();
+
+  if (error || !data) {
+    showAlert(`Could not load project: ${error?.message ?? 'not found'}`);
+    return;
+  }
+
+  el('fName').value         = data.name         ?? '';
+  el('fClientName').value   = data.client_name  ?? '';
+  el('fAddress').value      = data.site_address ?? '';
+  el('fSuburb').value       = data.suburb       ?? '';
+  el('fState').value        = data.address_state ?? '';
+  el('fPostcode').value     = data.postcode     ?? '';
+  el('fBuildingType').value = data.building_type ?? '';
+  el('fStoreys').value      = data.storey_count ?? 1;
+  el('fNotes').value        = data.notes        ?? '';
+
+  el('headerProject').textContent = data.name || 'Project Details';
+}
+
+// ── Validation ────────────────────────────────────────────────────────────────
+function validate() {
+  let ok = true;
+  const name = el('fName').value.trim();
+  if (!name) {
+    el('fName').classList.add('error');
+    el('errName').classList.add('visible');
+    ok = false;
+  } else {
+    el('fName').classList.remove('error');
+    el('errName').classList.remove('visible');
+  }
+  return ok;
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
+el('saveBtn').addEventListener('click', async () => {
+  hideAlert();
+  if (!validate()) return;
+
+  el('saveBtn').disabled = true;
+  setSaveStatus('Saving…');
+
+  const payload = {
+    name:           el('fName').value.trim(),
+    client_name:    el('fClientName').value.trim() || null,
+    site_address:   el('fAddress').value.trim()    || null,
+    suburb:         el('fSuburb').value.trim()      || null,
+    address_state:  el('fState').value              || null,
+    postcode:       el('fPostcode').value.trim()    || null,
+    building_type:  el('fBuildingType').value       || null,
+    storey_count:   parseInt(el('fStoreys').value, 10) || 1,
+    notes:          el('fNotes').value.trim()       || null,
+  };
+
+  if (_isNew) {
+    payload.user_id = _userId;
+    const { data, error } = await sb
+      .from('projects')
+      .insert(payload)
+      .select('id')
+      .single();
+
+    if (error || !data) {
+      showAlert(`Failed to create project: ${error?.message ?? 'unknown error'}`);
+      setSaveStatus('Save failed.', 'fail');
+      el('saveBtn').disabled = false;
+      return;
+    }
+
+    console.log(JSON.stringify({ event: 'studio-project:created', projectId: data.id }));
+    // Redirect to upload page
+    window.location.href = `/studio/projects/${data.id}/upload`;
+  } else {
+    const { error } = await sb
+      .from('projects')
+      .update(payload)
+      .eq('id', _projectId)
+      .eq('user_id', _userId);
+
+    if (error) {
+      showAlert(`Failed to update project: ${error.message}`);
+      setSaveStatus('Save failed.', 'fail');
+      el('saveBtn').disabled = false;
+      return;
+    }
+
+    console.log(JSON.stringify({ event: 'studio-project:updated', projectId: _projectId }));
+    setSaveStatus('Saved.', 'ok');
+    el('saveBtn').disabled = false;
+    el('headerProject').textContent = payload.name;
+    // Continue to upload page
+    setTimeout(() => {
+      window.location.href = `/studio/projects/${_projectId}/upload`;
+    }, 600);
+  }
+});
+</script>
+</body>
+</html>

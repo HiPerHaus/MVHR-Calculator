@@ -182,12 +182,13 @@ main { max-width: 860px; margin: 0 auto; padding: 32px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">1</span>Upload Plans</a>
-  <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">2</span>Room Schedule</a>
-  <a class="stage-btn locked" id="stageBtn3" href="#"><span class="stage-num">3</span>Airflow Design</a>
-  <a class="stage-btn locked" id="stageBtn4" href="#"><span class="stage-num">4</span>Unit Selection</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Duct Layout</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Report</a>
+  <a class="stage-btn done"   id="stageBtn0" href="#"><span class="stage-num">✓</span>Project Details</a>
+  <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">2</span>Upload Plans</a>
+  <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">3</span>Room Schedule</a>
+  <a class="stage-btn locked" id="stageBtn3" href="#"><span class="stage-num">4</span>Airflow Design</a>
+  <a class="stage-btn locked" id="stageBtn4" href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
 </nav>
 
 <!-- ── Main ── -->
@@ -359,6 +360,7 @@ async function init() {
   if (_projectId) {
     const roomsUrl   = `/studio/projects/${_projectId}/rooms`;
     const airflowUrl = `/studio/projects/${_projectId}/airflow`;
+    el('stageBtn0').href = `/studio/projects/${_projectId}/details`;
     el('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
     el('stageBtn2').href = roomsUrl;
     el('stageBtn3').href = airflowUrl;

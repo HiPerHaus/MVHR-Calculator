@@ -326,23 +326,26 @@ select.cell-input { cursor: pointer; }
 
 <!-- ── Stage navigation ── -->
 <nav class="stage-nav">
+  <a class="stage-btn done" id="stageBtn0" href="#">
+    <span class="stage-num">✓</span> Project Details
+  </a>
   <a class="stage-btn done" id="stageBtn1" href="#">
     <span class="stage-num">✓</span> Upload Plans
   </a>
   <button class="stage-btn active">
-    <span class="stage-num">2</span> Room Schedule
+    <span class="stage-num">3</span> Room Schedule
   </button>
   <button class="stage-btn locked" disabled>
-    <span class="stage-num">3</span> Airflow Design
+    <span class="stage-num">4</span> Airflow Design
   </button>
   <button class="stage-btn locked" disabled>
-    <span class="stage-num">4</span> Unit Selection
+    <span class="stage-num">5</span> Unit Selection
   </button>
   <button class="stage-btn locked" disabled>
-    <span class="stage-num">5</span> Duct Design
+    <span class="stage-num">6</span> Duct Design
   </button>
   <button class="stage-btn locked" disabled>
-    <span class="stage-num">6</span> BOM &amp; Export
+    <span class="stage-num">7</span> BOM &amp; Export
   </button>
 </nav>
 
@@ -601,7 +604,9 @@ async function loadPage() {
     document.title = `${project.name || 'Project'} — Room Schedule — HiPer Studio`;
     _confirmed = !!project.schedule_confirmed_at;
 
-    // Wire up Stage 1 nav link
+    // Wire up stage nav links
+    const s0 = document.getElementById('stageBtn0');
+    if (s0) s0.href = `/studio/projects/${_projectId}/details`;
     const s1 = document.getElementById('stageBtn1');
     if (s1) s1.href = `/studio/projects/${_projectId}/upload`;
 
