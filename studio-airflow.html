@@ -133,18 +133,6 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 .note-text { font-size:11px; color:var(--warn); }
 
 /* ── MVHR table ── */
-.mvhr-table { width:100%; border-collapse:collapse; }
-.mvhr-table th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:9px 12px; border-bottom:1px solid var(--border); }
-.mvhr-table td { padding:9px 12px; border-bottom:1px solid #f0f4f8; vertical-align:middle; font-size:13px; }
-.mvhr-table tr:last-child td { border-bottom:none; }
-.mvhr-table tr:hover td { background:#f8fafc; }
-.phi-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:10px; }
-.cap-ok   { color:#166534; font-size:11px; font-weight:700; }
-.cap-warn { color:var(--amber); font-size:11px; font-weight:700; }
-.suitability-bar { display:flex; align-items:center; gap:8px; }
-.suit-bg   { height:6px; border-radius:3px; background:var(--border); flex:1; overflow:hidden; }
-.suit-fill { height:6px; border-radius:3px; background:var(--accent); }
-.unit-name { font-weight:700; }
 
 /* ── Loading / empty states ── */
 .state-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:48px; text-align:center; }
@@ -344,39 +332,11 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     </table>
   </div>
 
-  <!-- ── MVHR unit recommendations ── -->
-  <div class="table-card" id="mvhrCard" style="display:none">
-    <div class="table-toolbar">
-      <span class="toolbar-title">Recommended MVHR Units</span>
-      <span style="font-size:12px;color:var(--muted)">
-        Sized for <span id="mvhrFlowLabel">—</span> m³/h
-        · required capacity <span id="mvhrRequiredLabel">—</span> m³/h (×1.15)
-      </span>
-    </div>
-    <table class="mvhr-table">
-      <thead>
-        <tr>
-          <th>Unit</th>
-          <th>Max Flow</th>
-          <th>Capacity</th>
-          <th>Heat Recovery</th>
-          <th>SFP</th>
-          <th>PHI</th>
-          <th>Suitability</th>
-        </tr>
-      </thead>
-      <tbody id="mvhrTableBody"></tbody>
-    </table>
-    <div id="mvhrEmpty" style="display:none;padding:24px;text-align:center;color:var(--muted);font-size:13px">
-      No MVHR units found in database for this flow rate. Check the mvhr_units table is seeded.
-    </div>
-  </div>
-
   <!-- ── Continue card ── -->
   <div class="confirm-card" id="confirmCard" style="display:none">
     <div>
       <h3>✓ Airflow Design Ready</h3>
-      <p>Design saved automatically. Proceed to Stage 4 to select your MVHR unit.</p>
+      <p>Design saved automatically. Proceed to Stage 4 for MVHR unit selection.</p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <a class="btn btn-secondary btn-sm" href="#" id="backToRoomsBtn3">← Room Schedule</a>
@@ -586,14 +546,8 @@ function renderResults() {
   // ── Room table ────────────────────────────────────────
   renderRoomTable();
 
-  // ── MVHR units ────────────────────────────────────────
-  renderMvhrTable();
-
   el('roomTableCard').style.display = '';
-  el('mvhrCard').style.display      = '';
   el('confirmCard').style.display   = 'flex';
-  el('mvhrFlowLabel').textContent   = d.design_airflow_m3h;
-  el('mvhrRequiredLabel').textContent = Math.ceil(d.design_airflow_m3h * 1.15);
 
   // Unlock Stage 4 nav
   el('stageBtn4').classList.remove('locked');
@@ -656,51 +610,12 @@ function renderRoomTable() {
     </tr>`;
 }
 
-function renderMvhrTable() {
-  const tbody = el('mvhrTableBody');
-  tbody.innerHTML = '';
-
-  if (!_units?.length) { el('mvhrEmpty').style.display = 'block'; return; }
-  el('mvhrEmpty').style.display = 'none';
-
-  const designM3h  = _design.design_airflow_m3h;
-  const required   = Math.ceil(designM3h * 1.15);
-
-  for (const u of _units) {
-    const name    = [u.manufacturer, u.model].filter(Boolean).join(' ') || (u.phi_cert_id ?? '—');
-    const phiLbl  = u.phiCertified ? '<span class="phi-badge">✓ PHI</span>' : '<span style="color:var(--muted);font-size:11px">—</span>';
-    const capLbl  = u.flow_max >= required
-      ? `<span class="cap-ok">✓ ${u.flow_max} m³/h</span>`
-      : `<span class="cap-warn">⚠ ${u.flow_max} m³/h</span>`;
-    const hrEff   = u.hr_eff != null ? `${u.hr_eff}%` : '—';
-    const sfp     = u.sfp    != null ? `${u.sfp} Wh/m³` : '—';
-    const suit    = u.suitability ?? 0;
-
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td><div class="unit-name">${esc(name)}</div>${u.phi_cert_id ? `<div style="font-size:11px;color:var(--muted)">${esc(u.phi_cert_id)}</div>` : ''}</td>
-      <td>${u.flow_max != null ? u.flow_max + ' m³/h' : '—'}</td>
-      <td>${capLbl}</td>
-      <td style="font-weight:700;color:var(--primary)">${hrEff}</td>
-      <td>${sfp}</td>
-      <td>${phiLbl}</td>
-      <td>
-        <div class="suitability-bar">
-          <div class="suit-bg"><div class="suit-fill" style="width:${Math.min(100,suit)}%"></div></div>
-          <span style="font-size:12px;font-weight:700;color:var(--accent);min-width:34px">${suit}%</span>
-        </div>
-      </td>`;
-    tbody.appendChild(row);
-  }
-}
-
 // ── Show/hide helpers ─────────────────────────────────────────
 function showLoading() {
   el('loadingState').style.display = 'block';
   el('basisArea').style.display    = 'none';
   el('statsArea').style.display    = 'none';
   el('roomTableCard').style.display = 'none';
-  el('mvhrCard').style.display      = 'none';
   el('confirmCard').style.display   = 'none';
   el('emptyState').style.display    = 'none';
 }
