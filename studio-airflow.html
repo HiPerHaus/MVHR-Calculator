@@ -365,6 +365,38 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
 </main>
 
+<!-- ── Review gate modal ── -->
+<div id="reviewGateModal" style="
+  display:none; position:fixed; inset:0; z-index:2000;
+  background:rgba(0,0,0,.45); align-items:center; justify-content:center;
+">
+  <div style="
+    background:#fff; border-radius:16px; padding:32px 36px; max-width:480px; width:calc(100vw - 40px);
+    box-shadow:0 24px 60px rgba(0,0,0,.25);
+  ">
+    <div style="font-size:22px; margin-bottom:12px;">🟡</div>
+    <h2 style="font-size:18px; font-weight:900; color:#1a4731; margin-bottom:10px;">
+      Room schedule contains rooms requiring review
+    </h2>
+    <p style="font-size:13px; color:#6b7280; margin-bottom:16px; line-height:1.6;">
+      Some rooms were created from assumptions, have ambiguous labels, or were reclassified.
+      Review them now to ensure airflow calculations are accurate.
+    </p>
+    <div id="reviewGateRoomList" style="
+      background:#fffbeb; border:1px solid #fde68a; border-radius:10px;
+      padding:12px 16px; margin-bottom:20px; max-height:160px; overflow-y:auto;
+    "></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
+      <a id="reviewGateGoBtn" href="#" class="btn btn-secondary" style="text-decoration:none;">
+        ← Review Rooms
+      </a>
+      <button id="reviewGateContinueBtn" class="btn btn-primary">
+        Continue Anyway →
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Config ────────────────────────────────────────────────────
 const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
@@ -447,6 +479,50 @@ async function init() {
     }
   }
   document.getElementById('recalcBtn').disabled = false;
+
+  // ── Review gate: check for rooms flagged for manual review ──────────────
+  // This is a warning only — the user can proceed. We never block calculation.
+  if (_projectId) {
+    try {
+      const rRes  = await fetch(`${API_BASE}/rooms?projectId=${_projectId}`, {
+        headers: { Authorization: `Bearer ${_token}` },
+      });
+      if (rRes.ok) {
+        const rData = await rRes.json();
+        const reviewRooms = (rData.rooms ?? []).filter(r => r.requires_manual_review);
+        if (reviewRooms.length > 0) {
+          // Show modal — defer recalculate() until user chooses Continue
+          const modal    = document.getElementById('reviewGateModal');
+          const list     = document.getElementById('reviewGateRoomList');
+          const goBtn    = document.getElementById('reviewGateGoBtn');
+          const contBtn  = document.getElementById('reviewGateContinueBtn');
+
+          goBtn.href = `/studio/projects/${_projectId}/rooms`;
+          list.innerHTML = reviewRooms.map(r =>
+            `<div style="font-size:13px; color:#78350f; margin-bottom:5px;">
+              🟡 <strong>${r.name}</strong>
+              <span style="color:#92400e; font-size:12px; margin-left:6px;">
+                ${r.classification} · ${r.room_type}
+              </span>
+            </div>`
+          ).join('');
+
+          modal.style.display = 'flex';
+
+          contBtn.addEventListener('click', () => {
+            modal.style.display = 'none';
+            recalculate();
+          }, { once: true });
+
+          return; // Don't call recalculate() until user dismisses modal
+        }
+      }
+    } catch (e) {
+      // Non-fatal — if room check fails, proceed normally
+      console.warn('[airflow] review gate check failed:', e.message);
+    }
+  }
+
   // Always recalculate on page load to avoid stale DB records from earlier
   // engine versions. The calculation is fast (DB read + math only).
   await recalculate();

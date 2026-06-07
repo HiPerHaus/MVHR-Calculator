@@ -15,7 +15,7 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const WRITABLE_FIELDS = [
   'name', 'floor', 'room_type', 'area', 'classification',
   'bed_spaces', 'optional_supply', 'optional_extract',
-  'confidence', 'source', 'sort_order', 'is_confirmed',
+  'confidence', 'requires_manual_review', 'source', 'sort_order', 'is_confirmed',
 ];
 
 const VALID_ROOM_TYPES       = ['bedroom','living','dining','kitchen','kitchenette','wet_area','laundry','office','gym','robe','circulation','service','other'];

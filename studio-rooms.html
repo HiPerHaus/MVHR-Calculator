@@ -222,6 +222,14 @@ select.cell-input { cursor: pointer; }
 /* Row actions */
 .row-actions { display: flex; gap: 2px; padding: 0 6px; }
 
+/* ── Review row highlight ── */
+tr.review-row td { background: #fffbeb; }
+tr.review-row:hover td { background: #fef3c7; }
+
+/* ── Needs Review badge ── */
+.review-yes { font-size: 12px; font-weight: 700; color: var(--amber); white-space: nowrap; }
+.review-no  { font-size: 12px; color: #d1d5db; }
+
 /* ── Add room row ── */
 .add-row td { padding: 0; border-top: 2px dashed var(--border); background: #fcfeff; }
 .add-row:hover td { background: #f0fdf4; }
@@ -423,6 +431,11 @@ select.cell-input { cursor: pointer; }
         <div class="stat-label">Occupancy</div>
         <div class="stat-value" id="statOccupancy">—</div>
       </div>
+      <div class="stat-sep" id="reviewStatSep" style="display:none"></div>
+      <div class="stat-item" id="reviewStatItem" style="display:none">
+        <div class="stat-label" style="color:var(--amber)">Needs Review</div>
+        <div class="stat-value" id="statReview" style="color:var(--amber)">0</div>
+      </div>
       <div class="stat-spacer"></div>
       <div id="confirmedBadge" style="display:none">
         <span class="confirmed-badge">✓ Schedule Confirmed</span>
@@ -474,6 +487,7 @@ select.cell-input { cursor: pointer; }
               <th style="width:110px">Classification</th>
               <th style="width:80px">Bed Spaces</th>
               <th style="width:80px">Optional</th>
+              <th style="width:90px">Needs Review</th>
               <th style="width:70px">Confidence</th>
               <th style="width:80px">Source</th>
               <th style="width:72px"></th>
@@ -750,7 +764,7 @@ function renderTable() {
 
   tbody.innerHTML = visible.map(r => roomRow(r)).join('') +
     `<tr class="add-row" onclick="addRoom()">
-      <td colspan="10"><div class="cell-inner">+ Add room</div></td>
+      <td colspan="11"><div class="cell-inner">+ Add room</div></td>
     </tr>`;
 }
 
@@ -767,7 +781,16 @@ function roomRow(r) {
     ? `<span style="font-size:12px;color:var(--muted)">${escHtml(r.floor)}</span>`
     : `<span style="font-size:11px;color:var(--border)">—</span>`;
 
-  return `<tr class="${classLabel === 'ignore' ? 'ignore-row' : ''}" data-id="${r.id}">
+  const reviewBadge = r.requires_manual_review
+    ? `<span class="review-yes" title="This room was created from assumptions or has an ambiguous label. Please verify before running airflow calculations.">🟡 Review</span>`
+    : `<span class="review-no">🟢 No</span>`;
+
+  const trClass = [
+    classLabel === 'ignore' ? 'ignore-row' : '',
+    r.requires_manual_review ? 'review-row' : '',
+  ].filter(Boolean).join(' ');
+
+  return `<tr class="${trClass}" data-id="${r.id}">
     <td><div class="cell-inner editable" onclick="editCell(this,'name','${r.id}')">
       <span>${escHtml(r.name)}</span><span class="edit-hint">✎</span>
     </div></td>
@@ -785,6 +808,7 @@ function roomRow(r) {
       <span>${r.bed_spaces > 0 ? r.bed_spaces : '<span style="color:var(--muted)">—</span>'}</span>
     </div></td>
     <td><div class="cell-inner">${optLabel}</div></td>
+    <td><div class="cell-inner">${reviewBadge}</div></td>
     <td><div class="cell-inner">${conf}</div></td>
     <td><div class="cell-inner">
       <span style="font-size:11px;color:var(--muted)">${r.source === 'manual' ? '✎ manual' : 'AI'}</span>
@@ -960,6 +984,13 @@ function updateStats() {
   document.getElementById('statSupply').textContent   = active.filter(r => r.classification === 'supply').length;
   document.getElementById('statExtract').textContent  = active.filter(r => r.classification === 'extract').length;
   document.getElementById('statTransfer').textContent = active.filter(r => r.classification === 'transfer').length;
+
+  // ── Needs Review count ───────────────────────────────────────
+  const reviewCount = _rooms.filter(r => r.requires_manual_review).length;
+  document.getElementById('statReview').textContent = reviewCount;
+  const showReview = reviewCount > 0;
+  document.getElementById('reviewStatSep').style.display  = showReview ? '' : 'none';
+  document.getElementById('reviewStatItem').style.display = showReview ? '' : 'none';
 
   const derivedOcc = _rooms.reduce((s, r) => s + (r.bed_spaces ?? 0), 0);
   const occ = _occOverride || derivedOcc;

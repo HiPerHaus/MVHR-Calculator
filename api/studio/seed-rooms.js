@@ -41,20 +41,21 @@ function classificationFromRoom(r, categoryKey) {
 // Convert a single AI room object → project_rooms row
 function aiRoomToRow({ room, floor, categoryKey, projectId, userId, sortOrder }) {
   return {
-    project_id:       projectId,
-    user_id:          userId,
-    name:             (room.name ?? 'Unnamed Room').trim(),
-    floor:            floor ?? null,
-    room_type:        room.spaceType ?? 'other',
-    area:             typeof room.area === 'number' ? room.area : null,
-    classification:   classificationFromRoom(room, categoryKey),
-    bed_spaces:       typeof room.bedSpaces === 'number' ? room.bedSpaces : 0,
-    optional_supply:  room.optionalSupply  === true,
-    optional_extract: room.optionalExtract === true,
-    confidence:       typeof room.confidence === 'number' ? room.confidence : null,
-    source:           'ai_extraction',
-    sort_order:       sortOrder,
-    is_confirmed:     false,
+    project_id:             projectId,
+    user_id:                userId,
+    name:                   (room.name ?? 'Unnamed Room').trim(),
+    floor:                  floor ?? null,
+    room_type:              room.spaceType ?? 'other',
+    area:                   typeof room.area === 'number' ? room.area : null,
+    classification:         classificationFromRoom(room, categoryKey),
+    bed_spaces:             typeof room.bedSpaces === 'number' ? room.bedSpaces : 0,
+    optional_supply:        room.optionalSupply  === true,
+    optional_extract:       room.optionalExtract === true,
+    confidence:             typeof room.confidence === 'number' ? room.confidence : null,
+    requires_manual_review: room.requiresManualReview === true,
+    source:                 'ai_extraction',
+    sort_order:             sortOrder,
+    is_confirmed:           false,
   };
 }
 

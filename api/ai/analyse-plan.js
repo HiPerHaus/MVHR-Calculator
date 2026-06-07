@@ -277,7 +277,7 @@ function validateRoom(raw, floorIndex) {
     kitchen: /\bkitchen\b|\bscullery\b|\bbutler\b|\bpantry\b/i,
     wet_area: /\bbath(?:room)?\b|\bensuite\b|\bwc\b|\btoilet\b|\bpowder\b/i,
     laundry: /\blaundry\b|\butility\b/i,
-    circulation: /\bhall(?:way)?\b|\bentry\b|\bcorridor\b|\bpassage\b|\bstair|\blobby\b|\bfoyer\b|\blanding\b/i,
+    circulation: /\bhall(?:way)?\b|\bentry\b|\bcorridor\b|\bpassage(?:way)?\b|\bvestibule\b|\bstair|\blobby\b|\bfoyer\b|\blanding\b/i,
     robe: /\bwir\b|\bwtr\b|\brobe\b|\bdressing\b/i,
     service: /\bgarage\b|\bcarport\b|\bpatio\b|\bbalcon|\balfresco\b|\bverandah\b|\bporch\b|\bdeck\b|\bstore\b|\bstorage\b/i,
     living: /\bliving\b|\blounge\b|\bfamily\b|\brumpus\b|\brumpus\b|\bretreat\b|\bactivity\b|\bmedia\b|\btheatre\b|\bsitting\b/i,
@@ -307,17 +307,24 @@ function validateRoom(raw, floorIndex) {
   }
 
   // ── requiresManualReview: server-derived ─────────────────────────────────
-  // Ambiguous room name + no fixture evidence → flag for human review.
-  // Also fires when AI confidence is genuinely low (< 0.75).
+  // Flags a room for human review when any of these conditions apply:
+  //   1. AI confidence < 0.75
+  //   2. Ambiguous room name + no fixture evidence to resolve it
+  //   3. "/" in name (e.g. "Study/Bed 4") — dual-purpose room needs user decision
+  //   4. Name matches a known special-use room type that is project-specific
   const AMBIGUOUS_REVIEW_PATTERNS = [
     /\bmulti.?use\b/i,  /\bmulti.?purpose\b/i, /\bmpr\b/i,
     /\bstudio\b/i,      /\bretreat\b/i,         /\bactivity\b/i,
     /\boffice\b/i,      /\bhome.?office\b/i,    /\brumpus\b/i,
     /\bgym\b/i,         /\bworkshop\b/i,        /\bhobby\b/i,
     /\bcellar\b/i,      /\bgames\b/i,
+    /\bmedia\b/i,       /\btheatre\b/i,         /\bmedia\s+room\b/i,
+    /\bgames\s+room\b/i, /\bhome\s+theatre\b/i,
   ];
+  const hasDualPurposeName = name.includes('/');    // e.g. "Study/Bed 4"
   const requiresManualReview =
     (confidence !== null && confidence < 0.75) ||
+    hasDualPurposeName ||
     (AMBIGUOUS_REVIEW_PATTERNS.some(p => p.test(name)) && fixtures.length === 0);
 
   // ── All derived fields ──────────────────────────────────────────────────
@@ -449,8 +456,11 @@ const IGNORE_LABEL_PATTERNS = [
 
 // Circulation — always transfer
 const TRANSFER_LABEL_PATTERNS = [
-  /\bpassage\b/i,
+  /\bpassage(?:way)?\b/i,   // passage AND passageway
+  /\bvestibule\b/i,
   /\bhall(way)?\b/i,
+  /\bentry\s+hall\b/i,
+  /\bstair\s+hall\b/i,
   /\bcorridor\b/i,
   /\bentry\b/i,
   /\bfoyer\b/i,
@@ -562,21 +572,35 @@ function postProcessRooms(rooms, warnings) {
     const nameLo = name.toLowerCase();
     let matched  = false;
 
-    // ── 0. Ambiguous label + no fixtures → cap confidence ────────
-    // requiresManualReview is already set server-side in validateRoom.
-    // This rule only enforces the confidence cap for ambiguous unresolved rooms.
+    // ── 0. Ambiguous / special-use rooms → set review flag + cap confidence ──
+    // requiresManualReview is pre-set by validateRoom, but postProcessRooms
+    // re-evaluates here to catch any rooms missed by the static check.
+    // Confidence rules:
+    //   High  (≥0.90): explicit label + classification confirmed by fixtures — no cap
+    //   Medium (0.65): name-only inference, type guessed from context
+    //   Low   (<0.65): dual-purpose "/" name, personal label, or ambiguous + no fixtures
     const AMBIGUOUS_LABEL_PATTERNS = [
       /\bmulti.?use\b/i, /\bmulti.?purpose\b/i, /\bmpr\b/i,
       /\bstudio\b/i,     /\bretreat\b/i,         /\bactivity\b/i,
       /\boffice\b/i,     /\bhome.?office\b/i,    /\brumpus\b/i,
       /\bgym\b/i,        /\bworkshop\b/i,        /\bhobby\b/i,
       /\bcellar\b/i,     /\bgames\b/i,
+      /\bmedia\b/i,      /\btheatre\b/i,
     ];
-    if (
+    const isAmbiguousNoFixtures =
       AMBIGUOUS_LABEL_PATTERNS.some(p => p.test(name)) &&
-      (!Array.isArray(room.fixtures) || room.fixtures.length === 0)
-    ) {
-      if (room.confidence != null && room.confidence > 0.85) room.confidence = 0.85;
+      (!Array.isArray(room.fixtures) || room.fixtures.length === 0);
+    const hasDualPurpose = name.includes('/');
+
+    if (isAmbiguousNoFixtures) {
+      room.requiresManualReview = true;
+      // Medium confidence cap — name-only inference
+      if (room.confidence == null || room.confidence > 0.65) room.confidence = 0.65;
+    }
+    if (hasDualPurpose) {
+      room.requiresManualReview = true;
+      // Low confidence cap — dual-purpose rooms need user decision
+      if (room.confidence == null || room.confidence > 0.60) room.confidence = 0.60;
     }
 
     // ── 1. Service / equipment → exclude ─────────────────────
@@ -657,8 +681,20 @@ function postProcessRooms(rooms, warnings) {
 
     // ── 6. Circulation → transfer ────────────────────────────
     else if (TRANSFER_LABEL_PATTERNS.some(p => p.test(name))) {
+      const wasSupply = room.ventilationClassification === 'supply';
       room.ventilationClassification = 'transfer';
       if (!TRANSFER_TYPES.has(room.roomType)) room.roomType = 'Other';
+      room.classificationReason = 'Circulation space — transfer (air movement path, not habitable).';
+
+      // Passageway and vestibule are often misclassified as supply by the AI.
+      // Flag for review + lower confidence so they appear in the Needs Review list.
+      if (/\bpassageway\b|\bvestibule\b/i.test(name)) {
+        room.requiresManualReview = true;
+        if (room.confidence == null || room.confidence > 0.50) room.confidence = 0.50;
+        if (wasSupply) {
+          warnings.push(`"${name}" reclassified as Transfer — passageway/vestibule is a circulation space, not a supply room.`);
+        }
+      }
       out.push(room);
       matched = true;
     }
@@ -737,13 +773,31 @@ function postProcessRooms(rooms, warnings) {
     if (isPersonName && room.ventilationClassification !== 'supply' && room.spaceType !== 'service') {
       room.ventilationClassification = 'supply';
       if (!SUPPLY_TYPES.has(room.roomType)) room.roomType = 'Other';
-      warnings.push(`"${name}" interpreted as a habitable room (personal label) — classified as supply.`);
+      // Personal labels are inferred — flag for review, cap at medium confidence.
+      room.requiresManualReview = true;
+      if (room.confidence == null || room.confidence > 0.65) room.confidence = 0.65;
+      warnings.push(`"${name}" interpreted as a habitable room (personal label) — classified as supply. Please verify.`);
     }
 
     out.push(room);
   }
 
-  // ── Final sweep: hard-clear optional flags on all ignore rooms ───────────
+  // ── Final sweep 1: warning-text → requiresManualReview ──────────────────
+  // Any warning generated during processing that contains assumption language
+  // flags the corresponding room for review, even if it wasn't caught above.
+  const REVIEW_TRIGGER_WORDS = [
+    'interpreted', 'assumed', 'possible', 'may be', 'personal label',
+    'inferred', 'estimated', 'likely', 'appears to be', 'please verify',
+  ];
+  for (const room of out) {
+    if (room.requiresManualReview) continue; // already flagged
+    const reasonText = (room.classificationReason ?? '').toLowerCase();
+    if (REVIEW_TRIGGER_WORDS.some(w => reasonText.includes(w))) {
+      room.requiresManualReview = true;
+    }
+  }
+
+  // ── Final sweep 2: hard-clear optional flags on all ignore rooms ─────────
   // Ensures service/outdoor spaces (Garage, Alfresco, Balcony, Patio etc.) are
   // never presented as optional ventilation locations in the UI, regardless of
   // how they were derived or which rule path they followed.
@@ -801,7 +855,7 @@ These words MUST appear in rooms[] if visible on the plan:
   Living  Lounge  Dining  Meals  Family  Rumpus  Theatre  Media  Activity  Retreat  Sitting
   Bedroom  Master  Bed  Study  Office  Library  Playroom  Gym  Sunroom
   Bath  Bathroom  Ensuite  WC  Powder  Toilet  Laundry  Mudroom  Utility
-  Entry  Hall  Hallway  Passage  Corridor  Lobby  Landing  Stair
+  Entry  Hall  Hallway  Passage  Passageway  Corridor  Lobby  Landing  Stair  Vestibule
   WIR  Store  Garage  Alfresco  Verandah  Porch  Carport
 
 Rooms labelled with a person's name (PAUL, JANE, TOM etc.) are bedrooms — classify as supply.
@@ -826,7 +880,8 @@ MOISTURE/ODOUR-PRODUCING SPACES — assign spaceType:
   Habitable room + sink + cabinetry                   → "kitchenette"
 
 CIRCULATION SPACES — assign spaceType:
-  Hallway  Corridor  Entry  Foyer  Passage  Landing  Stair  Lobby  → "circulation"
+  Hallway  Corridor  Entry  Foyer  Passage  Passageway  Vestibule  Landing  Stair  Lobby  Entry Hall  Stair Hall  → "circulation"
+  NOTE: Passageway and Vestibule are always circulation. Never classify as supply.
 
 STORAGE/SERVICE SPACES — assign spaceType:
   Walk-in Robe  WIR  Dressing Room                   → "robe"
