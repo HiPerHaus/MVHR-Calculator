@@ -300,9 +300,23 @@ function uuidv4() {
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
 }
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
+}
 function getProjectIdFromUrl() {
-  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
-  return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
+  const pathParts   = window.location.pathname.split('/').filter(Boolean);
+  const projectIndex = pathParts.indexOf('projects');
+  const projectId   = projectIndex >= 0 && pathParts[projectIndex + 1]
+    ? pathParts[projectIndex + 1]
+    : null;
+  console.log('studio-upload:route', {
+    pathname:         window.location.pathname,
+    pathParts,
+    projectId,
+    isValidProjectId: isUuid(projectId),
+  });
+  // Fall back to query string for dev/testing
+  return isUuid(projectId) ? projectId : (new URLSearchParams(location.search).get('projectId') || null);
 }
 function showError(title, msg) {
   el('errorTitle').textContent = title;
@@ -463,8 +477,8 @@ async function onFileSelected(file) {
     showError('File too large', `Maximum file size is 50 MB. Your file is ${(file.size/1024/1024).toFixed(1)} MB.`);
     return;
   }
-  if (!_projectId) {
-    showError('No project linked', 'Could not extract a project ID from the URL. Navigate to this page from a project.');
+  if (!isUuid(_projectId)) {
+    showError('No project linked', 'Could not extract a valid project ID from the URL. Navigate to this page from a project.');
     return;
   }
   if (!_userId) {
