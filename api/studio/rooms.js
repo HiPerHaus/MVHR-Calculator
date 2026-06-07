@@ -8,9 +8,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL    = process.env.SUPABASE_URL;
-const SUPABASE_ANON   = process.env.SUPABASE_ANON_KEY;
-const SUPABASE_SVC    = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // Allowed fields for insert / update (prevents over-posting)
 const WRITABLE_FIELDS = [
@@ -38,18 +37,18 @@ export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
 
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return res.status(500).json({ error: 'Missing Supabase environment variables' });
+  }
+
   // ── Auth ──────────────────────────────────────────────────
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
 
-  // User client (respects RLS)
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false },
-  });
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // Verify the token and get user
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
   if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
   // ── GET — list rooms for a project ───────────────────────
