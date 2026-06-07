@@ -140,7 +140,7 @@ Only select pages where room layouts are visible from above and rooms can be ana
 
 OUTPUT FORMAT — STRICT:
 You MUST return ONLY a single valid JSON object.
-NO markdown code fences. NO ```json. NO backticks.
+NO markdown code fences. NO code blocks. NO backticks.
 NO prose before or after the JSON.
 NO commentary. NO explanations outside the JSON fields.
 The FIRST character of your response MUST be { and the LAST character MUST be }.
