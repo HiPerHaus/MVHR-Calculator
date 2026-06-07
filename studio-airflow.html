@@ -9,24 +9,19 @@
 :root {
   --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
   --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
-  --text: #111827; --muted: #6b7280; --input-bg: #f8fafc;
+  --text: #111827; --muted: #6b7280;
   --warn: #c05621; --warn-bg: #fff7ed;
   --critical: #9b1c1c; --critical-bg: #fef2f2;
   --ok-bg: #d8f3dc; --ok-border: #74c69d;
   --amber: #d97706; --amber-bg: #fffbeb;
-  --supply-bg: #eff6ff; --supply-text: #1d4ed8;
-  --extract-bg: #fdf4ff; --extract-text: #7e22ce;
+  --supply-text: #1d4ed8; --extract-text: #7e22ce;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
 
 /* ── Login ── */
-#loginOverlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f);
-  display: flex; align-items: center; justify-content: center;
-}
-#loginOverlay.hidden { display: none; }
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
 .login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
 .login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
 .login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
@@ -73,14 +68,12 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 .btn-primary:hover { background:var(--accent); }
 .btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
 .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
-.btn-success { background:#16a34a; color:#fff; }
-.btn-success:hover { background:#15803d; }
 .btn:disabled { opacity:.45; cursor:not-allowed; }
 .btn-sm { padding:5px 12px; font-size:12px; border-radius:7px; }
 
 /* ── Cards ── */
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
-.card-title { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); margin-bottom:14px; }
+.card-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); margin-bottom:14px; }
 
 /* ── Method selector ── */
 .method-selector { display:flex; gap:12px; flex-wrap:wrap; }
@@ -90,36 +83,51 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 .method-label { font-weight:700; font-size:14px; }
 .method-desc { font-size:12px; color:var(--muted); margin-top:2px; }
 
+/* ── Design basis panel ── */
+.basis-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:6px; }
+@media(max-width:700px) { .basis-grid { grid-template-columns:1fr; } }
+.basis-card { border:2px solid var(--border); border-radius:10px; padding:14px 16px; position:relative; }
+.basis-card.active-driver { border-color:var(--primary); background:var(--primary-light); }
+.basis-label { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:6px; }
+.basis-flow { font-size:24px; font-weight:900; color:var(--primary); }
+.basis-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+.basis-driver-tag { position:absolute; top:10px; right:12px; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; background:var(--primary); color:#fff; padding:2px 8px; border-radius:10px; }
+.basis-inactive { opacity:.65; }
+
 /* ── Stats row ── */
 .stats-row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
-.stat-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; flex:1; min-width:140px; }
+.stat-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; flex:1; min-width:130px; }
 .stat-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:4px; }
-.stat-value { font-size:26px; font-weight:900; color:var(--primary); }
-.stat-unit { font-size:13px; font-weight:600; color:var(--muted); margin-left:3px; }
+.stat-value { font-size:26px; font-weight:900; color:var(--primary); line-height:1.1; }
+.stat-unit { font-size:13px; font-weight:600; color:var(--muted); margin-left:2px; }
 .stat-value.supply  { color:var(--supply-text); }
 .stat-value.extract { color:var(--extract-text); }
-.stat-value.design  { color:var(--primary); }
-.stat-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+.stat-sub { font-size:12px; color:var(--muted); margin-top:4px; }
 
 /* ── Balance badge ── */
 .balance-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:700; }
-.balance-badge.balanced        { background:var(--ok-bg);    color:#166534; }
-.balance-badge.minor_adjustment { background:var(--amber-bg); color:var(--amber); }
+.balance-badge.balanced         { background:var(--ok-bg);      color:#166534; }
+.balance-badge.minor_adjustment { background:var(--amber-bg);   color:var(--amber); }
 .balance-badge.major_imbalance  { background:var(--critical-bg); color:var(--critical); }
 
-/* ── Room table ── */
+/* ── Warnings ── */
+.area-warning { background:var(--amber-bg); border:1px solid #fbbf24; border-radius:8px; padding:10px 14px; font-size:12px; color:var(--amber); margin-top:8px; display:flex; gap:8px; align-items:flex-start; }
+
+/* ── Table cards ── */
 .table-card { background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:16px; }
 .table-toolbar { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); }
-.toolbar-title { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); }
+.toolbar-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); }
+
+/* ── Room table ── */
 .room-table { width:100%; border-collapse:collapse; }
 .room-table th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
-.room-table td { padding:10px 12px; border-bottom:1px solid #f0f4f8; vertical-align:middle; }
+.room-table td { padding:9px 12px; border-bottom:1px solid #f0f4f8; vertical-align:middle; }
 .room-table tr:last-child td { border-bottom:none; }
 .room-table tr:hover td { background:#f8fafc; }
 .room-table tfoot td { font-weight:800; border-top:2px solid var(--border); padding:11px 12px; }
-.supply-lps  { font-weight:700; color:var(--supply-text); }
-.extract-lps { font-weight:700; color:var(--extract-text); }
-.zero-lps    { color:var(--muted); }
+.supply-val  { font-weight:700; color:var(--supply-text); }
+.extract-val { font-weight:700; color:var(--extract-text); }
+.zero-val    { color:var(--muted); }
 .driver-badge { font-size:11px; background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:10px; }
 .floor-tag { font-size:11px; color:var(--muted); background:var(--bg); padding:2px 8px; border-radius:10px; }
 .note-text { font-size:11px; color:var(--warn); }
@@ -127,15 +135,16 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 /* ── MVHR table ── */
 .mvhr-table { width:100%; border-collapse:collapse; }
 .mvhr-table th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:9px 12px; border-bottom:1px solid var(--border); }
-.mvhr-table td { padding:10px 12px; border-bottom:1px solid #f0f4f8; vertical-align:middle; font-size:13px; }
+.mvhr-table td { padding:9px 12px; border-bottom:1px solid #f0f4f8; vertical-align:middle; font-size:13px; }
 .mvhr-table tr:last-child td { border-bottom:none; }
 .mvhr-table tr:hover td { background:#f8fafc; }
 .phi-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; background:var(--primary-light); color:var(--primary); padding:2px 8px; border-radius:10px; }
+.cap-ok   { color:#166534; font-size:11px; font-weight:700; }
+.cap-warn { color:var(--amber); font-size:11px; font-weight:700; }
 .suitability-bar { display:flex; align-items:center; gap:8px; }
-.suitability-fill { height:6px; border-radius:3px; background:var(--accent); }
-.suitability-bg { height:6px; border-radius:3px; background:var(--border); flex:1; overflow:hidden; }
+.suit-bg   { height:6px; border-radius:3px; background:var(--border); flex:1; overflow:hidden; }
+.suit-fill { height:6px; border-radius:3px; background:var(--accent); }
 .unit-name { font-weight:700; }
-.unit-manufacturer { font-size:12px; color:var(--muted); }
 
 /* ── Loading / empty states ── */
 .state-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:48px; text-align:center; }
@@ -146,17 +155,11 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .loading-row { display:flex; align-items:center; justify-content:center; gap:12px; padding:32px; color:var(--muted); }
 
-/* ── Balance note ── */
-.balance-note { background:var(--amber-bg); border:1px solid #fbbf24; border-radius:8px; padding:10px 14px; font-size:13px; color:var(--amber); margin-top:12px; }
-.balance-note.ok { background:var(--ok-bg); border-color:var(--ok-border); color:#166534; }
-
-/* ── Confirm card ── */
+/* ── Recalc bar / Confirm card ── */
+.recalc-bar { background:var(--amber-bg); border:1px solid #fbbf24; border-radius:10px; padding:12px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; font-size:13px; color:var(--amber); }
 .confirm-card { background:var(--card); border:1px solid var(--ok-border); border-radius:12px; padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 .confirm-card h3 { font-size:16px; font-weight:800; color:var(--primary); margin-bottom:4px; }
 .confirm-card p { font-size:13px; color:var(--muted); }
-
-/* ── Recalc bar ── */
-.recalc-bar { background:var(--amber-bg); border:1px solid #fbbf24; border-radius:10px; padding:12px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; font-size:13px; color:var(--amber); }
 </style>
 </head>
 <body>
@@ -215,7 +218,6 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     </div>
   </div>
 
-  <!-- Recalc warning (shown when method changes without recalculating) -->
   <div class="recalc-bar" id="recalcBar" style="display:none">
     ⚠️ Design method changed — results below are from the previous calculation.
     <button class="btn btn-primary btn-sm" onclick="recalculate()">Recalculate Now</button>
@@ -229,44 +231,16 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
         <input type="radio" name="designMethod" value="passive_house" checked onchange="onMethodChange()">
         <div>
           <div class="method-label">Passive House</div>
-          <div class="method-desc">0.35 ACH equivalent • 15 l/s per bedroom occupant</div>
+          <div class="method-desc">ACH 0.30 • 30 m³/h per person</div>
         </div>
       </label>
       <label class="method-option" id="methodAS">
         <input type="radio" name="designMethod" value="as1668" onchange="onMethodChange()">
         <div>
           <div class="method-label">AS1668 / NCC</div>
-          <div class="method-desc">Australian Standard minimum rates</div>
+          <div class="method-desc">ACH 0.50 • Australian Standard minimum rates</div>
         </div>
       </label>
-    </div>
-  </div>
-
-  <!-- ── Stats ── -->
-  <div id="statsArea" style="display:none">
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Total Supply</div>
-        <div><span class="stat-value supply" id="statSupply">—</span><span class="stat-unit">l/s</span></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Total Extract</div>
-        <div><span class="stat-value extract" id="statExtract">—</span><span class="stat-unit">l/s</span></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Difference</div>
-        <div><span class="stat-value" id="statDiff">—</span><span class="stat-unit">l/s</span></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Design Airflow</div>
-        <div><span class="stat-value design" id="statLps">—</span><span class="stat-unit">l/s</span></div>
-        <div class="stat-sub"><span id="statM3h">—</span> m³/h</div>
-      </div>
-      <div class="stat-card" style="min-width:200px">
-        <div class="stat-label">Balance Status</div>
-        <div style="margin-top:6px" id="balanceBadge">—</div>
-        <div class="stat-sub" id="balanceNote" style="margin-top:6px"></div>
-      </div>
     </div>
   </div>
 
@@ -275,7 +249,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     <div class="loading-row"><div class="spinner"></div><span>Loading airflow design…</span></div>
   </div>
 
-  <!-- ── Empty state (no confirmed rooms) ── -->
+  <!-- ── Empty state ── -->
   <div id="emptyState" style="display:none">
     <div class="state-card">
       <div class="state-icon">📋</div>
@@ -287,7 +261,67 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     </div>
   </div>
 
-  <!-- ── Room airflow table ── -->
+  <!-- ── Design basis ── -->
+  <div id="basisArea" style="display:none">
+    <div class="card">
+      <div class="card-title">Design Airflow Basis</div>
+      <div class="basis-grid">
+        <!-- Occupancy -->
+        <div class="basis-card" id="basisOccCard">
+          <div class="basis-label">Occupancy</div>
+          <div><span class="basis-flow" id="basisOccFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisOccSub"></div>
+        </div>
+        <!-- Area -->
+        <div class="basis-card" id="basisAreaCard">
+          <div class="basis-label">Floor Area (ACH)</div>
+          <div><span class="basis-flow" id="basisAreaFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisAreaSub"></div>
+        </div>
+        <!-- Wet rooms -->
+        <div class="basis-card" id="basisWetCard">
+          <div class="basis-label">Wet Room Extract</div>
+          <div><span class="basis-flow" id="basisWetFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisWetSub"></div>
+        </div>
+      </div>
+      <div id="areaWarningBanner" style="display:none" class="area-warning">
+        ⚠ Room areas unavailable — area-based ACH calculation skipped. Using occupancy-based airflow.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Stats ── -->
+  <div id="statsArea" style="display:none">
+    <div class="stats-row">
+      <div class="stat-card" style="min-width:160px">
+        <div class="stat-label">Design Airflow</div>
+        <div><span class="stat-value" id="statDesignM3h">—</span><span class="stat-unit">m³/h</span></div>
+        <div class="stat-sub"><span id="statDesignLps">—</span> l/s</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Room Supply Total</div>
+        <div><span class="stat-value supply" id="statSupplyM3h">—</span><span class="stat-unit">m³/h</span></div>
+        <div class="stat-sub" id="statSupplyLps"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Room Extract Total</div>
+        <div><span class="stat-value extract" id="statExtractM3h">—</span><span class="stat-unit">m³/h</span></div>
+        <div class="stat-sub" id="statExtractLps"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Supply / Extract Diff</div>
+        <div><span class="stat-value" id="statDiff">—</span><span class="stat-unit">m³/h</span></div>
+      </div>
+      <div class="stat-card" style="min-width:180px">
+        <div class="stat-label">Balance Status</div>
+        <div style="margin-top:6px" id="balanceBadge">—</div>
+        <div class="stat-sub" id="balanceNote" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Room airflow schedule ── -->
   <div class="table-card" id="roomTableCard" style="display:none">
     <div class="table-toolbar">
       <span class="toolbar-title">Room Airflow Schedule</span>
@@ -299,8 +333,8 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
           <th>Room</th>
           <th>Floor</th>
           <th>Type</th>
-          <th style="text-align:right">Supply (l/s)</th>
-          <th style="text-align:right">Extract (l/s)</th>
+          <th style="text-align:right">Supply</th>
+          <th style="text-align:right">Extract</th>
           <th>Driver</th>
           <th>Notes</th>
         </tr>
@@ -310,37 +344,42 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     </table>
   </div>
 
-  <!-- ── MVHR unit matches ── -->
+  <!-- ── MVHR unit recommendations ── -->
   <div class="table-card" id="mvhrCard" style="display:none">
     <div class="table-toolbar">
       <span class="toolbar-title">Recommended MVHR Units</span>
-      <span style="font-size:12px;color:var(--muted)">Top matches for <span id="mvhrFlowLabel">—</span> m³/h design airflow</span>
+      <span style="font-size:12px;color:var(--muted)">
+        Sized for <span id="mvhrFlowLabel">—</span> m³/h
+        · required capacity <span id="mvhrRequiredLabel">—</span> m³/h (×1.15)
+      </span>
     </div>
     <table class="mvhr-table">
       <thead>
         <tr>
           <th>Unit</th>
           <th>Max Flow</th>
+          <th>Capacity</th>
           <th>Heat Recovery</th>
           <th>SFP</th>
-          <th>PHI Certified</th>
+          <th>PHI</th>
           <th>Suitability</th>
         </tr>
       </thead>
       <tbody id="mvhrTableBody"></tbody>
     </table>
     <div id="mvhrEmpty" style="display:none;padding:24px;text-align:center;color:var(--muted);font-size:13px">
-      No MVHR units found in database for this flow rate.
+      No MVHR units found in database for this flow rate. Check the mvhr_units table is seeded.
     </div>
   </div>
 
-  <!-- ── Confirm card ── -->
+  <!-- ── Continue card ── -->
   <div class="confirm-card" id="confirmCard" style="display:none">
     <div>
       <h3>✓ Airflow Design Ready</h3>
-      <p>Design is saved automatically. Proceed to Stage 4 to select your MVHR unit.</p>
+      <p>Design saved automatically. Proceed to Stage 4 to select your MVHR unit.</p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn btn-secondary btn-sm" href="#" id="backToRoomsBtn3">← Room Schedule</a>
       <a class="btn btn-primary" id="toStage4Btn" href="#">Continue to Unit Selection →</a>
     </div>
   </div>
@@ -356,18 +395,16 @@ const API_BASE      = '/api/studio';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // ── State ─────────────────────────────────────────────────────
-let _projectId    = null;
-let _token        = null;
-let _design       = null;
-let _rooms        = [];
-let _units        = [];
-let _methodDirty  = false; // method changed since last calc
+let _projectId = null;
+let _token     = null;
+let _design    = null;
+let _rooms     = [];
+let _units     = [];
 
-// ── Project ID from URL ───────────────────────────────────────
+// ── Project ID ────────────────────────────────────────────────
 function getProjectIdFromUrl() {
   const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
-  if (m) return m[1];
-  return new URLSearchParams(location.search).get('projectId') || null;
+  return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
 }
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -379,13 +416,9 @@ async function doLogin() {
   const { error } = await sb.auth.signInWithPassword({ email, password: pass });
   if (error) { errEl.textContent = error.message; errEl.classList.add('visible'); }
 }
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
 
-async function doSignOut() {
-  await sb.auth.signOut();
-  location.reload();
-}
-
-sb.auth.onAuthStateChange(async (_event, session) => {
+sb.auth.onAuthStateChange((_ev, session) => {
   if (!session) {
     document.getElementById('loginOverlay').classList.remove('hidden');
     ['appHeader','stageNav','appMain'].forEach(id => document.getElementById(id).style.display = 'none');
@@ -403,290 +436,300 @@ sb.auth.onAuthStateChange(async (_event, session) => {
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
   _projectId = getProjectIdFromUrl();
-
-  // Wire stage nav links
   if (_projectId) {
-    document.getElementById('stageBtn1').href = `/studio/projects/${_projectId}/rooms`;
-    document.getElementById('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
-    document.getElementById('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
+    const stage4 = `/studio/projects/${_projectId}/unit-selection`;
+    document.getElementById('stageBtn1').href      = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn2').href      = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn3').href      = `/studio/projects/${_projectId}/airflow`;
+    document.getElementById('stageBtn4').href      = stage4;
+    document.getElementById('toStage4Btn').href    = stage4;
     document.getElementById('backToRoomsBtn2').href = `/studio/projects/${_projectId}/rooms`;
-    const stage4Url = `/studio/projects/${_projectId}/unit-selection`;
-    document.getElementById('stageBtn4').href = stage4Url;
-    document.getElementById('toStage4Btn').href = stage4Url;
-  }
+    document.getElementById('backToRoomsBtn3').href = `/studio/projects/${_projectId}/rooms`;
 
-  // Load project name
-  if (_projectId) {
-    const { data: project } = await sb.from('projects').select('name').eq('id', _projectId).single();
-    if (project?.name) {
-      document.getElementById('headerProject').textContent = project.name;
-      document.getElementById('pageSubtitle').textContent  = `${project.name} · ${_projectId}`;
-      document.title = `HiPer Studio — ${project.name} — Airflow Design`;
+    const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
+    if (proj?.name) {
+      document.getElementById('headerProject').textContent = proj.name;
+      document.getElementById('pageSubtitle').textContent  = `${proj.name} · ${_projectId}`;
+      document.title = `HiPer Studio — ${proj.name} — Airflow Design`;
     } else {
-      document.getElementById('pageSubtitle').textContent = _projectId;
+      document.getElementById('pageSubtitle').textContent = _projectId ?? 'No project';
     }
   }
-
   document.getElementById('recalcBtn').disabled = false;
-
-  // Try to load a saved design first
   await loadSavedDesign();
 }
 
-// ── Load saved design ─────────────────────────────────────────
+// ── Load / recalculate ────────────────────────────────────────
 async function loadSavedDesign() {
-  if (!_projectId) {
-    showEmpty();
-    return;
-  }
-
-  document.getElementById('loadingState').style.display = 'block';
-  hideResults();
-
+  showLoading();
   try {
     const res  = await apiGet(`${API_BASE}/airflow?projectId=${_projectId}`);
     const data = await res.json();
-
-    if (!res.ok) throw new Error(data.error || 'Failed to load');
+    if (!res.ok) throw new Error(data.error || 'Load failed');
 
     if (data.design) {
-      // Restore saved design
-      _design = data.design;
-      _rooms  = data.rooms  ?? [];
-      _units  = data.units  ?? [];
-
-      // Restore selected method
-      const method = _design.design_method;
-      document.querySelectorAll('input[name=designMethod]').forEach(r => {
-        r.checked = r.value === method;
-      });
-      updateMethodOptionStyles();
-
+      _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
+      // Restore method selector
+      const m = _design.design_method;
+      document.querySelectorAll('input[name=designMethod]').forEach(r => r.checked = r.value === m);
+      updateMethodStyles();
       renderResults();
     } else {
-      // No saved design — calculate fresh
-      await recalculate();
+      await recalculate(); // no saved design → calculate fresh
     }
   } catch(e) {
-    console.error('loadSavedDesign error', e);
-    document.getElementById('loadingState').style.display = 'none';
-    showEmpty();
+    console.error('loadSavedDesign', e);
+    hideLoading(); showEmpty();
   }
 }
 
-// ── Recalculate ───────────────────────────────────────────────
 async function recalculate() {
-  if (!_projectId) return;
-
-  document.getElementById('loadingState').style.display = 'block';
+  showLoading();
   document.getElementById('recalcBar').style.display = 'none';
-  hideResults();
-  _methodDirty = false;
-
   const method = document.querySelector('input[name=designMethod]:checked')?.value ?? 'passive_house';
-
   try {
     const res  = await apiPost(`${API_BASE}/airflow`, { projectId: _projectId, designMethod: method });
     const data = await res.json();
-
     if (!res.ok) {
-      if (res.status === 422) { showEmpty(); return; }
+      if (res.status === 422) { hideLoading(); showEmpty(); return; }
       throw new Error(data.error || 'Calculation failed');
     }
-
-    _design = data.design;
-    _rooms  = data.rooms ?? [];
-    _units  = data.units ?? [];
+    _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
     renderResults();
   } catch(e) {
-    console.error('recalculate error', e);
-    document.getElementById('loadingState').style.display = 'none';
+    console.error('recalculate', e);
+    hideLoading();
     alert('Airflow calculation failed: ' + e.message);
   }
 }
 
-// ── Render results ────────────────────────────────────────────
-function renderResults() {
-  document.getElementById('loadingState').style.display = 'none';
-  document.getElementById('emptyState').style.display   = 'none';
-
-  if (!_design) return;
-
-  // Stats
-  document.getElementById('statsArea').style.display = '';
-  const diff = Math.abs(_design.total_supply_lps - _design.total_extract_lps);
-  document.getElementById('statSupply').textContent  = _design.total_supply_lps;
-  document.getElementById('statExtract').textContent = _design.total_extract_lps;
-  document.getElementById('statDiff').textContent    = diff.toFixed(1);
-  document.getElementById('statLps').textContent     = _design.design_airflow_lps;
-  document.getElementById('statM3h').textContent     = _design.design_airflow_m3h;
-
-  // Balance badge
-  const badgeEl = document.getElementById('balanceBadge');
-  const noteEl  = document.getElementById('balanceNote');
-  const status  = _design.balance_status;
-  const icons   = { balanced: '🟢 Balanced', minor_adjustment: '🟡 Minor Adjustment', major_imbalance: '🔴 Major Imbalance' };
-  badgeEl.innerHTML = `<span class="balance-badge ${status}">${icons[status] ?? status}</span>`;
-
-  if (_design.balance_adjustment_lps !== 0) {
-    const adj = _design.balance_adjustment_lps;
-    noteEl.textContent = `Balance adjustment: ${adj > 0 ? '+' : ''}${adj} l/s applied`;
-  } else {
-    noteEl.textContent = '';
-  }
-
-  // Room table
-  renderRoomTable();
-
-  // MVHR units
-  renderMvhrTable();
-
-  // Confirm/continue card
-  document.getElementById('confirmCard').style.display = 'flex';
-  document.getElementById('roomTableCard').style.display = '';
-  document.getElementById('mvhrCard').style.display     = '';
-  document.getElementById('mvhrFlowLabel').textContent  = _design.design_airflow_m3h;
-
-  // Unlock Stage 4 nav
-  document.getElementById('stageBtn4').classList.remove('locked');
-}
-
-function hideResults() {
-  document.getElementById('statsArea').style.display      = 'none';
-  document.getElementById('roomTableCard').style.display  = 'none';
-  document.getElementById('mvhrCard').style.display       = 'none';
-  document.getElementById('confirmCard').style.display    = 'none';
-}
-
-function showEmpty() {
-  document.getElementById('loadingState').style.display = 'none';
-  document.getElementById('emptyState').style.display   = 'block';
-  hideResults();
-}
-
-// ── Room table ────────────────────────────────────────────────
-function renderRoomTable() {
-  const tbody = document.getElementById('roomTableBody');
-  const tfoot = document.getElementById('roomTableFoot');
-  tbody.innerHTML = '';
-
-  let totalSupply = 0, totalExtract = 0;
-
-  for (const r of _rooms) {
-    totalSupply  += r.supply_lps  || 0;
-    totalExtract += r.extract_lps || 0;
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${esc(r.room_name)}</strong></td>
-      <td>${r.floor ? `<span class="floor-tag">${esc(r.floor)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-      <td><span style="font-size:12px;color:var(--muted)">${formatType(r.room_type)}</span></td>
-      <td style="text-align:right">${r.supply_lps  > 0 ? `<span class="supply-lps">${r.supply_lps}</span>` : '<span class="zero-lps">—</span>'}</td>
-      <td style="text-align:right">${r.extract_lps > 0 ? `<span class="extract-lps">${r.extract_lps}</span>` : '<span class="zero-lps">—</span>'}</td>
-      <td><span class="driver-badge">${esc(r.airflow_driver || '—')}</span></td>
-      <td>${r.notes ? `<span class="note-text">${esc(r.notes)}</span>` : ''}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-
-  document.getElementById('roomCount').textContent = `${_rooms.length} rooms`;
-
-  tfoot.innerHTML = `
-    <tr>
-      <td colspan="3" style="color:var(--muted)">TOTALS</td>
-      <td style="text-align:right"><span class="supply-lps">${totalSupply.toFixed(1)} l/s</span></td>
-      <td style="text-align:right"><span class="extract-lps">${totalExtract.toFixed(1)} l/s</span></td>
-      <td colspan="2"></td>
-    </tr>
-  `;
-}
-
-// ── MVHR table ────────────────────────────────────────────────
-function renderMvhrTable() {
-  const tbody = document.getElementById('mvhrTableBody');
-  tbody.innerHTML = '';
-
-  if (!_units?.length) {
-    document.getElementById('mvhrEmpty').style.display = 'block';
-    return;
-  }
-  document.getElementById('mvhrEmpty').style.display = 'none';
-
-  for (const u of _units) {
-    const name         = [u.manufacturer, u.model].filter(Boolean).join(' ') || u.phi_cert_id || '—';
-    const phiLabel     = u.phiCertified ? '<span class="phi-badge">✓ PHI</span>' : '<span style="color:var(--muted);font-size:12px">No</span>';
-    const hrEff        = u.hr_eff != null ? `${u.hr_eff}%` : '—';
-    const sfp          = u.sfp   != null ? `${u.sfp} Wh/m³` : '—';
-    const suitability  = u.suitability ?? 0;
-    const fillWidth    = Math.min(100, suitability);
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>
-        <div class="unit-name">${esc(name)}</div>
-        ${u.phi_cert_id ? `<div class="unit-manufacturer" style="font-size:11px;color:var(--muted)">${esc(u.phi_cert_id)}</div>` : ''}
-      </td>
-      <td>${u.flow_max != null ? u.flow_max + ' m³/h' : '—'}</td>
-      <td style="font-weight:700;color:var(--primary)">${hrEff}</td>
-      <td>${sfp}</td>
-      <td>${phiLabel}</td>
-      <td>
-        <div class="suitability-bar">
-          <div class="suitability-bg"><div class="suitability-fill" style="width:${fillWidth}%"></div></div>
-          <span style="font-size:12px;font-weight:700;color:var(--accent);min-width:32px">${suitability}%</span>
-        </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-// ── Method change ─────────────────────────────────────────────
 function onMethodChange() {
-  updateMethodOptionStyles();
+  updateMethodStyles();
   if (_design) {
-    // Show recalc warning if results are already displayed
     document.getElementById('recalcBar').style.display = 'flex';
-    _methodDirty = true;
   } else {
-    // No results yet — just recalculate immediately
     recalculate();
   }
 }
+function updateMethodStyles() {
+  const v = document.querySelector('input[name=designMethod]:checked')?.value;
+  document.getElementById('methodPH').classList.toggle('selected', v === 'passive_house');
+  document.getElementById('methodAS').classList.toggle('selected', v === 'as1668');
+}
 
-function updateMethodOptionStyles() {
-  const selected = document.querySelector('input[name=designMethod]:checked')?.value;
-  document.getElementById('methodPH').classList.toggle('selected', selected === 'passive_house');
-  document.getElementById('methodAS').classList.toggle('selected', selected === 'as1668');
+// ── Render ────────────────────────────────────────────────────
+function renderResults() {
+  hideLoading();
+  if (!_design) return;
+
+  // ── Design basis panel ────────────────────────────────
+  const d           = _design;
+  const driver      = d.design_driver;
+  const hasArea     = d.area_data_available;
+  const occFlow     = d.occupancy_flow_m3h  ?? 0;
+  const areaFlow    = d.area_flow_m3h       ?? 0;
+  const wetFlow     = d.wet_room_flow_m3h   ?? 0;
+
+  setCard('basisOccCard',  driver === 'occupancy');
+  setCard('basisAreaCard', driver === 'area');
+  setCard('basisWetCard',  driver === 'wet_room');
+
+  el('basisOccFlow').textContent  = occFlow;
+  el('basisOccSub').textContent   = `${d.occupancy_count ?? '—'} occupants × 30 m³/h`;
+  el('basisAreaFlow').textContent = hasArea ? areaFlow : '—';
+  el('basisAreaSub').textContent  = hasArea
+    ? `${d.treated_area_m2} m² × 2.4 m × ACH`
+    : 'No area data in room schedule';
+  el('basisWetFlow').textContent  = wetFlow;
+  el('basisWetSub').textContent   = 'Sum of kitchen + bathrooms + laundry + WCs';
+
+  el('areaWarningBanner').style.display = hasArea ? 'none' : 'flex';
+
+  if (driver === 'occupancy') addDriverTag('basisOccCard', 'Drives design');
+  else if (driver === 'area') addDriverTag('basisAreaCard', 'Drives design');
+  else if (driver === 'wet_room') addDriverTag('basisWetCard', 'Drives design');
+
+  el('basisArea').style.display = '';
+
+  // ── Stats ─────────────────────────────────────────────
+  const supplyM3h  = d.total_supply_m3h  ?? r1(d.total_supply_lps  * 3.6);
+  const extractM3h = d.total_extract_m3h ?? r1(d.total_extract_lps * 3.6);
+  const diffM3h    = Math.abs(supplyM3h - extractM3h);
+
+  el('statDesignM3h').textContent  = d.design_airflow_m3h;
+  el('statDesignLps').textContent  = d.design_airflow_lps;
+  el('statSupplyM3h').textContent  = supplyM3h;
+  el('statSupplyLps').textContent  = `${d.total_supply_lps} l/s`;
+  el('statExtractM3h').textContent = extractM3h;
+  el('statExtractLps').textContent = `${d.total_extract_lps} l/s`;
+  el('statDiff').textContent       = diffM3h.toFixed(1);
+
+  const status = d.balance_status;
+  const icons  = {
+    balanced:          '🟢 Balanced',
+    minor_adjustment:  '🟡 Minor Adjustment',
+    major_imbalance:   '🔴 Manual Review Required',
+  };
+  el('balanceBadge').innerHTML = `<span class="balance-badge ${status}">${icons[status] ?? status}</span>`;
+
+  const adjM3h = d.balance_adjustment_m3h ?? r1((d.balance_adjustment_lps ?? 0) * 3.6);
+  if (adjM3h !== 0) {
+    el('balanceNote').textContent = `${adjM3h > 0 ? '+' : ''}${adjM3h} m³/h applied to living/dining`;
+  } else if (status === 'major_imbalance') {
+    el('balanceNote').textContent = 'Supply and extract cannot be balanced via living/dining alone. Review room schedule.';
+  } else {
+    el('balanceNote').textContent = '';
+  }
+
+  el('statsArea').style.display = '';
+
+  // ── Room table ────────────────────────────────────────
+  renderRoomTable();
+
+  // ── MVHR units ────────────────────────────────────────
+  renderMvhrTable();
+
+  el('roomTableCard').style.display = '';
+  el('mvhrCard').style.display      = '';
+  el('confirmCard').style.display   = 'flex';
+  el('mvhrFlowLabel').textContent   = d.design_airflow_m3h;
+  el('mvhrRequiredLabel').textContent = Math.ceil(d.design_airflow_m3h * 1.15);
+
+  // Unlock Stage 4 nav
+  el('stageBtn4').classList.remove('locked');
+}
+
+function addDriverTag(cardId, label) {
+  // Remove any existing tag first
+  const existing = document.querySelector(`#${cardId} .basis-driver-tag`);
+  if (existing) existing.remove();
+  const tag = document.createElement('span');
+  tag.className = 'basis-driver-tag';
+  tag.textContent = label;
+  document.getElementById(cardId).appendChild(tag);
+}
+
+function setCard(id, isActive) {
+  const c = document.getElementById(id);
+  c.classList.toggle('active-driver', isActive);
+  c.classList.toggle('basis-inactive', !isActive);
+  // Clear any old driver tag
+  c.querySelector('.basis-driver-tag')?.remove();
+}
+
+function renderRoomTable() {
+  const tbody = el('roomTableBody');
+  const tfoot = el('roomTableFoot');
+  tbody.innerHTML = '';
+
+  let ts = 0, te = 0;
+
+  for (const r of _rooms) {
+    const sm = r.supply_m3h  ?? r1(r.supply_lps  * 3.6);
+    const em = r.extract_m3h ?? r1(r.extract_lps * 3.6);
+    ts += sm; te += em;
+
+    const fmtFlow = (m3h, lps, cls) => m3h > 0
+      ? `<span class="${cls}">${m3h}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span> <span style="font-size:11px;color:var(--muted)">(${lps})</span></span>`
+      : '<span class="zero-val">—</span>';
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>${esc(r.room_name)}</strong></td>
+      <td>${r.floor ? `<span class="floor-tag">${esc(r.floor)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td><span style="font-size:12px;color:var(--muted)">${fmtType(r.room_type)}</span></td>
+      <td style="text-align:right">${fmtFlow(sm, r.supply_lps,  'supply-val')}</td>
+      <td style="text-align:right">${fmtFlow(em, r.extract_lps, 'extract-val')}</td>
+      <td><span class="driver-badge">${esc(r.airflow_driver || '—')}</span></td>
+      <td>${r.notes ? `<span class="note-text">${esc(r.notes)}</span>` : ''}</td>
+    `;
+    tbody.appendChild(row);
+  }
+
+  el('roomCount').textContent = `${_rooms.length} rooms`;
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="3" style="color:var(--muted)">TOTALS</td>
+      <td style="text-align:right"><span class="supply-val">${r1(ts)} m³/h</span></td>
+      <td style="text-align:right"><span class="extract-val">${r1(te)} m³/h</span></td>
+      <td colspan="2"></td>
+    </tr>`;
+}
+
+function renderMvhrTable() {
+  const tbody = el('mvhrTableBody');
+  tbody.innerHTML = '';
+
+  if (!_units?.length) { el('mvhrEmpty').style.display = 'block'; return; }
+  el('mvhrEmpty').style.display = 'none';
+
+  const designM3h  = _design.design_airflow_m3h;
+  const required   = Math.ceil(designM3h * 1.15);
+
+  for (const u of _units) {
+    const name    = [u.manufacturer, u.model].filter(Boolean).join(' ') || (u.phi_cert_id ?? '—');
+    const phiLbl  = u.phiCertified ? '<span class="phi-badge">✓ PHI</span>' : '<span style="color:var(--muted);font-size:11px">—</span>';
+    const capLbl  = u.flow_max >= required
+      ? `<span class="cap-ok">✓ ${u.flow_max} m³/h</span>`
+      : `<span class="cap-warn">⚠ ${u.flow_max} m³/h</span>`;
+    const hrEff   = u.hr_eff != null ? `${u.hr_eff}%` : '—';
+    const sfp     = u.sfp    != null ? `${u.sfp} Wh/m³` : '—';
+    const suit    = u.suitability ?? 0;
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><div class="unit-name">${esc(name)}</div>${u.phi_cert_id ? `<div style="font-size:11px;color:var(--muted)">${esc(u.phi_cert_id)}</div>` : ''}</td>
+      <td>${u.flow_max != null ? u.flow_max + ' m³/h' : '—'}</td>
+      <td>${capLbl}</td>
+      <td style="font-weight:700;color:var(--primary)">${hrEff}</td>
+      <td>${sfp}</td>
+      <td>${phiLbl}</td>
+      <td>
+        <div class="suitability-bar">
+          <div class="suit-bg"><div class="suit-fill" style="width:${Math.min(100,suit)}%"></div></div>
+          <span style="font-size:12px;font-weight:700;color:var(--accent);min-width:34px">${suit}%</span>
+        </div>
+      </td>`;
+    tbody.appendChild(row);
+  }
+}
+
+// ── Show/hide helpers ─────────────────────────────────────────
+function showLoading() {
+  el('loadingState').style.display = 'block';
+  el('basisArea').style.display    = 'none';
+  el('statsArea').style.display    = 'none';
+  el('roomTableCard').style.display = 'none';
+  el('mvhrCard').style.display      = 'none';
+  el('confirmCard').style.display   = 'none';
+  el('emptyState').style.display    = 'none';
+}
+function hideLoading() { el('loadingState').style.display = 'none'; }
+function showEmpty() {
+  el('emptyState').style.display = 'block';
+  el('loadingState').style.display = 'none';
 }
 
 // ── API helpers ───────────────────────────────────────────────
-async function apiGet(url) {
-  return fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + _token },
-  });
-}
-
-async function apiPost(url, body) {
-  return fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _token },
-    body:    JSON.stringify(body),
-  });
-}
+const apiGet  = url => fetch(url, { headers: { Authorization: 'Bearer ' + _token } });
+const apiPost = (url, body) => fetch(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+  body: JSON.stringify(body),
+});
 
 // ── Utilities ─────────────────────────────────────────────────
-function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+const el  = id => document.getElementById(id);
+const r1  = v  => Math.round(v * 10) / 10;
+const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 const TYPE_LABELS = {
-  bedroom: 'Bedroom', living: 'Living', dining: 'Dining', kitchen: 'Kitchen',
-  kitchenette: 'Kitchenette', wet_area: 'Wet Area', laundry: 'Laundry',
-  office: 'Office', gym: 'Gym', robe: 'Robe/WIR', circulation: 'Hallway/Circ.',
-  service: 'Service', other: 'Other',
+  bedroom:'Bedroom', living:'Living', dining:'Dining', kitchen:'Kitchen',
+  kitchenette:'Kitchenette', wet_area:'Wet Area', laundry:'Laundry',
+  office:'Office', gym:'Gym', robe:'Robe/WIR', circulation:'Hallway',
+  service:'Service', other:'Other',
 };
-function formatType(t) { return TYPE_LABELS[t] || t; }
+const fmtType = t => TYPE_LABELS[t] || t;
 </script>
 </body>
 </html>
