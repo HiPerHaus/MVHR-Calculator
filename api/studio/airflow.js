@@ -47,6 +47,15 @@ const AREA_RATE = { passive_house: 1.0, as1668: 1.5 };
 const AREA_EXCLUDE_CLS   = new Set(['ignore']);
 const AREA_EXCLUDE_TYPES = new Set(['service']); // garage, balcony captured by cls=ignore
 
+// Room types that are expected to carry valid area data.
+// If fewer than AREA_COMPLETENESS_THRESHOLD of these rooms have area > 0,
+// the area-based calculation is suppressed (treat as no data).
+const AREA_EXPECTED_TYPES = new Set([
+  'bedroom', 'living', 'dining', 'kitchen', 'kitchenette',
+  'wet_area', 'laundry', 'office', 'gym',
+]);
+const AREA_COMPLETENESS_THRESHOLD = 0.80; // 80%
+
 // ── Extract rate lookup ───────────────────────────────────────
 // Fixed design extract rates (m³/h). These never change during balancing.
 function extractRate(room) {
@@ -111,24 +120,69 @@ function calcOccupancyFlow(rooms) {
 }
 
 /**
- * Area-based flow: treatedVolume × ACH
- * Returns { treatedAreaM2, areaFlowM3h, hasAreaData }
- * hasAreaData = false when all rooms have area = 0 or null.
+ * Area-based flow: treatedArea × rate (m³/h per m²)
+ * Returns { treatedAreaM2, areaFlowM3h, hasAreaData, areaWithCount, areaExpectedCount }
+ *
+ * hasAreaData = false when:
+ *   - No rooms have area > 0, OR
+ *   - Fewer than AREA_COMPLETENESS_THRESHOLD (80%) of habitable rooms have area > 0.
+ *     In this case the partial area total would be misleading, so the calculation is suppressed.
  */
 function calcAreaFlow(rooms, method) {
   const rate = AREA_RATE[method] ?? 1.0; // m³/h per m²
+
+  // Rooms expected to carry area data (habitable, not ignored/service)
+  const habitableRooms = rooms.filter(r =>
+    !AREA_EXCLUDE_CLS.has(r.classification) &&
+    !AREA_EXCLUDE_TYPES.has(r.room_type) &&
+    AREA_EXPECTED_TYPES.has(r.room_type)
+  );
+  const withArea    = habitableRooms.filter(r => r.area > 0);
+  const missingArea = habitableRooms.filter(r => !(r.area > 0));
+  const completeness = habitableRooms.length > 0
+    ? withArea.length / habitableRooms.length
+    : 0;
+
+  // Diagnostic logs
+  console.log(JSON.stringify({
+    event:              'room-area-completeness',
+    habitableRoomCount: habitableRooms.length,
+    withAreaCount:      withArea.length,
+    missingAreaCount:   missingArea.length,
+    completenessPct:    r1(completeness * 100),
+    thresholdPct:       AREA_COMPLETENESS_THRESHOLD * 100,
+    adequate:           completeness >= AREA_COMPLETENESS_THRESHOLD,
+  }));
+  if (missingArea.length > 0) {
+    console.log(JSON.stringify({
+      event: 'missing-area-room-list',
+      count: missingArea.length,
+      rooms: missingArea.map(r => ({ name: r.name, type: r.room_type })),
+    }));
+  }
+
+  // Suppress area calculation if completeness below threshold
+  if (completeness < AREA_COMPLETENESS_THRESHOLD) {
+    return {
+      treatedAreaM2: 0, areaFlowM3h: 0, hasAreaData: false,
+      areaWithCount: withArea.length, areaExpectedCount: habitableRooms.length,
+    };
+  }
+
+  // Sum area across all non-excluded rooms with valid area
   let area = 0;
-  let found = false;
   for (const r of rooms) {
     if (AREA_EXCLUDE_CLS.has(r.classification)) continue;
     if (AREA_EXCLUDE_TYPES.has(r.room_type))    continue;
-    if (!r.area || r.area <= 0)                  continue;
+    if (!(r.area > 0))                           continue;
     area += r.area;
-    found = true;
   }
-  if (!found) return { treatedAreaM2: 0, areaFlowM3h: 0, hasAreaData: false };
+
   const flow = r0(area * rate);
-  return { treatedAreaM2: r1(area), areaFlowM3h: flow, hasAreaData: true };
+  return {
+    treatedAreaM2: r1(area), areaFlowM3h: flow, hasAreaData: true,
+    areaWithCount: withArea.length, areaExpectedCount: habitableRooms.length,
+  };
 }
 
 /**
@@ -293,7 +347,7 @@ function balanceDesign(roomResults, rooms) {
 function calculateAirflow(rooms, method) {
   // 1. Whole-house design basis
   const { occupancyCount, occupancyFlowM3h } = calcOccupancyFlow(rooms);
-  const { treatedAreaM2, areaFlowM3h, hasAreaData } = calcAreaFlow(rooms, method);
+  const { treatedAreaM2, areaFlowM3h, hasAreaData, areaWithCount, areaExpectedCount } = calcAreaFlow(rooms, method);
   const wetRoomFlowM3h = calcWetRoomFlow(rooms);
 
   // Design airflow = max of the three methods
@@ -341,6 +395,8 @@ function calculateAirflow(rooms, method) {
     areaFlowM3h,
     wetRoomFlowM3h,
     hasAreaData,
+    areaWithCount,
+    areaExpectedCount,
     designFlowM3h,
     designFlowLps:    toLps(designFlowM3h),
     designDriver,
@@ -420,8 +476,10 @@ function enrichDesign(dbRow, calc) {
     wet_room_flow_m3h:   dbRow.wet_room_flow_m3h    ?? calc?.wetRoomFlowM3h,
     occupancy_count:     dbRow.occupancy_count      ?? calc?.occupancyCount,
     treated_area_m2:     dbRow.treated_area_m2      ?? calc?.treatedAreaM2,
-    area_data_available: dbRow.area_data_available  ?? calc?.hasAreaData ?? false,
-    design_driver:       calc?.designDriver ?? null,
+    area_data_available:  dbRow.area_data_available  ?? calc?.hasAreaData ?? false,
+    area_with_count:      calc?.areaWithCount      ?? null,
+    area_expected_count:  calc?.areaExpectedCount  ?? null,
+    design_driver:        calc?.designDriver ?? null,
   };
 }
 

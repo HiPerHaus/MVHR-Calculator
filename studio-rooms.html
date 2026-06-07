@@ -40,6 +40,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-login:hover { background: var(--accent); }
 .login-error { background: var(--critical-bg); border: 1px solid #fecaca; color: var(--critical); border-radius: 7px; padding: 9px 13px; font-size: 13px; margin-bottom: 12px; display: none; }
 .login-error.visible { display: block; }
+/* ── Auth-check state — prevents login flicker on page transitions ── */
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
 
 /* ── Header ── */
 header {
@@ -256,6 +263,15 @@ select.cell-input { cursor: pointer; }
 .review-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--amber); margin-bottom: 10px; }
 .review-item { font-size: 13px; color: #78350f; margin-bottom: 5px; display: flex; gap: 8px; }
 
+/* ── Area completeness banner ── */
+.area-completeness-banner {
+  background: var(--amber-bg); border: 1px solid #fbbf24; border-radius: 10px;
+  padding: 11px 16px; margin-bottom: 16px;
+  display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #92400e;
+}
+.area-completeness-banner strong { color: #78350f; }
+.area-completeness-count { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
 /* ── Confirm section ── */
 .confirm-card {
   background: #f0fdf4; border: 1.5px solid var(--ok-border); border-radius: 14px;
@@ -295,6 +311,10 @@ select.cell-input { cursor: pointer; }
 
 <!-- ── Login overlay ── -->
 <div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
   <div class="login-box">
     <div class="login-logo">HiPer Studio</div>
     <div class="login-title">Sign in to continue</div>
@@ -402,6 +422,16 @@ select.cell-input { cursor: pointer; }
       <div class="stat-spacer"></div>
       <div id="confirmedBadge" style="display:none">
         <span class="confirmed-badge">✓ Schedule Confirmed</span>
+      </div>
+    </div>
+
+    <!-- Area completeness warning -->
+    <div class="area-completeness-banner" id="areaCompletenessBanner" style="display:none">
+      <span>⚠</span>
+      <div>
+        <strong>Area data incomplete.</strong>
+        Area data is missing for some rooms. Airflow calculations may rely on occupancy rather than floor area.
+        <div class="area-completeness-count" id="areaCompletenessCount"></div>
       </div>
     </div>
 
@@ -518,6 +548,7 @@ async function doLogin() {
   }
   _session = data.session;
   document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('loginOverlay').classList.remove('show-login');
   document.getElementById('headerUser').textContent = data.user.email;
   await loadPage();
 }
@@ -579,8 +610,9 @@ async function init() {
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('headerUser').textContent = session.user.email;
     await loadPage();
+  } else {
+    document.getElementById('loginOverlay').classList.add('show-login');
   }
-  // else: show login overlay (already visible)
 }
 
 async function loadPage() {
@@ -911,6 +943,13 @@ async function getProjectAnalysis() {
 }
 
 // ── Stats ─────────────────────────────────────────────────────
+// Room types expected to carry valid area data (mirrors AREA_EXPECTED_TYPES in airflow.js)
+const AREA_EXPECTED_TYPES = new Set([
+  'bedroom', 'living', 'dining', 'kitchen', 'kitchenette',
+  'wet_area', 'laundry', 'office', 'gym',
+]);
+const AREA_COMPLETENESS_THRESHOLD = 0.80;
+
 function updateStats() {
   const active = _rooms.filter(r => r.classification !== 'ignore');
   document.getElementById('statTotal').textContent    = active.length;
@@ -931,6 +970,41 @@ function updateStats() {
     occSrc.style.color = 'var(--muted)';
   } else {
     occSrc.textContent = '';
+  }
+
+  // ── Area completeness check ───────────────────────────────────
+  const habitableRooms = _rooms.filter(r =>
+    r.classification !== 'ignore' && AREA_EXPECTED_TYPES.has(r.room_type)
+  );
+  const withArea    = habitableRooms.filter(r => r.area > 0);
+  const missingArea = habitableRooms.filter(r => !(r.area > 0));
+  const completeness = habitableRooms.length > 0
+    ? withArea.length / habitableRooms.length : 1;
+
+  // Diagnostics
+  console.log(JSON.stringify({
+    event: 'room-area-completeness',
+    habitableRoomCount: habitableRooms.length,
+    withAreaCount: withArea.length,
+    missingAreaCount: missingArea.length,
+    completenessPct: Math.round(completeness * 100),
+    adequate: completeness >= AREA_COMPLETENESS_THRESHOLD,
+  }));
+  if (missingArea.length > 0) {
+    console.log(JSON.stringify({
+      event: 'missing-area-room-list',
+      count: missingArea.length,
+      rooms: missingArea.map(r => ({ name: r.name, type: r.room_type })),
+    }));
+  }
+
+  const banner  = document.getElementById('areaCompletenessBanner');
+  const countEl = document.getElementById('areaCompletenessCount');
+  if (habitableRooms.length > 0 && completeness < AREA_COMPLETENESS_THRESHOLD) {
+    banner.style.display = 'flex';
+    countEl.textContent  = `${withArea.length} of ${habitableRooms.length} habitable rooms have valid area data`;
+  } else {
+    banner.style.display = 'none';
   }
 }
 

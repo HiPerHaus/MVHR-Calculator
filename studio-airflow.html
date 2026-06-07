@@ -286,7 +286,12 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
         </div>
       </div>
       <div id="areaWarningBanner" style="display:none" class="area-warning">
-        ⚠ Room areas unavailable — area-based ACH calculation skipped. Using occupancy-based airflow.
+        <span>⚠</span>
+        <div>
+          <strong>Area data incomplete</strong> — area-based calculation skipped.
+          Using occupancy / wet-room method only.
+          <span id="areaWarningCount" style="display:none;margin-left:4px;font-size:12px;opacity:.8"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -523,13 +528,28 @@ function renderResults() {
   el('basisOccFlow').textContent  = occFlow;
   el('basisOccSub').textContent   = `${d.occupancy_count ?? '—'} occupants × 30 m³/h`;
   el('basisAreaFlow').textContent = hasArea ? areaFlow : '—';
+  const areaWith     = d.area_with_count     ?? null;
+  const areaExpected = d.area_expected_count ?? null;
   el('basisAreaSub').textContent  = hasArea
-    ? `${d.treated_area_m2} m² × 2.4 m × ACH`
-    : 'No area data in room schedule';
+    ? `${d.treated_area_m2} m² × ${d.design_method === 'as1668' ? '1.5' : '1.0'} m³/h per m²`
+    : (areaWith != null && areaExpected != null)
+      ? `Area incomplete — ${areaWith} of ${areaExpected} rooms have area > 0`
+      : 'No area data in room schedule';
   el('basisWetFlow').textContent  = wetFlow;
   el('basisWetSub').textContent   = 'Sum of kitchen + bathrooms + laundry + WCs';
 
-  el('areaWarningBanner').style.display = hasArea ? 'none' : 'flex';
+  if (!hasArea) {
+    el('areaWarningBanner').style.display = 'flex';
+    const countSpan = el('areaWarningCount');
+    if (areaWith != null && areaExpected != null) {
+      countSpan.textContent = `(${areaWith} of ${areaExpected} rooms have valid area data)`;
+      countSpan.style.display = 'inline';
+    } else {
+      countSpan.style.display = 'none';
+    }
+  } else {
+    el('areaWarningBanner').style.display = 'none';
+  }
 
   if (driver === 'occupancy') addDriverTag('basisOccCard', 'Drives design');
   else if (driver === 'area') addDriverTag('basisAreaCard', 'Drives design');
