@@ -138,8 +138,12 @@ export default async function handler(req, res) {
 
     // Build a synthetic analysis object with _pageResults for consistent downstream handling
     analysis = {
-      _pageResults: sortedFloors.map(log => ({
-        floorName: log.parsed_rooms?.floorName ?? null,
+      _pageResults: sortedFloors.map((log, idx) => ({
+        // Derive canonical name from sorted floor_index, not AI-detected floorName
+        floorName: log.floor_index === 0 ? 'Ground Floor' :
+                   log.floor_index === 1 ? 'First Floor'  :
+                   log.floor_index === 2 ? 'Second Floor' :
+                   `Floor ${(log.floor_index ?? idx) + 1}`,
         data:      log.parsed_rooms ?? {},
       })),
       rooms: (() => {
@@ -165,9 +169,17 @@ export default async function handler(req, res) {
   let sortOrder = 0;
 
   if (analysis._pageResults?.length) {
-    // Multi-floor: iterate floors in order, preserve floor name on each room
-    for (const page of analysis._pageResults) {
-      const floor    = page.floorName ?? null;
+    // Multi-floor: iterate floors in order, derive canonical floor name from array index.
+    // Do NOT trust page.floorName — the AI may return incorrect names (e.g. "First Floor"
+    // for the ground floor page). The array is ordered by floor_index so idx 0 = ground.
+    const CANONICAL_FLOOR = (i) =>
+      i === 0 ? 'Ground Floor' :
+      i === 1 ? 'First Floor'  :
+      i === 2 ? 'Second Floor' :
+      `Floor ${i + 1}`;
+
+    for (const [pageIdx, page] of analysis._pageResults.entries()) {
+      const floor    = CANONICAL_FLOOR(pageIdx);
       const roomsObj = page.data?.rooms ?? {};
       sortOrder = emitRoomsFromObject({ roomsObj, floor, projectId, userId: user.id, rows, startOrder: sortOrder });
     }

@@ -491,7 +491,7 @@ export default async function handler(req, res) {
       page_role:    'primary_analysis',
       floor_index:  idx,
       floor_level:  p.floor_level ?? idx,
-      floor_name:   p.floor_name ?? (idx === 0 ? 'Ground Floor' : `Floor ${idx + 1}`),
+      floor_name:   idx === 0 ? 'Ground Floor' : idx === 1 ? 'First Floor' : idx === 2 ? 'Second Floor' : `Floor ${idx + 1}`,
     }));
 
     if (pageUpdates.length > 0) {
@@ -562,7 +562,7 @@ export default async function handler(req, res) {
         analysisResults.push({
           pageId:      pageUpdate.id,
           pageNumber:  page?.page_number,
-          floorName:   result.floorName ?? pageUpdate.floor_name,   // prefer AI-detected name
+          floorName:   pageUpdate.floor_name,   // canonical index-based name; AI-detected ignored (unreliable)
           floorIndex:  pageUpdate.floor_index,
           supplyCount: result.rooms?.supply?.length ?? 0,
           extractCount: result.rooms?.extract?.length ?? 0,

@@ -356,6 +356,48 @@ function calculateAirflow(rooms, method) {
     : designFlowM3h === areaFlowM3h    ? 'area'
     : 'wet_room';
 
+  // Diagnostic: floor distribution
+  const floorGroups = {};
+  for (const r of rooms) {
+    const fl = r.floor || 'Unknown';
+    if (!floorGroups[fl]) floorGroups[fl] = { supply: 0, extract: 0, transfer: 0, ignore: 0 };
+    floorGroups[fl][r.classification] = (floorGroups[fl][r.classification] ?? 0) + 1;
+  }
+  console.log(JSON.stringify({
+    event:  'airflow:floor-distribution',
+    floors: Object.entries(floorGroups).map(([name, counts]) => ({ name, ...counts })),
+  }));
+
+  // Diagnostic: area basis — per-room area values fed to calcAreaFlow
+  console.log(JSON.stringify({
+    event:        'airflow:area-basis',
+    method,
+    rateM3hPerM2: AREA_RATE[method] ?? 1.0,
+    treatedAreaM2,
+    areaFlowM3h,
+    hasAreaData,
+    areaWithCount,
+    areaExpectedCount,
+    rooms: rooms.filter(r =>
+      !AREA_EXCLUDE_CLS.has(r.classification) &&
+      !AREA_EXCLUDE_TYPES.has(r.room_type)
+    ).map(r => ({ name: r.room_name ?? r.name, type: r.room_type, area: r.area ?? 0 })),
+  }));
+
+  // Diagnostic: area source — where the area data came from per room
+  console.log(JSON.stringify({
+    event: 'airflow:area-source',
+    rooms: rooms.map(r => ({
+      name:       r.room_name ?? r.name,
+      floor:      r.floor,
+      type:       r.room_type,
+      cls:        r.classification,
+      area:       r.area ?? 0,
+      hasArea:    (r.area ?? 0) > 0,
+      excluded:   AREA_EXCLUDE_CLS.has(r.classification) || AREA_EXCLUDE_TYPES.has(r.room_type),
+    })),
+  }));
+
   // 2. Room allocations (fixed rates, independent of design airflow)
   let roomResults = allocateRooms(rooms);
 
