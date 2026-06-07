@@ -9,6 +9,7 @@
     { "source": "/api/ai/job-status/:jobId",          "destination": "/api/ai/job-status/[jobId]" },
     { "source": "/api/studio/rooms",                  "destination": "/api/studio/rooms" },
     { "source": "/api/studio/seed-rooms",             "destination": "/api/studio/seed-rooms" },
+    { "source": "/api/studio/airflow",                "destination": "/api/studio/airflow" },
     { "source": "/api/(.*)",                          "destination": "/api/$1" },
     { "source": "/admin",                             "destination": "/admin.html" },
     { "source": "/admin-ai-test",                     "destination": "/admin-ai-test.html" },
