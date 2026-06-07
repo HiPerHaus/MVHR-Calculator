@@ -27,7 +27,7 @@ const supabase  = createClient(
 const MODEL          = 'claude-haiku-4-5-20251001';
 const MAX_BATCH_SIZE = 4;     // small batches → simpler JSON → fewer parse failures
 const BUCKET         = 'plan-uploads';
-const TOKENS_PER_PAGE = 300; // conservative budget per page for JSON output
+const TOKENS_PER_PAGE = 400; // increased budget for new richer output (planType + sheetTitle + detectedFloor)
 
 // ── Internal auth ─────────────────────────────────────────────────────────
 function validateInternalToken(req) {
@@ -41,121 +41,124 @@ function validateInternalToken(req) {
 }
 
 // ── Classification system prompt ───────────────────────────────────────────
-const CLASSIFICATION_SYSTEM = `You are an architectural drawing classifier for an MVHR design platform.
-Your task is NOT to analyse rooms.
-Your task is ONLY to identify which pages in a drawing set contain usable architectural floor plans suitable for MVHR room extraction.
-A usable floor plan must show:
+// Each page receives a planType from the following enum.
+// Only floor_plan_primary pages will be sent for room extraction.
+const CLASSIFICATION_SYSTEM = `You are an architectural drawing classifier for an MVHR ventilation design platform.
+Your task is to classify each drawing page into EXACTLY ONE of these plan types.
 
-* Internal room layouts
-* Room names or room boundaries
-* Internal walls and doors
-* The actual habitable spaces within the building
-Examples of VALID MVHR floor plans:
+PLAN TYPE DEFINITIONS
+=====================
 
-* Ground Floor Plan
-* First Floor Plan
-* Upper Floor Plan
-* Basement Plan
-* Mezzanine Plan
-* Architectural Floor Plan
-* Floor Plan with room labels
-* Floor Plan with dimensions
-Examples of INVALID pages:
+floor_plan_primary
+  The COMPLETE floor plan for one distinct building level.
+  Shows ALL rooms for that level. Used for MVHR room extraction.
+  Examples: "Floor Plan", "Ground Floor Plan", "First Floor Plan", "Level 1 Plan", "Basement Plan"
+  There is typically ONE primary floor plan per building level.
 
-* Site Plans
-* Survey Plans
-* Location Plans
-* Roof Plans
-* Reflected Ceiling Plans
-* Electrical Plans
-* Hydraulic Plans
-* Structural Plans
-* Framing Plans
-* Slab Plans
-* Setout Plans
-* Construction Sequence Plans
-* Door Schedules
-* Window Schedules
-* Elevations
-* Sections
-* Details
-* Specifications
-* Notes Sheets
-* Energy Reports
-Strong indicators of a valid MVHR floor plan:
+floor_plan_detail
+  An ENLARGED or PARTIAL view showing only a SUBSET of rooms from a primary floor plan.
+  The same rooms already appear on the primary floor plan at smaller scale.
+  NEVER creates a separate floor — it is just a zoomed view of part of an existing level.
+  Title indicators: "North Wing", "South Wing", "East Wing", "West Wing",
+    "Enlarged Plan", "Detail Plan", "Partial Plan", any zone or wing reference.
+  Even if it shows rooms from above with correct room names — if it only covers PART
+  of the building, it is floor_plan_detail, NOT floor_plan_primary.
 
-* Top-down (bird's-eye) view of the building interior
-* Room boundaries drawn as horizontal plan walls
-* Door symbols shown as arcs swinging from a hinge point
-* North arrow or compass rose
-* Room names INSIDE room boundaries (not as titles above a drawing):
-   * Bedroom / Bed 1 / Bed 2 / Master
-   * Living / Lounge / Family / Dining / Meals
-   * Kitchen / Pantry / Scullery
-   * Bathroom / Bath / Ensuite
-   * WC / Laundry
-   * WIR / Store / Entry / Hallway
-   * Study / Office / Rumpus / Media
+ceiling_plan
+  Shows ceiling heights, bulkheads, skylights, downlight positions, or ceiling treatment.
+  May look IDENTICAL to a floor plan (same room boundaries, same room names inside rooms)
+  but the PURPOSE is to show ceiling information, NOT to define rooms for ventilation.
+  Title indicators: "Ceiling Height Plan", "Reflected Ceiling Plan", "RCP",
+    "Ceiling Plan", "Bulkhead Plan", "Ceiling Heights".
+  Even though room names appear inside the boundaries, this is NOT a floor plan.
+  CRITICAL: A page titled "Ceiling Height Plan" is ALWAYS ceiling_plan, never floor_plan_primary.
 
-CRITICAL DISTINCTION — Room names vs. Elevation headings:
-A floor plan shows room names INSIDE the room boundaries on a top-down view.
-An Internal Elevations sheet shows room names as HEADINGS above elevation drawings.
+roof_plan
+  Top-down view of the ROOF surface. Shows roof pitches, ridges, gutters, fascia.
+  Does NOT show internal rooms.
 
-Internal Elevations sheets look like this:
-  "ENSUITE ELEVATION"    — heading above a wall drawing showing tiles, shower, mirror
-  "WC ELEVATION"         — heading above a wall drawing showing toilet, cistern, basin
-  "LAUNDRY ELEVATION"    — heading above a wall drawing showing joinery, appliances
-  "KITCHEN ELEVATION A"  — heading above a cabinet/bench drawing
-These sheets contain room names but are NOT floor plans.
-The primary content is vertical wall views, not horizontal room layouts.
+electrical_plan
+  Shows power points, circuits, switchboard, cable runs, smoke detectors.
+  Same room boundaries as floor plan but annotated for electrical, not MVHR.
 
-How to tell the difference:
-  Floor plan      → walls form enclosed room shapes viewed from above; doors shown as arcs
-  Internal Elev.  → single wall faces shown flat-on; cabinets shown in front-elevation;
-                    multiple drawings tiled across the page; heights/vertical dimensions visible
-  Building Elev.  → external facade view; no internal rooms visible; floor level markers
-  Section         → vertical cut through building; ceiling heights; floor-to-floor dimensions
+lighting_plan
+  Shows light fittings, pendant positions, sensor zones.
 
-Strong indicators of an INVALID page:
+plumbing_plan
+  Shows pipe runs, fixtures, floor waste, hot/cold water, hydraulic.
+  Also called: Hydraulic Plan, Services Plan, Wet Areas Plan.
 
-* Title contains "Elevation", "Elevations", "Internal Elevation", "Elev" — REJECT
-* Title contains "Section", "Detail", "Construction" — REJECT
-* Title contains "Roof Plan", "Site Plan", "Slab", "Electrical", "Services" — REJECT
-* Multiple tiled wall-face drawings on one sheet — REJECT (Internal Elevations)
-* Drawings showing cabinet fronts, tile patterns, or wall faces in portrait orientation — REJECT
-* Large contour maps, property boundaries, setbacks — REJECT
-* Ceiling grid or lighting layout — REJECT (Reflected Ceiling Plan)
-* Structural grid, steel members, bracing — REJECT
+slab_plan
+  Shows concrete slab outline, thickenings, pad footings, setout dimensions.
+  Also: Slab Layout, Structural Plan, Footing Plan, Framing Plan.
 
-IMPORTANT RULES:
-A sheet titled "Internal Elevations" is NEVER a floor plan even if it shows room names.
-A sheet titled "Elevations" is NEVER a floor plan even if it shows room shapes.
-A sheet titled "Section" is NEVER a floor plan.
-A detail sheet with a small reference floor plan in a corner is NOT a floor plan — reject it.
-The PRIMARY purpose of the sheet determines its classification, not incidental reference drawings.
-A building footprint on a Site Plan is NOT a floor plan.
-A slab outline on a Slab Plan is NOT a floor plan.
-A reflected ceiling plan is NOT a floor plan.
-Only select pages where room layouts are visible from above and rooms can be analysed for MVHR.
+section
+  Vertical cut through the building showing floor-to-ceiling heights, stair sections.
+  Title: "Section AA", "Building Section", "Cross Section".
 
-OUTPUT FORMAT — STRICT:
-You MUST return ONLY a single valid JSON object.
-NO markdown code fences. NO code blocks. NO backticks.
-NO prose before or after the JSON.
-NO commentary. NO explanations outside the JSON fields.
-The FIRST character of your response MUST be { and the LAST character MUST be }.
+elevation
+  External or internal wall face views. NOT a top-down plan.
+  Title: "North Elevation", "East Elevation", "Internal Elevation", "Elevations".
+
+schedule
+  Tabular data. Door schedule, window schedule, finish schedule, fixture schedule.
+
+detail
+  Construction details, joinery details, wet area details, stair details.
+  Small-scale drawings showing how specific junctions are built.
+
+site_plan
+  Shows the property boundary, building footprint, site contours, setbacks.
+  The building appears as a simple outline, NOT a detailed floor plan.
+
+specification
+  Text specifications, notes sheets, energy reports, NatHERS.
+
+other
+  Anything not covered above (cover pages, indices, legends, photos).
+
+DISTINGUISHING PRIMARY FROM DETAIL FLOOR PLANS
+===============================================
+Ask: Does this drawing cover the ENTIRE floor plate or only PART of it?
+  ENTIRE floor plate → floor_plan_primary
+  PART of the floor (wing, zone, enlarged area) → floor_plan_detail
+
+North Wing Floor Plan → floor_plan_detail (covers only the north section)
+South Wing Floor Plan → floor_plan_detail (covers only the south section)
+Ground Floor Plan     → floor_plan_primary (covers the whole ground level)
+
+DISTINGUISHING PRIMARY FROM CEILING PLANS
+==========================================
+Look at the TITLE BLOCK first.
+If the title contains "Ceiling", "RCP", "Reflected" → ceiling_plan regardless of content.
+If the page shows dotted lines, height annotations (2700, 3000mm), downlights → ceiling_plan.
+
+OUTPUT FORMAT — STRICT
+======================
+Return ONLY a single valid JSON object.
+NO markdown code fences. NO backticks. NO prose before or after.
+First character MUST be { and last character MUST be }.
 
 Required format:
-{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.95,"reason":"brief reason"},...],"selectedPages":[1],"rejectedPages":[2],"summary":"brief"}
+{"pages":[{"pageNumber":1,"planType":"floor_plan_primary","sheetTitle":"A105 - Floor Plan","detectedFloor":"Ground Floor","confidence":0.95,"reason":"complete floor plan for ground level"}],"summary":"brief"}
 
-Each page object MUST have exactly these four fields: pageNumber, isFloorPlan, confidence, reason.
+Each page object MUST have: pageNumber, planType, sheetTitle, detectedFloor, confidence, reason.
+planType MUST be one of: floor_plan_primary | floor_plan_detail | ceiling_plan | roof_plan |
+  electrical_plan | lighting_plan | plumbing_plan | slab_plan | section | elevation |
+  schedule | detail | site_plan | specification | other
+sheetTitle: the drawing title from the title block (e.g. "A105 - Floor Plan"), or null if not visible.
+detectedFloor: the building level this page represents if applicable (e.g. "Ground Floor", "First Floor"), or null.
 Keep reason under 80 characters.`;
 
-// Map isFloorPlan result to internal pageType vocabulary.
-// The classifier now returns a binary decision; we preserve the full
-// taxonomy for non-floor-plan pages as 'unknown' (sufficient for MVHR).
-function isFloorPlanToPageType(isFloorPlan) {
-  return isFloorPlan === true ? 'floor_plan' : 'unknown';
+// Map a classifier result to a validated page_type string.
+// Supports both the new planType field and the legacy isFloorPlan boolean.
+function planTypeFromResult(r) {
+  // Prefer the new granular planType field.
+  if (typeof r?.planType === 'string') return validatePageType(r.planType);
+  // Backward-compat: legacy isFloorPlan boolean from old prompt.
+  if (r?.isFloorPlan === true)  return 'floor_plan';
+  if (r?.isFloorPlan === false) return 'unknown';
+  return 'unknown';
 }
 
 // ── JSON extraction helpers ───────────────────────────────────────────────
@@ -197,29 +200,34 @@ function extractJson(text) {
 // ── Text-based fallback classifier ───────────────────────────────────────
 // Used when JSON parsing fails entirely. Checks the raw model response text
 // for keyword signals so the page is never left unclassified.
-// Also used when the AI returns pure prose instead of JSON.
-const ELEVATION_WORDS = /\b(elevation|elevations|facade|façade|front\s+elevation|rear\s+elevation|side\s+elevation|external\s+elevation|internal\s+elevation|section|sections)\b/i;
-const FLOOR_PLAN_WORDS = /\b(floor\s*plan|ground\s*floor|first\s*floor|upper\s*floor|basement|bedroom|kitchen|bathroom|laundry|living|dining|ensuite|wc|toilet|rumpus|media\s*room)\b/i;
+function textFallbackPlanType(rawText) {
+  const t = (rawText ?? '').toLowerCase();
+
+  // Order matters: most specific checks first.
+  if (/ceiling\s*height|reflected\s*ceiling|\brcp\b|ceiling\s*plan|bulkhead\s*plan/.test(t)) return 'ceiling_plan';
+  if (/roof\s*plan/.test(t)) return 'roof_plan';
+  if (/electrical\s*plan|power\s*plan/.test(t)) return 'electrical_plan';
+  if (/lighting\s*plan/.test(t)) return 'lighting_plan';
+  if (/hydraulic|plumbing|services\s*plan/.test(t)) return 'plumbing_plan';
+  if (/slab\s*(plan|layout)|structural|framing\s*plan|footing\s*plan/.test(t)) return 'slab_plan';
+  if (/\bsection\b/.test(t) && !/floor\s*plan/.test(t)) return 'section';
+  if (/\belevation/.test(t) && !/floor\s*plan/.test(t)) return 'elevation';
+  if (/\bschedule\b/.test(t) && !/floor\s*plan/.test(t)) return 'schedule';
+  if (/site\s*plan/.test(t)) return 'site_plan';
+  // Wing/enlarged = detail, not primary
+  if (/north\s*wing|south\s*wing|east\s*wing|west\s*wing|enlarged\s*plan|partial\s*plan|detail\s*plan/.test(t)) return 'floor_plan_detail';
+  if (/floor\s*plan|ground\s*floor|first\s*floor|upper\s*floor|basement|mezzanine/.test(t)) return 'floor_plan_primary';
+  if (/\b(bedroom|kitchen|bathroom|laundry|living|dining|ensuite)\b/.test(t)) return 'floor_plan_primary';
+
+  return 'unknown';
+}
 
 function textFallbackClassification(rawText) {
-  const t = rawText ?? '';
-  const hasElevation = ELEVATION_WORDS.test(t);
-  const hasFloorPlan = FLOOR_PLAN_WORDS.test(t);
-
-  let isFloorPlan;
-  if (hasFloorPlan && !hasElevation) {
-    isFloorPlan = true;
-  } else if (hasElevation && !hasFloorPlan) {
-    isFloorPlan = false;
-  } else {
-    // Ambiguous or empty — default to true (include in analysis; analyse-plan handles it)
-    isFloorPlan = true;
-  }
-
+  const planType = textFallbackPlanType(rawText);
   return {
-    isFloorPlan,
-    confidence:  0.6,
-    reason:      'Fallback classification due to malformed AI JSON',
+    planType,
+    confidence: 0.55,
+    reason:     'Fallback classification due to malformed AI JSON',
   };
 }
 
@@ -239,15 +247,27 @@ function deriveBooleans(pageType) {
 // `page` must be the full fetched row (id, page_number, pdf_upload_id) so
 // the upsert never hits NOT NULL constraints on those columns.
 function buildUpdate(page, r, fallbackReason) {
-  // Support both old {pageType} and new {isFloorPlan} response shapes.
-  const rawPageType = r?.pageType
-    ?? isFloorPlanToPageType(r?.isFloorPlan);
-  const pageType = validatePageType(rawPageType);
+  const pageType = planTypeFromResult(r);
+
+  // sheet_title: from new planType response or best-effort from reason text
+  const sheetTitle = typeof r?.sheetTitle === 'string' && r.sheetTitle.length > 0
+    ? r.sheetTitle.slice(0, 255)
+    : null;
+
+  // detectedFloor: only meaningful for floor plan types
+  const detectedFloor = typeof r?.detectedFloor === 'string' && r.detectedFloor.length > 0
+    ? r.detectedFloor.slice(0, 100)
+    : null;
+
   return {
     id:                        page.id,
     pdf_upload_id:             page.pdf_upload_id,
     page_number:               page.page_number,
     page_type:                 pageType,
+    sheet_title:               sheetTitle,
+    // Store detected floor in floor_name so auto-analyse can read it without
+    // needing a separate column (floor_name is already fetched and can be null).
+    ...(detectedFloor ? { floor_name: detectedFloor } : {}),
     classification_confidence: typeof r?.confidence === 'number' ? r.confidence : null,
     classification_reason:     (typeof r?.reason === 'string' ? r.reason : fallbackReason ?? 'classified').slice(0, 500),
     ...deriveBooleans(pageType),
@@ -279,7 +299,7 @@ async function classifyOnePage(page, signedUrl) {
         { type: 'image', source: { type: 'url', url: signedUrl } },
         {
           type: 'text',
-          text: 'Evaluate this single image. Return JSON ONLY — first char must be { last char must be }.\n{"pages":[{"pageNumber":1,"isFloorPlan":true,"confidence":0.0,"reason":"brief"}],"selectedPages":[1],"rejectedPages":[],"summary":"brief"}',
+          text: 'Classify this single drawing page. Return JSON ONLY — first char { last char }.\n{"pages":[{"pageNumber":1,"planType":"floor_plan_primary","sheetTitle":"A105 - Floor Plan","detectedFloor":"Ground Floor","confidence":0.95,"reason":"complete floor plan"}],"summary":"brief"}',
         },
       ],
     }],
@@ -320,7 +340,7 @@ async function classifyBatch(batchPages, urlMap) {
             pageListText,
             '',
             'Return ONLY JSON — first char { last char }. No markdown. No prose.',
-            '{"pages":[{"pageNumber":N,"isFloorPlan":true,"confidence":0.0,"reason":"brief"}],"selectedPages":[...],"rejectedPages":[...],"summary":"brief"}',
+            '{"pages":[{"pageNumber":N,"planType":"floor_plan_primary","sheetTitle":"A105 - Floor Plan","detectedFloor":"Ground Floor","confidence":0.95,"reason":"brief"}],"summary":"brief"}',
           ].join('\n'),
         },
       ],
@@ -717,11 +737,40 @@ export default async function handler(req, res) {
 
 // ── Validation ─────────────────────────────────────────────────────────────
 const VALID_PAGE_TYPES = new Set([
-  'floor_plan', 'site_plan', 'elevation', 'section',
-  'roof_plan', 'detail', 'schedule', 'specification', 'unknown', 'unclassified',
+  // New granular taxonomy (June 2026+)
+  'floor_plan_primary',   // complete floor plan for one building level — room extraction eligible
+  'floor_plan_detail',    // enlarged/partial view — NOT a separate floor, excluded from extraction
+  'ceiling_plan',         // ceiling heights, RCP, bulkheads — excluded from extraction
+  'roof_plan',
+  'electrical_plan',
+  'lighting_plan',
+  'plumbing_plan',
+  'slab_plan',
+  'section',
+  'elevation',
+  'schedule',
+  'detail',
+  'site_plan',
+  'specification',
+  'other',
+  // Legacy taxonomy (pre-June 2026) — kept for backward compat
+  'floor_plan',           // legacy: treated as floor_plan_primary in isHabitableAnalysisPage
+  'unknown',
+  'unclassified',
 ]);
 
 function validatePageType(raw) {
   if (typeof raw === 'string' && VALID_PAGE_TYPES.has(raw)) return raw;
+  // Attempt to normalise common AI hallucinations
+  if (typeof raw === 'string') {
+    const lower = raw.toLowerCase().replace(/[\s-]+/g, '_');
+    if (VALID_PAGE_TYPES.has(lower)) return lower;
+    if (lower.includes('floor_plan') || lower.includes('floor plan')) return 'floor_plan_primary';
+    if (lower.includes('ceiling'))   return 'ceiling_plan';
+    if (lower.includes('elevation')) return 'elevation';
+    if (lower.includes('section'))   return 'section';
+    if (lower.includes('roof'))      return 'roof_plan';
+    if (lower.includes('site'))      return 'site_plan';
+  }
   return 'unknown';
 }

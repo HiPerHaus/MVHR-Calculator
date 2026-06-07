@@ -288,60 +288,72 @@ function escapeHtml(str) {
 
 // ── Handler ────────────────────────────────────────────────────────────────
 
+// ── Page types that are eligible for room extraction ─────────────────────
+// floor_plan_primary: new granular classifier (June 2026+)
+// floor_plan:         legacy type — passes secondary text filter below
+// All others (floor_plan_detail, ceiling_plan, roof_plan, etc.) are excluded.
+const ROOM_EXTRACTION_ELIGIBLE = new Set(['floor_plan_primary', 'floor_plan']);
+
+// Page types that are explicitly non-room-extraction types (logged differently)
+const EXPLICITLY_EXCLUDED = new Set([
+  'floor_plan_detail', 'ceiling_plan', 'roof_plan',
+  'electrical_plan', 'lighting_plan', 'plumbing_plan', 'slab_plan',
+  'section', 'elevation', 'schedule', 'detail', 'site_plan', 'specification', 'other',
+]);
+
 function isHabitableAnalysisPage(page) {
-  // The classifier has already made the binary floor_plan decision.
-  // Trust it, but apply a secondary rejection pass as a safety net for
-  // classifier false positives (e.g. Internal Elevations tagged as floor_plan).
-  if (page.page_type !== 'floor_plan') return false;
+  const pageType = page.page_type ?? 'unknown';
 
-  const reason = [
-    page.classification_reason,
-    page.sheet_title,
-    page.floor_name,
-    page.floor_plan_type,
-    page.detected_floor,
-  ].filter(Boolean).join(' ').toLowerCase();
-
-  // ── Hard reject: elevation / section / detail sheets ─────────────────────
-  // These draw vertical wall views or cut-through sections, not horizontal room layouts.
-  // Internal Elevations sheets often contain room names as headings (Ensuite, WC, Laundry)
-  // which confuse the binary classifier into marking them as floor_plan. Reject here.
-  const ELEVATION_SECTION_TERMS = [
-    'internal elevation',
-    'internal elevations',
-    'elevation',      // "south elevation", "kitchen elevation"
-    'elevations',
-    'section',        // "section aa", "building section"
-    'detail',         // "detail sheet", "construction detail"
-    'construction detail',
-    'roof plan',
-    'reflected ceiling',
-    'ceiling plan',
-    'services plan',
-    'electrical plan',
-    'hydraulic plan',
-    'structural plan',
-    'framing plan',
-    'bracing plan',
-  ];
-
-  if (ELEVATION_SECTION_TERMS.some(term => reason.includes(term))) {
+  // ── Explicit exclusion: new granular types ────────────────────────────────
+  // These are set by the updated classify-pages (June 2026+) and are definitive.
+  if (pageType === 'floor_plan_primary') return true;   // always eligible
+  if (EXPLICITLY_EXCLUDED.has(pageType)) {
     console.log(JSON.stringify({
-      event:      'auto-analyse:page-rejected-secondary-filter',
-      pageNumber: page.page_number,
-      reason:     reason.slice(0, 200),
+      event:       'auto-analyse:page-excluded-by-type',
+      pageNumber:  page.page_number,
+      pageType,
+      sheetTitle:  page.sheet_title ?? null,
     }));
     return false;
   }
 
-  // ── Hard reject: structural / construction sheets ─────────────────────────
-  const STRUCTURAL_TERMS = [
-    'slab plan', 'slab layout', 'suspended slab', 'ramp slab',
-    'wall framing', 'floor joist', 'deck joist', 'footing',
-    'bracing', 'tiedown', 'tie-down', 'setout plan',
+  // ── Legacy floor_plan type: apply secondary text filter ──────────────────
+  // Pages classified with the old binary classifier may be floor_plan but still
+  // represent ceiling plans, enlarged details, or other non-eligible types.
+  // Cross-check the sheet title and classification reason.
+  if (pageType !== 'floor_plan') return false;
+
+  const textToCheck = [
+    page.sheet_title,
+    page.classification_reason,
+    page.floor_name,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const EXCLUDE_TERMS = [
+    // Detail / enlarged plans (not separate floors)
+    'north wing', 'south wing', 'east wing', 'west wing',
+    'enlarged plan', 'enlarged floor', 'partial plan',
+    // Non-floor plan types
+    'ceiling height', 'reflected ceiling', 'ceiling plan', ' rcp',
+    'roof plan',
+    'internal elevation', 'elevation', 'elevations',
+    'section', 'construction detail', 'detail sheet',
+    'electrical plan', 'hydraulic plan', 'plumbing', 'services plan',
+    'structural plan', 'slab plan', 'framing plan', 'bracing',
+    'site plan', 'location plan', 'survey plan',
   ];
 
-  if (STRUCTURAL_TERMS.some(term => reason.includes(term))) return false;
+  for (const term of EXCLUDE_TERMS) {
+    if (textToCheck.includes(term)) {
+      console.log(JSON.stringify({
+        event:       'auto-analyse:page-rejected-secondary-filter',
+        pageNumber:  page.page_number,
+        matchedTerm: term,
+        textChecked: textToCheck.slice(0, 200),
+      }));
+      return false;
+    }
+  }
 
   return true;
 }
@@ -425,7 +437,7 @@ export default async function handler(req, res) {
     // ── Fetch all classified pages ─────────────────────────────────────────
     const { data: pages, error: pagesErr } = await supabase
       .from('pdf_pages')
-      .select('id, page_number, page_type, classification_confidence, floor_level, floor_name, image_path')
+      .select('id, page_number, page_type, classification_confidence, classification_reason, sheet_title, floor_level, floor_name, image_path')
       .eq('pdf_upload_id', uploadId)
       .order('page_number', { ascending: true });
 
@@ -458,7 +470,7 @@ export default async function handler(req, res) {
       console.warn(`[auto-analyse] pages select returned empty but count=${directCount} — retrying fetch`);
       const { data: retryPages, error: retryErr } = await supabase
         .from('pdf_pages')
-        .select('id, page_number, page_type, classification_confidence, floor_level, floor_name, image_path')
+        .select('id, page_number, page_type, classification_confidence, classification_reason, sheet_title, floor_level, floor_name, image_path')
         .eq('pdf_upload_id', uploadId)
         .order('page_number', { ascending: true });
 
@@ -469,12 +481,57 @@ export default async function handler(req, res) {
         return res.status(200).json({ jobId, uploadId, status: 'skipped', reason: 'no_pages_found' });
       }
 
-      // Use the retry result.
+      // Use the retry result (also add sheet_title / classification_reason to retry select).
       pages.push(...retryPages);
     }
 
     // ── Auto-select floor plan pages ───────────────────────────────────────
     const selectedPages = selectFloorPlanPages(pages);
+
+    // ── Diagnostic: room-extraction-summary ───────────────────────────────
+    // Every page: what type it is, whether it will be extracted, and why not.
+    console.log(JSON.stringify({
+      event:      'room-extraction-summary',
+      jobId,
+      uploadId,
+      totalPages: pages.length,
+      pages: pages.map(p => {
+        const isSelected = selectedPages.some(s => s.id === p.id);
+        let skippedReason = null;
+        if (!isSelected) {
+          if (p.page_type === 'floor_plan_detail') skippedReason = 'enlarged/partial plan — not a separate floor';
+          else if (p.page_type === 'ceiling_plan')  skippedReason = 'ceiling height / RCP plan — not a floor plan';
+          else if (p.page_type === 'roof_plan')     skippedReason = 'roof plan';
+          else if (EXPLICITLY_EXCLUDED.has(p.page_type ?? '')) skippedReason = `excluded page type: ${p.page_type}`;
+          else skippedReason = `not selected (type: ${p.page_type ?? 'unknown'})`;
+        }
+        return {
+          pageNumber:      p.page_number,
+          pageTitle:       p.sheet_title ?? p.floor_name ?? null,
+          pageType:        p.page_type ?? 'unknown',
+          willExtract:     isSelected,
+          skippedReason,
+        };
+      }),
+    }));
+
+    // ── Diagnostic: floor-detection-summary ──────────────────────────────
+    console.log(JSON.stringify({
+      event:      'floor-detection-summary',
+      jobId,
+      uploadId,
+      selectedCount: selectedPages.length,
+      floors: selectedPages.map((p, idx) => ({
+        pageNumber:    p.page_number,
+        pageTitle:     p.sheet_title ?? p.floor_name ?? null,
+        pageType:      p.page_type,
+        detectedFloor: p.floor_name ?? null,
+        floorIndex:    idx,
+        canonicalName: idx === 0 ? 'Ground Floor' : idx === 1 ? 'First Floor' : idx === 2 ? 'Second Floor' : `Floor ${idx + 1}`,
+        confidence:    p.classification_confidence,
+        source:        p.page_type === 'floor_plan_primary' ? 'new-classifier' : 'legacy-classifier',
+      })),
+    }));
 
     console.log(JSON.stringify({
       event:         'auto-analyse:pages-selected',
@@ -640,9 +697,29 @@ export default async function handler(req, res) {
           const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
           let totalBedSpaces = 0, totalPotential = 0;
 
+          // ── Duplicate room detection ──────────────────────────────────────
+          // Track rooms seen across all pages: key = normalised "name::floor::category"
+          // When a duplicate is detected we log it and skip, not add it twice.
+          const seenRooms = new Map(); // key → { name, floor, category, pageNumber }
+          const dupLog = [];
+
+          const normalise = s => (s ?? '').toLowerCase().trim().replace(/\s+/g, ' ');
+          const roomKey   = (name, cat) => `${normalise(name)}::${cat}`;
+
           for (const ar of successPages) {
             for (const cat of ['supply','extract','transfer','ignore']) {
-              mergedRooms[cat].push(...(ar.result.rooms?.[cat] ?? []));
+              const rooms = ar.result.rooms?.[cat] ?? [];
+              for (const room of rooms) {
+                const key = roomKey(room.name, cat);
+                if (seenRooms.has(key)) {
+                  dupLog.push({ roomName: room.name, category: cat, action: 'ignored',
+                    sourcePageNumber: ar.pageNumber, firstPageNumber: seenRooms.get(key).pageNumber });
+                } else {
+                  seenRooms.set(key, { name: room.name, category: cat, pageNumber: ar.pageNumber });
+                  mergedRooms[cat].push(room);
+                  dupLog.push({ roomName: room.name, category: cat, action: 'created', pageNumber: ar.pageNumber });
+                }
+              }
             }
             allWarnings.push(...(ar.result.warnings ?? []));
             allAssumptions.push(...(ar.result.assumptions ?? []));
@@ -652,6 +729,41 @@ export default async function handler(req, res) {
               totalPotential += ar.result.occupancySummary.potentialAdditionalBedSpaces ?? 0;
             }
           }
+
+          // ── Diagnostic: duplicate-room-check ─────────────────────────────
+          const ignoredCount = dupLog.filter(d => d.action === 'ignored').length;
+          console.log(JSON.stringify({
+            event:       'duplicate-room-check',
+            jobId,
+            projectId,
+            totalExtracted: dupLog.length,
+            created:      dupLog.filter(d => d.action === 'created').length,
+            ignored:      ignoredCount,
+            duplicates:   dupLog.filter(d => d.action === 'ignored'),
+          }));
+          if (ignoredCount > 0) {
+            console.warn(`[auto-analyse] ${ignoredCount} duplicate room(s) removed during merge`);
+          }
+
+          // ── Validation: floor count must not exceed selected primary plans ──
+          const floorCount = successPages.length;
+          const totalRooms = mergedRooms.supply.length + mergedRooms.extract.length
+                           + mergedRooms.transfer.length + mergedRooms.ignore.length;
+          console.log(JSON.stringify({
+            event:      'auto-analyse:pre-save-validation',
+            jobId,
+            projectId,
+            floorCount,
+            selectedPrimaryPages: successPages.length,
+            roomCounts: {
+              supply:   mergedRooms.supply.length,
+              extract:  mergedRooms.extract.length,
+              transfer: mergedRooms.transfer.length,
+              ignore:   mergedRooms.ignore.length,
+              total:    totalRooms,
+            },
+            floorNames: successPages.map(ar => ar.floorName),
+          }));
 
           const mergedJson = {
             rooms:            mergedRooms,
