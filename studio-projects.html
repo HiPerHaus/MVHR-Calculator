@@ -419,7 +419,7 @@ el('renameSaveBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'PATCH',
     headers,
-    body: JSON.stringify({ action: 'create', projectId: p.id, name: newName }),
+    body: JSON.stringify({ projectId: p.id, name: newName }),
   });
 
   el('renameSaveBtn').disabled = false;
@@ -459,7 +459,7 @@ el('copyModalConfirmBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'POST',
     headers,
-    body: JSON.stringify({ action: 'create',  action: 'copy', sourceProjectId: p.id, name }),
+    body: JSON.stringify({ action: 'copy', sourceProjectId: p.id, name }),
   });
 
   const data = await r.json();
