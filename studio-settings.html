@@ -558,11 +558,15 @@ function parsePhppXlsx(rows) {
   return rows
     .filter(r => isPhppDataRow(r))
     .map(r => {
-      // Col 1: "Manufacturer - Model name, Alt name" — split on first " - "
-      const desc = r[1] != null ? String(r[1]).trim() : '';
+      // Col 1: HYPERLINK formula or plain text — "Manufacturer - Model name"
+      // SheetJS may return the display text directly, or the raw formula string
+      let desc = r[1] != null ? String(r[1]).trim() : '';
+      // Extract display text from =HYPERLINK("url", "Display Name") if present
+      const hlMatch = desc.match(/=HYPERLINK\s*\([^,]+,\s*"([^"]*)"\s*\)/i);
+      if (hlMatch) desc = hlMatch[1].trim();
       const dashIdx = desc.indexOf(' - ');
       const manufacturer = dashIdx > -1 ? desc.slice(0, dashIdx).trim() || null : null;
-      // Model: everything after the " - ", strip any comma-separated alternates
+      // Model: everything after " - ", drop any comma-separated alternates
       const modelRaw = dashIdx > -1 ? desc.slice(dashIdx + 3).trim() : desc || null;
       const model = modelRaw ? modelRaw.split(',')[0].trim() || null : null;
       return {

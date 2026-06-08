@@ -277,10 +277,7 @@ export default async function handler(req, res) {
             continue;
           }
           unitId = insertedUnit.id;
-          // Auto-add newly created custom units to library
-          await supabase
-            .from('user_unit_library')
-            .upsert({ user_id: user.id, unit_id: unitId }, { onConflict: 'user_id,unit_id' });
+          // Do NOT auto-add to library — user controls their own library
           insertedCount += 1;
         }
       }
