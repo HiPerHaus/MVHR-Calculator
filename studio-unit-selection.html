@@ -202,6 +202,7 @@ main { max-width:980px; margin:0 auto; padding:28px 28px 80px; }
     </div>
     <div class="page-actions">
       <a class="btn btn-secondary" id="backToAirflowBtn" href="#">← Airflow Design</a>
+      <a class="btn btn-primary" id="continueBtn" href="#">Duct Design →</a>
     </div>
   </div>
 
@@ -353,7 +354,10 @@ async function init() {
     el('stageBtn2').href        = `/studio/projects/${_projectId}/rooms`;
     el('stageBtn3').href        = `/studio/projects/${_projectId}/airflow`;
     el('stageBtn4').href        = `/studio/projects/${_projectId}/unit-selection`;
+    el('stageBtn5').href        = `/studio/projects/${_projectId}/duct-design`;
+    el('stageBtn5').classList.remove('locked');
     el('backToAirflowBtn').href = `/studio/projects/${_projectId}/airflow`;
+    el('continueBtn').href      = `/studio/projects/${_projectId}/duct-design`;
     el('goToAirflowBtn').href   = `/studio/projects/${_projectId}/airflow`;
     const _sl = document.querySelector('.settings-link');
     if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
