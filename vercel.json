@@ -15,6 +15,7 @@
     { "source": "/api/studio/unit-library",           "destination": "/api/studio/unit-library" },
     { "source": "/api/studio/phpp-import",            "destination": "/api/studio/phpp-import" },
     { "source": "/api/studio/duct-design",            "destination": "/api/studio/duct-design" },
+    { "source": "/api/studio/bom",                    "destination": "/api/studio/bom" },
     { "source": "/api/(.*)",                          "destination": "/api/$1" },
     { "source": "/admin",                             "destination": "/admin.html" },
     { "source": "/admin-ai-test",                     "destination": "/admin-ai-test.html" },
@@ -26,6 +27,7 @@
     { "source": "/studio/projects/:projectId/airflow",         "destination": "/studio-airflow.html" },
     { "source": "/studio/projects/:projectId/unit-selection", "destination": "/studio-unit-selection.html" },
     { "source": "/studio/projects/:projectId/duct-design",   "destination": "/studio-duct-design.html" },
+    { "source": "/studio/projects/:projectId/bom",           "destination": "/studio-bom.html" },
     { "source": "/studio/settings",                           "destination": "/studio-settings.html" },
     { "source": "/studio/(.*)",                          "destination": "/studio-project.html" },
     { "source": "/(.*)",                              "destination": "/index.html" }
