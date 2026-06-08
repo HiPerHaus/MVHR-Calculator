@@ -106,13 +106,16 @@ main { padding:24px 28px 80px; }
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
 }
 .sidebar-section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
+.panel-section { border-top:1px solid var(--border); padding-top:14px; }
+.panel-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
 
 /* Layer toggles */
-.layer-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; }
-.layer-item input[type=checkbox] { accent-color:var(--primary); width:14px; height:14px; cursor:pointer; }
-.layer-item label { font-size:12px; font-weight:600; color:var(--text); cursor:pointer; }
+.layer-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text); }
+.layer-item input[type=checkbox],
+.layer-item input[type=radio] { accent-color:var(--primary); width:14px; height:14px; cursor:pointer; flex-shrink:0; }
 .layer-swatch { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
 
 /* Legend */
@@ -137,6 +140,7 @@ main { padding:24px 28px 80px; }
   background: #fff;
   font-size: 12px;
   color: var(--muted);
+  flex-wrap: wrap;
 }
 #ductCanvas {
   width: 100%;
@@ -288,34 +292,62 @@ main { padding:24px 28px 80px; }
 
     <div class="editor-layout">
 
-      <!-- Left sidebar: layers + legend -->
+      <!-- Left sidebar: layers + options + legend -->
       <div class="sidebar-left">
         <div>
           <div class="sidebar-section-title">Layers</div>
           <label class="layer-item">
             <input type="checkbox" id="layerSupply"    checked onchange="onLayerChange()">
             <div class="layer-swatch" style="background:var(--supply)"></div>
-            <label for="layerSupply">Supply</label>
+            Supply
           </label>
           <label class="layer-item">
             <input type="checkbox" id="layerExtract"   checked onchange="onLayerChange()">
             <div class="layer-swatch" style="background:var(--extract)"></div>
-            <label for="layerExtract">Extract</label>
+            Extract
           </label>
           <label class="layer-item">
             <input type="checkbox" id="layerIntake"    checked onchange="onLayerChange()">
             <div class="layer-swatch" style="background:var(--intake)"></div>
-            <label for="layerIntake">Intake / Exhaust</label>
+            Intake / Exhaust
           </label>
           <label class="layer-item">
             <input type="checkbox" id="layerTerminals" checked onchange="onLayerChange()">
             <div class="layer-swatch" style="background:#d1d5db"></div>
-            <label for="layerTerminals">Terminals</label>
+            Terminals
           </label>
           <label class="layer-item">
             <input type="checkbox" id="layerManifolds" checked onchange="onLayerChange()">
             <div class="layer-swatch" style="background:var(--manifold)"></div>
-            <label for="layerManifolds">Manifolds</label>
+            Manifolds
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-label">Canvas options</div>
+          <label class="layer-item">
+            <input type="checkbox" id="chkSnap" checked onchange="_snapEnabled = this.checked">
+            Snap to grid (10px)
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" id="chkFloorBands" checked onchange="renderCanvas()">
+            Show floor bands
+          </label>
+          <label class="layer-item">
+            <input type="checkbox" id="chkRunLengths" checked onchange="renderCanvas()">
+            Show run lengths
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-label">Manifold layout</div>
+          <label class="layer-item">
+            <input type="radio" name="manifoldMode" value="single" checked onchange="setManifoldMode('single')">
+            Single manifold
+          </label>
+          <label class="layer-item">
+            <input type="radio" name="manifoldMode" value="per_floor" onchange="setManifoldMode('per_floor')">
+            Per-floor manifolds
           </label>
         </div>
 
@@ -367,6 +399,7 @@ main { padding:24px 28px 80px; }
           <div style="font-size:11px; color:var(--muted); line-height:1.6">
             Drag nodes to reposition.<br>
             Click node or duct run to edit.<br>
+            Run lengths auto-update on drag.<br>
             Save to persist changes.
           </div>
         </div>
@@ -377,6 +410,13 @@ main { padding:24px 28px 80px; }
         <div class="canvas-toolbar">
           <span id="canvasStatus">Schematic view — drag nodes to rearrange</span>
           <span id="dirtyIndicator" style="display:none"><span class="dirty-dot"></span>Unsaved changes</span>
+          <span style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12px; color:var(--muted);">Scale:</span>
+            <input type="number" id="scaleInput" value="12" min="5" max="50" step="1"
+              style="width:50px; padding:3px 6px; border:1px solid var(--border); border-radius:5px; font-size:12px;"
+              oninput="_scaleM = parseFloat(this.value)||12; renderCanvas(); renderSchedule();">
+            <span style="font-size:12px; color:var(--muted);">m / canvas</span>
+          </span>
         </div>
         <svg id="ductCanvas" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg"
              style="border:none; background:#f8fafc;">
@@ -443,19 +483,23 @@ main { padding:24px 28px 80px; }
 const SUPABASE_URL      = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
 const API_BASE          = '/api/studio';
+const CANVAS_W_CONST    = 1200;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── State ─────────────────────────────────────────────────────
-let _projectId = null;
-let _token     = null;
-let _design    = null;
-let _nodes     = [];   // { id, node_type, room_name, x, y, airflow_m3h, duct_diameter_mm, project_room_id, floor_index, metadata }
-let _runs      = [];   // { id, from_node_id, to_node_id, run_type, duct_type, diameter_mm, length_m, pressure_drop_pa }
-let _selected  = null; // { type: 'node'|'run', id }
-let _dirty     = false;
-let _saving    = false;
-let _layers    = { supply: true, extract: true, intake: true, terminals: true, manifolds: true };
+let _projectId    = null;
+let _token        = null;
+let _design       = null;
+let _nodes        = [];   // { id, node_type, room_name, x, y, airflow_m3h, duct_diameter_mm, project_room_id, floor_index, metadata }
+let _runs         = [];   // { id, from_node_id, to_node_id, run_type, duct_type, diameter_mm, length_m, pressure_drop_pa }
+let _selected     = null; // { type: 'node'|'run', id }
+let _dirty        = false;
+let _saving       = false;
+let _manifoldMode = 'single';
+let _snapEnabled  = true;
+let _scaleM       = 12;   // total canvas width in metres
+let _layers       = { supply: true, extract: true, intake: true, terminals: true, manifolds: true };
 
 // Drag state
 let _dragging     = null;
@@ -580,6 +624,17 @@ async function init() {
     _nodes  = data.nodes ?? [];
     _runs   = data.runs  ?? [];
 
+    // Restore saved state from design_json
+    if (_design?.design_json?.manifold_mode) {
+      _manifoldMode = _design.design_json.manifold_mode;
+      const radios = document.querySelectorAll('input[name="manifoldMode"]');
+      radios.forEach(r => { r.checked = r.value === _manifoldMode; });
+    }
+    if (_design?.design_json?.scale_m) {
+      _scaleM = _design.design_json.scale_m;
+      el('scaleInput').value = _scaleM;
+    }
+
     if (data.generated) {
       el('generatedNotice').style.display = 'block';
     }
@@ -606,6 +661,28 @@ function onLayerChange() {
   renderCanvas();
 }
 
+// ── Manifold mode ─────────────────────────────────────────────
+async function setManifoldMode(mode) {
+  if (mode === _manifoldMode) return;
+  _manifoldMode = mode;
+  if (_design) {
+    _design.design_json = { ...(_design.design_json || {}), manifold_mode: mode };
+  }
+  if (confirm('Switch manifold mode? This will regenerate the entire layout.')) {
+    await regenerateLayout(mode);
+  }
+}
+
+// ── Grid snap ────────────────────────────────────────────────
+function snapToGrid(v, gridSize = 10) {
+  return Math.round(v / gridSize) * gridSize;
+}
+
+// ── SVG helper ────────────────────────────────────────────────
+function svgEl(tag) {
+  return document.createElementNS('http://www.w3.org/2000/svg', tag);
+}
+
 // ── SVG coordinate transform ──────────────────────────────────
 function svgPoint(e) {
   const svg = el('ductCanvas');
@@ -615,8 +692,29 @@ function svgPoint(e) {
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
-// ── Node centre helpers ───────────────────────────────────────
-// All nodes store x,y as their visual centre.
+// ── Trunk diameter sizing ─────────────────────────────────────
+function calcTrunkDiameter(totalFlowM3h) {
+  if (totalFlowM3h <= 0)   return 90;
+  if (totalFlowM3h <= 100) return 100;
+  if (totalFlowM3h <= 160) return 125;
+  if (totalFlowM3h <= 250) return 160;
+  if (totalFlowM3h <= 400) return 180;
+  return 200;
+}
+
+// ── Run length calculation ────────────────────────────────────
+function calcRunLength(run) {
+  const fromNode = _nodes.find(n => n.id === run.from_node_id);
+  const toNode   = _nodes.find(n => n.id === run.to_node_id);
+  if (!fromNode || !toNode) return null;
+  const dx = fromNode.x - toNode.x;
+  const dy = fromNode.y - toNode.y;
+  // Convert SVG units to metres: canvas is CANVAS_W_CONST units wide = _scaleM metres
+  const SCALE = _scaleM / CANVAS_W_CONST;
+  return Math.round(Math.sqrt(dx * dx + dy * dy) * SCALE * 10) / 10;
+}
+
+// ── Node label helpers ────────────────────────────────────────
 function nodeLabel(n) {
   switch (n.node_type) {
     case 'mvhr_unit':        return 'MVHR';
@@ -628,6 +726,11 @@ function nodeLabel(n) {
     case 'extract_terminal': return n.room_name ? truncate(n.room_name, 10) : 'Extract';
     default:                 return n.room_name ?? n.node_type;
   }
+}
+
+function nodeLabel2(node) {
+  if (node.airflow_m3h > 0) return `${node.airflow_m3h} m³/h`;
+  return '';
 }
 
 function truncate(s, max) {
@@ -660,9 +763,10 @@ function bezierPath(x1, y1, x2, y2) {
 
 // ── Run stroke style ──────────────────────────────────────────
 function runStroke(run) {
+  const diam = run.diameter_mm ?? 90;
   switch (run.run_type) {
-    case 'supply':  return { color: '#1d4ed8', width: run.diameter_mm >= 160 ? 4 : 2.5, dash: run.diameter_mm >= 160 ? '' : '6,3', marker: 'url(#arrowSupply)' };
-    case 'extract': return { color: '#b91c1c', width: run.diameter_mm >= 160 ? 4 : 2.5, dash: run.diameter_mm >= 160 ? '' : '6,3', marker: 'url(#arrowExtract)' };
+    case 'supply':  return { color: '#1d4ed8', width: diam >= 160 ? 4 : 2.5, dash: diam >= 160 ? '' : '6,3', marker: 'url(#arrowSupply)' };
+    case 'extract': return { color: '#b91c1c', width: diam >= 160 ? 4 : 2.5, dash: diam >= 160 ? '' : '6,3', marker: 'url(#arrowExtract)' };
     case 'intake':  return { color: '#15803d', width: 3.5, dash: '', marker: 'url(#arrowIntake)' };
     case 'exhaust': return { color: '#6b7280', width: 2.5, dash: '8,4', marker: 'url(#arrowExhaust)' };
     default:        return { color: '#9ca3af', width: 2, dash: '', marker: '' };
@@ -673,25 +777,60 @@ function runStroke(run) {
 function renderCanvas() {
   const svg = el('ductCanvas');
 
+  // Dynamic canvas height based on number of floors
+  const numFloors = Math.max(
+    [...new Set(_nodes.filter(n => n.floor_index != null).map(n => n.floor_index))].length,
+    1
+  );
+  const CANVAS_H = Math.max(800, numFloors * 280 + 100);
+  svg.setAttribute('viewBox', `0 0 ${CANVAS_W_CONST} ${CANVAS_H}`);
+
   // Keep defs — remove everything else
   const defs = svg.querySelector('defs');
   while (svg.lastChild && svg.lastChild !== defs) svg.removeChild(svg.lastChild);
 
-  // Background grid
-  const gridG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  // ── Floor band backgrounds ──────────────────────────────────
+  const showBands = el('chkFloorBands')?.checked !== false;
+  if (showBands && _design?.design_json?.floorBands) {
+    for (const band of _design.design_json.floorBands) {
+      const rect = svgEl('rect');
+      rect.setAttribute('x', 0);
+      rect.setAttribute('y', band.y_start);
+      rect.setAttribute('width', CANVAS_W_CONST);
+      rect.setAttribute('height', band.y_end - band.y_start);
+      rect.setAttribute('fill', band.color);
+      rect.setAttribute('opacity', '0.4');
+      rect.setAttribute('pointer-events', 'none');
+      svg.insertBefore(rect, svg.firstChild);
+
+      const text = svgEl('text');
+      text.setAttribute('x', 20);
+      text.setAttribute('y', band.y_start + 22);
+      text.setAttribute('font-size', '11');
+      text.setAttribute('font-weight', '800');
+      text.setAttribute('fill', '#94a3b8');
+      text.setAttribute('pointer-events', 'none');
+      text.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+      text.textContent = band.label.toUpperCase();
+      svg.insertBefore(text, svg.firstChild);
+    }
+  }
+
+  // ── Background grid ─────────────────────────────────────────
+  const gridG = svgEl('g');
   gridG.setAttribute('class', 'grid');
   const GRID = 50;
-  for (let x = 0; x <= 1200; x += GRID) {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  for (let x = 0; x <= CANVAS_W_CONST; x += GRID) {
+    const line = svgEl('line');
     line.setAttribute('x1', x); line.setAttribute('y1', 0);
-    line.setAttribute('x2', x); line.setAttribute('y2', 800);
+    line.setAttribute('x2', x); line.setAttribute('y2', CANVAS_H);
     line.setAttribute('stroke', '#e2e8f0'); line.setAttribute('stroke-width', '0.5');
     gridG.appendChild(line);
   }
-  for (let y = 0; y <= 800; y += GRID) {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', 0);    line.setAttribute('y1', y);
-    line.setAttribute('x2', 1200); line.setAttribute('y2', y);
+  for (let y = 0; y <= CANVAS_H; y += GRID) {
+    const line = svgEl('line');
+    line.setAttribute('x1', 0);              line.setAttribute('y1', y);
+    line.setAttribute('x2', CANVAS_W_CONST); line.setAttribute('y2', y);
     line.setAttribute('stroke', '#e2e8f0'); line.setAttribute('stroke-width', '0.5');
     gridG.appendChild(line);
   }
@@ -700,8 +839,10 @@ function renderCanvas() {
   const nodeMap = {};
   for (const n of _nodes) nodeMap[n.id] = n;
 
-  // Runs layer (drawn under nodes)
-  const runsG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const showLengths = el('chkRunLengths')?.checked !== false;
+
+  // ── Runs layer (drawn under nodes) ─────────────────────────
+  const runsG = svgEl('g');
   runsG.setAttribute('class', 'runs-layer');
   for (const run of _runs) {
     if (!isRunVisible(run)) continue;
@@ -711,7 +852,7 @@ function renderCanvas() {
 
     const { color, width, dash, marker } = runStroke(run);
     const isSelected = _selected?.type === 'run' && _selected.id === run.id;
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const path = svgEl('path');
     path.setAttribute('d', bezierPath(from.x, from.y, to.x, to.y));
     path.setAttribute('stroke', isSelected ? '#f59e0b' : color);
     path.setAttribute('stroke-width', isSelected ? width + 2 : width);
@@ -723,7 +864,7 @@ function renderCanvas() {
     path.style.cursor = 'pointer';
 
     // Hit area (wider invisible path for easier clicking)
-    const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const hitPath = svgEl('path');
     hitPath.setAttribute('d', bezierPath(from.x, from.y, to.x, to.y));
     hitPath.setAttribute('stroke', 'transparent');
     hitPath.setAttribute('stroke-width', '16');
@@ -731,17 +872,31 @@ function renderCanvas() {
     hitPath.setAttribute('data-run-id', run.id);
     hitPath.style.cursor = 'pointer';
 
-    // Label (diameter)
+    // Label: diameter + length on run midpoint
     const mx = (from.x + to.x) / 2;
     const my = (from.y + to.y) / 2;
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    const diam = run.diameter_mm ?? calcTrunkDiameter(
+      (from.node_type === 'supply_terminal' || from.node_type === 'extract_terminal')
+        ? (from.airflow_m3h || 0)
+        : (to.node_type === 'supply_terminal' || to.node_type === 'extract_terminal')
+          ? (to.airflow_m3h || 0)
+          : 0
+    );
+    const len = run.length_m ?? calcRunLength(run);
+    let labelText = `Ø${diam}`;
+    if (showLengths && len !== null) {
+      labelText += ` — ${len} m`;
+    }
+
+    const label = svgEl('text');
     label.setAttribute('x', mx); label.setAttribute('y', my - 6);
     label.setAttribute('text-anchor', 'middle');
     label.setAttribute('font-size', '10');
     label.setAttribute('fill', color);
     label.setAttribute('font-weight', '700');
     label.setAttribute('pointer-events', 'none');
-    label.textContent = `Ø${run.diameter_mm}mm`;
+    label.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+    label.textContent = labelText;
 
     runsG.appendChild(hitPath);
     runsG.appendChild(path);
@@ -749,13 +904,13 @@ function renderCanvas() {
   }
   svg.appendChild(runsG);
 
-  // Nodes layer (drawn over runs)
-  const nodesG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  // ── Nodes layer (drawn over runs) ──────────────────────────
+  const nodesG = svgEl('g');
   nodesG.setAttribute('class', 'nodes-layer');
 
   for (const node of _nodes) {
     if (!isNodeVisible(node)) continue;
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const g = svgEl('g');
     g.setAttribute('data-node-id', node.id);
     g.style.cursor = 'grab';
 
@@ -765,19 +920,19 @@ function renderCanvas() {
       case 'mvhr_unit': {
         const W = 80, H = 50;
         if (isSelected) {
-          const glow = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          const glow = svgEl('rect');
           glow.setAttribute('x', node.x - W/2 - 4); glow.setAttribute('y', node.y - H/2 - 4);
           glow.setAttribute('width', W + 8); glow.setAttribute('height', H + 8);
           glow.setAttribute('rx', '10'); glow.setAttribute('fill', 'none');
           glow.setAttribute('stroke', '#f59e0b'); glow.setAttribute('stroke-width', '3');
           g.appendChild(glow);
         }
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        const rect = svgEl('rect');
         rect.setAttribute('x', node.x - W/2); rect.setAttribute('y', node.y - H/2);
         rect.setAttribute('width', W); rect.setAttribute('height', H);
         rect.setAttribute('rx', '6'); rect.setAttribute('fill', '#1a4731');
         g.appendChild(rect);
-        const txt = svgText(node.x, node.y - 7, 'MVHR Unit', '#fff', 11, '800');
+        const txt  = svgText(node.x, node.y - 7, 'MVHR Unit', '#fff', 11, '800');
         const txt2 = svgText(node.x, node.y + 9, nodeLabel2(node), 'rgba(255,255,255,0.7)', 9, '600');
         g.appendChild(txt); g.appendChild(txt2);
         break;
@@ -803,11 +958,11 @@ function renderCanvas() {
         break;
       }
       case 'supply_terminal': {
-        renderCircleNode(g, node, 18, '#1d4ed8', '#fff', isSelected);
+        renderCircleNode(g, node, 22, '#1d4ed8', '#fff', isSelected);
         break;
       }
       case 'extract_terminal': {
-        renderCircleNode(g, node, 18, '#b91c1c', '#fff', isSelected);
+        renderCircleNode(g, node, 22, '#b91c1c', '#fff', isSelected);
         break;
       }
       default: {
@@ -819,28 +974,23 @@ function renderCanvas() {
   svg.appendChild(nodesG);
 
   // Attach event listeners to the SVG (event delegation)
-  svg.onmousedown = onMouseDown;
-  svg.onmousemove = onMouseMove;
-  svg.onmouseup   = onMouseUp;
-  svg.onclick     = onSvgClick;
+  svg.onmousedown  = onMouseDown;
+  svg.onmousemove  = onMouseMove;
+  svg.onmouseup    = onMouseUp;
+  svg.onclick      = onSvgClick;
   svg.onmouseleave = () => { if (_dragging) { _dragging = null; svg.classList.remove('dragging'); } };
-}
-
-function nodeLabel2(node) {
-  if (node.airflow_m3h > 0) return `${node.airflow_m3h} m³/h`;
-  return '';
 }
 
 function renderRectNode(g, node, W, H, fill, textFill, isSelected) {
   if (isSelected) {
-    const glow = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    const glow = svgEl('rect');
     glow.setAttribute('x', node.x - W/2 - 4); glow.setAttribute('y', node.y - H/2 - 4);
     glow.setAttribute('width', W + 8); glow.setAttribute('height', H + 8);
     glow.setAttribute('rx', '7'); glow.setAttribute('fill', 'none');
     glow.setAttribute('stroke', '#f59e0b'); glow.setAttribute('stroke-width', '3');
     g.appendChild(glow);
   }
-  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  const rect = svgEl('rect');
   rect.setAttribute('x', node.x - W/2); rect.setAttribute('y', node.y - H/2);
   rect.setAttribute('width', W); rect.setAttribute('height', H);
   rect.setAttribute('rx', '5'); rect.setAttribute('fill', fill);
@@ -851,25 +1001,33 @@ function renderRectNode(g, node, W, H, fill, textFill, isSelected) {
 
 function renderCircleNode(g, node, r, fill, textFill, isSelected) {
   if (isSelected) {
-    const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    const ring = svgEl('circle');
     ring.setAttribute('cx', node.x); ring.setAttribute('cy', node.y); ring.setAttribute('r', r + 5);
     ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', '#f59e0b'); ring.setAttribute('stroke-width', '3');
     g.appendChild(ring);
   }
-  const circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  const circ = svgEl('circle');
   circ.setAttribute('cx', node.x); circ.setAttribute('cy', node.y); circ.setAttribute('r', r);
   circ.setAttribute('fill', fill);
+  circ.setAttribute('fill-opacity', '0.85');
   g.appendChild(circ);
-  const lbl = nodeLabel(node);
-  const txt = svgText(node.x, node.y + 4, lbl, textFill, 9, '700');
-  g.appendChild(txt);
+
+  // Short label inside circle (first letters or abbreviation)
+  const shortLabel = (node.room_name ? truncate(node.room_name, 4) : nodeLabel(node));
+  const inner = svgText(node.x, node.y + 4, shortLabel, textFill, 9, '700');
+  g.appendChild(inner);
+
   // Room name below circle
-  if (node.room_name && (node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal')) {
-    const sub = svgText(node.x, node.y + r + 13, truncate(node.room_name, 12), '#374151', 9, '600');
-    sub.setAttribute('pointer-events', 'none');
-    g.appendChild(sub);
+  if (node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal') {
+    const fullName = node.room_name ? truncate(node.room_name, 12) : '';
+    if (fullName) {
+      const sub = svgText(node.x, node.y + r + 13, fullName, '#374151', 9, '600');
+      sub.setAttribute('pointer-events', 'none');
+      g.appendChild(sub);
+    }
+    // Airflow label below name
     if (node.airflow_m3h > 0) {
-      const af = svgText(node.x, node.y + r + 24, `${node.airflow_m3h}m³/h`, '#6b7280', 8, '500');
+      const af = svgText(node.x, node.y + r + 25, `${node.airflow_m3h} m³/h`, '#6b7280', 9, '500');
       af.setAttribute('pointer-events', 'none');
       g.appendChild(af);
     }
@@ -877,7 +1035,7 @@ function renderCircleNode(g, node, r, fill, textFill, isSelected) {
 }
 
 function svgText(x, y, text, fill, fontSize, fontWeight) {
-  const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  const t = svgEl('text');
   t.setAttribute('x', x); t.setAttribute('y', y);
   t.setAttribute('text-anchor', 'middle');
   t.setAttribute('font-size', fontSize ?? 11);
@@ -910,23 +1068,23 @@ function onMouseMove(e) {
   const pt   = svgPoint(e);
   const node = _nodes.find(n => n.id === _dragging);
   if (!node) return;
-  node.x = Math.round(pt.x - _dragOffsetX);
-  node.y = Math.round(pt.y - _dragOffsetY);
+  const rawX = pt.x - _dragOffsetX;
+  const rawY = pt.y - _dragOffsetY;
+  node.x = _snapEnabled ? snapToGrid(rawX) : Math.round(rawX);
+  node.y = _snapEnabled ? snapToGrid(rawY) : Math.round(rawY);
   renderCanvas();
   setDirty(true);
 }
 
 function onMouseUp(e) {
   if (_dragging) {
-    // If mouse didn't move much, treat as click — don't select (handled in onclick)
+    // If mouse didn't move much, treat as click — handled in onclick
   }
   _dragging = null;
   el('ductCanvas').classList.remove('dragging');
 }
 
 // ── Click selection ───────────────────────────────────────────
-let _mouseDownPos = null;
-
 function onSvgClick(e) {
   // Check for run click (hits the data-run-id elements)
   const runEl = e.target.closest('[data-run-id]');
@@ -1007,6 +1165,7 @@ function renderPropsPanel() {
     if (!run) { emptyEl.style.display = 'block'; contentEl.style.display = 'none'; return; }
     const fromNode = _nodes.find(n => n.id === run.from_node_id);
     const toNode   = _nodes.find(n => n.id === run.to_node_id);
+    const estLen   = calcRunLength(run);
 
     contentEl.innerHTML = `
       <div class="props-title">Run Properties</div>
@@ -1028,6 +1187,7 @@ function renderPropsPanel() {
           <option value="semi_rigid_90"  ${run.duct_type === 'semi_rigid_90'  ? 'selected' : ''}>Semi-rigid 90mm</option>
           <option value="epp_160"        ${run.duct_type === 'epp_160'        ? 'selected' : ''}>EPP 160mm</option>
           <option value="epp_180"        ${run.duct_type === 'epp_180'        ? 'selected' : ''}>EPP 180mm</option>
+          <option value="epp_200"        ${run.duct_type === 'epp_200'        ? 'selected' : ''}>EPP 200mm</option>
           <option value="custom"         ${run.duct_type === 'custom'         ? 'selected' : ''}>Custom</option>
         </select>
       </div>
@@ -1039,9 +1199,9 @@ function renderPropsPanel() {
       <div class="prop-row">
         <label class="prop-label" for="propLength">Length (m)</label>
         <input class="prop-input" id="propLength" type="number" min="0" step="0.1" value="${run.length_m ?? ''}"
-          placeholder="Enter measured length"
+          placeholder="${estLen != null ? `Est. ${estLen} m` : 'Enter measured length'}"
           oninput="updateRunProp('${run.id}', 'length_m', parseFloat(this.value)||null)">
-        <div class="prop-hint">Measure on plan and enter actual duct run length.</div>
+        <div class="prop-hint">${estLen != null ? `Schematic estimate: ${estLen} m. ` : ''}Measure on plan and enter actual duct run length.</div>
       </div>
       ${run.pressure_drop_pa ? `
       <div class="prop-row">
@@ -1057,7 +1217,6 @@ function updateNodeProp(nodeId, prop, value) {
   if (!node) return;
   node[prop] = value;
   setDirty(true);
-  // Re-render canvas to reflect label changes
   renderCanvas();
   renderSchedule();
 }
@@ -1082,19 +1241,24 @@ async function saveLayout() {
     const res = await apiPatch(`${API_BASE}/duct-design`, {
       projectId: _projectId,
       nodes: _nodes.map(n => ({
-        id:         n.id,
-        x:          n.x,
-        y:          n.y,
-        room_name:  n.room_name,
+        id:          n.id,
+        x:           n.x,
+        y:           n.y,
+        room_name:   n.room_name,
         airflow_m3h: n.airflow_m3h,
       })),
       runs: _runs.map(r => ({
         id:          r.id,
         duct_type:   r.duct_type,
         diameter_mm: r.diameter_mm,
-        length_m:    r.length_m ?? null,
+        length_m:    r.length_m ?? calcRunLength(r),
         route_points: null,
       })),
+      designJson: {
+        ...(_design?.design_json || {}),
+        manifold_mode: _manifoldMode,
+        scale_m:       _scaleM,
+      },
     });
 
     if (!res.ok) {
@@ -1115,16 +1279,18 @@ async function saveLayout() {
 }
 
 // ── Regenerate layout ─────────────────────────────────────────
-async function regenerateLayout() {
-  if (!confirm('Regenerate the duct layout from airflow data? This will reset all node positions and duct properties. Continue?')) return;
+async function regenerateLayout(mode) {
+  const modeToUse = mode ?? _manifoldMode;
+  if (!mode && !confirm('Regenerate the duct layout from airflow data? This will reset all node positions and duct properties. Continue?')) return;
 
   showLoading();
   _selected = null;
 
   try {
     const res = await apiPost(`${API_BASE}/duct-design`, {
-      projectId: _projectId,
-      action:    'regenerate',
+      projectId:    _projectId,
+      action:       'regenerate',
+      manifoldMode: modeToUse,
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
@@ -1135,6 +1301,12 @@ async function regenerateLayout() {
     _design = data.design;
     _nodes  = data.nodes ?? [];
     _runs   = data.runs  ?? [];
+
+    // Sync UI controls from design_json
+    if (_design?.design_json?.scale_m) {
+      _scaleM = _design.design_json.scale_m;
+      el('scaleInput').value = _scaleM;
+    }
 
     el('generatedNotice').style.display = 'block';
     setDirty(false);
@@ -1178,14 +1350,23 @@ function renderSchedule() {
         ? (to.airflow_m3h ?? '—')
         : '—';
 
+    // Length: use stored value, else calculate from node positions
+    const lengthM = run.length_m ?? calcRunLength(run);
+    const lengthDisplay = lengthM != null ? `${lengthM.toFixed(1)} m` : '<span style="color:var(--muted)">—</span>';
+
+    // Diameter: use stored, else infer from airflow
+    const terminalFlow = airflowM3h !== '—' ? Number(airflowM3h) : 0;
+    const diam = run.diameter_mm ?? (terminalFlow > 0 ? calcTrunkDiameter(terminalFlow) : null);
+    const diamDisplay = diam != null ? `Ø${diam}` : '<span style="color:var(--muted)">—</span>';
+
     return `<tr>
       <td style="color:var(--muted); font-size:11px">${i + 1}</td>
       <td style="font-weight:600">${esc(fromName)}</td>
       <td>${esc(toName)}</td>
       <td><span class="run-type-pill ${pillClass}">${capitalize(run.run_type)}</span></td>
       <td style="color:var(--muted)">${esc(ductLabel)}</td>
-      <td style="font-weight:700">Ø${run.diameter_mm}</td>
-      <td>${run.length_m != null ? run.length_m.toFixed(1) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="font-weight:700">${diamDisplay}</td>
+      <td>${lengthDisplay}</td>
       <td>${airflowM3h !== '—' ? `${airflowM3h}` : '<span style="color:var(--muted)">—</span>'}</td>
       <td>${run.pressure_drop_pa != null ? run.pressure_drop_pa : '<span style="color:var(--muted)">—</span>'}</td>
     </tr>`;
@@ -1211,6 +1392,7 @@ function formatDuctType(t) {
     semi_rigid_90: 'Semi-rigid Ø90',
     epp_160:       'EPP Ø160',
     epp_180:       'EPP Ø180',
+    epp_200:       'EPP Ø200',
     custom:        'Custom',
   }[t] ?? t;
 }

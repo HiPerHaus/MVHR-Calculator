@@ -6,14 +6,14 @@
 //   Response: { design, nodes, runs, generated? }
 //
 // POST /api/studio/duct-design
-//   Body: { projectId, action? }
+//   Body: { projectId, action?, manifoldMode? }
 //   action === 'regenerate': delete and regenerate layout
 //   Otherwise: return existing or generate if none.
 //   Response: { design, nodes, runs, generated? }
 //
 // PATCH /api/studio/duct-design
-//   Body: { projectId, nodes?, runs?, status? }
-//   Persist node positions and run properties.
+//   Body: { projectId, nodes?, runs?, status?, designJson? }
+//   Persist node positions, run properties, and design metadata.
 //   Response: { ok: true, design }
 // ============================================================
 
@@ -23,7 +23,6 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const CANVAS_W = 1200;
-const CANVAS_H = 800;
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
@@ -36,10 +35,42 @@ function isPlantRoom(name) {
   return /plant|services|laundry|garage|store|mech|mvhr|utility|plant\s*room/i.test(name ?? '');
 }
 
+// ── Trunk diameter sizing ─────────────────────────────────────
+// Standard MVHR duct sizing by velocity (target ~2-3 m/s)
+// Q = v × A  →  A = Q / v  →  d = sqrt(4A/π)
+// At 2.5 m/s target velocity:
+function calcTrunkDiameter(totalFlowM3h) {
+  if (totalFlowM3h <= 0)   return 90;
+  if (totalFlowM3h <= 100) return 100;
+  if (totalFlowM3h <= 160) return 125;
+  if (totalFlowM3h <= 250) return 160;
+  if (totalFlowM3h <= 400) return 180;
+  return 200;
+}
+
+// ── Floor bands ───────────────────────────────────────────────
+function buildFloorBands(numFloors) {
+  const BAND_H  = 280;
+  const Y_START = 100;
+  const COLORS  = ['#f0fdf4', '#eff6ff', '#faf5ff', '#fff7ed'];
+  const LABELS  = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
+  const bands = [];
+  for (let i = 0; i < numFloors; i++) {
+    bands.push({
+      floor_index: i,
+      label:       LABELS[i] ?? `Floor ${i}`,
+      y_start:     Y_START + i * BAND_H,
+      y_end:       Y_START + (i + 1) * BAND_H,
+      color:       COLORS[i] ?? '#f0f4f8',
+    });
+  }
+  return bands;
+}
+
 // ── generateLayout ────────────────────────────────────────────
 // Creates the initial schematic layout from project rooms and airflow data.
 // Returns { design, nodes, runs } (all records freshly inserted).
-async function generateLayout(supabase, projectId, userId) {
+async function generateLayout(supabase, projectId, userId, manifoldMode = 'single') {
   // 1. Load project_rooms
   const { data: allRooms } = await supabase
     .from('project_rooms')
@@ -112,33 +143,37 @@ async function generateLayout(supabase, projectId, userId) {
     }
   }
 
+  // Sort by floor index
+  supplyRooms.sort((a, b) => a.floor_index - b.floor_index);
+  extractRooms.sort((a, b) => a.floor_index - b.floor_index);
+
   // Detect plant room
   const plantRoom = sourceRooms.find(r => isPlantRoom(r.name));
 
-  // 5. Calculate node positions
-  // ─────────────────────────────────────────────────────────────
-  // Fixed schematic positions (logical canvas 1200×800)
-  const MVHR_X         = 200;  const MVHR_Y         = 400;
-  const SUPPLY_MAN_X   = 370;  const SUPPLY_MAN_Y   = 280;
-  const EXTRACT_MAN_X  = 370;  const EXTRACT_MAN_Y  = 520;
-  const INTAKE_X       = 50;   const INTAKE_Y       = 280;
-  const EXHAUST_X      = 50;   const EXHAUST_Y      = 520;
+  // 5. Calculate number of floors and canvas height
+  const allFloorIndices = [...new Set([
+    ...supplyRooms.map(r => r.floor_index),
+    ...extractRooms.map(r => r.floor_index),
+  ])].sort((a, b) => a - b);
+  const numFloors = Math.max(allFloorIndices.length, 1);
+  const CANVAS_H  = Math.max(800, numFloors * 280 + 100);
 
-  // Supply terminals: upper half, right side
-  const SUPPLY_START_X = 650;
-  const SUPPLY_ZONE_TOP    = 60;
-  const SUPPLY_ZONE_BOTTOM = CANVAS_H / 2 - 20;
-  const supplyCount = supplyRooms.length || 1;
-  const supplySpacing = (SUPPLY_ZONE_BOTTOM - SUPPLY_ZONE_TOP) / (supplyCount + 1);
+  // 6. Build floor bands
+  const floorBands = buildFloorBands(numFloors);
 
-  // Extract terminals: lower half, right side
-  const EXTRACT_START_X = 650;
-  const EXTRACT_ZONE_TOP    = CANVAS_H / 2 + 20;
-  const EXTRACT_ZONE_BOTTOM = CANVAS_H - 60;
-  const extractCount = extractRooms.length || 1;
-  const extractSpacing = (EXTRACT_ZONE_BOTTOM - EXTRACT_ZONE_TOP) / (extractCount + 1);
+  // 7. Calculate total airflows for trunk sizing
+  const totalSupplyFlow  = supplyRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+  const totalExtractFlow = extractRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+  const trunkSupplyDiam  = calcTrunkDiameter(totalSupplyFlow);
+  const trunkExtractDiam = calcTrunkDiameter(totalExtractFlow);
 
-  // 6. Create duct_design row
+  // 8. Fixed node positions
+  const MVHR_X = 200;
+  const MVHR_Y = Math.round(CANVAS_H / 2);
+  const INTAKE_X  = 50; const INTAKE_Y  = Math.round(CANVAS_H * 0.35);
+  const EXHAUST_X = 50; const EXHAUST_Y = Math.round(CANVAS_H * 0.65);
+
+  // 9. Create duct_design row
   const { data: design, error: designErr } = await supabase
     .from('duct_designs')
     .insert({
@@ -147,12 +182,15 @@ async function generateLayout(supabase, projectId, userId) {
       selected_unit_id:  airflowDesign?.selected_unit_id ?? null,
       status:            'draft',
       design_json: {
-        canvas_w:         CANVAS_W,
-        canvas_h:         CANVAS_H,
-        plant_room_id:    plantRoom?.id ?? null,
-        plant_room_name:  plantRoom?.name ?? null,
+        canvas_w:           CANVAS_W,
+        canvas_h:           CANVAS_H,
+        plant_room_id:      plantRoom?.id ?? null,
+        plant_room_name:    plantRoom?.name ?? null,
         design_airflow_m3h: airflowDesign?.design_airflow_m3h ?? null,
-        generated_at:     new Date().toISOString(),
+        generated_at:       new Date().toISOString(),
+        manifold_mode:      manifoldMode,
+        scale_m:            12,
+        floorBands:         floorBands,
       },
     })
     .select()
@@ -162,48 +200,142 @@ async function generateLayout(supabase, projectId, userId) {
 
   const did = design.id;
 
-  // 7. Insert nodes
+  // 10. Insert nodes
   const nodeInserts = [];
 
-  // Fixed nodes
-  nodeInserts.push({ duct_design_id: did, node_type: 'external_intake',    room_name: 'Intake',          x: INTAKE_X,       y: INTAKE_Y,       airflow_m3h: null, duct_diameter_mm: 200 });
-  nodeInserts.push({ duct_design_id: did, node_type: 'external_exhaust',   room_name: 'Exhaust',         x: EXHAUST_X,      y: EXHAUST_Y,      airflow_m3h: null, duct_diameter_mm: 200 });
-  nodeInserts.push({ duct_design_id: did, node_type: 'mvhr_unit',          room_name: 'MVHR Unit',       x: MVHR_X,         y: MVHR_Y,         airflow_m3h: airflowDesign?.design_airflow_m3h ?? null, duct_diameter_mm: null });
-  nodeInserts.push({ duct_design_id: did, node_type: 'supply_manifold',    room_name: 'Supply Manifold', x: SUPPLY_MAN_X,   y: SUPPLY_MAN_Y,   airflow_m3h: null, duct_diameter_mm: 160 });
-  nodeInserts.push({ duct_design_id: did, node_type: 'extract_manifold',   room_name: 'Extract Manifold',x: EXTRACT_MAN_X,  y: EXTRACT_MAN_Y,  airflow_m3h: null, duct_diameter_mm: 160 });
+  // Fixed nodes (intake, exhaust, MVHR)
+  nodeInserts.push({ duct_design_id: did, node_type: 'external_intake',    room_name: 'Intake',          x: INTAKE_X,  y: INTAKE_Y,  airflow_m3h: null, duct_diameter_mm: 200 });
+  nodeInserts.push({ duct_design_id: did, node_type: 'external_exhaust',   room_name: 'Exhaust',         x: EXHAUST_X, y: EXHAUST_Y, airflow_m3h: null, duct_diameter_mm: 200 });
+  nodeInserts.push({ duct_design_id: did, node_type: 'mvhr_unit',          room_name: 'MVHR Unit',       x: MVHR_X,    y: MVHR_Y,    airflow_m3h: airflowDesign?.design_airflow_m3h ?? null, duct_diameter_mm: null });
 
-  // Supply terminal nodes
-  for (let i = 0; i < supplyRooms.length; i++) {
-    const sr = supplyRooms[i];
-    const ty = SUPPLY_ZONE_TOP + supplySpacing * (i + 1);
-    nodeInserts.push({
-      duct_design_id:  did,
-      node_type:       'supply_terminal',
-      project_room_id: sr.project_room_id,
-      room_name:       sr.room_name,
-      floor_index:     sr.floor_index,
-      x:               SUPPLY_START_X,
-      y:               ty,
-      airflow_m3h:     sr.airflow_m3h,
-      duct_diameter_mm: 90,
-    });
-  }
+  if (manifoldMode === 'per_floor') {
+    // Per-floor manifolds: one supply + one extract manifold per floor
+    const floorGroups = {};
+    for (const fi of allFloorIndices) {
+      floorGroups[fi] = {
+        supply:  supplyRooms.filter(r => r.floor_index === fi),
+        extract: extractRooms.filter(r => r.floor_index === fi),
+      };
+    }
 
-  // Extract terminal nodes
-  for (let i = 0; i < extractRooms.length; i++) {
-    const er = extractRooms[i];
-    const ty = EXTRACT_ZONE_TOP + extractSpacing * (i + 1);
-    nodeInserts.push({
-      duct_design_id:  did,
-      node_type:       'extract_terminal',
-      project_room_id: er.project_room_id,
-      room_name:       er.room_name,
-      floor_index:     er.floor_index,
-      x:               EXTRACT_START_X,
-      y:               ty,
-      airflow_m3h:     er.airflow_m3h,
-      duct_diameter_mm: 90,
-    });
+    // Manifold positions: at the start of each floor band
+    for (const band of floorBands) {
+      const fi = band.floor_index;
+      const bandMidY = Math.round((band.y_start + band.y_end) / 2);
+      const SUPPLY_MAN_X  = 370; const SUPPLY_MAN_Y  = bandMidY - 40;
+      const EXTRACT_MAN_X = 370; const EXTRACT_MAN_Y = bandMidY + 40;
+
+      nodeInserts.push({
+        duct_design_id:  did,
+        node_type:       'supply_manifold',
+        room_name:       `Supply Manifold F${fi}`,
+        floor_index:     fi,
+        x:               SUPPLY_MAN_X,
+        y:               SUPPLY_MAN_Y,
+        airflow_m3h:     null,
+        duct_diameter_mm: trunkSupplyDiam,
+      });
+      nodeInserts.push({
+        duct_design_id:  did,
+        node_type:       'extract_manifold',
+        room_name:       `Extract Manifold F${fi}`,
+        floor_index:     fi,
+        x:               EXTRACT_MAN_X,
+        y:               EXTRACT_MAN_Y,
+        airflow_m3h:     null,
+        duct_diameter_mm: trunkExtractDiam,
+      });
+
+      // Supply terminals for this floor
+      const sRooms = floorGroups[fi]?.supply ?? [];
+      const eRooms = floorGroups[fi]?.extract ?? [];
+      const BAND_H_USED = band.y_end - band.y_start;
+      const sSpacing = sRooms.length > 0 ? BAND_H_USED / (sRooms.length + 1) : 0;
+      const eSpacing = eRooms.length > 0 ? BAND_H_USED / (eRooms.length + 1) : 0;
+
+      for (let i = 0; i < sRooms.length; i++) {
+        const sr = sRooms[i];
+        nodeInserts.push({
+          duct_design_id:  did,
+          node_type:       'supply_terminal',
+          project_room_id: sr.project_room_id,
+          room_name:       sr.room_name,
+          floor_index:     fi,
+          x:               700,
+          y:               Math.round(band.y_start + sSpacing * (i + 1)),
+          airflow_m3h:     sr.airflow_m3h,
+          duct_diameter_mm: 90,
+        });
+      }
+
+      for (let i = 0; i < eRooms.length; i++) {
+        const er = eRooms[i];
+        nodeInserts.push({
+          duct_design_id:  did,
+          node_type:       'extract_terminal',
+          project_room_id: er.project_room_id,
+          room_name:       er.room_name,
+          floor_index:     fi,
+          x:               950,
+          y:               Math.round(band.y_start + eSpacing * (i + 1)),
+          airflow_m3h:     er.airflow_m3h,
+          duct_diameter_mm: 90,
+        });
+      }
+    }
+  } else {
+    // Single manifold mode
+    const SUPPLY_MAN_X  = 370; const SUPPLY_MAN_Y  = Math.round(CANVAS_H * 0.35);
+    const EXTRACT_MAN_X = 370; const EXTRACT_MAN_Y = Math.round(CANVAS_H * 0.65);
+
+    nodeInserts.push({ duct_design_id: did, node_type: 'supply_manifold',    room_name: 'Supply Manifold',  x: SUPPLY_MAN_X,  y: SUPPLY_MAN_Y,  airflow_m3h: null, duct_diameter_mm: trunkSupplyDiam });
+    nodeInserts.push({ duct_design_id: did, node_type: 'extract_manifold',   room_name: 'Extract Manifold', x: EXTRACT_MAN_X, y: EXTRACT_MAN_Y, airflow_m3h: null, duct_diameter_mm: trunkExtractDiam });
+
+    // Place supply terminals: grouped by floor, left column
+    for (let fi = 0; fi < numFloors; fi++) {
+      const band = floorBands[fi];
+      const floorsSupply = supplyRooms.filter(r => r.floor_index === fi);
+      if (floorsSupply.length === 0) continue;
+      const bandH   = band.y_end - band.y_start;
+      const spacing = bandH / (floorsSupply.length + 1);
+      for (let i = 0; i < floorsSupply.length; i++) {
+        const sr = floorsSupply[i];
+        nodeInserts.push({
+          duct_design_id:  did,
+          node_type:       'supply_terminal',
+          project_room_id: sr.project_room_id,
+          room_name:       sr.room_name,
+          floor_index:     fi,
+          x:               700,
+          y:               Math.round(band.y_start + spacing * (i + 1)),
+          airflow_m3h:     sr.airflow_m3h,
+          duct_diameter_mm: 90,
+        });
+      }
+    }
+
+    // Place extract terminals: grouped by floor, right column
+    for (let fi = 0; fi < numFloors; fi++) {
+      const band = floorBands[fi];
+      const floorsExtract = extractRooms.filter(r => r.floor_index === fi);
+      if (floorsExtract.length === 0) continue;
+      const bandH   = band.y_end - band.y_start;
+      const spacing = bandH / (floorsExtract.length + 1);
+      for (let i = 0; i < floorsExtract.length; i++) {
+        const er = floorsExtract[i];
+        nodeInserts.push({
+          duct_design_id:  did,
+          node_type:       'extract_terminal',
+          project_room_id: er.project_room_id,
+          room_name:       er.room_name,
+          floor_index:     fi,
+          x:               950,
+          y:               Math.round(band.y_start + spacing * (i + 1)),
+          airflow_m3h:     er.airflow_m3h,
+          duct_diameter_mm: 90,
+        });
+      }
+    }
   }
 
   const { data: nodes, error: nodeErr } = await supabase
@@ -213,17 +345,17 @@ async function generateLayout(supabase, projectId, userId) {
 
   if (nodeErr) throw new Error(`Failed to insert duct_nodes: ${nodeErr.message}`);
 
-  // 8. Build a lookup map: node_type → node (for fixed nodes)
+  // 11. Build node type lookup maps
   const nodeByType = {};
   for (const n of nodes) {
-    if (['external_intake','external_exhaust','mvhr_unit','supply_manifold','extract_manifold'].includes(n.node_type)) {
+    if (['external_intake','external_exhaust','mvhr_unit'].includes(n.node_type)) {
       nodeByType[n.node_type] = n;
     }
   }
   const supplyTerminals  = nodes.filter(n => n.node_type === 'supply_terminal');
   const extractTerminals = nodes.filter(n => n.node_type === 'extract_terminal');
 
-  // 9. Insert runs
+  // 12. Insert runs
   const runInserts = [];
 
   // intake → mvhr
@@ -232,7 +364,7 @@ async function generateLayout(supabase, projectId, userId) {
     from_node_id:   nodeByType['external_intake'].id,
     to_node_id:     nodeByType['mvhr_unit'].id,
     run_type:       'intake',
-    duct_type:      'epp_160',
+    duct_type:      'epp_200',
     diameter_mm:    200,
   });
 
@@ -242,52 +374,127 @@ async function generateLayout(supabase, projectId, userId) {
     from_node_id:   nodeByType['mvhr_unit'].id,
     to_node_id:     nodeByType['external_exhaust'].id,
     run_type:       'exhaust',
-    duct_type:      'epp_160',
+    duct_type:      'epp_200',
     diameter_mm:    200,
   });
 
-  // mvhr → supply_manifold
-  runInserts.push({
-    duct_design_id: did,
-    from_node_id:   nodeByType['mvhr_unit'].id,
-    to_node_id:     nodeByType['supply_manifold'].id,
-    run_type:       'supply',
-    duct_type:      'epp_160',
-    diameter_mm:    160,
-  });
+  if (manifoldMode === 'per_floor') {
+    // Per-floor mode: MVHR → each floor's supply manifold, each floor's extract manifold → MVHR
+    const supplyManifolds  = nodes.filter(n => n.node_type === 'supply_manifold');
+    const extractManifolds = nodes.filter(n => n.node_type === 'extract_manifold');
 
-  // extract_manifold → mvhr
-  runInserts.push({
-    duct_design_id: did,
-    from_node_id:   nodeByType['extract_manifold'].id,
-    to_node_id:     nodeByType['mvhr_unit'].id,
-    run_type:       'extract',
-    duct_type:      'epp_160',
-    diameter_mm:    160,
-  });
+    for (const sm of supplyManifolds) {
+      const fi = sm.floor_index ?? 0;
+      const floorSupplyFlow = supplyRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+      const diam = calcTrunkDiameter(floorSupplyFlow) || trunkSupplyDiam;
+      runInserts.push({
+        duct_design_id: did,
+        from_node_id:   nodeByType['mvhr_unit'].id,
+        to_node_id:     sm.id,
+        run_type:       'supply',
+        duct_type:      diam >= 160 ? 'epp_160' : 'semi_rigid_90',
+        diameter_mm:    diam,
+      });
+    }
 
-  // supply_manifold → each supply_terminal
-  for (const st of supplyTerminals) {
-    runInserts.push({
-      duct_design_id: did,
-      from_node_id:   nodeByType['supply_manifold'].id,
-      to_node_id:     st.id,
-      run_type:       'supply',
-      duct_type:      'semi_rigid_90',
-      diameter_mm:    90,
-    });
-  }
+    for (const em of extractManifolds) {
+      const fi = em.floor_index ?? 0;
+      const floorExtractFlow = extractRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+      const diam = calcTrunkDiameter(floorExtractFlow) || trunkExtractDiam;
+      runInserts.push({
+        duct_design_id: did,
+        from_node_id:   em.id,
+        to_node_id:     nodeByType['mvhr_unit'].id,
+        run_type:       'extract',
+        duct_type:      diam >= 160 ? 'epp_160' : 'semi_rigid_90',
+        diameter_mm:    diam,
+      });
+    }
 
-  // each extract_terminal → extract_manifold
-  for (const et of extractTerminals) {
-    runInserts.push({
-      duct_design_id: did,
-      from_node_id:   et.id,
-      to_node_id:     nodeByType['extract_manifold'].id,
-      run_type:       'extract',
-      duct_type:      'semi_rigid_90',
-      diameter_mm:    90,
-    });
+    // Manifold → terminals for each floor
+    for (const sm of supplyManifolds) {
+      const fi = sm.floor_index ?? 0;
+      const floorTerminals = supplyTerminals.filter(t => t.floor_index === fi);
+      for (const st of floorTerminals) {
+        runInserts.push({
+          duct_design_id: did,
+          from_node_id:   sm.id,
+          to_node_id:     st.id,
+          run_type:       'supply',
+          duct_type:      'semi_rigid_90',
+          diameter_mm:    90,
+        });
+      }
+    }
+
+    for (const em of extractManifolds) {
+      const fi = em.floor_index ?? 0;
+      const floorTerminals = extractTerminals.filter(t => t.floor_index === fi);
+      for (const et of floorTerminals) {
+        runInserts.push({
+          duct_design_id: did,
+          from_node_id:   et.id,
+          to_node_id:     em.id,
+          run_type:       'extract',
+          duct_type:      'semi_rigid_90',
+          diameter_mm:    90,
+        });
+      }
+    }
+  } else {
+    // Single manifold mode
+    const supplyManifold  = nodes.find(n => n.node_type === 'supply_manifold');
+    const extractManifold = nodes.find(n => n.node_type === 'extract_manifold');
+
+    if (supplyManifold) {
+      runInserts.push({
+        duct_design_id: did,
+        from_node_id:   nodeByType['mvhr_unit'].id,
+        to_node_id:     supplyManifold.id,
+        run_type:       'supply',
+        duct_type:      trunkSupplyDiam >= 160 ? 'epp_160' : 'semi_rigid_90',
+        diameter_mm:    trunkSupplyDiam,
+      });
+    }
+
+    if (extractManifold) {
+      runInserts.push({
+        duct_design_id: did,
+        from_node_id:   extractManifold.id,
+        to_node_id:     nodeByType['mvhr_unit'].id,
+        run_type:       'extract',
+        duct_type:      trunkExtractDiam >= 160 ? 'epp_160' : 'semi_rigid_90',
+        diameter_mm:    trunkExtractDiam,
+      });
+    }
+
+    // supply_manifold → each supply_terminal
+    if (supplyManifold) {
+      for (const st of supplyTerminals) {
+        runInserts.push({
+          duct_design_id: did,
+          from_node_id:   supplyManifold.id,
+          to_node_id:     st.id,
+          run_type:       'supply',
+          duct_type:      'semi_rigid_90',
+          diameter_mm:    90,
+        });
+      }
+    }
+
+    // each extract_terminal → extract_manifold
+    if (extractManifold) {
+      for (const et of extractTerminals) {
+        runInserts.push({
+          duct_design_id: did,
+          from_node_id:   et.id,
+          to_node_id:     extractManifold.id,
+          run_type:       'extract',
+          duct_type:      'semi_rigid_90',
+          diameter_mm:    90,
+        });
+      }
+    }
   }
 
   const { data: runs, error: runErr } = await supabase
@@ -388,6 +595,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const body = req.body ?? {};
     const { projectId, action } = body;
+    const manifoldMode = body.manifoldMode ?? 'single';
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
     // Verify ownership
@@ -402,7 +610,7 @@ export default async function handler(req, res) {
     try {
       if (action === 'regenerate') {
         await deleteDesign(supabase, projectId);
-        const generated = await generateLayout(supabase, projectId, user.id);
+        const generated = await generateLayout(supabase, projectId, user.id, manifoldMode);
         return res.status(200).json({ ...generated, generated: true });
       }
 
@@ -410,7 +618,7 @@ export default async function handler(req, res) {
       if (existing) {
         return res.status(200).json(existing);
       }
-      const generated = await generateLayout(supabase, projectId, user.id);
+      const generated = await generateLayout(supabase, projectId, user.id, manifoldMode);
       return res.status(200).json({ ...generated, generated: true });
     } catch (err) {
       console.error('duct-design POST error:', err.message);
@@ -421,7 +629,7 @@ export default async function handler(req, res) {
   // ── PATCH ─────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     const body = req.body ?? {};
-    const { projectId, nodes, runs, status } = body;
+    const { projectId, nodes, runs, status, designJson } = body;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
     // Verify ownership
@@ -487,12 +695,17 @@ export default async function handler(req, res) {
       }
     }
 
-    // Update design status
-    if (status) {
-      await supabase
+    // Build design updates
+    const designUpdates = {};
+    if (status) designUpdates.status = status;
+    if (designJson) designUpdates.design_json = designJson;
+
+    if (Object.keys(designUpdates).length > 0) {
+      const { error: duErr } = await supabase
         .from('duct_designs')
-        .update({ status })
+        .update(designUpdates)
         .eq('id', design.id);
+      if (duErr) errors.push(`design update: ${duErr.message}`);
     }
 
     // Reload design

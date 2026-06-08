@@ -382,6 +382,8 @@ async function init() {
     el('stageBtn1').href = `/studio/projects/${_projectId}/details`;
     el('stageBtn2').href = `/studio/projects/${_projectId}/upload`;
     el('stageBtn2').classList.remove('locked');
+    const _sl = document.querySelector('a[href="/studio/settings"]');
+    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
     await loadProject();
   }
 }

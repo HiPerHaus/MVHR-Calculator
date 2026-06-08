@@ -196,7 +196,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>Projects</a>
+  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn done"   id="stageBtn0" href="#"><span class="stage-num">✓</span>Project Details</a>
   <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
@@ -468,6 +468,8 @@ async function init() {
     document.getElementById('toStage4Btn').href    = stage4;
     document.getElementById('backToRoomsBtn2').href = `/studio/projects/${_projectId}/rooms`;
     document.getElementById('backToRoomsBtn3').href = `/studio/projects/${_projectId}/rooms`;
+    const _sl = document.querySelector('a[href="/studio/settings"]');
+    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
 
     const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
     if (proj?.name) {
