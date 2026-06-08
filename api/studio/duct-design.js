@@ -520,6 +520,49 @@ function parseFloorIndex(floor) {
   return isNaN(n) ? 0 : n;
 }
 
+// ── Load plan pages (floor plan images) ──────────────────────
+const FLOOR_NAMES = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
+
+async function loadPlanPages(supabase, projectId) {
+  // Get all pdf_upload ids for this project
+  const { data: uploads } = await supabase
+    .from('pdf_uploads')
+    .select('id')
+    .eq('project_id', projectId);
+
+  if (!uploads?.length) return [];
+
+  const uploadIds = uploads.map(u => u.id);
+
+  // Query primary floor plan pages
+  const { data: pages } = await supabase
+    .from('pdf_pages')
+    .select('id, page_number, page_type, image_path, hires_image_path, hires_width_px, floor_name, floor_level, sheet_title')
+    .in('pdf_upload_id', uploadIds)
+    .in('page_type', ['floor_plan_primary', 'floor_plan'])
+    .order('page_number', { ascending: true });
+
+  if (!pages?.length) return [];
+
+  // Build public URLs from storage paths
+  const BUCKET = 'plan-uploads';
+  const storageBase = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}`;
+
+  return pages.map((p, i) => {
+    const rawPath  = p.hires_image_path || p.image_path || '';
+    const imageUrl = rawPath ? `${storageBase}/${rawPath}` : null;
+    return {
+      floor_index: i,
+      floor_name:  FLOOR_NAMES[i] ?? `Floor ${i}`,
+      page_id:     p.id,
+      page_number: p.page_number,
+      image_url:   imageUrl,
+      width_px:    p.hires_width_px ?? null,
+      height_px:   null,    // hires_height_px not stored separately; derive from image if needed
+    };
+  });
+}
+
 // ── Load existing design ──────────────────────────────────────
 async function loadDesign(supabase, projectId) {
   const { data: design, error: dErr } = await supabase
@@ -578,13 +621,16 @@ export default async function handler(req, res) {
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
 
     try {
-      const existing = await loadDesign(supabase, projectId);
-      if (existing) {
-        return res.status(200).json(existing);
+      const [designData, planPages] = await Promise.all([
+        loadDesign(supabase, projectId),
+        loadPlanPages(supabase, projectId),
+      ]);
+      if (designData) {
+        return res.status(200).json({ ...designData, planPages });
       }
       // Generate fresh
       const generated = await generateLayout(supabase, projectId, user.id);
-      return res.status(200).json({ ...generated, generated: true });
+      return res.status(200).json({ ...generated, planPages, generated: true });
     } catch (err) {
       console.error('duct-design GET error:', err.message);
       return res.status(500).json({ error: err.message });

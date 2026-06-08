@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HiPer Studio — Duct Design</title>
+<title>HiPer Studio — System Layout</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root {
@@ -81,87 +81,141 @@ header { background:var(--primary); color:#fff; padding:0 28px; display:flex; al
 .spinner { display:inline-block; width:32px; height:32px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
 
 /* ── Page layout ── */
-main { padding:24px 28px 80px; }
-.page-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+main { padding:0 0 80px; }
+.page-header { display:flex; align-items:flex-start; justify-content:space-between; padding:20px 28px 16px; flex-wrap:wrap; gap:12px; }
 .page-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
 .page-subtitle { font-size:13px; color:var(--muted); }
 .page-actions { display:flex; gap:10px; align-items:center; }
 
 /* ── Notice banners ── */
-.notice { border-radius:9px; padding:12px 16px; font-size:13px; margin-bottom:16px; line-height:1.5; }
+.notice { border-radius:9px; padding:12px 16px; font-size:13px; margin:0 28px 16px; line-height:1.5; }
 .notice-info    { background:var(--supply-light); border:1px solid #bfdbfe; color:#1e3a8a; }
 .notice-warn    { background:var(--warn-bg); border:1px solid #fed7aa; color:var(--warn); }
 .notice-success { background:var(--ok-bg); border:1px solid var(--ok-border); color:#166534; }
 
-/* ── Three-column editor layout ── */
-.editor-layout { display:flex; gap:0; min-height:640px; background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:20px; }
+/* ── View tab bar ── */
+.view-tabs { display:flex; gap:0; padding:0 28px; background:#fff; border-bottom:2px solid var(--border); }
+.view-tab { padding:10px 22px; font-size:13px; font-weight:700; color:var(--muted); border:none; background:none; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; transition:.15s; }
+.view-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+.view-tab:hover:not(.active) { color:var(--text); }
 
-/* Left sidebar */
-.sidebar-left {
-  width: 220px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: #fafbfc;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  overflow-y: auto;
-}
-.sidebar-section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
-.panel-section { border-top:1px solid var(--border); padding-top:14px; }
-.panel-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
+/* ── Dirty indicator ── */
+.dirty-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--amber); margin-right:4px; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
 
-/* Layer toggles */
-.layer-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text); }
-.layer-item input[type=checkbox],
-.layer-item input[type=radio] { accent-color:var(--primary); width:14px; height:14px; cursor:pointer; flex-shrink:0; }
-.layer-swatch { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+/* ═══════════════════════════════════════════════════════
+   FLOOR PLAN LAYOUT TAB
+═══════════════════════════════════════════════════════ */
+#tabPlan { display:flex; flex-direction:column; height:calc(100vh - 180px); }
 
-/* Legend */
-.legend-item { display:flex; align-items:center; gap:7px; margin-bottom:5px; }
-.legend-line  { width:24px; height:3px; border-radius:2px; }
-.legend-label { font-size:11px; color:var(--muted); }
+.plan-toolbar {
+  display:flex; align-items:center; gap:10px; padding:8px 16px;
+  background:#fff; border-bottom:1px solid var(--border);
+  flex-shrink:0; flex-wrap:wrap;
+}
+.plan-toolbar-group { display:flex; align-items:center; gap:6px; }
+.plan-toolbar-sep { width:1px; height:22px; background:var(--border); margin:0 4px; }
+.floor-select { padding:5px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:12px; font-weight:600; outline:none; background:#fff; cursor:pointer; }
+.floor-select:focus { border-color:var(--accent); }
+.tool-btn { padding:5px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:12px; font-weight:700; background:#fff; cursor:pointer; color:var(--text); }
+.tool-btn:hover { border-color:var(--accent); color:var(--accent); }
+.tool-btn.active { background:var(--primary-light); border-color:var(--accent); color:var(--primary); }
+.toggle-label { display:flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.toggle-label input { accent-color:var(--primary); }
 
-/* Centre canvas */
-.canvas-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: #f8fafc;
+/* Plan viewport (pan/zoom container) */
+.plan-viewport {
+  flex:1; overflow:hidden; position:relative;
+  background:#e8ecf0;
+  cursor:grab;
 }
-.canvas-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  background: #fff;
-  font-size: 12px;
-  color: var(--muted);
-  flex-wrap: wrap;
-}
-#ductCanvas {
-  width: 100%;
-  cursor: default;
-  display: block;
-  flex: 1;
-}
-#ductCanvas.dragging { cursor: grabbing; }
+.plan-viewport.panning { cursor:grabbing; }
 
-/* Right sidebar — properties panel */
-.sidebar-right {
-  width: 280px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border);
-  background: #fafbfc;
-  padding: 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.plan-stage {
+  position:absolute;
+  transform-origin: top left;
+  /* transform set by JS */
 }
+
+.plan-image {
+  display:block;
+  user-select:none;
+  -webkit-user-drag:none;
+  pointer-events:none;
+}
+
+.plan-overlay {
+  position:absolute;
+  top:0; left:0;
+  pointer-events:none;
+  overflow:visible;
+}
+
+.plan-nodes {
+  position:absolute;
+  top:0; left:0;
+  width:100%; height:100%;
+  pointer-events:none;  /* children set pointer-events:auto individually */
+}
+
+/* Node chips on floor plan */
+.plan-node {
+  position:absolute;
+  transform: translate(-50%, -50%);
+  cursor:grab;
+  pointer-events:auto;
+  user-select:none;
+  z-index:10;
+}
+.plan-node:active { cursor:grabbing; }
+.plan-node.selected .node-body { outline:3px solid #f59e0b; outline-offset:2px; }
+
+.node-body {
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  font-size:10px; font-weight:800; color:#fff;
+  white-space:nowrap;
+  position:relative;
+}
+.node-body.rect { border-radius:5px; padding:4px 8px; }
+.node-body.circle { width:36px; height:36px; }
+
+.node-supply   .node-body { background:var(--supply); }
+.node-extract  .node-body { background:var(--extract); }
+.node-mvhr     .node-body { background:#1a4731; }
+.node-smfd     .node-body { background:var(--manifold); }
+.node-emfd     .node-body { background:var(--manifold); }
+.node-intake   .node-body { background:var(--intake); }
+.node-exhaust  .node-body { background:var(--exhaust); }
+
+.node-label {
+  position:absolute; top:calc(100% + 4px); left:50%; transform:translateX(-50%);
+  font-size:10px; font-weight:700; color:var(--text);
+  background:rgba(255,255,255,0.9); border-radius:3px; padding:1px 4px;
+  white-space:nowrap; pointer-events:none;
+  text-shadow: none;
+}
+.node-airflow-label {
+  position:absolute; top:calc(100% + 18px); left:50%; transform:translateX(-50%);
+  font-size:9px; color:var(--muted); background:rgba(255,255,255,0.85); border-radius:3px; padding:1px 3px;
+  white-space:nowrap; pointer-events:none;
+}
+
+/* Empty state for plan view */
+#planEmpty {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:14px;
+  color:var(--muted); font-size:14px; text-align:center;
+}
+#planEmpty h3 { font-size:18px; color:var(--primary); }
+#planEmpty p { max-width:380px; line-height:1.6; }
+
+/* Properties sidebar (shared by plan + schematic) */
+.props-sidebar {
+  width:260px; flex-shrink:0; border-left:1px solid var(--border);
+  background:#fafbfc; padding:16px; overflow-y:auto;
+}
+.plan-with-props { display:flex; flex:1; overflow:hidden; }
 .props-empty { color:var(--muted); font-size:12px; text-align:center; padding:20px 0; line-height:1.6; }
 .props-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:10px; }
 .prop-row { margin-bottom:12px; }
@@ -172,8 +226,43 @@ main { padding:24px 28px 80px; }
 .prop-select { width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; outline:none; background:#fff; }
 .prop-hint { font-size:11px; color:var(--muted); margin-top:3px; }
 
-/* ── Duct schedule table ── */
-.schedule-card { background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:20px; }
+/* ═══════════════════════════════════════════════════════
+   SCHEMATIC VIEW TAB
+═══════════════════════════════════════════════════════ */
+#tabSchematic { display:none; }
+
+.editor-layout { display:flex; gap:0; min-height:640px; background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; margin:0 28px 20px; }
+
+/* Left sidebar */
+.sidebar-left {
+  width: 220px; flex-shrink: 0; border-right: 1px solid var(--border);
+  background: #fafbfc; padding: 16px; display: flex;
+  flex-direction: column; gap: 20px; overflow-y: auto;
+}
+.sidebar-section-title { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
+.panel-section { border-top:1px solid var(--border); padding-top:14px; }
+.panel-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--muted); margin-bottom:8px; }
+.layer-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text); }
+.layer-item input[type=checkbox], .layer-item input[type=radio] { accent-color:var(--primary); width:14px; height:14px; cursor:pointer; flex-shrink:0; }
+.layer-swatch { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+.legend-item { display:flex; align-items:center; gap:7px; margin-bottom:5px; }
+.legend-line  { width:24px; height:3px; border-radius:2px; }
+.legend-label { font-size:11px; color:var(--muted); }
+
+/* Centre canvas */
+.canvas-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #f8fafc; }
+.canvas-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: #fff; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+#ductCanvas { width: 100%; cursor: default; display: block; flex: 1; }
+#ductCanvas.dragging { cursor: grabbing; }
+
+/* Right sidebar — properties panel */
+.sidebar-right { width: 280px; flex-shrink: 0; border-left: 1px solid var(--border); background: #fafbfc; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+/* ═══════════════════════════════════════════════════════
+   DUCT SCHEDULE TAB
+═══════════════════════════════════════════════════════ */
+#tabSchedule { display:none; padding:20px 28px; }
+.schedule-card { background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 .schedule-header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid var(--border); }
 .schedule-title { font-size:14px; font-weight:800; color:var(--primary); }
 .schedule-table { width:100%; border-collapse:collapse; font-size:12px; }
@@ -190,12 +279,8 @@ main { padding:24px 28px 80px; }
 
 /* ── Loading/error states ── */
 #loadingState { text-align:center; padding:80px; }
-#errorState { display:none; }
+#errorState { display:none; padding:20px 28px; }
 .error-card { background:var(--critical-bg); border:1px solid #fecaca; border-radius:10px; padding:20px 24px; color:var(--critical); }
-
-/* ── Dirty indicator ── */
-.dirty-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--amber); margin-right:4px; animation:pulse 2s infinite; }
-@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
 </style>
 </head>
 <body>
@@ -227,7 +312,7 @@ main { padding:24px 28px 80px; }
   <div class="header-left">
     <span class="header-logo">HiPer Studio</span>
     <div class="header-sep"></div>
-    <span class="header-project" id="headerProject">Duct Design</span>
+    <span class="header-project" id="headerProject">System Layout</span>
   </div>
   <div class="header-right">
     <span class="header-user" id="headerUser"></span>
@@ -243,7 +328,7 @@ main { padding:24px 28px 80px; }
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
   <a class="stage-btn done"   id="stageBtn3" href="#"><span class="stage-num">✓</span>Airflow Design</a>
   <a class="stage-btn done"   id="stageBtn4" href="#"><span class="stage-num">✓</span>Unit Selection</a>
-  <a class="stage-btn active" id="stageBtn5" href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn active" id="stageBtn5" href="#"><span class="stage-num">6</span>System Layout</a>
   <a class="stage-btn" id="stageBtn6" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
   <a class="stage-btn settings-link" href="/studio/settings">⚙ Settings</a>
 </nav>
@@ -253,230 +338,264 @@ main { padding:24px 28px 80px; }
 
   <div class="page-header">
     <div>
-      <div class="page-title">Duct Design</div>
+      <div class="page-title">System Layout</div>
       <div class="page-subtitle" id="pageSubtitle">Loading project…</div>
     </div>
     <div class="page-actions">
       <a class="btn btn-secondary" id="backBtn" href="#">← Unit Selection</a>
+      <span id="dirtyIndicator" style="display:none;align-items:center"><span class="dirty-dot"></span><span style="font-size:12px;color:var(--amber)">Unsaved changes</span></span>
       <button class="btn btn-danger btn-sm" id="btnRegenerate" onclick="regenerateLayout()">↺ Regenerate</button>
-      <button class="btn btn-primary" id="btnSave" onclick="saveLayout()">Save Layout</button>
-      <a class="btn btn-primary" id="btnBom" href="#" style="margin-left:8px">Continue → BOM &amp; Export</a>
+      <button class="btn btn-primary" id="btnSave" onclick="saveLayout()" disabled>Save Layout</button>
+      <a class="btn btn-primary" id="btnBom" href="#" style="margin-left:4px">Continue → BOM &amp; Export</a>
     </div>
   </div>
 
   <!-- Loading -->
   <div id="loadingState">
     <div class="spinner"></div>
-    <div style="margin-top:12px; color:var(--muted); font-size:13px;">Loading duct design…</div>
+    <div style="margin-top:12px; color:var(--muted); font-size:13px;">Loading system layout…</div>
   </div>
 
   <!-- Error -->
   <div id="errorState">
     <div class="error-card">
-      <strong>Error loading duct design.</strong>
+      <strong>Error loading system layout.</strong>
       <span id="errorMsg"></span>
     </div>
   </div>
 
-  <!-- Generated notice -->
-  <div id="generatedNotice" class="notice notice-success" style="display:none">
-    ✓ Duct layout generated from airflow design data. Drag nodes to reposition. Click a node or run to edit its properties.
-  </div>
-
-  <!-- No airflow notice -->
-  <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
-    ⚠ No airflow design found for this project. The layout shows a basic schematic. Complete Airflow Design (Stage 4) to populate room terminals automatically.
-  </div>
-
-  <!-- Main editor -->
+  <!-- Content (shown after load) -->
   <div id="mainContent" style="display:none">
 
-    <div class="editor-layout">
-
-      <!-- Left sidebar: layers + options + legend -->
-      <div class="sidebar-left">
-        <div>
-          <div class="sidebar-section-title">Layers</div>
-          <label class="layer-item">
-            <input type="checkbox" id="layerSupply"    checked onchange="onLayerChange()">
-            <div class="layer-swatch" style="background:var(--supply)"></div>
-            Supply
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="layerExtract"   checked onchange="onLayerChange()">
-            <div class="layer-swatch" style="background:var(--extract)"></div>
-            Extract
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="layerIntake"    checked onchange="onLayerChange()">
-            <div class="layer-swatch" style="background:var(--intake)"></div>
-            Intake / Exhaust
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="layerTerminals" checked onchange="onLayerChange()">
-            <div class="layer-swatch" style="background:#d1d5db"></div>
-            Terminals
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="layerManifolds" checked onchange="onLayerChange()">
-            <div class="layer-swatch" style="background:var(--manifold)"></div>
-            Manifolds
-          </label>
-        </div>
-
-        <div class="panel-section">
-          <div class="panel-label">Canvas options</div>
-          <label class="layer-item">
-            <input type="checkbox" id="chkSnap" checked onchange="_snapEnabled = this.checked">
-            Snap to grid (10px)
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="chkFloorBands" checked onchange="renderCanvas()">
-            Show floor bands
-          </label>
-          <label class="layer-item">
-            <input type="checkbox" id="chkRunLengths" checked onchange="renderCanvas()">
-            Show run lengths
-          </label>
-        </div>
-
-        <div class="panel-section">
-          <div class="panel-label">Manifold layout</div>
-          <label class="layer-item">
-            <input type="radio" name="manifoldMode" value="single" checked onchange="setManifoldMode('single')">
-            Single manifold
-          </label>
-          <label class="layer-item">
-            <input type="radio" name="manifoldMode" value="per_floor" onchange="setManifoldMode('per_floor')">
-            Per-floor manifolds
-          </label>
-        </div>
-
-        <div>
-          <div class="sidebar-section-title">Legend</div>
-          <div class="legend-item">
-            <div class="legend-line" style="background:var(--supply)"></div>
-            <span class="legend-label">Supply duct</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-line" style="background:var(--extract)"></div>
-            <span class="legend-label">Extract duct</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-line" style="background:var(--intake)"></div>
-            <span class="legend-label">Intake duct</span>
-          </div>
-          <div class="legend-item">
-            <div class="legend-line" style="background:var(--exhaust)"></div>
-            <span class="legend-label">Exhaust duct</span>
-          </div>
-          <div style="margin-top:14px">
-            <div class="sidebar-section-title">Node types</div>
-            <div class="legend-item" style="margin-bottom:6px">
-              <div style="width:24px;height:14px;background:#1a4731;border-radius:2px;flex-shrink:0"></div>
-              <span class="legend-label">MVHR Unit</span>
-            </div>
-            <div class="legend-item" style="margin-bottom:6px">
-              <div style="width:24px;height:14px;background:var(--manifold);border-radius:2px;flex-shrink:0"></div>
-              <span class="legend-label">Manifold</span>
-            </div>
-            <div class="legend-item" style="margin-bottom:6px">
-              <div style="width:14px;height:14px;background:var(--supply);border-radius:50%;flex-shrink:0"></div>
-              <span class="legend-label">Supply terminal</span>
-            </div>
-            <div class="legend-item" style="margin-bottom:6px">
-              <div style="width:14px;height:14px;background:var(--extract);border-radius:50%;flex-shrink:0"></div>
-              <span class="legend-label">Extract terminal</span>
-            </div>
-            <div class="legend-item" style="margin-bottom:6px">
-              <div style="width:24px;height:14px;background:var(--intake);border-radius:2px;flex-shrink:0"></div>
-              <span class="legend-label">Intake / Exhaust</span>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top:auto">
-          <div class="sidebar-section-title">Tips</div>
-          <div style="font-size:11px; color:var(--muted); line-height:1.6">
-            Drag nodes to reposition.<br>
-            Click node or duct run to edit.<br>
-            Run lengths auto-update on drag.<br>
-            Save to persist changes.
-          </div>
-        </div>
-      </div>
-
-      <!-- Centre: SVG canvas -->
-      <div class="canvas-wrap">
-        <div class="canvas-toolbar">
-          <span id="canvasStatus">Schematic view — drag nodes to rearrange</span>
-          <span id="dirtyIndicator" style="display:none"><span class="dirty-dot"></span>Unsaved changes</span>
-          <span style="margin-left:auto; display:flex; align-items:center; gap:6px;">
-            <span style="font-size:12px; color:var(--muted);">Scale:</span>
-            <input type="number" id="scaleInput" value="12" min="5" max="50" step="1"
-              style="width:50px; padding:3px 6px; border:1px solid var(--border); border-radius:5px; font-size:12px;"
-              oninput="_scaleM = parseFloat(this.value)||12; renderCanvas(); renderSchedule();">
-            <span style="font-size:12px; color:var(--muted);">m / canvas</span>
-          </span>
-        </div>
-        <svg id="ductCanvas" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg"
-             style="border:none; background:#f8fafc;">
-          <defs>
-            <marker id="arrowSupply" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#1d4ed8" opacity="0.7"/>
-            </marker>
-            <marker id="arrowExtract" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#b91c1c" opacity="0.7"/>
-            </marker>
-            <marker id="arrowIntake" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#15803d" opacity="0.7"/>
-            </marker>
-            <marker id="arrowExhaust" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#6b7280" opacity="0.7"/>
-            </marker>
-          </defs>
-          <!-- Grid and content injected by renderCanvas() -->
-        </svg>
-      </div>
-
-      <!-- Right sidebar: properties panel -->
-      <div class="sidebar-right" id="propsPanel">
-        <div class="props-empty" id="propsEmpty">
-          Click a node or duct run to view and edit its properties.
-        </div>
-        <div id="propsContent" style="display:none"></div>
-      </div>
-
-    </div><!-- /editor-layout -->
-
-    <!-- Duct schedule table -->
-    <div class="schedule-card">
-      <div class="schedule-header">
-        <div class="schedule-title">Duct Schedule</div>
-        <div style="font-size:12px; color:var(--muted)" id="scheduleCount"></div>
-      </div>
-      <table class="schedule-table" id="scheduleTable">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>From</th>
-            <th>To</th>
-            <th>Type</th>
-            <th>Duct</th>
-            <th>Ø mm</th>
-            <th>Length m</th>
-            <th>Airflow m³/h</th>
-            <th>ΔP Pa</th>
-          </tr>
-        </thead>
-        <tbody id="scheduleTbody">
-          <tr class="empty-row"><td colspan="9">Loading…</td></tr>
-        </tbody>
-      </table>
+    <!-- Notices -->
+    <div id="generatedNotice" class="notice notice-success" style="display:none">
+      ✓ Layout generated from airflow data. Drag nodes to reposition in either view. Save to persist.
+    </div>
+    <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
+      ⚠ No airflow design found. Complete Stage 4 to populate terminal airflows automatically.
     </div>
 
-  </div><!-- /mainContent -->
+    <!-- View tab bar -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tabBtnPlan" onclick="switchTab('plan')">📐 Floor Plan Layout</button>
+      <button class="view-tab" id="tabBtnSchematic" onclick="switchTab('schematic')">🔷 Schematic View</button>
+      <button class="view-tab" id="tabBtnSchedule" onclick="switchTab('schedule')">📋 Duct Schedule</button>
+    </div>
 
+    <!-- ═══════════ TAB: Floor Plan Layout ═══════════ -->
+    <div id="tabPlan">
+      <div class="plan-toolbar">
+        <div class="plan-toolbar-group">
+          <label style="font-size:12px;font-weight:700;color:var(--muted)">Floor:</label>
+          <select class="floor-select" id="planFloorSelect" onchange="onFloorChange()">
+            <option value="0">Ground Floor</option>
+          </select>
+        </div>
+        <div class="plan-toolbar-sep"></div>
+        <div class="plan-toolbar-group">
+          <button class="tool-btn" onclick="planZoom(1.2)" title="Zoom in">＋</button>
+          <button class="tool-btn" onclick="planZoom(1/1.2)" title="Zoom out">－</button>
+          <button class="tool-btn" onclick="planFitScreen()" title="Fit to screen">⊡ Fit</button>
+        </div>
+        <div class="plan-toolbar-sep"></div>
+        <div class="plan-toolbar-group" style="gap:12px">
+          <label class="toggle-label"><input type="checkbox" id="tglSupply"   checked onchange="renderPlanRoutes()"> Supply</label>
+          <label class="toggle-label"><input type="checkbox" id="tglExtract"  checked onchange="renderPlanRoutes()"> Extract</label>
+          <label class="toggle-label"><input type="checkbox" id="tglIntake"   checked onchange="renderPlanRoutes()"> Intake/Exhaust</label>
+          <label class="toggle-label"><input type="checkbox" id="tglLabels"   checked onchange="renderPlanNodes()"> Labels</label>
+          <label class="toggle-label"><input type="checkbox" id="tglRoutes"   checked onchange="renderPlanRoutes()"> Routes</label>
+        </div>
+        <div style="margin-left:auto; font-size:11px; color:var(--muted)" id="planStatus">Floor plan overlay</div>
+      </div>
+
+      <div class="plan-with-props">
+        <!-- Viewport -->
+        <div id="planViewport" class="plan-viewport"
+          onmousedown="onPlanViewportMouseDown(event)"
+          onmousemove="onPlanViewportMouseMove(event)"
+          onmouseup="onPlanViewportMouseUp(event)"
+          onmouseleave="onPlanViewportMouseLeave(event)"
+          onwheel="onPlanWheel(event)">
+
+          <!-- Empty state -->
+          <div id="planEmpty" style="display:none">
+            <h3>No floor plan found</h3>
+            <p>No rendered floor plan image is available for this project. Use Schematic View, or re-upload and process your plans.</p>
+            <button class="btn btn-secondary" style="margin-top:12px" onclick="switchTab('schematic')">Open Schematic View →</button>
+          </div>
+
+          <!-- Plan stage (transform target) -->
+          <div id="planStage" class="plan-stage">
+            <img id="planImage" class="plan-image" alt="Floor plan" draggable="false">
+            <svg id="planOverlay" class="plan-overlay"></svg>
+            <div id="planNodes" class="plan-nodes"></div>
+          </div>
+        </div>
+
+        <!-- Right: properties panel -->
+        <div class="props-sidebar" id="planPropsPanel">
+          <div class="props-empty" id="planPropsEmpty">
+            Click a node to view and edit its properties.
+          </div>
+          <div id="planPropsContent" style="display:none"></div>
+        </div>
+      </div>
+    </div><!-- /tabPlan -->
+
+    <!-- ═══════════ TAB: Schematic View ═══════════ -->
+    <div id="tabSchematic">
+      <div class="editor-layout">
+        <!-- Left sidebar -->
+        <div class="sidebar-left">
+          <div>
+            <div class="sidebar-section-title">Layers</div>
+            <label class="layer-item">
+              <input type="checkbox" id="layerSupply"    checked onchange="onLayerChange()">
+              <div class="layer-swatch" style="background:var(--supply)"></div> Supply
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="layerExtract"   checked onchange="onLayerChange()">
+              <div class="layer-swatch" style="background:var(--extract)"></div> Extract
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="layerIntake"    checked onchange="onLayerChange()">
+              <div class="layer-swatch" style="background:var(--intake)"></div> Intake / Exhaust
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="layerTerminals" checked onchange="onLayerChange()">
+              <div class="layer-swatch" style="background:#d1d5db"></div> Terminals
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="layerManifolds" checked onchange="onLayerChange()">
+              <div class="layer-swatch" style="background:var(--manifold)"></div> Manifolds
+            </label>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-label">Canvas options</div>
+            <label class="layer-item">
+              <input type="checkbox" id="chkSnap" checked onchange="_snapEnabled = this.checked">
+              Snap to grid (10px)
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="chkFloorBands" checked onchange="renderCanvas()">
+              Show floor bands
+            </label>
+            <label class="layer-item">
+              <input type="checkbox" id="chkRunLengths" checked onchange="renderCanvas()">
+              Show run lengths
+            </label>
+          </div>
+
+          <div class="panel-section">
+            <div class="panel-label">Manifold layout</div>
+            <label class="layer-item">
+              <input type="radio" name="manifoldMode" value="single" checked onchange="setManifoldMode('single')">
+              Single manifold
+            </label>
+            <label class="layer-item">
+              <input type="radio" name="manifoldMode" value="per_floor" onchange="setManifoldMode('per_floor')">
+              Per-floor manifolds
+            </label>
+          </div>
+
+          <div>
+            <div class="sidebar-section-title">Legend</div>
+            <div class="legend-item"><div class="legend-line" style="background:var(--supply)"></div><span class="legend-label">Supply duct</span></div>
+            <div class="legend-item"><div class="legend-line" style="background:var(--extract)"></div><span class="legend-label">Extract duct</span></div>
+            <div class="legend-item"><div class="legend-line" style="background:var(--intake)"></div><span class="legend-label">Intake duct</span></div>
+            <div class="legend-item"><div class="legend-line" style="background:var(--exhaust)"></div><span class="legend-label">Exhaust duct</span></div>
+            <div style="margin-top:14px">
+              <div class="sidebar-section-title">Node types</div>
+              <div class="legend-item" style="margin-bottom:6px"><div style="width:24px;height:14px;background:#1a4731;border-radius:2px;flex-shrink:0"></div><span class="legend-label">MVHR Unit</span></div>
+              <div class="legend-item" style="margin-bottom:6px"><div style="width:24px;height:14px;background:var(--manifold);border-radius:2px;flex-shrink:0"></div><span class="legend-label">Manifold</span></div>
+              <div class="legend-item" style="margin-bottom:6px"><div style="width:14px;height:14px;background:var(--supply);border-radius:50%;flex-shrink:0"></div><span class="legend-label">Supply terminal</span></div>
+              <div class="legend-item" style="margin-bottom:6px"><div style="width:14px;height:14px;background:var(--extract);border-radius:50%;flex-shrink:0"></div><span class="legend-label">Extract terminal</span></div>
+              <div class="legend-item" style="margin-bottom:6px"><div style="width:24px;height:14px;background:var(--intake);border-radius:2px;flex-shrink:0"></div><span class="legend-label">Intake / Exhaust</span></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto">
+            <div class="sidebar-section-title">Tips</div>
+            <div style="font-size:11px; color:var(--muted); line-height:1.6">
+              Drag nodes to reposition.<br>
+              Click node or duct run to edit.<br>
+              Run lengths auto-update on drag.<br>
+              Save to persist changes.
+            </div>
+          </div>
+        </div>
+
+        <!-- Centre: SVG canvas -->
+        <div class="canvas-wrap">
+          <div class="canvas-toolbar">
+            <span id="canvasStatus">Schematic view — drag nodes to rearrange</span>
+            <span style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--muted);">Scale:</span>
+              <input type="number" id="scaleInput" value="12" min="5" max="50" step="1"
+                style="width:50px; padding:3px 6px; border:1px solid var(--border); border-radius:5px; font-size:12px;"
+                oninput="_scaleM = parseFloat(this.value)||12; renderCanvas(); renderSchedule();">
+              <span style="font-size:12px; color:var(--muted);">m / canvas</span>
+            </span>
+          </div>
+          <svg id="ductCanvas" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg"
+               style="border:none; background:#f8fafc;">
+            <defs>
+              <marker id="arrowSupply" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#1d4ed8" opacity="0.7"/>
+              </marker>
+              <marker id="arrowExtract" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#b91c1c" opacity="0.7"/>
+              </marker>
+              <marker id="arrowIntake" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#15803d" opacity="0.7"/>
+              </marker>
+              <marker id="arrowExhaust" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#6b7280" opacity="0.7"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+
+        <!-- Right sidebar: properties panel -->
+        <div class="sidebar-right" id="propsPanel">
+          <div class="props-empty" id="propsEmpty">
+            Click a node or duct run to view and edit its properties.
+          </div>
+          <div id="propsContent" style="display:none"></div>
+        </div>
+      </div>
+    </div><!-- /tabSchematic -->
+
+    <!-- ═══════════ TAB: Duct Schedule ═══════════ -->
+    <div id="tabSchedule">
+      <div class="schedule-card">
+        <div class="schedule-header">
+          <div class="schedule-title">Duct Schedule</div>
+          <div style="font-size:12px; color:var(--muted)" id="scheduleCount"></div>
+        </div>
+        <table class="schedule-table" id="scheduleTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Type</th>
+              <th>Duct</th>
+              <th>Ø mm</th>
+              <th>Length m</th>
+              <th>Airflow m³/h</th>
+              <th>ΔP Pa</th>
+            </tr>
+          </thead>
+          <tbody id="scheduleTbody">
+            <tr class="empty-row"><td colspan="9">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div><!-- /tabSchedule -->
+
+  </div><!-- /mainContent -->
 </main>
 
 <script>
@@ -492,17 +611,34 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let _projectId    = null;
 let _token        = null;
 let _design       = null;
-let _nodes        = [];   // { id, node_type, room_name, x, y, airflow_m3h, duct_diameter_mm, project_room_id, floor_index, metadata }
-let _runs         = [];   // { id, from_node_id, to_node_id, run_type, duct_type, diameter_mm, length_m, pressure_drop_pa }
+let _nodes        = [];
+let _runs         = [];
+let _planPages    = [];   // [{floor_index, floor_name, image_url, width_px, height_px}]
 let _selected     = null; // { type: 'node'|'run', id }
 let _dirty        = false;
 let _saving       = false;
 let _manifoldMode = 'single';
 let _snapEnabled  = true;
-let _scaleM       = 12;   // total canvas width in metres
+let _scaleM       = 12;
 let _layers       = { supply: true, extract: true, intake: true, terminals: true, manifolds: true };
+let _activeTab    = 'plan';
 
-// Drag state
+// ── Plan view state ───────────────────────────────────────────
+let _planFloor    = 0;       // currently selected floor index
+let _planScale    = 1.0;     // zoom level
+let _planOffsetX  = 0;       // pan offset
+let _planOffsetY  = 0;
+let _planPanning  = false;
+let _planPanStartX = 0;
+let _planPanStartY = 0;
+let _planPanOriginX = 0;
+let _planPanOriginY = 0;
+let _planDragging  = null;   // node id being dragged in plan view
+let _planDragStartPct = null;// {x_pct, y_pct} before drag
+let _planDragMouseStart = null;
+let _planImgLoaded = false;
+
+// ── Schematic drag state ──────────────────────────────────────
 let _dragging     = null;
 let _dragOffsetX  = 0;
 let _dragOffsetY  = 0;
@@ -526,6 +662,18 @@ function showMain()    { el('loadingState').style.display = 'none'; el('mainCont
 function showLoading() { el('loadingState').style.display = 'block'; el('mainContent').style.display = 'none'; el('errorState').style.display = 'none'; }
 function showError(msg){ el('loadingState').style.display = 'none'; el('errorState').style.display = 'block'; el('errorMsg').textContent = ' ' + msg; }
 
+// ── Tab switching ─────────────────────────────────────────────
+function switchTab(tab) {
+  _activeTab = tab;
+  ['plan','schematic','schedule'].forEach(t => {
+    el(`tab${capitalize(t)}`).style.display = t === tab ? (t === 'plan' ? 'flex' : 'block') : 'none';
+    el(`tabBtn${capitalize(t)}`).classList.toggle('active', t === tab);
+  });
+  if (tab === 'schematic') { renderCanvas(); }
+  if (tab === 'schedule')  { renderSchedule(); }
+  if (tab === 'plan')      { renderPlanView(); }
+}
+
 // ── Auth ─────────────────────────────────────────────────────
 async function doLogin() {
   const email = el('loginEmail').value.trim();
@@ -538,11 +686,8 @@ async function doLogin() {
 async function doSignOut() { await sb.auth.signOut(); location.reload(); }
 
 sb.auth.getSession().then(({ data: { session } }) => {
-  if (session) {
-    el('loginOverlay').classList.add('hidden');
-  } else {
-    el('loginOverlay').classList.add('show-login');
-  }
+  if (session) { el('loginOverlay').classList.add('hidden'); }
+  else         { el('loginOverlay').classList.add('show-login'); }
 });
 
 sb.auth.onAuthStateChange((_ev, session) => {
@@ -567,18 +712,10 @@ function apiGet(path) {
   return fetch(path, { headers: { Authorization: `Bearer ${_token}` } });
 }
 function apiPost(path, body) {
-  return fetch(path, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token}` },
-    body:    JSON.stringify(body),
-  });
+  return fetch(path, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${_token}`}, body:JSON.stringify(body) });
 }
 function apiPatch(path, body) {
-  return fetch(path, {
-    method:  'PATCH',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token}` },
-    body:    JSON.stringify(body),
-  });
+  return fetch(path, { method:'PATCH', headers:{'Content-Type':'application/json',Authorization:`Bearer ${_token}`}, body:JSON.stringify(body) });
 }
 
 // ── Init ─────────────────────────────────────────────────────
@@ -601,60 +738,469 @@ async function init() {
     const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
     if (proj?.name) {
       el('headerProject').textContent = proj.name;
-      el('pageSubtitle').textContent  = `${proj.name} · Duct Design`;
-      document.title = `HiPer Studio — ${proj.name} — Duct Design`;
-    } else {
-      el('pageSubtitle').textContent = _projectId ?? 'No project';
+      el('pageSubtitle').textContent  = `${proj.name} · System Layout`;
+      document.title = `HiPer Studio — ${proj.name} — System Layout`;
     }
   }
 
-  if (!_projectId) {
-    showError('No project ID found in URL. Return to the Projects list.');
-    return;
-  }
+  if (!_projectId) { showError('No project ID found in URL.'); return; }
 
   showLoading();
 
   try {
     const res = await apiGet(`${API_BASE}/duct-design?projectId=${_projectId}`);
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      showError(errData.error ?? `HTTP ${res.status}`);
-      return;
-    }
+    if (!res.ok) { const e = await res.json().catch(()=>({})); showError(e.error ?? `HTTP ${res.status}`); return; }
     const data = await res.json();
-    _design = data.design;
-    _nodes  = data.nodes ?? [];
-    _runs   = data.runs  ?? [];
 
-    // Restore saved state from design_json
+    _design    = data.design;
+    _nodes     = data.nodes   ?? [];
+    _runs      = data.runs    ?? [];
+    _planPages = data.planPages ?? [];
+
+    // Restore design_json state
     if (_design?.design_json?.manifold_mode) {
       _manifoldMode = _design.design_json.manifold_mode;
-      const radios = document.querySelectorAll('input[name="manifoldMode"]');
-      radios.forEach(r => { r.checked = r.value === _manifoldMode; });
+      document.querySelectorAll('input[name="manifoldMode"]').forEach(r => { r.checked = r.value === _manifoldMode; });
     }
     if (_design?.design_json?.scale_m) {
       _scaleM = _design.design_json.scale_m;
       el('scaleInput').value = _scaleM;
     }
 
-    if (data.generated) {
-      el('generatedNotice').style.display = 'block';
-    }
-    if (!_design?.airflow_design_id) {
-      el('noAirflowNotice').style.display = 'block';
-    }
+    if (data.generated) el('generatedNotice').style.display = 'block';
+    if (!_design?.airflow_design_id) el('noAirflowNotice').style.display = 'block';
+
+    // Build floor selector from planPages
+    buildFloorSelector();
+
+    // Ensure all nodes have plan positions
+    ensurePlanPositions();
 
     setDirty(false);
     showMain();
-    renderCanvas();
+
+    // Default to Floor Plan Layout
+    switchTab('plan');
     renderSchedule();
   } catch (err) {
     showError(err.message);
   }
 }
 
-// ── Layer change ──────────────────────────────────────────────
+// ── Floor selector ────────────────────────────────────────────
+function buildFloorSelector() {
+  const sel = el('planFloorSelect');
+  sel.innerHTML = '';
+
+  // Build floors from planPages (preferred) or from node floor_indices
+  const floors = _planPages.length > 0
+    ? _planPages.map(p => ({ index: p.floor_index, name: p.floor_name }))
+    : buildFloorsFromNodes();
+
+  if (!floors.length) floors.push({ index: 0, name: 'Ground Floor' });
+
+  floors.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.index;
+    opt.textContent = f.name;
+    sel.appendChild(opt);
+  });
+  sel.value = _planFloor;
+}
+
+function buildFloorsFromNodes() {
+  const FLOOR_NAMES = ['Ground Floor','First Floor','Second Floor','Third Floor'];
+  const indices = [...new Set(_nodes.filter(n => n.floor_index != null).map(n => n.floor_index))].sort((a,b)=>a-b);
+  return indices.map(i => ({ index: i, name: FLOOR_NAMES[i] ?? `Floor ${i}` }));
+}
+
+function onFloorChange() {
+  _planFloor = parseInt(el('planFloorSelect').value, 10) || 0;
+  renderPlanView();
+}
+
+// ── Plan position helpers ─────────────────────────────────────
+// Ensure every node has a metadata.plan entry with x_pct/y_pct
+function ensurePlanPositions() {
+  const GLOBAL_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold'];
+  const nodesByFloor = {};
+  for (const n of _nodes) {
+    const fi = n.floor_index ?? 0;
+    if (!nodesByFloor[fi]) nodesByFloor[fi] = { supply:[], extract:[], manifold:[], other:[] };
+    if (n.node_type === 'supply_terminal')  nodesByFloor[fi].supply.push(n);
+    else if (n.node_type === 'extract_terminal') nodesByFloor[fi].extract.push(n);
+    else if (n.node_type === 'supply_manifold' || n.node_type === 'extract_manifold') nodesByFloor[fi].manifold.push(n);
+    else nodesByFloor[fi].other.push(n);
+  }
+
+  for (const n of _nodes) {
+    const meta = n.metadata ?? {};
+    if (meta.plan?.x_pct != null && meta.plan?.y_pct != null) continue; // already placed
+
+    // Auto-place based on node type
+    let x_pct, y_pct;
+    const fi = n.floor_index ?? 0;
+
+    if (n.node_type === 'mvhr_unit') {
+      x_pct = 8; y_pct = 50;
+    } else if (n.node_type === 'external_intake') {
+      x_pct = 3; y_pct = 35;
+    } else if (n.node_type === 'external_exhaust') {
+      x_pct = 3; y_pct = 65;
+    } else if (n.node_type === 'supply_manifold') {
+      x_pct = 20 + (fi * 5); y_pct = 30;
+    } else if (n.node_type === 'extract_manifold') {
+      x_pct = 20 + (fi * 5); y_pct = 65;
+    } else if (n.node_type === 'supply_terminal') {
+      const arr = nodesByFloor[fi]?.supply ?? [];
+      const idx = arr.indexOf(n);
+      const total = arr.length;
+      x_pct = 35 + (idx / Math.max(total, 1)) * 50;
+      y_pct = 20 + (idx % 4) * 18;
+    } else if (n.node_type === 'extract_terminal') {
+      const arr = nodesByFloor[fi]?.extract ?? [];
+      const idx = arr.indexOf(n);
+      const total = arr.length;
+      x_pct = 35 + (idx / Math.max(total, 1)) * 50;
+      y_pct = 60 + (idx % 3) * 14;
+    } else {
+      x_pct = 50; y_pct = 50;
+    }
+
+    n.metadata = { ...meta, plan: { floor_index: fi, x_pct, y_pct } };
+  }
+}
+
+// ── Floor Plan View rendering ─────────────────────────────────
+function renderPlanView() {
+  const page = _planPages.find(p => p.floor_index === _planFloor) ?? _planPages[0];
+
+  const viewportEl = el('planViewport');
+  const stageEl    = el('planStage');
+  const imgEl      = el('planImage');
+  const emptyEl    = el('planEmpty');
+
+  if (!page || !page.image_url) {
+    emptyEl.style.display = 'flex';
+    stageEl.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  stageEl.style.display = 'block';
+
+  // Load plan image
+  if (imgEl.src !== page.image_url) {
+    _planImgLoaded = false;
+    imgEl.onload = () => {
+      _planImgLoaded = true;
+      // Set overlay size to match image
+      const ow = imgEl.naturalWidth || imgEl.offsetWidth;
+      const oh = imgEl.naturalHeight || imgEl.offsetHeight;
+      el('planOverlay').style.width  = `${ow}px`;
+      el('planOverlay').style.height = `${oh}px`;
+      el('planOverlay').setAttribute('viewBox', `0 0 ${ow} ${oh}`);
+      el('planNodes').style.width  = `${ow}px`;
+      el('planNodes').style.height = `${oh}px`;
+      planFitScreen();
+      renderPlanNodes();
+      renderPlanRoutes();
+    };
+    imgEl.src = page.image_url;
+  } else {
+    renderPlanNodes();
+    renderPlanRoutes();
+  }
+
+  applyPlanTransform();
+}
+
+function applyPlanTransform() {
+  el('planStage').style.transform = `translate(${_planOffsetX}px, ${_planOffsetY}px) scale(${_planScale})`;
+}
+
+function planFitScreen() {
+  const img = el('planImage');
+  const viewport = el('planViewport');
+  if (!img.naturalWidth || !viewport.offsetWidth) return;
+
+  const vw = viewport.offsetWidth - 40;
+  const vh = viewport.offsetHeight - 40;
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  _planScale = Math.min(vw / iw, vh / ih, 1);
+  _planOffsetX = (viewport.offsetWidth - iw * _planScale) / 2;
+  _planOffsetY = (viewport.offsetHeight - ih * _planScale) / 2;
+  applyPlanTransform();
+}
+
+function planZoom(factor) {
+  const viewport = el('planViewport');
+  const cx = viewport.offsetWidth / 2;
+  const cy = viewport.offsetHeight / 2;
+  const newScale = Math.max(0.05, Math.min(4, _planScale * factor));
+  _planOffsetX = cx - (cx - _planOffsetX) * (newScale / _planScale);
+  _planOffsetY = cy - (cy - _planOffsetY) * (newScale / _planScale);
+  _planScale = newScale;
+  applyPlanTransform();
+}
+
+// ── Plan node rendering ───────────────────────────────────────
+const GLOBAL_NODE_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold'];
+
+function planNodeVisible(n) {
+  if (GLOBAL_NODE_TYPES.includes(n.node_type)) return true; // always show global nodes
+  return (n.floor_index ?? 0) === _planFloor;
+}
+
+function planRunVisible(run) {
+  if (!el('tglRoutes').checked) return false;
+  if (run.run_type === 'supply'  && !el('tglSupply').checked)  return false;
+  if (run.run_type === 'extract' && !el('tglExtract').checked) return false;
+  if ((run.run_type === 'intake' || run.run_type === 'exhaust') && !el('tglIntake').checked) return false;
+  return true;
+}
+
+function renderPlanNodes() {
+  const container = el('planNodes');
+  const img = el('planImage');
+  if (!img.naturalWidth) return;
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const showLabels = el('tglLabels')?.checked !== false;
+
+  container.innerHTML = '';
+
+  for (const node of _nodes) {
+    if (!planNodeVisible(node)) continue;
+    const plan = node.metadata?.plan ?? {};
+    const xPct = plan.x_pct ?? 50;
+    const yPct = plan.y_pct ?? 50;
+
+    const div = document.createElement('div');
+    div.className = `plan-node ${planNodeClass(node.node_type)}`;
+    div.dataset.nodeId = node.id;
+    div.style.left = `${xPct}%`;
+    div.style.top  = `${yPct}%`;
+    if (_selected?.type === 'node' && _selected.id === node.id) div.classList.add('selected');
+
+    const body = document.createElement('div');
+    body.className = `node-body ${planNodeShape(node.node_type)}`;
+    body.textContent = planNodeShortLabel(node);
+    div.appendChild(body);
+
+    if (showLabels) {
+      const lbl = document.createElement('div');
+      lbl.className = 'node-label';
+      lbl.textContent = node.room_name ?? formatNodeType(node.node_type);
+      div.appendChild(lbl);
+
+      if (node.airflow_m3h > 0) {
+        const af = document.createElement('div');
+        af.className = 'node-airflow-label';
+        af.textContent = `${node.airflow_m3h} m³/h`;
+        div.appendChild(af);
+      }
+    }
+
+    div.addEventListener('mousedown', e => onPlanNodeMouseDown(e, node.id));
+    div.addEventListener('click', e => { e.stopPropagation(); selectPlanItem('node', node.id); });
+    container.appendChild(div);
+  }
+}
+
+function planNodeClass(t) {
+  return { supply_terminal:'node-supply', extract_terminal:'node-extract', mvhr_unit:'node-mvhr',
+           supply_manifold:'node-smfd', extract_manifold:'node-emfd',
+           external_intake:'node-intake', external_exhaust:'node-exhaust' }[t] ?? '';
+}
+function planNodeShape(t) {
+  return (t === 'supply_terminal' || t === 'extract_terminal') ? 'circle' : 'rect';
+}
+function planNodeShortLabel(n) {
+  switch (n.node_type) {
+    case 'mvhr_unit':        return 'MVHR';
+    case 'supply_manifold':  return 'S';
+    case 'extract_manifold': return 'E';
+    case 'external_intake':  return '↓';
+    case 'external_exhaust': return '↑';
+    case 'supply_terminal':  return truncate(n.room_name ?? 'S', 3);
+    case 'extract_terminal': return truncate(n.room_name ?? 'E', 3);
+    default: return '?';
+  }
+}
+
+// ── Plan route rendering ──────────────────────────────────────
+function renderPlanRoutes() {
+  const svgEl = el('planOverlay');
+  const img = el('planImage');
+  if (!img.naturalWidth) { svgEl.innerHTML = ''; return; }
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+
+  svgEl.innerHTML = '';
+
+  const nodeMap = {};
+  for (const n of _nodes) nodeMap[n.id] = n;
+
+  const RUN_COLORS = { supply:'#1d4ed8', extract:'#b91c1c', intake:'#15803d', exhaust:'#6b7280' };
+
+  for (const run of _runs) {
+    if (!planRunVisible(run)) continue;
+    const from = nodeMap[run.from_node_id];
+    const to   = nodeMap[run.to_node_id];
+    if (!from || !to) continue;
+
+    // Use plan positions
+    const fp = from.metadata?.plan ?? { x_pct: from.x / CANVAS_W_CONST * 100, y_pct: 50 };
+    const tp = to.metadata?.plan   ?? { x_pct: to.x / CANVAS_W_CONST * 100,   y_pct: 50 };
+
+    const x1 = (fp.x_pct / 100) * iw;
+    const y1 = (fp.y_pct / 100) * ih;
+    const x2 = (tp.x_pct / 100) * iw;
+    const y2 = (tp.y_pct / 100) * ih;
+
+    const color = RUN_COLORS[run.run_type] ?? '#9ca3af';
+    const diam  = run.diameter_mm ?? 90;
+    const thick = diam >= 160 ? 3 : 1.5;
+    const dash  = (run.run_type === 'supply' || run.run_type === 'extract') && diam < 160 ? '8,4' : '';
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', thick);
+    line.setAttribute('stroke-linecap', 'round');
+    if (dash) line.setAttribute('stroke-dasharray', dash);
+    line.setAttribute('opacity', '0.7');
+    svgEl.appendChild(line);
+  }
+}
+
+// ── Plan node drag ────────────────────────────────────────────
+function onPlanNodeMouseDown(e, nodeId) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  _planDragging = nodeId;
+  _planDragMouseStart = { x: e.clientX, y: e.clientY };
+  const node = _nodes.find(n => n.id === nodeId);
+  _planDragStartPct = { x_pct: node?.metadata?.plan?.x_pct ?? 50, y_pct: node?.metadata?.plan?.y_pct ?? 50 };
+}
+
+function onPlanViewportMouseDown(e) {
+  if (_planDragging) return;
+  if (e.button !== 0) return;
+  _planPanning = true;
+  _planPanStartX = e.clientX;
+  _planPanStartY = e.clientY;
+  _planPanOriginX = _planOffsetX;
+  _planPanOriginY = _planOffsetY;
+  el('planViewport').classList.add('panning');
+}
+
+function onPlanViewportMouseMove(e) {
+  if (_planDragging) {
+    const img = el('planImage');
+    if (!img.naturalWidth) return;
+
+    const dx = (e.clientX - _planDragMouseStart.x) / _planScale;
+    const dy = (e.clientY - _planDragMouseStart.y) / _planScale;
+    const newXpct = Math.max(0, Math.min(100, _planDragStartPct.x_pct + (dx / img.naturalWidth) * 100));
+    const newYpct = Math.max(0, Math.min(100, _planDragStartPct.y_pct + (dy / img.naturalHeight) * 100));
+
+    const node = _nodes.find(n => n.id === _planDragging);
+    if (node) {
+      node.metadata = { ...(node.metadata ?? {}), plan: { ...(node.metadata?.plan ?? {}), floor_index: _planFloor, x_pct: newXpct, y_pct: newYpct } };
+      // Update DOM directly for smooth drag
+      const el2 = document.querySelector(`.plan-node[data-node-id="${_planDragging}"]`);
+      if (el2) { el2.style.left = `${newXpct}%`; el2.style.top = `${newYpct}%`; }
+      renderPlanRoutes();
+      setDirty(true);
+    }
+    return;
+  }
+  if (!_planPanning) return;
+  _planOffsetX = _planPanOriginX + (e.clientX - _planPanStartX);
+  _planOffsetY = _planPanOriginY + (e.clientY - _planPanStartY);
+  applyPlanTransform();
+}
+
+function onPlanViewportMouseUp(e) {
+  _planDragging = null;
+  _planPanning  = false;
+  el('planViewport').classList.remove('panning');
+}
+
+function onPlanViewportMouseLeave(e) {
+  onPlanViewportMouseUp(e);
+}
+
+function onPlanWheel(e) {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  const rect = el('planViewport').getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const newScale = Math.max(0.05, Math.min(4, _planScale * factor));
+  _planOffsetX = cx - (cx - _planOffsetX) * (newScale / _planScale);
+  _planOffsetY = cy - (cy - _planOffsetY) * (newScale / _planScale);
+  _planScale = newScale;
+  applyPlanTransform();
+}
+
+// ── Plan selection ────────────────────────────────────────────
+function selectPlanItem(type, id) {
+  _selected = type && id ? { type, id } : null;
+  renderPlanNodes();
+  renderPlanPropsPanel();
+}
+
+function renderPlanPropsPanel() {
+  const emptyEl   = el('planPropsEmpty');
+  const contentEl = el('planPropsContent');
+  if (!_selected || _selected.type !== 'node') {
+    emptyEl.style.display   = 'block';
+    contentEl.style.display = 'none';
+    return;
+  }
+  const node = _nodes.find(n => n.id === _selected.id);
+  if (!node) { emptyEl.style.display = 'block'; contentEl.style.display = 'none'; return; }
+  emptyEl.style.display   = 'none';
+  contentEl.style.display = 'block';
+  contentEl.innerHTML = `
+    <div class="props-title">Node Properties</div>
+    <div class="prop-row">
+      <span class="prop-label">Type</span>
+      <span class="prop-value">${formatNodeType(node.node_type)}</span>
+    </div>
+    <div class="prop-row">
+      <label class="prop-label" for="planPropRoomName">Label / Room Name</label>
+      <input class="prop-input" id="planPropRoomName" type="text" value="${esc(node.room_name ?? '')}"
+        oninput="updateNodeProp('${node.id}', 'room_name', this.value); renderPlanNodes();">
+    </div>
+    ${node.airflow_m3h !== undefined && node.airflow_m3h !== null ? `
+    <div class="prop-row">
+      <label class="prop-label" for="planPropAirflow">Airflow (m³/h)</label>
+      <input class="prop-input" id="planPropAirflow" type="number" min="0" step="1" value="${node.airflow_m3h ?? ''}"
+        oninput="updateNodeProp('${node.id}', 'airflow_m3h', parseFloat(this.value)||0); renderPlanNodes();">
+    </div>` : ''}
+    ${node.floor_index != null ? `
+    <div class="prop-row">
+      <span class="prop-label">Floor</span>
+      <span class="prop-value">${floorLabel(node.floor_index)}</span>
+    </div>` : ''}
+    <div class="prop-row">
+      <span class="prop-label">Plan Position</span>
+      <span class="prop-value" style="font-size:11px">${(node.metadata?.plan?.x_pct ?? 50).toFixed(1)}%, ${(node.metadata?.plan?.y_pct ?? 50).toFixed(1)}%</span>
+      <div class="prop-hint">Drag the node on the floor plan to reposition.</div>
+    </div>
+  `;
+}
+
+// ═════════════════════════════════════════════════════════════
+// SCHEMATIC VIEW LOGIC (preserved from existing)
+// ═════════════════════════════════════════════════════════════
 function onLayerChange() {
   _layers.supply    = el('layerSupply').checked;
   _layers.extract   = el('layerExtract').checked;
@@ -664,60 +1210,39 @@ function onLayerChange() {
   renderCanvas();
 }
 
-// ── Manifold mode ─────────────────────────────────────────────
 async function setManifoldMode(mode) {
   if (mode === _manifoldMode) return;
   _manifoldMode = mode;
-  if (_design) {
-    _design.design_json = { ...(_design.design_json || {}), manifold_mode: mode };
-  }
+  if (_design) _design.design_json = { ...(_design.design_json || {}), manifold_mode: mode };
   if (confirm('Switch manifold mode? This will regenerate the entire layout.')) {
     await regenerateLayout(mode);
   }
 }
 
-// ── Grid snap ────────────────────────────────────────────────
-function snapToGrid(v, gridSize = 10) {
-  return Math.round(v / gridSize) * gridSize;
-}
+function snapToGrid(v, gridSize = 10) { return Math.round(v / gridSize) * gridSize; }
+function svgEl(tag) { return document.createElementNS('http://www.w3.org/2000/svg', tag); }
 
-// ── SVG helper ────────────────────────────────────────────────
-function svgEl(tag) {
-  return document.createElementNS('http://www.w3.org/2000/svg', tag);
-}
-
-// ── SVG coordinate transform ──────────────────────────────────
 function svgPoint(e) {
   const svg = el('ductCanvas');
   const pt  = svg.createSVGPoint();
-  pt.x = e.clientX;
-  pt.y = e.clientY;
+  pt.x = e.clientX; pt.y = e.clientY;
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
-// ── Trunk diameter sizing ─────────────────────────────────────
-function calcTrunkDiameter(totalFlowM3h) {
-  if (totalFlowM3h <= 0)   return 90;
-  if (totalFlowM3h <= 100) return 100;
-  if (totalFlowM3h <= 160) return 125;
-  if (totalFlowM3h <= 250) return 160;
-  if (totalFlowM3h <= 400) return 180;
-  return 200;
+function calcTrunkDiameter(f) {
+  if (f <= 0) return 90; if (f <= 100) return 100; if (f <= 160) return 125;
+  if (f <= 250) return 160; if (f <= 400) return 180; return 200;
 }
 
-// ── Run length calculation ────────────────────────────────────
 function calcRunLength(run) {
-  const fromNode = _nodes.find(n => n.id === run.from_node_id);
-  const toNode   = _nodes.find(n => n.id === run.to_node_id);
-  if (!fromNode || !toNode) return null;
-  const dx = fromNode.x - toNode.x;
-  const dy = fromNode.y - toNode.y;
-  // Convert SVG units to metres: canvas is CANVAS_W_CONST units wide = _scaleM metres
+  const from = _nodes.find(n => n.id === run.from_node_id);
+  const to   = _nodes.find(n => n.id === run.to_node_id);
+  if (!from || !to) return null;
+  const dx = from.x - to.x, dy = from.y - to.y;
   const SCALE = _scaleM / CANVAS_W_CONST;
-  return Math.round(Math.sqrt(dx * dx + dy * dy) * SCALE * 10) / 10;
+  return Math.round(Math.sqrt(dx*dx + dy*dy) * SCALE * 10) / 10;
 }
 
-// ── Node label helpers ────────────────────────────────────────
 function nodeLabel(n) {
   switch (n.node_type) {
     case 'mvhr_unit':        return 'MVHR';
@@ -730,334 +1255,179 @@ function nodeLabel(n) {
     default:                 return n.room_name ?? n.node_type;
   }
 }
+function nodeLabel2(node) { return node.airflow_m3h > 0 ? `${node.airflow_m3h} m³/h` : ''; }
+function truncate(s, max) { return s.length > max ? s.slice(0, max - 1) + '…' : s; }
 
-function nodeLabel2(node) {
-  if (node.airflow_m3h > 0) return `${node.airflow_m3h} m³/h`;
-  return '';
-}
-
-function truncate(s, max) {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
-
-// ── Run visibility ────────────────────────────────────────────
 function isRunVisible(run) {
   if (run.run_type === 'supply'  && !_layers.supply)  return false;
   if (run.run_type === 'extract' && !_layers.extract) return false;
   if ((run.run_type === 'intake' || run.run_type === 'exhaust') && !_layers.intake) return false;
   return true;
 }
-
 function isNodeVisible(node) {
   if ((node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal') && !_layers.terminals) return false;
   if ((node.node_type === 'supply_manifold' || node.node_type === 'extract_manifold') && !_layers.manifolds) return false;
   return true;
 }
 
-// ── Bezier control points ─────────────────────────────────────
 function bezierPath(x1, y1, x2, y2) {
-  // Create a smooth horizontal S-curve
   const dx = Math.abs(x2 - x1);
   const cp = Math.max(dx * 0.4, 60);
-  const cx1 = x1 + cp;
-  const cx2 = x2 - cp;
-  return `M ${x1} ${y1} C ${cx1} ${y1} ${cx2} ${y2} ${x2} ${y2}`;
+  return `M ${x1} ${y1} C ${x1+cp} ${y1} ${x2-cp} ${y2} ${x2} ${y2}`;
 }
 
-// ── Run stroke style ──────────────────────────────────────────
 function runStroke(run) {
-  const diam = run.diameter_mm ?? 90;
+  const d = run.diameter_mm ?? 90;
   switch (run.run_type) {
-    case 'supply':  return { color: '#1d4ed8', width: diam >= 160 ? 4 : 2.5, dash: diam >= 160 ? '' : '6,3', marker: 'url(#arrowSupply)' };
-    case 'extract': return { color: '#b91c1c', width: diam >= 160 ? 4 : 2.5, dash: diam >= 160 ? '' : '6,3', marker: 'url(#arrowExtract)' };
-    case 'intake':  return { color: '#15803d', width: 3.5, dash: '', marker: 'url(#arrowIntake)' };
-    case 'exhaust': return { color: '#6b7280', width: 2.5, dash: '8,4', marker: 'url(#arrowExhaust)' };
-    default:        return { color: '#9ca3af', width: 2, dash: '', marker: '' };
+    case 'supply':  return { color:'#1d4ed8', width:d>=160?4:2.5, dash:d>=160?'':'6,3', marker:'url(#arrowSupply)' };
+    case 'extract': return { color:'#b91c1c', width:d>=160?4:2.5, dash:d>=160?'':'6,3', marker:'url(#arrowExtract)' };
+    case 'intake':  return { color:'#15803d', width:3.5, dash:'', marker:'url(#arrowIntake)' };
+    case 'exhaust': return { color:'#6b7280', width:2.5, dash:'8,4', marker:'url(#arrowExhaust)' };
+    default:        return { color:'#9ca3af', width:2, dash:'', marker:'' };
   }
 }
 
-// ── renderCanvas ──────────────────────────────────────────────
 function renderCanvas() {
   const svg = el('ductCanvas');
-
-  // Dynamic canvas height based on number of floors
-  const numFloors = Math.max(
-    [...new Set(_nodes.filter(n => n.floor_index != null).map(n => n.floor_index))].length,
-    1
-  );
+  const numFloors = Math.max([...new Set(_nodes.filter(n=>n.floor_index!=null).map(n=>n.floor_index))].length, 1);
   const CANVAS_H = Math.max(800, numFloors * 280 + 100);
   svg.setAttribute('viewBox', `0 0 ${CANVAS_W_CONST} ${CANVAS_H}`);
 
-  // Keep defs — remove everything else
   const defs = svg.querySelector('defs');
   while (svg.lastChild && svg.lastChild !== defs) svg.removeChild(svg.lastChild);
 
-  // ── Floor band backgrounds ──────────────────────────────────
-  const showBands = el('chkFloorBands')?.checked !== false;
-  if (showBands && _design?.design_json?.floorBands) {
+  // Floor bands
+  if (el('chkFloorBands')?.checked && _design?.design_json?.floorBands) {
     for (const band of _design.design_json.floorBands) {
       const rect = svgEl('rect');
-      rect.setAttribute('x', 0);
-      rect.setAttribute('y', band.y_start);
-      rect.setAttribute('width', CANVAS_W_CONST);
-      rect.setAttribute('height', band.y_end - band.y_start);
-      rect.setAttribute('fill', band.color);
-      rect.setAttribute('opacity', '0.4');
-      rect.setAttribute('pointer-events', 'none');
+      rect.setAttribute('x',0); rect.setAttribute('y',band.y_start);
+      rect.setAttribute('width',CANVAS_W_CONST); rect.setAttribute('height',band.y_end-band.y_start);
+      rect.setAttribute('fill',band.color); rect.setAttribute('opacity','0.4'); rect.setAttribute('pointer-events','none');
       svg.insertBefore(rect, svg.firstChild);
-
       const text = svgEl('text');
-      text.setAttribute('x', 20);
-      text.setAttribute('y', band.y_start + 22);
-      text.setAttribute('font-size', '11');
-      text.setAttribute('font-weight', '800');
-      text.setAttribute('fill', '#94a3b8');
-      text.setAttribute('pointer-events', 'none');
-      text.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+      text.setAttribute('x',20); text.setAttribute('y',band.y_start+22);
+      text.setAttribute('font-size','11'); text.setAttribute('font-weight','800'); text.setAttribute('fill','#94a3b8');
+      text.setAttribute('pointer-events','none'); text.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
       text.textContent = band.label.toUpperCase();
       svg.insertBefore(text, svg.firstChild);
     }
   }
 
-  // ── Background grid ─────────────────────────────────────────
+  // Grid
   const gridG = svgEl('g');
-  gridG.setAttribute('class', 'grid');
   const GRID = 50;
-  for (let x = 0; x <= CANVAS_W_CONST; x += GRID) {
-    const line = svgEl('line');
-    line.setAttribute('x1', x); line.setAttribute('y1', 0);
-    line.setAttribute('x2', x); line.setAttribute('y2', CANVAS_H);
-    line.setAttribute('stroke', '#e2e8f0'); line.setAttribute('stroke-width', '0.5');
-    gridG.appendChild(line);
-  }
-  for (let y = 0; y <= CANVAS_H; y += GRID) {
-    const line = svgEl('line');
-    line.setAttribute('x1', 0);              line.setAttribute('y1', y);
-    line.setAttribute('x2', CANVAS_W_CONST); line.setAttribute('y2', y);
-    line.setAttribute('stroke', '#e2e8f0'); line.setAttribute('stroke-width', '0.5');
-    gridG.appendChild(line);
-  }
+  for (let x=0; x<=CANVAS_W_CONST; x+=GRID) { const l=svgEl('line'); l.setAttribute('x1',x); l.setAttribute('y1',0); l.setAttribute('x2',x); l.setAttribute('y2',CANVAS_H); l.setAttribute('stroke','#e2e8f0'); l.setAttribute('stroke-width','0.5'); gridG.appendChild(l); }
+  for (let y=0; y<=CANVAS_H; y+=GRID) { const l=svgEl('line'); l.setAttribute('x1',0); l.setAttribute('y1',y); l.setAttribute('x2',CANVAS_W_CONST); l.setAttribute('y2',y); l.setAttribute('stroke','#e2e8f0'); l.setAttribute('stroke-width','0.5'); gridG.appendChild(l); }
   svg.appendChild(gridG);
 
   const nodeMap = {};
   for (const n of _nodes) nodeMap[n.id] = n;
-
   const showLengths = el('chkRunLengths')?.checked !== false;
 
-  // ── Runs layer (drawn under nodes) ─────────────────────────
+  // Runs
   const runsG = svgEl('g');
-  runsG.setAttribute('class', 'runs-layer');
   for (const run of _runs) {
     if (!isRunVisible(run)) continue;
-    const from = nodeMap[run.from_node_id];
-    const to   = nodeMap[run.to_node_id];
+    const from = nodeMap[run.from_node_id], to = nodeMap[run.to_node_id];
     if (!from || !to) continue;
-
     const { color, width, dash, marker } = runStroke(run);
-    const isSelected = _selected?.type === 'run' && _selected.id === run.id;
-    const path = svgEl('path');
-    path.setAttribute('d', bezierPath(from.x, from.y, to.x, to.y));
-    path.setAttribute('stroke', isSelected ? '#f59e0b' : color);
-    path.setAttribute('stroke-width', isSelected ? width + 2 : width);
-    path.setAttribute('fill', 'none');
-    if (dash) path.setAttribute('stroke-dasharray', dash);
-    if (marker) path.setAttribute('marker-end', marker);
-    path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('data-run-id', run.id);
-    path.style.cursor = 'pointer';
+    const isSel = _selected?.type === 'run' && _selected.id === run.id;
 
-    // Hit area (wider invisible path for easier clicking)
     const hitPath = svgEl('path');
-    hitPath.setAttribute('d', bezierPath(from.x, from.y, to.x, to.y));
-    hitPath.setAttribute('stroke', 'transparent');
-    hitPath.setAttribute('stroke-width', '16');
-    hitPath.setAttribute('fill', 'none');
-    hitPath.setAttribute('data-run-id', run.id);
-    hitPath.style.cursor = 'pointer';
+    hitPath.setAttribute('d', bezierPath(from.x,from.y,to.x,to.y));
+    hitPath.setAttribute('stroke','transparent'); hitPath.setAttribute('stroke-width','16'); hitPath.setAttribute('fill','none');
+    hitPath.setAttribute('data-run-id', run.id); hitPath.style.cursor = 'pointer';
 
-    // Label: diameter + length on run midpoint
-    const mx = (from.x + to.x) / 2;
-    const my = (from.y + to.y) / 2;
-    const diam = run.diameter_mm ?? calcTrunkDiameter(
-      (from.node_type === 'supply_terminal' || from.node_type === 'extract_terminal')
-        ? (from.airflow_m3h || 0)
-        : (to.node_type === 'supply_terminal' || to.node_type === 'extract_terminal')
-          ? (to.airflow_m3h || 0)
-          : 0
-    );
+    const path = svgEl('path');
+    path.setAttribute('d', bezierPath(from.x,from.y,to.x,to.y));
+    path.setAttribute('stroke', isSel ? '#f59e0b' : color);
+    path.setAttribute('stroke-width', isSel ? width+2 : width);
+    path.setAttribute('fill','none'); if (dash) path.setAttribute('stroke-dasharray',dash);
+    if (marker) path.setAttribute('marker-end',marker); path.setAttribute('stroke-linecap','round');
+    path.setAttribute('data-run-id', run.id); path.style.cursor = 'pointer';
+
+    const mx = (from.x+to.x)/2, my = (from.y+to.y)/2;
+    const diam = run.diameter_mm ?? 90;
     const len = run.length_m ?? calcRunLength(run);
     let labelText = `Ø${diam}`;
-    if (showLengths && len !== null) {
-      labelText += ` — ${len} m`;
-    }
-
+    if (showLengths && len !== null) labelText += ` — ${len} m`;
     const label = svgEl('text');
-    label.setAttribute('x', mx); label.setAttribute('y', my - 6);
-    label.setAttribute('text-anchor', 'middle');
-    label.setAttribute('font-size', '10');
-    label.setAttribute('fill', color);
-    label.setAttribute('font-weight', '700');
-    label.setAttribute('pointer-events', 'none');
-    label.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
+    label.setAttribute('x',mx); label.setAttribute('y',my-6); label.setAttribute('text-anchor','middle');
+    label.setAttribute('font-size','10'); label.setAttribute('fill',color); label.setAttribute('font-weight','700');
+    label.setAttribute('pointer-events','none'); label.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif');
     label.textContent = labelText;
 
-    runsG.appendChild(hitPath);
-    runsG.appendChild(path);
-    runsG.appendChild(label);
+    runsG.appendChild(hitPath); runsG.appendChild(path); runsG.appendChild(label);
   }
   svg.appendChild(runsG);
 
-  // ── Nodes layer (drawn over runs) ──────────────────────────
+  // Nodes
   const nodesG = svgEl('g');
-  nodesG.setAttribute('class', 'nodes-layer');
-
   for (const node of _nodes) {
     if (!isNodeVisible(node)) continue;
     const g = svgEl('g');
-    g.setAttribute('data-node-id', node.id);
-    g.style.cursor = 'grab';
-
-    const isSelected = _selected?.type === 'node' && _selected.id === node.id;
-
+    g.setAttribute('data-node-id', node.id); g.style.cursor = 'grab';
+    const isSel = _selected?.type === 'node' && _selected.id === node.id;
     switch (node.node_type) {
       case 'mvhr_unit': {
-        const W = 80, H = 50;
-        if (isSelected) {
-          const glow = svgEl('rect');
-          glow.setAttribute('x', node.x - W/2 - 4); glow.setAttribute('y', node.y - H/2 - 4);
-          glow.setAttribute('width', W + 8); glow.setAttribute('height', H + 8);
-          glow.setAttribute('rx', '10'); glow.setAttribute('fill', 'none');
-          glow.setAttribute('stroke', '#f59e0b'); glow.setAttribute('stroke-width', '3');
-          g.appendChild(glow);
-        }
-        const rect = svgEl('rect');
-        rect.setAttribute('x', node.x - W/2); rect.setAttribute('y', node.y - H/2);
-        rect.setAttribute('width', W); rect.setAttribute('height', H);
-        rect.setAttribute('rx', '6'); rect.setAttribute('fill', '#1a4731');
-        g.appendChild(rect);
-        const txt  = svgText(node.x, node.y - 7, 'MVHR Unit', '#fff', 11, '800');
-        const txt2 = svgText(node.x, node.y + 9, nodeLabel2(node), 'rgba(255,255,255,0.7)', 9, '600');
-        g.appendChild(txt); g.appendChild(txt2);
+        const W=80,H=50;
+        if (isSel) { const glow=svgEl('rect'); glow.setAttribute('x',node.x-W/2-4); glow.setAttribute('y',node.y-H/2-4); glow.setAttribute('width',W+8); glow.setAttribute('height',H+8); glow.setAttribute('rx','10'); glow.setAttribute('fill','none'); glow.setAttribute('stroke','#f59e0b'); glow.setAttribute('stroke-width','3'); g.appendChild(glow); }
+        const rect=svgEl('rect'); rect.setAttribute('x',node.x-W/2); rect.setAttribute('y',node.y-H/2); rect.setAttribute('width',W); rect.setAttribute('height',H); rect.setAttribute('rx','6'); rect.setAttribute('fill','#1a4731'); g.appendChild(rect);
+        g.appendChild(svgText(node.x,node.y-7,'MVHR Unit','#fff',11,'800'));
+        g.appendChild(svgText(node.x,node.y+9,nodeLabel2(node),'rgba(255,255,255,0.7)',9,'600'));
         break;
       }
-      case 'supply_manifold': {
-        const W = 70, H = 28;
-        renderRectNode(g, node, W, H, '#7c3aed', '#fff', isSelected);
-        break;
-      }
-      case 'extract_manifold': {
-        const W = 70, H = 28;
-        renderRectNode(g, node, W, H, '#7c3aed', '#fff', isSelected);
-        break;
-      }
-      case 'external_intake': {
-        const W = 56, H = 30;
-        renderRectNode(g, node, W, H, '#15803d', '#fff', isSelected);
-        break;
-      }
-      case 'external_exhaust': {
-        const W = 56, H = 30;
-        renderRectNode(g, node, W, H, '#6b7280', '#fff', isSelected);
-        break;
-      }
-      case 'supply_terminal': {
-        renderCircleNode(g, node, 22, '#1d4ed8', '#fff', isSelected);
-        break;
-      }
-      case 'extract_terminal': {
-        renderCircleNode(g, node, 22, '#b91c1c', '#fff', isSelected);
-        break;
-      }
-      default: {
-        renderCircleNode(g, node, 14, '#9ca3af', '#fff', isSelected);
-      }
+      case 'supply_manifold': renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
+      case 'extract_manifold': renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
+      case 'external_intake': renderRectNode(g,node,56,30,'#15803d','#fff',isSel); break;
+      case 'external_exhaust': renderRectNode(g,node,56,30,'#6b7280','#fff',isSel); break;
+      case 'supply_terminal': renderCircleNode(g,node,22,'#1d4ed8','#fff',isSel); break;
+      case 'extract_terminal': renderCircleNode(g,node,22,'#b91c1c','#fff',isSel); break;
+      default: renderCircleNode(g,node,14,'#9ca3af','#fff',isSel);
     }
     nodesG.appendChild(g);
   }
   svg.appendChild(nodesG);
 
-  // Attach event listeners to the SVG (event delegation)
   svg.onmousedown  = onMouseDown;
   svg.onmousemove  = onMouseMove;
   svg.onmouseup    = onMouseUp;
   svg.onclick      = onSvgClick;
-  svg.onmouseleave = () => { if (_dragging) { _dragging = null; svg.classList.remove('dragging'); } };
+  svg.onmouseleave = () => { if (_dragging) { _dragging=null; svg.classList.remove('dragging'); } };
 }
 
-function renderRectNode(g, node, W, H, fill, textFill, isSelected) {
-  if (isSelected) {
-    const glow = svgEl('rect');
-    glow.setAttribute('x', node.x - W/2 - 4); glow.setAttribute('y', node.y - H/2 - 4);
-    glow.setAttribute('width', W + 8); glow.setAttribute('height', H + 8);
-    glow.setAttribute('rx', '7'); glow.setAttribute('fill', 'none');
-    glow.setAttribute('stroke', '#f59e0b'); glow.setAttribute('stroke-width', '3');
-    g.appendChild(glow);
-  }
-  const rect = svgEl('rect');
-  rect.setAttribute('x', node.x - W/2); rect.setAttribute('y', node.y - H/2);
-  rect.setAttribute('width', W); rect.setAttribute('height', H);
-  rect.setAttribute('rx', '5'); rect.setAttribute('fill', fill);
-  g.appendChild(rect);
-  const txt = svgText(node.x, node.y + 4, nodeLabel(node), textFill, 10, '700');
-  g.appendChild(txt);
+function renderRectNode(g, node, W, H, fill, textFill, isSel) {
+  if (isSel) { const glow=svgEl('rect'); glow.setAttribute('x',node.x-W/2-4); glow.setAttribute('y',node.y-H/2-4); glow.setAttribute('width',W+8); glow.setAttribute('height',H+8); glow.setAttribute('rx','7'); glow.setAttribute('fill','none'); glow.setAttribute('stroke','#f59e0b'); glow.setAttribute('stroke-width','3'); g.appendChild(glow); }
+  const rect=svgEl('rect'); rect.setAttribute('x',node.x-W/2); rect.setAttribute('y',node.y-H/2); rect.setAttribute('width',W); rect.setAttribute('height',H); rect.setAttribute('rx','5'); rect.setAttribute('fill',fill); g.appendChild(rect);
+  g.appendChild(svgText(node.x,node.y+4,nodeLabel(node),textFill,10,'700'));
 }
 
-function renderCircleNode(g, node, r, fill, textFill, isSelected) {
-  if (isSelected) {
-    const ring = svgEl('circle');
-    ring.setAttribute('cx', node.x); ring.setAttribute('cy', node.y); ring.setAttribute('r', r + 5);
-    ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', '#f59e0b'); ring.setAttribute('stroke-width', '3');
-    g.appendChild(ring);
-  }
-  const circ = svgEl('circle');
-  circ.setAttribute('cx', node.x); circ.setAttribute('cy', node.y); circ.setAttribute('r', r);
-  circ.setAttribute('fill', fill);
-  circ.setAttribute('fill-opacity', '0.85');
-  g.appendChild(circ);
-
-  // Short label inside circle (first letters or abbreviation)
-  const shortLabel = (node.room_name ? truncate(node.room_name, 4) : nodeLabel(node));
-  const inner = svgText(node.x, node.y + 4, shortLabel, textFill, 9, '700');
-  g.appendChild(inner);
-
-  // Room name below circle
-  if (node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal') {
-    const fullName = node.room_name ? truncate(node.room_name, 12) : '';
-    if (fullName) {
-      const sub = svgText(node.x, node.y + r + 13, fullName, '#374151', 9, '600');
-      sub.setAttribute('pointer-events', 'none');
-      g.appendChild(sub);
-    }
-    // Airflow label below name
-    if (node.airflow_m3h > 0) {
-      const af = svgText(node.x, node.y + r + 25, `${node.airflow_m3h} m³/h`, '#6b7280', 9, '500');
-      af.setAttribute('pointer-events', 'none');
-      g.appendChild(af);
-    }
+function renderCircleNode(g, node, r, fill, textFill, isSel) {
+  if (isSel) { const ring=svgEl('circle'); ring.setAttribute('cx',node.x); ring.setAttribute('cy',node.y); ring.setAttribute('r',r+5); ring.setAttribute('fill','none'); ring.setAttribute('stroke','#f59e0b'); ring.setAttribute('stroke-width','3'); g.appendChild(ring); }
+  const circ=svgEl('circle'); circ.setAttribute('cx',node.x); circ.setAttribute('cy',node.y); circ.setAttribute('r',r); circ.setAttribute('fill',fill); circ.setAttribute('fill-opacity','0.85'); g.appendChild(circ);
+  const shortLabel = node.room_name ? truncate(node.room_name,4) : nodeLabel(node);
+  g.appendChild(svgText(node.x,node.y+4,shortLabel,textFill,9,'700'));
+  if (node.node_type==='supply_terminal'||node.node_type==='extract_terminal') {
+    const fullName = node.room_name ? truncate(node.room_name,12) : '';
+    if (fullName) { const sub=svgText(node.x,node.y+r+13,fullName,'#374151',9,'600'); sub.setAttribute('pointer-events','none'); g.appendChild(sub); }
+    if (node.airflow_m3h>0) { const af=svgText(node.x,node.y+r+25,`${node.airflow_m3h} m³/h`,'#6b7280',9,'500'); af.setAttribute('pointer-events','none'); g.appendChild(af); }
   }
 }
 
-function svgText(x, y, text, fill, fontSize, fontWeight) {
-  const t = svgEl('text');
-  t.setAttribute('x', x); t.setAttribute('y', y);
-  t.setAttribute('text-anchor', 'middle');
-  t.setAttribute('font-size', fontSize ?? 11);
-  t.setAttribute('fill', fill ?? '#fff');
-  t.setAttribute('font-weight', fontWeight ?? '700');
-  t.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
-  t.setAttribute('pointer-events', 'none');
-  t.textContent = text;
-  return t;
+function svgText(x,y,text,fill,fontSize,fontWeight) {
+  const t=svgEl('text'); t.setAttribute('x',x); t.setAttribute('y',y); t.setAttribute('text-anchor','middle');
+  t.setAttribute('font-size',fontSize??11); t.setAttribute('fill',fill??'#fff'); t.setAttribute('font-weight',fontWeight??'700');
+  t.setAttribute('font-family','-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'); t.setAttribute('pointer-events','none');
+  t.textContent=text; return t;
 }
 
-// ── Drag handlers ─────────────────────────────────────────────
+// ── Schematic drag ────────────────────────────────────────────
 function onMouseDown(e) {
   const nodeEl = e.target.closest('[data-node-id]');
   if (!nodeEl) return;
   const nodeId = nodeEl.getAttribute('data-node-id');
   const node   = _nodes.find(n => n.id === nodeId);
   if (!node) return;
-
   _dragging    = nodeId;
   const pt     = svgPoint(e);
   _dragOffsetX = pt.x - node.x;
@@ -1068,11 +1438,10 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   if (!_dragging) return;
-  const pt   = svgPoint(e);
+  const pt = svgPoint(e);
   const node = _nodes.find(n => n.id === _dragging);
   if (!node) return;
-  const rawX = pt.x - _dragOffsetX;
-  const rawY = pt.y - _dragOffsetY;
+  const rawX = pt.x - _dragOffsetX, rawY = pt.y - _dragOffsetY;
   node.x = _snapEnabled ? snapToGrid(rawX) : Math.round(rawX);
   node.y = _snapEnabled ? snapToGrid(rawY) : Math.round(rawY);
   renderCanvas();
@@ -1080,143 +1449,88 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
-  if (_dragging) {
-    // If mouse didn't move much, treat as click — handled in onclick
-  }
   _dragging = null;
   el('ductCanvas').classList.remove('dragging');
 }
 
-// ── Click selection ───────────────────────────────────────────
 function onSvgClick(e) {
-  // Check for run click (hits the data-run-id elements)
   const runEl = e.target.closest('[data-run-id]');
-  if (runEl) {
-    const runId = runEl.getAttribute('data-run-id');
-    selectItem('run', runId);
-    return;
-  }
-  // Check for node click
+  if (runEl) { selectItem('run', runEl.getAttribute('data-run-id')); return; }
   const nodeEl = e.target.closest('[data-node-id]');
-  if (nodeEl) {
-    const nodeId = nodeEl.getAttribute('data-node-id');
-    selectItem('node', nodeId);
-    return;
-  }
-  // Click on empty space — deselect
+  if (nodeEl) { selectItem('node', nodeEl.getAttribute('data-node-id')); return; }
   selectItem(null, null);
 }
 
 function selectItem(type, id) {
-  if (type && id) {
-    _selected = { type, id };
-  } else {
-    _selected = null;
-  }
+  _selected = type && id ? { type, id } : null;
   renderCanvas();
   renderPropsPanel();
 }
 
-// ── Properties panel ──────────────────────────────────────────
+// ── Schematic properties panel ────────────────────────────────
 function renderPropsPanel() {
-  const emptyEl   = el('propsEmpty');
-  const contentEl = el('propsContent');
-
-  if (!_selected) {
-    emptyEl.style.display   = 'block';
-    contentEl.style.display = 'none';
-    return;
-  }
-
-  emptyEl.style.display   = 'none';
-  contentEl.style.display = 'block';
+  const emptyEl = el('propsEmpty'), contentEl = el('propsContent');
+  if (!_selected) { emptyEl.style.display='block'; contentEl.style.display='none'; return; }
+  emptyEl.style.display='none'; contentEl.style.display='block';
 
   if (_selected.type === 'node') {
-    const node = _nodes.find(n => n.id === _selected.id);
-    if (!node) { emptyEl.style.display = 'block'; contentEl.style.display = 'none'; return; }
-
+    const node = _nodes.find(n=>n.id===_selected.id);
+    if (!node) { emptyEl.style.display='block'; contentEl.style.display='none'; return; }
     contentEl.innerHTML = `
       <div class="props-title">Node Properties</div>
-      <div class="prop-row">
-        <span class="prop-label">Type</span>
-        <span class="prop-value">${formatNodeType(node.node_type)}</span>
-      </div>
+      <div class="prop-row"><span class="prop-label">Type</span><span class="prop-value">${formatNodeType(node.node_type)}</span></div>
       <div class="prop-row">
         <label class="prop-label" for="propRoomName">Label / Room Name</label>
-        <input class="prop-input" id="propRoomName" type="text" value="${esc(node.room_name ?? '')}"
-          oninput="updateNodeProp('${node.id}', 'room_name', this.value)">
+        <input class="prop-input" id="propRoomName" type="text" value="${esc(node.room_name??'')}" oninput="updateNodeProp('${node.id}','room_name',this.value)">
       </div>
-      ${node.airflow_m3h !== undefined && node.airflow_m3h !== null ? `
+      ${node.airflow_m3h!==undefined&&node.airflow_m3h!==null?`
       <div class="prop-row">
         <label class="prop-label" for="propAirflow">Airflow (m³/h)</label>
-        <input class="prop-input" id="propAirflow" type="number" min="0" step="1" value="${node.airflow_m3h ?? ''}"
-          oninput="updateNodeProp('${node.id}', 'airflow_m3h', parseFloat(this.value)||0)">
-      </div>` : ''}
+        <input class="prop-input" id="propAirflow" type="number" min="0" step="1" value="${node.airflow_m3h??''}" oninput="updateNodeProp('${node.id}','airflow_m3h',parseFloat(this.value)||0)">
+      </div>`:''}
       <div class="prop-row">
-        <span class="prop-label">Position</span>
-        <span class="prop-value">(${Math.round(node.x)}, ${Math.round(node.y)})</span>
-        <div class="prop-hint">Drag the node on the canvas to reposition.</div>
+        <span class="prop-label">Position</span><span class="prop-value">(${Math.round(node.x)}, ${Math.round(node.y)})</span>
+        <div class="prop-hint">Drag on canvas to reposition.</div>
       </div>
-      ${node.floor_index !== null && node.floor_index !== undefined ? `
-      <div class="prop-row">
-        <span class="prop-label">Floor</span>
-        <span class="prop-value">${floorLabel(node.floor_index)}</span>
-      </div>` : ''}
+      ${node.floor_index!=null?`<div class="prop-row"><span class="prop-label">Floor</span><span class="prop-value">${floorLabel(node.floor_index)}</span></div>`:''}
     `;
   } else if (_selected.type === 'run') {
-    const run = _runs.find(r => r.id === _selected.id);
-    if (!run) { emptyEl.style.display = 'block'; contentEl.style.display = 'none'; return; }
-    const fromNode = _nodes.find(n => n.id === run.from_node_id);
-    const toNode   = _nodes.find(n => n.id === run.to_node_id);
-    const estLen   = calcRunLength(run);
-
+    const run = _runs.find(r=>r.id===_selected.id);
+    if (!run) { emptyEl.style.display='block'; contentEl.style.display='none'; return; }
+    const fromNode = _nodes.find(n=>n.id===run.from_node_id), toNode = _nodes.find(n=>n.id===run.to_node_id);
+    const estLen = calcRunLength(run);
     contentEl.innerHTML = `
       <div class="props-title">Run Properties</div>
-      <div class="prop-row">
-        <span class="prop-label">Type</span>
-        <span class="prop-value">${capitalize(run.run_type)}</span>
-      </div>
-      <div class="prop-row">
-        <span class="prop-label">From</span>
-        <span class="prop-value">${esc(fromNode?.room_name ?? fromNode?.node_type ?? '—')}</span>
-      </div>
-      <div class="prop-row">
-        <span class="prop-label">To</span>
-        <span class="prop-value">${esc(toNode?.room_name ?? toNode?.node_type ?? '—')}</span>
-      </div>
+      <div class="prop-row"><span class="prop-label">Type</span><span class="prop-value">${capitalize(run.run_type)}</span></div>
+      <div class="prop-row"><span class="prop-label">From</span><span class="prop-value">${esc(fromNode?.room_name??fromNode?.node_type??'—')}</span></div>
+      <div class="prop-row"><span class="prop-label">To</span><span class="prop-value">${esc(toNode?.room_name??toNode?.node_type??'—')}</span></div>
       <div class="prop-row">
         <label class="prop-label" for="propDuctType">Duct Type</label>
-        <select class="prop-select" id="propDuctType" onchange="updateRunProp('${run.id}', 'duct_type', this.value)">
-          <option value="semi_rigid_90"  ${run.duct_type === 'semi_rigid_90'  ? 'selected' : ''}>Semi-rigid 90mm</option>
-          <option value="epp_160"        ${run.duct_type === 'epp_160'        ? 'selected' : ''}>EPP 160mm</option>
-          <option value="epp_180"        ${run.duct_type === 'epp_180'        ? 'selected' : ''}>EPP 180mm</option>
-          <option value="epp_200"        ${run.duct_type === 'epp_200'        ? 'selected' : ''}>EPP 200mm</option>
-          <option value="custom"         ${run.duct_type === 'custom'         ? 'selected' : ''}>Custom</option>
+        <select class="prop-select" id="propDuctType" onchange="updateRunProp('${run.id}','duct_type',this.value)">
+          <option value="semi_rigid_90" ${run.duct_type==='semi_rigid_90'?'selected':''}>Semi-rigid 90mm</option>
+          <option value="epp_160"       ${run.duct_type==='epp_160'?'selected':''}>EPP 160mm</option>
+          <option value="epp_180"       ${run.duct_type==='epp_180'?'selected':''}>EPP 180mm</option>
+          <option value="epp_200"       ${run.duct_type==='epp_200'?'selected':''}>EPP 200mm</option>
+          <option value="custom"        ${run.duct_type==='custom'?'selected':''}>Custom</option>
         </select>
       </div>
       <div class="prop-row">
         <label class="prop-label" for="propDiameter">Diameter (mm)</label>
-        <input class="prop-input" id="propDiameter" type="number" min="50" max="400" step="5" value="${run.diameter_mm ?? ''}"
-          oninput="updateRunProp('${run.id}', 'diameter_mm', parseFloat(this.value)||90)">
+        <input class="prop-input" id="propDiameter" type="number" min="50" max="400" step="5" value="${run.diameter_mm??''}" oninput="updateRunProp('${run.id}','diameter_mm',parseFloat(this.value)||90)">
       </div>
       <div class="prop-row">
         <label class="prop-label" for="propLength">Length (m)</label>
-        <input class="prop-input" id="propLength" type="number" min="0" step="0.1" value="${run.length_m ?? ''}"
-          placeholder="${estLen != null ? `Est. ${estLen} m` : 'Enter measured length'}"
-          oninput="updateRunProp('${run.id}', 'length_m', parseFloat(this.value)||null)">
-        <div class="prop-hint">${estLen != null ? `Schematic estimate: ${estLen} m. ` : ''}Measure on plan and enter actual duct run length.</div>
+        <input class="prop-input" id="propLength" type="number" min="0" step="0.1" value="${run.length_m??''}"
+          placeholder="${estLen!=null?`Est. ${estLen} m`:'Enter measured length'}"
+          oninput="updateRunProp('${run.id}','length_m',parseFloat(this.value)||null)">
+        <div class="prop-hint">${estLen!=null?`Schematic estimate: ${estLen} m. `:''}Measure on plan for actual length.</div>
       </div>
-      ${run.pressure_drop_pa ? `
-      <div class="prop-row">
-        <span class="prop-label">ΔP</span>
-        <span class="prop-value">${run.pressure_drop_pa} Pa</span>
-      </div>` : ''}
     `;
   }
 }
 
 function updateNodeProp(nodeId, prop, value) {
-  const node = _nodes.find(n => n.id === nodeId);
+  const node = _nodes.find(n=>n.id===nodeId);
   if (!node) return;
   node[prop] = value;
   setDirty(true);
@@ -1225,7 +1539,7 @@ function updateNodeProp(nodeId, prop, value) {
 }
 
 function updateRunProp(runId, prop, value) {
-  const run = _runs.find(r => r.id === runId);
+  const run = _runs.find(r=>r.id===runId);
   if (!run) return;
   run[prop] = value;
   setDirty(true);
@@ -1237,8 +1551,8 @@ function updateRunProp(runId, prop, value) {
 async function saveLayout() {
   if (_saving) return;
   _saving = true;
-  el('btnSave').disabled = true;
-  el('btnSave').textContent = 'Saving…';
+  const btn = el('btnSave');
+  btn.disabled = true; btn.textContent = 'Saving…';
 
   try {
     const res = await apiPatch(`${API_BASE}/duct-design`, {
@@ -1249,6 +1563,7 @@ async function saveLayout() {
         y:           n.y,
         room_name:   n.room_name,
         airflow_m3h: n.airflow_m3h,
+        metadata:    n.metadata,
       })),
       runs: _runs.map(r => ({
         id:          r.id,
@@ -1265,8 +1580,8 @@ async function saveLayout() {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      alert('Save failed: ' + (errData.error ?? `HTTP ${res.status}`));
+      const e = await res.json().catch(()=>({}));
+      alert('Save failed: ' + (e.error ?? `HTTP ${res.status}`));
     } else {
       const data = await res.json();
       if (data.design) _design = data.design;
@@ -1276,135 +1591,92 @@ async function saveLayout() {
     alert('Save error: ' + err.message);
   } finally {
     _saving = false;
-    el('btnSave').textContent = 'Save Layout';
-    el('btnSave').disabled    = !_dirty;
+    btn.textContent = 'Save Layout';
+    btn.disabled = !_dirty;
   }
 }
 
 // ── Regenerate layout ─────────────────────────────────────────
 async function regenerateLayout(mode) {
   const modeToUse = mode ?? _manifoldMode;
-  if (!mode && !confirm('Regenerate the duct layout from airflow data? This will reset all node positions and duct properties. Continue?')) return;
+  if (!mode && !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
 
   showLoading();
   _selected = null;
 
   try {
-    const res = await apiPost(`${API_BASE}/duct-design`, {
-      projectId:    _projectId,
-      action:       'regenerate',
-      manifoldMode: modeToUse,
-    });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      showError(errData.error ?? `HTTP ${res.status}`);
-      return;
-    }
+    const res = await apiPost(`${API_BASE}/duct-design`, { projectId:_projectId, action:'regenerate', manifoldMode:modeToUse });
+    if (!res.ok) { const e=await res.json().catch(()=>({})); showError(e.error??`HTTP ${res.status}`); return; }
     const data = await res.json();
-    _design = data.design;
-    _nodes  = data.nodes ?? [];
-    _runs   = data.runs  ?? [];
+    _design    = data.design;
+    _nodes     = data.nodes  ?? [];
+    _runs      = data.runs   ?? [];
+    _planPages = data.planPages ?? _planPages;
 
-    // Sync UI controls from design_json
-    if (_design?.design_json?.scale_m) {
-      _scaleM = _design.design_json.scale_m;
-      el('scaleInput').value = _scaleM;
-    }
+    if (_design?.design_json?.scale_m) { _scaleM=_design.design_json.scale_m; el('scaleInput').value=_scaleM; }
 
+    buildFloorSelector();
+    ensurePlanPositions();
     el('generatedNotice').style.display = 'block';
     setDirty(false);
     showMain();
-    renderCanvas();
+
+    if (_activeTab === 'schematic') renderCanvas();
+    else switchTab(_activeTab);
     renderSchedule();
   } catch (err) {
     showError(err.message);
   }
 }
 
-// ── Duct schedule table ───────────────────────────────────────
+// ── Duct schedule ─────────────────────────────────────────────
 function renderSchedule() {
   const tbody = el('scheduleTbody');
   const nodeMap = {};
   for (const n of _nodes) nodeMap[n.id] = n;
 
-  const visibleRuns = _runs.filter(r => {
-    const from = nodeMap[r.from_node_id];
-    const to   = nodeMap[r.to_node_id];
-    return from && to;
-  });
+  const visibleRuns = _runs.filter(r => nodeMap[r.from_node_id] && nodeMap[r.to_node_id]);
+  el('scheduleCount').textContent = `${visibleRuns.length} run${visibleRuns.length!==1?'s':''}`;
 
-  el('scheduleCount').textContent = `${visibleRuns.length} run${visibleRuns.length !== 1 ? 's' : ''}`;
-
-  if (!visibleRuns.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No duct runs yet.</td></tr>';
-    return;
-  }
+  if (!visibleRuns.length) { tbody.innerHTML='<tr class="empty-row"><td colspan="9">No duct runs yet.</td></tr>'; return; }
 
   tbody.innerHTML = visibleRuns.map((run, i) => {
-    const from = nodeMap[run.from_node_id];
-    const to   = nodeMap[run.to_node_id];
-    const fromName = from?.room_name ?? formatNodeType(from?.node_type ?? '');
-    const toName   = to?.room_name   ?? formatNodeType(to?.node_type   ?? '');
+    const from = nodeMap[run.from_node_id], to = nodeMap[run.to_node_id];
+    const fromName = from?.room_name ?? formatNodeType(from?.node_type??'');
+    const toName   = to?.room_name   ?? formatNodeType(to?.node_type??'');
     const pillClass = `pill-${run.run_type}`;
-    const ductLabel = formatDuctType(run.duct_type);
-    const airflowM3h = (from?.node_type === 'supply_terminal' || from?.node_type === 'extract_terminal')
-      ? (from.airflow_m3h ?? '—')
-      : (to?.node_type === 'supply_terminal' || to?.node_type === 'extract_terminal')
-        ? (to.airflow_m3h ?? '—')
-        : '—';
-
-    // Length: use stored value, else calculate from node positions
+    const airflowM3h = (from?.node_type==='supply_terminal'||from?.node_type==='extract_terminal') ? (from.airflow_m3h??'—')
+                     : (to?.node_type==='supply_terminal'||to?.node_type==='extract_terminal')     ? (to.airflow_m3h??'—') : '—';
     const lengthM = run.length_m ?? calcRunLength(run);
-    const lengthDisplay = lengthM != null ? `${lengthM.toFixed(1)} m` : '<span style="color:var(--muted)">—</span>';
-
-    // Diameter: use stored, else infer from airflow
-    const terminalFlow = airflowM3h !== '—' ? Number(airflowM3h) : 0;
-    const diam = run.diameter_mm ?? (terminalFlow > 0 ? calcTrunkDiameter(terminalFlow) : null);
-    const diamDisplay = diam != null ? `Ø${diam}` : '<span style="color:var(--muted)">—</span>';
-
+    const lengthDisplay = lengthM!=null ? `${lengthM.toFixed(1)} m` : '<span style="color:var(--muted)">—</span>';
+    const terminalFlow = airflowM3h!=='—' ? Number(airflowM3h) : 0;
+    const diam = run.diameter_mm ?? (terminalFlow>0 ? calcTrunkDiameter(terminalFlow) : null);
+    const diamDisplay = diam!=null ? `Ø${diam}` : '<span style="color:var(--muted)">—</span>';
     return `<tr>
-      <td style="color:var(--muted); font-size:11px">${i + 1}</td>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
       <td style="font-weight:600">${esc(fromName)}</td>
       <td>${esc(toName)}</td>
       <td><span class="run-type-pill ${pillClass}">${capitalize(run.run_type)}</span></td>
-      <td style="color:var(--muted)">${esc(ductLabel)}</td>
+      <td style="color:var(--muted)">${esc(formatDuctType(run.duct_type))}</td>
       <td style="font-weight:700">${diamDisplay}</td>
       <td>${lengthDisplay}</td>
-      <td>${airflowM3h !== '—' ? `${airflowM3h}` : '<span style="color:var(--muted)">—</span>'}</td>
-      <td>${run.pressure_drop_pa != null ? run.pressure_drop_pa : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${airflowM3h!=='—'?airflowM3h:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${run.pressure_drop_pa!=null?run.pressure_drop_pa:'<span style="color:var(--muted)">—</span>'}</td>
     </tr>`;
   }).join('');
 }
 
 // ── Format helpers ────────────────────────────────────────────
 function formatNodeType(t) {
-  return {
-    mvhr_unit:        'MVHR Unit',
-    supply_manifold:  'Supply Manifold',
-    extract_manifold: 'Extract Manifold',
-    supply_terminal:  'Supply Terminal',
-    extract_terminal: 'Extract Terminal',
-    external_intake:  'External Intake',
-    external_exhaust: 'External Exhaust',
-    transfer_zone:    'Transfer Zone',
-  }[t] ?? t;
+  return { mvhr_unit:'MVHR Unit', supply_manifold:'Supply Manifold', extract_manifold:'Extract Manifold',
+           supply_terminal:'Supply Terminal', extract_terminal:'Extract Terminal',
+           external_intake:'External Intake', external_exhaust:'External Exhaust' }[t] ?? t;
 }
-
 function formatDuctType(t) {
-  return {
-    semi_rigid_90: 'Semi-rigid Ø90',
-    epp_160:       'EPP Ø160',
-    epp_180:       'EPP Ø180',
-    epp_200:       'EPP Ø200',
-    custom:        'Custom',
-  }[t] ?? t;
+  return { semi_rigid_90:'Semi-rigid Ø90', epp_160:'EPP Ø160', epp_180:'EPP Ø180', epp_200:'EPP Ø200', custom:'Custom' }[t] ?? t;
 }
-
-function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
-
-function floorLabel(idx) {
-  return ['Ground Floor','First Floor','Second Floor','Third Floor'][idx] ?? `Floor ${idx}`;
-}
+function capitalize(s) { return s ? s.charAt(0).toUpperCase()+s.slice(1) : ''; }
+function floorLabel(idx) { return ['Ground Floor','First Floor','Second Floor','Third Floor'][idx] ?? `Floor ${idx}`; }
 </script>
 </body>
 </html>
