@@ -555,13 +555,13 @@ function extractHyperlinkLabel(v) {
   const s = String(v).trim();
 
   // Handles: =HYPERLINK("url", "Manufacturer - Model")
-  const m = s.match(/=HYPERLINK\([^,]+,\s*"([^"]+)"\)/i);
+  const m = s.match(/=?HYPERLINK\(\s*"[^"]*"\s*,\s*"([^"]+)"\s*\)/i);
   if (m) return m[1].trim();
 
   return s;
 }
 
-function parsePhppXlsx(rows) {
+function parsePhppXlsx(rows, ws) {
   // PHPP component update xlsx column layout (0-indexed):
   // 0: PHI cert ID  1: Description e.g. "Zehnder - ComfoAir Q350 HRV"  2: HR eff %
   // 3: Humidity winter %  4: HR cooling %  5: Humidity summer %
@@ -570,10 +570,12 @@ function parsePhppXlsx(rows) {
   // 11: Frost protection  12: Noise category  13: Supply dB(A)  14: Extract dB(A)  15: Additional info
   return rows
     .filter(r => isPhppDataRow(r))
-    .map(r => {
+    .map((r, idx) => {
       // Col 1: HYPERLINK formula or plain text — "Manufacturer - Model name"
       // SheetJS may return the display text directly, or the raw formula string
-      let desc = extractHyperlinkLabel(r[1]);
+      const excelRow = idx + 1;
+      const cellB = ws ? ws[`B${excelRow}`] : null;
+      let desc = extractHyperlinkLabel(r[1] || cellB?.f || cellB?.v || cellB?.w || '');
       const dashIdx = desc.indexOf(' - ');
       const manufacturer = dashIdx > -1 ? desc.slice(0, dashIdx).trim() || null : null;
       // Model: everything after " - ", drop any comma-separated alternates
@@ -670,7 +672,7 @@ async function importPhpp(input) {
     const sampleDataRow = rows.find(r => r[0] && /^\d+[a-z]+\d+$/i.test(String(r[0])));
 
     // Try PHPP format first (cert ID in col 0)
-    const phppUnits = parsePhppXlsx(rows);
+    const phppUnits = parsePhppXlsx(rows, ws);
     if (phppUnits.length > 0) {
       validUnits = phppUnits;
     } else {
