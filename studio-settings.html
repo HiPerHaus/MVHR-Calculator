@@ -635,8 +635,9 @@ async function importPhpp(input) {
           const cell = ws[XLSX.utils.encode_cell({ r, c })];
           if (!cell) { row.push(''); continue; }
           // Extract display text from HYPERLINK formula if present
+          // Formula: HYPERLINK("url", "Display Name") — grab last quoted arg before )
           if (cell.f) {
-            const m = cell.f.match(/HYPERLINK\s*\([^,]+,\s*"([^"]*)"\s*\)/i);
+            const m = cell.f.match(/"([^"]+)"\s*\)\s*$/);
             if (m) { row.push(m[1]); continue; }
           }
           row.push(cell.v !== undefined ? cell.v : '');
@@ -645,6 +646,10 @@ async function importPhpp(input) {
       }
       return out;
     })();
+
+    // Debug: log a sample row to verify HYPERLINK extraction
+    const sampleDataRow = rows.find(r => r[0] && /^\d+[a-z]+\d+$/i.test(String(r[0])));
+    console.log('[PHPP import] sample row col0:', sampleDataRow?.[0], 'col1:', sampleDataRow?.[1]);
 
     // Try PHPP format first (cert ID in col 0)
     const phppUnits = parsePhppXlsx(rows);
