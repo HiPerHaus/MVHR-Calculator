@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Unit Selection</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+  --amber: #d97706; --amber-bg: #fffbeb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-project { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done   { color:var(--accent); }
+.stage-btn.locked { cursor:default; opacity:.45; pointer-events:none; }
+.stage-btn.settings-link { margin-left:auto; color:var(--muted); }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Layout ── */
+main { max-width:980px; margin:0 auto; padding:28px 28px 80px; }
+.page-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+.page-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); }
+.page-actions { display:flex; gap:10px; align-items:center; }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary   { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn-sm { padding:5px 12px; font-size:12px; border-radius:7px; }
+
+/* ── Cards ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
+.card-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); margin-bottom:14px; }
+
+/* ── Design summary ── */
+.design-stats { display:flex; gap:12px; flex-wrap:wrap; }
+.design-stat { background:var(--bg); border-radius:9px; padding:12px 16px; flex:1; min-width:120px; }
+.design-stat-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:4px; }
+.design-stat-value { font-size:22px; font-weight:900; color:var(--primary); }
+.design-stat-unit  { font-size:12px; color:var(--muted); margin-top:1px; }
+
+/* ── Selected unit banner ── */
+.selected-banner { background:var(--primary-light); border:2px solid var(--accent); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; align-items:center; gap:14px; }
+.selected-banner-label { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--accent); }
+.selected-banner-name  { font-size:15px; font-weight:900; color:var(--primary); }
+.selected-banner-meta  { font-size:12px; color:var(--muted); margin-top:2px; }
+.selected-banner-right { margin-left:auto; }
+
+/* ── Unit cards ── */
+.units-grid { display:flex; flex-direction:column; gap:10px; }
+.unit-card { background:#fff; border:2px solid var(--border); border-radius:12px; padding:16px 20px; display:flex; align-items:center; gap:16px; transition:border-color .15s; }
+.unit-card:hover { border-color:#c7d2da; }
+.unit-card.selected { border-color:var(--primary); background:var(--primary-light); }
+.unit-card-main { flex:1; min-width:0; }
+.unit-card-name { font-size:14px; font-weight:800; color:var(--text); }
+.unit-card-sub  { font-size:12px; color:var(--muted); margin-top:2px; }
+.unit-card-stats { display:flex; gap:18px; margin-top:10px; flex-wrap:wrap; }
+.unit-stat { text-align:center; min-width:60px; }
+.unit-stat-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+.unit-stat-value { font-size:15px; font-weight:900; color:var(--primary); margin-top:2px; }
+.unit-stat-sub   { font-size:10px; color:var(--muted); }
+.unit-badges     { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+.unit-badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; }
+.badge-phi     { background:#d8f3dc; color:#166534; }
+.badge-ideal   { background:#d8f3dc; color:#166534; }
+.badge-marginal{ background:var(--amber-bg); color:var(--amber); }
+.badge-outside { background:#f0f4f8; color:var(--muted); }
+.badge-too-high{ background:var(--critical-bg); color:var(--critical); }
+.badge-too-low { background:#f0f4f8; color:var(--muted); }
+.badge-custom  { background:#ede9fe; color:#5b21b6; }
+.unit-card-actions { flex-shrink:0; display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+.btn-select { padding:8px 20px; font-size:13px; font-weight:800; }
+.op-pct-bar { margin-top:6px; }
+.op-pct-track { height:6px; background:var(--border); border-radius:3px; overflow:hidden; width:140px; }
+.op-pct-fill  { height:100%; border-radius:3px; background:var(--primary); transition:width .3s; }
+.op-pct-fill.ideal    { background:#40916c; }
+.op-pct-fill.marginal { background:var(--amber); }
+.op-pct-fill.outside  { background:var(--muted); }
+.op-pct-fill.too-high { background:var(--critical); }
+.op-pct-fill.too-low  { background:#9ca3af; }
+
+/* ── Empty / loading states ── */
+.empty-state { text-align:center; padding:48px 28px; color:var(--muted); }
+.empty-state h3 { font-size:16px; font-weight:800; color:var(--text); margin-bottom:8px; }
+.empty-state p  { font-size:13px; margin-bottom:16px; }
+.spinner { display:inline-block; width:32px; height:32px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+
+/* ── No design ── */
+.no-design-card { background:var(--warn-bg); border:1px solid #fed7aa; border-radius:10px; padding:20px 24px; text-align:center; }
+.no-design-card p { color:var(--warn); font-size:13px; margin-bottom:12px; }
+
+/* ── Library empty notice ── */
+.lib-notice { background:var(--amber-bg); border:1px solid #fcd34d; border-radius:9px; padding:12px 16px; font-size:12px; color:#78350f; margin-bottom:16px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-project" id="headerProject">Unit Selection</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage nav ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn done"   id="stageBtn-1" href="/studio/projects"><span class="stage-num">✓</span>Projects</a>
+  <a class="stage-btn done"   id="stageBtn0"  href="#"><span class="stage-num">✓</span>Project Details</a>
+  <a class="stage-btn done"   id="stageBtn1"  href="#"><span class="stage-num">✓</span>Upload Plans</a>
+  <a class="stage-btn done"   id="stageBtn2"  href="#"><span class="stage-num">✓</span>Room Schedule</a>
+  <a class="stage-btn done"   id="stageBtn3"  href="#"><span class="stage-num">✓</span>Airflow Design</a>
+  <a class="stage-btn active" id="stageBtn4"  href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn locked" id="stageBtn5"  href="#"><span class="stage-num">6</span>Duct Design</a>
+  <a class="stage-btn locked" id="stageBtn6"  href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn settings-link" href="/studio/settings">⚙ Settings</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="appMain" style="display:none">
+
+  <div class="page-header">
+    <div>
+      <div class="page-title">Unit Selection</div>
+      <div class="page-subtitle" id="pageSubtitle">Loading project…</div>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" id="backToAirflowBtn" href="#">← Airflow Design</a>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingState" style="text-align:center; padding:60px;">
+    <div class="spinner"></div>
+    <div style="margin-top:12px; color:var(--muted); font-size:13px;">Loading…</div>
+  </div>
+
+  <!-- No design yet -->
+  <div id="noDesignState" style="display:none">
+    <div class="no-design-card">
+      <p>No airflow design has been calculated for this project yet.</p>
+      <a class="btn btn-primary" id="goToAirflowBtn" href="#">Go to Airflow Design →</a>
+    </div>
+  </div>
+
+  <!-- Main content (shown after load) -->
+  <div id="mainContent" style="display:none">
+
+    <!-- Design summary -->
+    <div class="card">
+      <div class="card-title">Design Airflow</div>
+      <div class="design-stats">
+        <div class="design-stat">
+          <div class="design-stat-label">Design Flow</div>
+          <div class="design-stat-value" id="statDesignFlow">—</div>
+          <div class="design-stat-unit">m³/h</div>
+        </div>
+        <div class="design-stat">
+          <div class="design-stat-label">Supply</div>
+          <div class="design-stat-value" id="statSupply">—</div>
+          <div class="design-stat-unit">m³/h</div>
+        </div>
+        <div class="design-stat">
+          <div class="design-stat-label">Extract</div>
+          <div class="design-stat-value" id="statExtract">—</div>
+          <div class="design-stat-unit">m³/h</div>
+        </div>
+        <div class="design-stat">
+          <div class="design-stat-label">Method</div>
+          <div class="design-stat-value" style="font-size:15px" id="statMethod">—</div>
+          <div class="design-stat-unit" id="statMethodSub"></div>
+        </div>
+        <div class="design-stat">
+          <div class="design-stat-label">Pref. Load</div>
+          <div class="design-stat-value" id="statPrefLoad">—</div>
+          <div class="design-stat-unit">% capacity</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Selected unit -->
+    <div class="selected-banner" id="selectedBanner" style="display:none">
+      <div style="flex:1">
+        <div class="selected-banner-label">✓ Selected unit</div>
+        <div class="selected-banner-name" id="selectedName">—</div>
+        <div class="selected-banner-meta" id="selectedMeta">—</div>
+      </div>
+      <div class="selected-banner-right">
+        <button class="btn btn-secondary btn-sm" onclick="clearSelection()">Change</button>
+      </div>
+    </div>
+
+    <!-- Library notice -->
+    <div class="lib-notice" id="libNotice" style="display:none">
+      ⓘ Your unit library is empty. Showing all MVHR units that can handle this design flow.
+      <a href="/studio/settings" style="color:#92400e; font-weight:700; margin-left:6px;">Add units in Settings →</a>
+    </div>
+
+    <!-- Unit list -->
+    <div class="card" style="padding:20px 24px 10px">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <div class="card-title" style="margin-bottom:0" id="unitsCardTitle">Matched Units</div>
+        <div style="font-size:12px; color:var(--muted)" id="unitsCountLabel"></div>
+      </div>
+      <div class="units-grid" id="unitsGrid">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+  </div><!-- /mainContent -->
+
+</main>
+
+<script>
+const SUPABASE_URL  = 'https://lbxdrgpmcpbgtqmhrbpd.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxieGRyZ3BtY3BiZ3RxbWhyYnBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2MDM4NTgsImV4cCI6MjA2MDE3OTg1OH0.FJhkBPWEfxMAlSBLAX7NJbPIHWcBrSCYwEOUEMQvwko';
+const API_BASE      = '/api/studio';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let _projectId      = null;
+let _token          = null;
+let _design         = null;
+let _units          = [];
+let _selectedUnitId = null;
+let _saving         = false;
+
+// ── Project ID ────────────────────────────────────────────────
+function getProjectIdFromUrl() {
+  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const email = el('loginEmail').value.trim();
+  const pass  = el('loginPassword').value;
+  const errEl = el('loginError');
+  errEl.classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) { errEl.textContent = error.message; errEl.classList.add('visible'); }
+}
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
+
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (session) {
+    el('loginOverlay').classList.add('hidden');
+  } else {
+    el('loginOverlay').classList.add('show-login');
+  }
+});
+
+sb.auth.onAuthStateChange((_ev, session) => {
+  if (!session) {
+    el('loginOverlay').classList.remove('hidden');
+    el('loginOverlay').classList.add('show-login');
+    ['appHeader','stageNav','appMain'].forEach(id => el(id).style.display = 'none');
+    return;
+  }
+  _token = session.access_token;
+  el('loginOverlay').classList.add('hidden');
+  el('loginOverlay').classList.remove('show-login');
+  el('appHeader').style.display = 'flex';
+  el('stageNav').style.display  = 'flex';
+  el('appMain').style.display   = 'block';
+  el('headerUser').textContent  = session.user.email;
+  init();
+});
+
+// ── Init ─────────────────────────────────────────────────────
+async function init() {
+  _projectId = getProjectIdFromUrl();
+
+  if (_projectId) {
+    el('stageBtn0').href        = `/studio/projects/${_projectId}/details`;
+    el('stageBtn1').href        = `/studio/projects/${_projectId}/upload`;
+    el('stageBtn2').href        = `/studio/projects/${_projectId}/rooms`;
+    el('stageBtn3').href        = `/studio/projects/${_projectId}/airflow`;
+    el('stageBtn4').href        = `/studio/projects/${_projectId}/unit-selection`;
+    el('backToAirflowBtn').href = `/studio/projects/${_projectId}/airflow`;
+    el('goToAirflowBtn').href   = `/studio/projects/${_projectId}/airflow`;
+
+    const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
+    if (proj?.name) {
+      el('headerProject').textContent = proj.name;
+      el('pageSubtitle').textContent  = `${proj.name} · Airflow Unit Selection`;
+      document.title = `HiPer Studio — ${proj.name} — Unit Selection`;
+    } else {
+      el('pageSubtitle').textContent = _projectId ?? 'No project';
+    }
+  }
+
+  await loadPage();
+}
+
+async function loadPage() {
+  el('loadingState').style.display  = 'block';
+  el('noDesignState').style.display = 'none';
+  el('mainContent').style.display   = 'none';
+
+  if (!_projectId) {
+    el('loadingState').style.display  = 'none';
+    el('noDesignState').style.display = 'block';
+    return;
+  }
+
+  // Load airflow design + matched units in parallel with library
+  const [airflowRes, libRes] = await Promise.all([
+    fetch(`${API_BASE}/airflow?projectId=${_projectId}`, { headers: { Authorization: `Bearer ${_token}` } }),
+    fetch(`${API_BASE}/unit-library`, { headers: { Authorization: `Bearer ${_token}` } }),
+  ]);
+
+  el('loadingState').style.display = 'none';
+
+  if (!airflowRes.ok) {
+    el('noDesignState').style.display = 'block';
+    return;
+  }
+
+  const airflowData = await airflowRes.json();
+  _design = airflowData.design;
+
+  if (!_design || !_design.design_airflow_m3h) {
+    el('noDesignState').style.display = 'block';
+    return;
+  }
+
+  _units          = airflowData.units ?? [];
+  _selectedUnitId = _design.selected_unit_id ?? null;
+
+  // Determine if user has a library
+  let hasLibrary = false;
+  if (libRes.ok) {
+    const libData = await libRes.json();
+    hasLibrary = (libData.libraryCount ?? 0) > 0;
+  }
+
+  el('libNotice').style.display = hasLibrary ? 'none' : 'block';
+
+  // Populate design summary
+  el('statDesignFlow').textContent = Math.round(_design.design_airflow_m3h ?? 0);
+  el('statSupply').textContent     = Math.round(_design.total_supply_m3h  ?? 0);
+  el('statExtract').textContent    = Math.round(_design.total_extract_m3h ?? 0);
+  el('statPrefLoad').textContent   = `${_design.preferred_load_pct ?? 60}%`;
+
+  const methodLabel = _design.design_method === 'as1668' ? 'AS1668 / NCC' : 'Passive House';
+  el('statMethod').textContent   = methodLabel;
+  el('statMethodSub').textContent = _design.design_driver
+    ? `Driver: ${_design.design_driver.replace(/_/g,' ')}`
+    : '';
+
+  el('unitsCardTitle').textContent = hasLibrary ? 'Your Library Units' : 'All Matched Units';
+  el('unitsCountLabel').textContent = `${_units.length} unit${_units.length !== 1 ? 's' : ''} ranked`;
+
+  renderSelectedBanner();
+  renderUnits();
+  el('mainContent').style.display = 'block';
+}
+
+// ── Render selected banner ────────────────────────────────────
+function renderSelectedBanner() {
+  if (!_selectedUnitId) {
+    el('selectedBanner').style.display = 'none';
+    return;
+  }
+  const u = _units.find(u => u.id === _selectedUnitId);
+  if (!u) {
+    el('selectedBanner').style.display = 'none';
+    return;
+  }
+  el('selectedBanner').style.display = 'flex';
+  el('selectedName').textContent = `${u.manufacturer} ${u.model}`;
+  el('selectedMeta').textContent = [
+    `${u.flow_min}–${u.flow_max} m³/h`,
+    `HR ${u.hr_eff}%`,
+    `SFP ${u.sfp} W·s/m³`,
+    u.phiCertified ? `PHI ${u.phi_cert_id}` : null,
+    `Operating at ${u.actual_operating_pct}%`,
+  ].filter(Boolean).join(' · ');
+}
+
+// ── Render units list ─────────────────────────────────────────
+function renderUnits() {
+  const grid = el('unitsGrid');
+  if (!_units.length) {
+    grid.innerHTML = `<div class="empty-state">
+      <h3>No units found</h3>
+      <p>No MVHR units can handle the required design flow of ${Math.round(_design.design_airflow_m3h)} m³/h.</p>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = _units.map(u => {
+    const isSelected = u.id === _selectedUnitId;
+    const loadClass  = loadRatingClass(u.load_rating);
+    const loadLabel  = loadRatingLabel(u.load_rating);
+    const opPct      = Math.min(u.actual_operating_pct ?? 0, 100);
+
+    const badges = [
+      u.phiCertified ? `<span class="unit-badge badge-phi">PHI ${esc(u.phi_cert_id)}</span>` : '',
+      `<span class="unit-badge badge-${loadClass}">${loadLabel}</span>`,
+      u.is_custom ? `<span class="unit-badge badge-custom">Custom</span>` : '',
+    ].filter(Boolean).join('');
+
+    const prefCapacity = _design.preferred_capacity_m3h
+      ? `<div class="unit-stat"><div class="unit-stat-label">Pref. Cap.</div><div class="unit-stat-value">${_design.preferred_capacity_m3h}</div><div class="unit-stat-sub">m³/h target</div></div>`
+      : '';
+
+    return `<div class="unit-card${isSelected ? ' selected' : ''}" id="ucard-${u.id}">
+      <div class="unit-card-main">
+        <div class="unit-card-name">${esc(u.manufacturer)} ${esc(u.model)}</div>
+        <div class="unit-card-sub">${esc(u.flow_min)}–${esc(u.flow_max)} m³/h rated capacity</div>
+        <div class="unit-card-stats">
+          <div class="unit-stat">
+            <div class="unit-stat-label">Op. Rate</div>
+            <div class="unit-stat-value">${u.actual_operating_pct}%</div>
+            <div class="unit-stat-sub">at design flow</div>
+            <div class="op-pct-bar">
+              <div class="op-pct-track">
+                <div class="op-pct-fill ${loadClass}" style="width:${opPct}%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="unit-stat">
+            <div class="unit-stat-label">HR Eff.</div>
+            <div class="unit-stat-value">${u.hr_eff ?? '—'}%</div>
+            <div class="unit-stat-sub">heat recovery</div>
+          </div>
+          <div class="unit-stat">
+            <div class="unit-stat-label">SFP</div>
+            <div class="unit-stat-value">${u.sfp ?? '—'}</div>
+            <div class="unit-stat-sub">W·s/m³</div>
+          </div>
+          ${prefCapacity}
+        </div>
+        <div class="unit-badges">${badges}</div>
+      </div>
+      <div class="unit-card-actions">
+        ${isSelected
+          ? `<button class="btn btn-secondary btn-sm" disabled>✓ Selected</button>`
+          : `<button class="btn btn-primary btn-select" onclick="selectUnit('${u.id}')">Select</button>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Select unit ───────────────────────────────────────────────
+async function selectUnit(unitId) {
+  if (_saving) return;
+  _saving = true;
+
+  // Optimistic update
+  _selectedUnitId = unitId;
+  renderSelectedBanner();
+  renderUnits();
+
+  const res = await fetch(`${API_BASE}/airflow`, {
+    method:  'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token}` },
+    body:    JSON.stringify({ projectId: _projectId, selectedUnitId: unitId }),
+  });
+
+  _saving = false;
+
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: 'Save failed' }));
+    alert(error ?? 'Failed to save unit selection');
+    // Revert
+    _selectedUnitId = _design.selected_unit_id ?? null;
+    renderSelectedBanner();
+    renderUnits();
+  } else {
+    const data = await res.json();
+    if (data.design) {
+      _design = data.design;
+      _selectedUnitId = _design.selected_unit_id ?? unitId;
+    }
+    renderSelectedBanner();
+    renderUnits();
+  }
+}
+
+async function clearSelection() {
+  await selectUnit(null);
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function loadRatingClass(rating) {
+  return {
+    ideal:              'ideal',
+    marginal:           'marginal',
+    outside_preference: 'outside',
+    too_high:           'too-high',
+    too_low:            'too-low',
+  }[rating] ?? 'outside';
+}
+
+function loadRatingLabel(rating) {
+  return {
+    ideal:              '✓ Ideal',
+    marginal:           '~ Marginal',
+    outside_preference: 'Outside preference',
+    too_high:           '⚠ Running too hard',
+    too_low:            '⬇ Oversized',
+  }[rating] ?? rating;
+}
+
+const el  = id => document.getElementById(id);
+const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+</script>
+</body>
+</html>

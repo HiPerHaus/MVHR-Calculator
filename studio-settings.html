@@ -126,6 +126,33 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
 
 /* ── Spinner ── */
 .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:4px; }
+
+/* ── Unit Library ── */
+.unit-search-wrap { position:relative; margin-bottom:14px; }
+.unit-search-wrap input { width:100%; padding:9px 13px 9px 36px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; outline:none; }
+.unit-search-wrap input:focus { border-color:var(--accent); }
+.unit-search-icon { position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:14px; pointer-events:none; }
+.unit-list { max-height:420px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; }
+.unit-row { display:flex; align-items:center; padding:9px 14px; border-bottom:1px solid #f0f4f8; gap:10px; transition:background .1s; }
+.unit-row:last-child { border-bottom:none; }
+.unit-row:hover { background:#f8fafc; }
+.unit-row-main { flex:1; min-width:0; }
+.unit-row-name { font-size:13px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.unit-row-meta { font-size:11px; color:var(--muted); margin-top:1px; }
+.unit-row-badges { display:flex; gap:5px; flex-shrink:0; }
+.unit-badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; }
+.badge-phi  { background:#d8f3dc; color:#166534; }
+.badge-custom { background:#ede9fe; color:#5b21b6; }
+.btn-lib-toggle { flex-shrink:0; font-size:12px; font-weight:700; border-radius:7px; padding:5px 11px; border:1.5px solid var(--border); background:#fff; cursor:pointer; transition:.15s; }
+.btn-lib-toggle.in-lib  { background:var(--primary); color:#fff; border-color:var(--primary); }
+.btn-lib-toggle:hover:not(.in-lib) { border-color:var(--accent); color:var(--accent); }
+.lib-count-badge { display:inline-flex; align-items:center; justify-content:center; background:var(--primary); color:#fff; border-radius:12px; font-size:11px; font-weight:800; padding:2px 8px; margin-left:8px; }
+.lib-empty { padding:28px; text-align:center; color:var(--muted); font-size:13px; }
+.unit-filter-tabs { display:flex; gap:0; margin-bottom:12px; border:1.5px solid var(--border); border-radius:8px; overflow:hidden; }
+.unit-filter-tab { flex:1; padding:7px 12px; text-align:center; font-size:12px; font-weight:700; cursor:pointer; border:none; background:#fff; color:var(--muted); transition:.15s; }
+.unit-filter-tab.active { background:var(--primary); color:#fff; }
+.phpp-upload-wrap { display:flex; align-items:center; gap:10px; margin-top:14px; }
+.phpp-hint { font-size:11px; color:var(--muted); line-height:1.4; }
 </style>
 </head>
 <body>
@@ -217,6 +244,37 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
       </div>
       <div class="field-help" style="margin-top:8px">Sets the default airflow method when starting a new Stage 3 calculation. Can be changed per project.</div>
     </div>
+  </div>
+
+  <!-- ── My Unit Library ── -->
+  <div class="card">
+    <div style="display:flex; align-items:center; margin-bottom:4px;">
+      <div class="card-title" style="margin-bottom:0">My Unit Library</div>
+      <span class="lib-count-badge" id="libCountBadge">0</span>
+    </div>
+    <div class="card-desc">Select the MVHR units you work with. Only these units appear in Stage 5 Unit Selection. Import custom units from a PHPP-format CSV.</div>
+
+    <div class="unit-filter-tabs">
+      <button class="unit-filter-tab active" id="tabAll"      onclick="setUnitTab('all')">All units</button>
+      <button class="unit-filter-tab"        id="tabLib"      onclick="setUnitTab('lib')">My library</button>
+      <button class="unit-filter-tab"        id="tabCustom"   onclick="setUnitTab('custom')">Custom</button>
+    </div>
+
+    <div class="unit-search-wrap">
+      <span class="unit-search-icon">⌕</span>
+      <input type="text" id="unitSearch" placeholder="Search manufacturer or model…" oninput="filterUnits()">
+    </div>
+
+    <div class="unit-list" id="unitList">
+      <div class="lib-empty">Loading units…</div>
+    </div>
+
+    <div class="phpp-upload-wrap">
+      <input type="file" id="phppFile" accept=".csv,.txt" style="display:none" onchange="importPhpp(this)">
+      <button class="btn btn-secondary btn-sm" onclick="el('phppFile').click()">⬆ Import PHPP CSV</button>
+      <div class="phpp-hint">CSV columns (in order): Manufacturer, Model, HR Efficiency (%), SFP (W·s/m³), Flow Min (m³/h), Flow Max (m³/h), PHI Cert ID (optional), External Pressure (optional)</div>
+    </div>
+    <div id="importStatus" style="font-size:12px; margin-top:8px;"></div>
   </div>
 
   <!-- ── Room Airflow Defaults ── -->
@@ -345,15 +403,173 @@ sb.auth.onAuthStateChange((_ev, session) => {
   init();
 });
 
+// ── Unit Library state ────────────────────────────────────────
+let _allUnits    = [];   // all units with in_library flag
+let _unitTab     = 'all';
+
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
-  const res = await apiGet(`${API_BASE}/settings`);
-  if (!res.ok) { showStatus('Failed to load settings', 'error'); return; }
-  const { settings } = await res.json();
+  const [settingsRes] = await Promise.all([
+    apiGet(`${API_BASE}/settings`),
+    loadUnitLibrary(),
+  ]);
+  if (!settingsRes.ok) { showStatus('Failed to load settings', 'error'); return; }
+  const { settings } = await settingsRes.json();
   _settings = settings;
   applyToForm(settings);
   _dirty = false;
   updateSaveBar();
+}
+
+// ── Unit library ──────────────────────────────────────────────
+async function loadUnitLibrary() {
+  const res = await apiGet(`${API_BASE}/unit-library?all=1`);
+  if (!res.ok) return;
+  const { units, libraryCount } = await res.json();
+  _allUnits = units ?? [];
+  el('libCountBadge').textContent = libraryCount;
+  renderUnitList();
+}
+
+function setUnitTab(tab) {
+  _unitTab = tab;
+  ['all','lib','custom'].forEach(t => {
+    el(`tab${t.charAt(0).toUpperCase()+t.slice(1)}`).classList.toggle('active', t === tab);
+  });
+  filterUnits();
+}
+
+function filterUnits() {
+  const q = el('unitSearch').value.trim().toLowerCase();
+  let units = _allUnits;
+
+  if (_unitTab === 'lib')    units = units.filter(u => u.in_library);
+  if (_unitTab === 'custom') units = units.filter(u => u.is_custom);
+  if (q) {
+    units = units.filter(u =>
+      (u.manufacturer ?? '').toLowerCase().includes(q) ||
+      (u.model ?? '').toLowerCase().includes(q) ||
+      (u.phi_cert_id ?? '').toLowerCase().includes(q)
+    );
+  }
+  renderUnitList(units);
+}
+
+function renderUnitList(units) {
+  units = units ?? _allUnits;
+  const list = el('unitList');
+  if (!units.length) {
+    list.innerHTML = '<div class="lib-empty">No units found.</div>';
+    return;
+  }
+
+  list.innerHTML = units.map(u => {
+    const phiBadge    = u.phi_cert_id ? `<span class="unit-badge badge-phi">PHI ${esc(u.phi_cert_id)}</span>` : '';
+    const customBadge = u.is_custom   ? `<span class="unit-badge badge-custom">Custom</span>` : '';
+    const meta = [
+      u.flow_min != null && u.flow_max != null ? `${u.flow_min}–${u.flow_max} m³/h` : null,
+      u.hr_eff   != null ? `HR ${u.hr_eff}%` : null,
+      u.sfp      != null ? `SFP ${u.sfp} W·s/m³` : null,
+    ].filter(Boolean).join(' · ');
+
+    return `<div class="unit-row">
+      <div class="unit-row-main">
+        <div class="unit-row-name">${esc(u.manufacturer)} ${esc(u.model)}</div>
+        <div class="unit-row-meta">${esc(meta)}</div>
+      </div>
+      <div class="unit-row-badges">${phiBadge}${customBadge}</div>
+      <button class="btn-lib-toggle${u.in_library ? ' in-lib' : ''}"
+        onclick="toggleLibrary('${esc(u.id)}', ${u.in_library})">
+        ${u.in_library ? '✓ In library' : '+ Add'}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+async function toggleLibrary(unitId, currentlyIn) {
+  const action = currentlyIn ? 'remove' : 'add';
+  const res = await apiPost(`${API_BASE}/unit-library`, { action, unitId });
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: 'Failed' }));
+    alert(error ?? 'Failed to update library');
+    return;
+  }
+
+  // Update local state
+  const unit = _allUnits.find(u => u.id === unitId);
+  if (unit) unit.in_library = !currentlyIn;
+  const libCount = _allUnits.filter(u => u.in_library).length;
+  el('libCountBadge').textContent = libCount;
+  filterUnits();
+}
+
+async function importPhpp(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const statusEl = el('importStatus');
+  statusEl.textContent = 'Parsing CSV…';
+  statusEl.style.color = 'var(--muted)';
+
+  const text = await file.text();
+  const lines = text.trim().split('\n').filter(l => l.trim());
+
+  // Skip header row if it looks non-numeric (has letters in col 3)
+  const dataLines = lines.filter((l, i) => {
+    if (i === 0) {
+      const cols = l.split(',');
+      return !isNaN(parseFloat(cols[2])); // col 2 = HR eff, numeric → data row
+    }
+    return true;
+  });
+
+  const units = [];
+  for (const line of dataLines) {
+    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    if (cols.length < 6) continue;
+    units.push({
+      manufacturer:  cols[0],
+      model:         cols[1],
+      hr_eff:        parseFloat(cols[2]),
+      sfp:           parseFloat(cols[3]),
+      flow_min:      parseFloat(cols[4]),
+      flow_max:      parseFloat(cols[5]),
+      phi_cert_id:   cols[6] || null,
+      ext_pressure:  cols[7] ? parseFloat(cols[7]) : null,
+    });
+  }
+
+  if (!units.length) {
+    statusEl.textContent = 'No valid rows found in CSV. Check format.';
+    statusEl.style.color = 'var(--warn)';
+    input.value = '';
+    return;
+  }
+
+  statusEl.textContent = `Importing ${units.length} unit(s)…`;
+
+  const res = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units });
+  input.value = '';
+
+  if (!res.ok) {
+    const { error } = await res.json().catch(() => ({ error: 'Import failed' }));
+    statusEl.textContent = error ?? 'Import failed';
+    statusEl.style.color = 'var(--critical)';
+    return;
+  }
+
+  const { importedCount, errorCount, errors } = await res.json();
+  if (errorCount) {
+    statusEl.textContent = `Imported ${importedCount} unit(s). ${errorCount} error(s): ${errors[0]}`;
+    statusEl.style.color = 'var(--warn)';
+  } else {
+    statusEl.textContent = `✓ Imported ${importedCount} unit(s) into your library.`;
+    statusEl.style.color = '#166534';
+  }
+
+  // Reload library
+  await loadUnitLibrary();
+  setTimeout(() => { statusEl.textContent = ''; }, 5000);
 }
 
 function applyToForm(s) {

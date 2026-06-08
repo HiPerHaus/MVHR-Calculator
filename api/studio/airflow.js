@@ -489,15 +489,36 @@ function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
 //   - PHI certification bonus.
 //   - High HR efficiency bonus, low SFP bonus.
 //
-async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60) {
+async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId = null) {
   const preferredCapacityM3h = designM3h / (preferredLoadPct / 100);
 
-  // Fetch units capable of the design flow
-  const { data: units, error } = await supabase
+  // If user has a library, fetch their preferred unit IDs first
+  let libraryUnitIds = null;
+  if (userId) {
+    const { data: libRows } = await supabase
+      .from('user_unit_library')
+      .select('unit_id')
+      .eq('user_id', userId);
+    if (libRows?.length) {
+      libraryUnitIds = libRows.map(r => r.unit_id);
+    }
+  }
+
+  // Build query — filter to library units when available
+  let query = supabase
     .from('mvhr_units')
-    .select('id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, frost_protection, phi_cert_id')
+    .select('id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, frost_protection, phi_cert_id, user_id')
     .gte('flow_max', designM3h)
     .order('hr_eff', { ascending: false });
+
+  if (libraryUnitIds) {
+    query = query.in('id', libraryUnitIds);
+  } else {
+    // Standard units only (no user_id) when no library
+    query = query.is('user_id', null);
+  }
+
+  const { data: units, error } = await query;
 
   if (error || !units?.length) return [];
 
@@ -531,6 +552,7 @@ async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60) {
     return {
       ...u,
       phiCertified,
+      is_custom:                 u.user_id !== null,
       actual_operating_pct:      actualOpPct,
       preferred_load_pct:        preferredLoadPct,
       preferred_capacity_m3h:    Math.round(preferredCapacityM3h),
@@ -540,7 +562,8 @@ async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60) {
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 8);
+  // When showing library units show all of them (user curated); otherwise top 8
+  return libraryUnitIds ? scored : scored.slice(0, 8);
 }
 
 // ── Enrich helpers ────────────────────────────────────────────
@@ -627,12 +650,13 @@ export default async function handler(req, res) {
         .maybeSingle();
       if (settings?.preferred_unit_load_percent) getPreferredLoadPct = settings.preferred_unit_load_percent;
     }
-    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h, getPreferredLoadPct);
+    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h, getPreferredLoadPct, user.id);
     return res.status(200).json({
       design: {
         ...enrichDesign(design, null),
         preferred_load_pct:     getPreferredLoadPct,
         preferred_capacity_m3h: Math.round(design.design_airflow_m3h / (getPreferredLoadPct / 100)),
+        selected_unit_id:       design.selected_unit_id ?? null,
       },
       rooms:  enrichRooms(rooms ?? []),
       units,
@@ -646,6 +670,39 @@ export default async function handler(req, res) {
     const designMethod = body.designMethod ?? 'passive_house';
 
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    // ── Shortcut: unit selection only (no recalculation) ─────────
+    if ('selectedUnitId' in body) {
+      const unitId = body.selectedUnitId ?? null;
+
+      // Find existing design
+      const { data: existing } = await supabase
+        .from('airflow_designs')
+        .select('id, design_airflow_m3h')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!existing) return res.status(404).json({ error: 'No airflow design found — calculate airflow first' });
+
+      const { data: updated, error: updErr } = await supabase
+        .from('airflow_designs')
+        .update({ selected_unit_id: unitId })
+        .eq('id', existing.id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (updErr) return res.status(500).json({ error: updErr.message });
+
+      return res.status(200).json({
+        ok:     true,
+        design: { ...enrichDesign(updated, null), selected_unit_id: unitId },
+      });
+    }
+
     if (!['passive_house','as1668'].includes(designMethod)) {
       return res.status(400).json({ error: 'designMethod must be passive_house or as1668' });
     }
@@ -739,7 +796,7 @@ export default async function handler(req, res) {
 
     if (roomInsErr) return res.status(500).json({ error: roomInsErr.message });
 
-    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct);
+    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id);
 
     return res.status(200).json({
       ok:     true,
@@ -747,6 +804,7 @@ export default async function handler(req, res) {
         ...enrichDesign(design, calc),
         preferred_load_pct:       preferredLoadPct,
         preferred_capacity_m3h:   Math.round(calc.designFlowM3h / (preferredLoadPct / 100)),
+        selected_unit_id:         design.selected_unit_id ?? null,
       },
       rooms:  enrichRooms(savedRooms ?? []),
       units,
