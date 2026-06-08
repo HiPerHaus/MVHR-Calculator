@@ -550,18 +550,25 @@ function isPhppDataRow(r) {
 
 function parsePhppXlsx(rows) {
   // PHPP component update xlsx column layout (0-indexed):
-  // 0: PHI cert ID  1: Description (always empty)  2: HR eff %
+  // 0: PHI cert ID  1: Description e.g. "Zehnder - ComfoAir Q350 HRV"  2: HR eff %
   // 3: Humidity winter %  4: HR cooling %  5: Humidity summer %
   // 6: SFP (Wh/m³)  7: Flow min m³/h  8: Flow max m³/h
   // 9: Ext pressure Pa  10: Fittings DP Pa (or 'incl.')
   // 11: Frost protection  12: Noise category  13: Supply dB(A)  14: Extract dB(A)  15: Additional info
   return rows
     .filter(r => isPhppDataRow(r))
-    .map(r => ({
+    .map(r => {
+      // Col 1: "Manufacturer - Model name, Alt name" — split on first " - "
+      const desc = r[1] != null ? String(r[1]).trim() : '';
+      const dashIdx = desc.indexOf(' - ');
+      const manufacturer = dashIdx > -1 ? desc.slice(0, dashIdx).trim() || null : null;
+      // Model: everything after the " - ", strip any comma-separated alternates
+      const modelRaw = dashIdx > -1 ? desc.slice(dashIdx + 3).trim() : desc || null;
+      const model = modelRaw ? modelRaw.split(',')[0].trim() || null : null;
+      return {
       phi_cert_id:      String(r[0]).trim(),
-      // No manufacturer/model in PHPP rows — API will use DB name if cert ID matches
-      manufacturer:     null,
-      model:            null,
+      manufacturer,
+      model,
       hr_eff:           parseFloat(r[2]),
       humidity_winter:  r[3] !== '' && r[3] != null ? parseFloat(r[3]) : null,
       hr_eff_cooling:   r[4] !== '' && r[4] != null ? parseFloat(r[4]) : null,
@@ -575,7 +582,8 @@ function parsePhppXlsx(rows) {
       noise_supply:     r[13] !== '' && r[13] != null ? parseFloat(r[13]) : null,
       noise_extract:    r[14] !== '' && r[14] != null ? parseFloat(r[14]) : null,
       additional_info:  r[15] !== '' && r[15] != null ? String(r[15]).trim() : null,
-    }))
+      };
+    })
     .filter(u => !isNaN(u.hr_eff) && !isNaN(u.sfp) && !isNaN(u.flow_min) && !isNaN(u.flow_max));
 }
 
