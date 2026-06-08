@@ -647,7 +647,17 @@ async function importPhpp(input) {
       return out;
     })();
 
-    // Debug: log a sample row to verify HYPERLINK extraction
+    // Debug: log raw cell for first data row col B
+    const range2 = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let r = range2.s.r; r <= range2.e.r; r++) {
+      const cellA = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+      if (cellA && cellA.v && /^\d+[a-z]+\d+$/i.test(String(cellA.v))) {
+        const cellB = ws[XLSX.utils.encode_cell({ r, c: 1 })];
+        console.log('[PHPP debug] first data row B raw cell:', JSON.stringify(cellB));
+        console.log('[PHPP debug] ws links:', ws['!links']);
+        break;
+      }
+    }
     const sampleDataRow = rows.find(r => r[0] && /^\d+[a-z]+\d+$/i.test(String(r[0])));
     console.log('[PHPP import] sample row col0:', sampleDataRow?.[0], 'col1:', sampleDataRow?.[1]);
 
