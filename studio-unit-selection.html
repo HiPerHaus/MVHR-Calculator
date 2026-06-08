@@ -181,7 +181,7 @@ main { max-width:980px; margin:0 auto; padding:28px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   id="stageBtn-1" href="/studio/projects"><span class="stage-num">✓</span>Projects</a>
+  <a class="stage-btn done"   id="stageBtn-1" href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn done"   id="stageBtn0"  href="#"><span class="stage-num">✓</span>Project Details</a>
   <a class="stage-btn done"   id="stageBtn1"  href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2"  href="#"><span class="stage-num">✓</span>Room Schedule</a>
@@ -288,11 +288,11 @@ main { max-width:980px; margin:0 auto; padding:28px 28px 80px; }
 </main>
 
 <script>
-const SUPABASE_URL  = 'https://lbxdrgpmcpbgtqmhrbpd.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxieGRyZ3BtY3BiZ3RxbWhyYnBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2MDM4NTgsImV4cCI6MjA2MDE3OTg1OH0.FJhkBPWEfxMAlSBLAX7NJbPIHWcBrSCYwEOUEMQvwko';
+const SUPABASE_URL = "https://qlmnykpwvkckxcycqhpp.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50";
 const API_BASE      = '/api/studio';
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let _projectId      = null;
 let _token          = null;
@@ -355,6 +355,8 @@ async function init() {
     el('stageBtn4').href        = `/studio/projects/${_projectId}/unit-selection`;
     el('backToAirflowBtn').href = `/studio/projects/${_projectId}/airflow`;
     el('goToAirflowBtn').href   = `/studio/projects/${_projectId}/airflow`;
+    const _sl = document.querySelector('.settings-link');
+    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
 
     const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
     if (proj?.name) {
