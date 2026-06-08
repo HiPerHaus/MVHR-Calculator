@@ -513,6 +513,7 @@ el('newModalCreateBtn').addEventListener('click', async () => {
   const r = await fetch('/api/studio/projects', {
     method:  'POST',
     headers,
+    body: JSON.stringify({ action: 'create', name, site_address: address }),
   });
 
   const data = await r.json();
