@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOM & Export — HiPer Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ── Design tokens ── */
+:root {
+  --primary:#1a3a2a; --accent:#2d6a4f; --light:#e8f5e9; --border:#e5e7eb;
+  --bg:#f9fafb; --card:#fff; --text:#111; --muted:#6b7280;
+  --warn:#b45309; --critical:#dc2626;
+  --epp125: #0284c7; --epp160: #7c3aed; --epp200: #b45309;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+a { color: inherit; text-decoration: none; }
+
+/* ── Top bar ── */
+.topbar { background: var(--primary); color: #fff; padding: 0 28px; display: flex; align-items: center; gap: 16px; height: 52px; }
+.topbar-logo { font-size: 17px; font-weight: 800; letter-spacing: -.4px; }
+.topbar-logo span { color: #86efac; }
+.topbar-project { font-size: 12px; color: #d1fae5; margin-left: 8px; }
+
+/* ── Stage nav ── */
+.stage-nav { background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 28px; gap: 0; overflow-x: auto; }
+.stage-btn { display: flex; align-items: center; gap: 7px; padding: 14px 20px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; transition: color .15s; text-decoration: none; }
+.stage-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.stage-btn.done   { color: var(--accent); }
+.stage-btn.locked { cursor: default; opacity: .45; pointer-events: none; }
+.stage-btn.settings-link { margin-left: auto; color: var(--muted); }
+.stage-num { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; background: var(--border); color: var(--muted); }
+.stage-btn.active .stage-num { background: var(--primary); color: #fff; }
+.stage-btn.done .stage-num   { background: var(--accent); color: #fff; }
+
+/* ── Layout ── */
+.page-wrap { max-width: 900px; margin: 0 auto; padding: 32px 24px 80px; }
+
+/* ── BOM header ── */
+.bom-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+.bom-title { font-size: 22px; font-weight: 800; color: var(--primary); }
+.bom-subtitle { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.export-actions { display: flex; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--accent); }
+.btn-outline { background: #fff; color: var(--primary); border: 1.5px solid var(--primary); }
+.btn-outline:hover { background: var(--light); }
+
+/* ── Unit card ── */
+.unit-card { background: var(--primary); color: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+.unit-card-name { grid-column: 1 / -1; }
+.unit-name { font-size: 17px; font-weight: 800; }
+.unit-cert { font-size: 11px; color: #86efac; margin-top: 2px; }
+.unit-stat { }
+.unit-stat-label { font-size: 10px; color: #d1fae5; text-transform: uppercase; letter-spacing: .5px; }
+.unit-stat-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.no-unit { background: #fff; border: 2px dashed var(--border); border-radius: 12px; padding: 20px 24px; text-align: center; color: var(--muted); margin-bottom: 24px; }
+
+/* ── BOM table ── */
+.bom-section { margin-bottom: 24px; }
+.bom-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); padding: 0 0 8px; border-bottom: 2px solid var(--border); margin-bottom: 0; }
+.bom-table { width: 100%; border-collapse: collapse; }
+.bom-table th { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.bom-table th:last-child, .bom-table td:last-child { text-align: right; }
+.bom-table td { padding: 11px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; vertical-align: top; }
+.bom-table tr:last-child td { border-bottom: none; }
+.bom-table tr:hover td { background: var(--bg); }
+.item-code { font-family: monospace; font-size: 11px; color: var(--muted); }
+.item-desc { font-weight: 500; }
+.item-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.qty-cell { font-weight: 700; font-size: 14px; white-space: nowrap; }
+.uom-cell { color: var(--muted); font-size: 12px; }
+.badge-epp125 { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #e0f2fe; color: var(--epp125); }
+.badge-epp160 { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #ede9fe; color: var(--epp160); }
+.badge-epp200 { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #fef3c7; color: var(--epp200); }
+.badge-sr    { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #f0fdf4; color: var(--accent); }
+
+/* ── Ductwork breakdown ── */
+.duct-breakdown { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.duct-breakdown span { margin-right: 10px; }
+
+/* ── Totals row ── */
+.bom-table tr.total-row td { font-weight: 700; background: #f9fafb; border-top: 2px solid var(--border); }
+
+/* ── Warning banner ── */
+.wall-sleeve-note { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #92400e; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+
+/* ── No-design state ── */
+.empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+.empty-state h3 { font-size: 18px; color: var(--text); margin-bottom: 8px; }
+
+/* ── Notes ── */
+.notes-section { margin-top: 24px; }
+.notes-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 8px; }
+.notes-textarea { width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 12px; font-family: 'Inter', sans-serif; font-size: 13px; min-height: 100px; resize: vertical; outline: none; transition: border-color .15s; color: var(--text); }
+.notes-textarea:focus { border-color: var(--primary); }
+.notes-save-row { display: flex; justify-content: flex-end; margin-top: 8px; gap: 10px; align-items: center; }
+.notes-saved { font-size: 12px; color: var(--accent); }
+
+/* ── Spinner ── */
+#loadingState { text-align: center; padding: 60px; color: var(--muted); }
+
+/* ── Print styles ── */
+@media print {
+  .topbar, .stage-nav, .export-actions, .notes-save-row, .notes-textarea { display: none !important; }
+  .notes-section .notes-label { display: block; }
+  .notes-print { display: block; white-space: pre-wrap; font-size: 12px; color: var(--text); }
+  body { background: #fff; }
+  .page-wrap { max-width: 100%; padding: 0; }
+  .bom-header { margin-bottom: 16px; }
+  .bom-table td, .bom-table th { padding: 7px 10px; }
+  .unit-card { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+.notes-print { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar" id="topBar" style="display:none">
+  <div class="topbar-logo">Hi<span>Per</span> Studio</div>
+  <div class="topbar-project" id="topBarProject"></div>
+</div>
+
+<!-- Stage nav -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn done"   id="stageBtn-1" href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done"   id="stageBtn0"  href="#"><span class="stage-num">✓</span>Project Details</a>
+  <a class="stage-btn done"   id="stageBtn1"  href="#"><span class="stage-num">✓</span>Upload Plans</a>
+  <a class="stage-btn done"   id="stageBtn2"  href="#"><span class="stage-num">✓</span>Room Schedule</a>
+  <a class="stage-btn done"   id="stageBtn3"  href="#"><span class="stage-num">✓</span>Airflow Design</a>
+  <a class="stage-btn done"   id="stageBtn4"  href="#"><span class="stage-num">✓</span>Unit Selection</a>
+  <a class="stage-btn done"   id="stageBtn5"  href="#"><span class="stage-num">✓</span>Duct Design</a>
+  <a class="stage-btn active" id="stageBtn6"  href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
+</nav>
+
+<!-- Page -->
+<div class="page-wrap">
+  <div id="loadingState">Loading BOM…</div>
+
+  <div id="mainContent" style="display:none">
+
+    <!-- Header row -->
+    <div class="bom-header">
+      <div>
+        <div class="bom-title" id="bomTitle">Bill of Materials</div>
+        <div class="bom-subtitle" id="bomSubtitle"></div>
+      </div>
+      <div class="export-actions">
+        <button class="btn btn-outline" onclick="exportCsv()">⬇ Export CSV</button>
+        <button class="btn btn-primary" onclick="window.print()">🖨 Export PDF</button>
+      </div>
+    </div>
+
+    <!-- Wall sleeve warning (hidden by default) -->
+    <div class="wall-sleeve-note" id="wallSleeveNote" style="display:none">
+      ⚠ This unit requires a <strong>200 mm EPP wall penetration sleeve</strong> due to high airflow. Allow 1 m per external grille point.
+    </div>
+
+    <!-- Selected unit card -->
+    <div id="unitCardWrap"></div>
+
+    <!-- Empty state (no duct design) -->
+    <div class="empty-state" id="emptyState" style="display:none">
+      <div class="empty-state-icon">📐</div>
+      <h3>No duct design found</h3>
+      <p>Complete Stage 6 — Duct Design before generating your BOM.</p>
+      <a id="goDuctDesign" href="#" class="btn btn-primary" style="margin-top:16px; display:inline-flex">Go to Duct Design →</a>
+    </div>
+
+    <!-- BOM sections (hidden until data loads) -->
+    <div id="bomSections" style="display:none">
+
+      <!-- 1. Equipment -->
+      <div class="bom-section">
+        <div class="bom-section-title">Equipment</div>
+        <table class="bom-table">
+          <thead>
+            <tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit</th></tr>
+          </thead>
+          <tbody id="equipmentBody"></tbody>
+        </table>
+      </div>
+
+      <!-- 2. Terminals & Manifolds -->
+      <div class="bom-section">
+        <div class="bom-section-title">Terminals &amp; Manifolds</div>
+        <table class="bom-table">
+          <thead>
+            <tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit</th></tr>
+          </thead>
+          <tbody id="terminalsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- 3. Ductwork -->
+      <div class="bom-section">
+        <div class="bom-section-title">Ductwork</div>
+        <table class="bom-table">
+          <thead>
+            <tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit</th></tr>
+          </thead>
+          <tbody id="ductworkBody"></tbody>
+        </table>
+      </div>
+
+      <!-- 4. External -->
+      <div class="bom-section">
+        <div class="bom-section-title">External Grilles &amp; Wall Penetrations</div>
+        <table class="bom-table">
+          <thead>
+            <tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit</th></tr>
+          </thead>
+          <tbody id="externalBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Notes -->
+      <div class="notes-section">
+        <div class="notes-label">Installation Notes</div>
+        <textarea class="notes-textarea" id="notesArea" placeholder="Add installation notes, site-specific requirements, or scope exclusions…"></textarea>
+        <div class="notes-print" id="notesPrint"></div>
+        <div class="notes-save-row">
+          <span class="notes-saved" id="notesSaved" style="display:none">✓ Saved</span>
+          <button class="btn btn-outline" onclick="saveNotes()">Save Notes</button>
+        </div>
+      </div>
+
+    </div><!-- /bomSections -->
+  </div><!-- /mainContent -->
+</div><!-- /page-wrap -->
+
+<script>
+// ── Config ───────────────────────────────────────────────────
+const API_BASE = '/api/studio';
+const SUPA_URL = 'https://your-project.supabase.co'; // replaced by auth helper
+
+// ── Helpers ──────────────────────────────────────────────────
+const el = id => document.getElementById(id);
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmt(n, dp = 1) { return Number(n ?? 0).toFixed(dp); }
+
+// ── Auth ─────────────────────────────────────────────────────
+function getToken() {
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (!k.includes('supabase')) continue;
+      const v = JSON.parse(localStorage.getItem(k) ?? '{}');
+      const t = v?.access_token ?? v?.session?.access_token;
+      if (t) return t;
+    }
+  } catch {}
+  return null;
+}
+
+function getProjectIdFromUrl() {
+  const m = window.location.pathname.match(/\/projects\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
+// ── State ────────────────────────────────────────────────────
+let _token = null;
+let _projectId = null;
+let _bom = null;
+
+// ── API ──────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${_token}` },
+  });
+  if (!res.ok) throw new Error((await res.json()).error ?? 'Request failed');
+  return res.json();
+}
+
+async function apiPatch(path, body) {
+  return fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token}` },
+    body: JSON.stringify(body),
+  });
+}
+
+// ── Row builders ─────────────────────────────────────────────
+function tr(item, desc, note, qty, uom) {
+  return `<tr>
+    <td><span class="item-code">${esc(item)}</span></td>
+    <td>
+      <div class="item-desc">${esc(desc)}</div>
+      ${note ? `<div class="item-note">${note}</div>` : ''}
+    </td>
+    <td class="qty-cell">${qty}</td>
+    <td class="uom-cell">${esc(uom)}</td>
+  </tr>`;
+}
+
+// ── Render ───────────────────────────────────────────────────
+function render({ project, bom, hasDesign }) {
+  _bom = bom;
+
+  // Page title
+  el('bomTitle').textContent = `Bill of Materials`;
+  const dateStr = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+  el('bomSubtitle').textContent = `${project.name ?? 'Untitled Project'}  ·  Generated ${dateStr}`;
+
+  // Unit card
+  const unitWrap = el('unitCardWrap');
+  if (bom.unit) {
+    const u = bom.unit;
+    unitWrap.innerHTML = `
+      <div class="unit-card">
+        <div class="unit-card-name">
+          <div class="unit-name">${esc(u.manufacturer ?? '')} ${esc(u.model ?? '')}</div>
+          ${u.phi_cert_id ? `<div class="unit-cert">PHI Cert: ${esc(u.phi_cert_id)}</div>` : ''}
+        </div>
+        <div class="unit-stat">
+          <div class="unit-stat-label">HR Efficiency</div>
+          <div class="unit-stat-value">${fmt(u.hr_eff, 0)}%</div>
+        </div>
+        <div class="unit-stat">
+          <div class="unit-stat-label">SFP</div>
+          <div class="unit-stat-value">${fmt(u.sfp, 2)} Wh/m³</div>
+        </div>
+        <div class="unit-stat">
+          <div class="unit-stat-label">Flow Range</div>
+          <div class="unit-stat-value">${fmt(u.flow_min, 0)}–${fmt(u.flow_max, 0)} m³/h</div>
+        </div>
+        <div class="unit-stat">
+          <div class="unit-stat-label">Outside Air</div>
+          <div class="unit-stat-value">${bom.ductwork.epp.diameter_mm} mm EPP</div>
+        </div>
+      </div>`;
+  } else {
+    unitWrap.innerHTML = `<div class="no-unit">No MVHR unit selected. Complete Stage 5 — Unit Selection.</div>`;
+  }
+
+  if (!hasDesign) {
+    el('emptyState').style.display = '';
+    el('bomSections').style.display = 'none';
+    return;
+  }
+
+  el('emptyState').style.display = 'none';
+  el('bomSections').style.display = '';
+
+  const { counts, ductwork, notes } = bom;
+  const epp = ductwork.epp;
+  const sr  = ductwork.semiRigid;
+  const ws  = ductwork.wallSleeve;
+
+  // Wall sleeve banner
+  if (ws.required) el('wallSleeveNote').style.display = '';
+
+  // ── Equipment ──
+  let equipHtml = '';
+  if (bom.unit) {
+    const u = bom.unit;
+    equipHtml += tr('MVHR-01', `${u.manufacturer ?? ''} ${u.model ?? ''}`, `HR ${fmt(u.hr_eff,0)}% · SFP ${fmt(u.sfp,2)} Wh/m³ · ${fmt(u.flow_min,0)}–${fmt(u.flow_max,0)} m³/h`, '1', 'no.');
+  } else {
+    equipHtml += tr('MVHR-01', 'MVHR unit (not yet selected)', 'Complete Stage 5 to specify unit', '1', 'no.');
+  }
+  el('equipmentBody').innerHTML = equipHtml;
+
+  // ── Terminals & Manifolds ──
+  let termHtml = '';
+  if (counts.supplyManifolds > 0)  termHtml += tr('MAN-S', 'Supply manifold', '125 mm spigot(s)', counts.supplyManifolds, 'no.');
+  if (counts.extractManifolds > 0) termHtml += tr('MAN-E', 'Extract manifold', '125 mm spigot(s)', counts.extractManifolds, 'no.');
+  if (counts.supplyTerminals > 0)  termHtml += tr('TERM-S', 'Supply air terminal / valve', '90 mm connection', counts.supplyTerminals, 'no.');
+  if (counts.extractTerminals > 0) termHtml += tr('TERM-E', 'Extract air terminal / valve', '90 mm connection', counts.extractTerminals, 'no.');
+  if (!termHtml) termHtml = tr('—', 'No terminals or manifolds in design', '', '—', '');
+  el('terminalsBody').innerHTML = termHtml;
+
+  // ── Ductwork ──
+  const eppBadge = epp.diameter_mm === 125
+    ? '<span class="badge-epp125">EPP 125</span>'
+    : '<span class="badge-epp160">EPP 160</span>';
+  const srBadge = '<span class="badge-sr">90mm SR</span>';
+
+  let ductHtml = '';
+  // Semi-rigid measured
+  ductHtml += tr(
+    'SR-90',
+    `${srBadge} 90 mm semi-rigid duct — measured`,
+    `Supply ${fmt(sr.measured_m - ductwork.semiRigid.measured_m + sr.measured_m / 2, 1)} m · Extract — see duct design`,
+    `${fmt(sr.measured_m, 1)}`,
+    'm'
+  );
+  // Bends allowance (20%)
+  ductHtml += tr(
+    'SR-90B',
+    `${srBadge} 90 mm semi-rigid duct — bends &amp; fittings allowance (20%)`,
+    'Additional length for elbows, branches, and flexible connections',
+    `${fmt(sr.bendsAllowance_m, 1)}`,
+    'm'
+  );
+  // SR total
+  ductHtml += `<tr class="total-row">
+    <td><span class="item-code">SR-90 TOTAL</span></td>
+    <td><div class="item-desc">90 mm semi-rigid duct — total to order</div></td>
+    <td class="qty-cell">${fmt(sr.total_m, 1)}</td>
+    <td class="uom-cell">m</td>
+  </tr>`;
+
+  // EPP outside air
+  ductHtml += tr(
+    `EPP-${epp.diameter_mm}-IN`,
+    `${eppBadge} ${epp.diameter_mm} mm EPP duct — fresh air intake run`,
+    'From external grille to MVHR unit',
+    `${fmt(epp.intake_m, 1)}`,
+    'm'
+  );
+  ductHtml += tr(
+    `EPP-${epp.diameter_mm}-EX`,
+    `${eppBadge} ${epp.diameter_mm} mm EPP duct — exhaust air run`,
+    'From MVHR unit to external grille',
+    `${fmt(epp.exhaust_m, 1)}`,
+    'm'
+  );
+  ductHtml += `<tr class="total-row">
+    <td><span class="item-code">EPP-${epp.diameter_mm} TOTAL</span></td>
+    <td><div class="item-desc">${epp.diameter_mm} mm EPP outside air duct — total to order</div></td>
+    <td class="qty-cell">${fmt(epp.total_m, 1)}</td>
+    <td class="uom-cell">m</td>
+  </tr>`;
+
+  el('ductworkBody').innerHTML = ductHtml;
+
+  // ── External ──
+  let extHtml = '';
+  if (counts.intakeGrilles > 0) extHtml += tr('GRL-IN', 'External fresh air intake grille', `${epp.diameter_mm} mm connection`, counts.intakeGrilles, 'no.');
+  if (counts.exhaustGrilles > 0) extHtml += tr('GRL-EX', 'External exhaust air grille', `${epp.diameter_mm} mm connection`, counts.exhaustGrilles, 'no.');
+
+  if (ws.required && ws.qty_m > 0) {
+    extHtml += tr(
+      'SLV-200',
+      `<span class="badge-epp200">EPP 200</span> 200 mm EPP wall penetration sleeve`,
+      `Required for high-flow unit — 1 m per grille point (${counts.intakeGrilles + counts.exhaustGrilles} points)`,
+      `${ws.qty_m}`,
+      'm'
+    );
+  }
+  if (!extHtml) extHtml = tr('—', 'No external grilles in design', '', '—', '');
+  el('externalBody').innerHTML = extHtml;
+
+  // Notes
+  el('notesArea').value = notes ?? '';
+  el('notesPrint').textContent = notes ?? '';
+}
+
+// ── Save notes ───────────────────────────────────────────────
+async function saveNotes() {
+  const notes = el('notesArea').value;
+  el('notesPrint').textContent = notes;
+  const res = await apiPatch(`/bom?projectId=${_projectId}`, { notes });
+  if (res.ok) {
+    const saved = el('notesSaved');
+    saved.style.display = '';
+    setTimeout(() => { saved.style.display = 'none'; }, 2500);
+  }
+}
+
+// ── CSV export ───────────────────────────────────────────────
+function exportCsv() {
+  if (!_bom) return;
+  const { unit, counts, ductwork } = _bom;
+  const epp = ductwork.epp;
+  const sr  = ductwork.semiRigid;
+  const ws  = ductwork.wallSleeve;
+
+  const rows = [
+    ['Item Code', 'Description', 'Qty', 'Unit'],
+    // Equipment
+    ['MVHR-01', unit ? `${unit.manufacturer ?? ''} ${unit.model ?? ''}` : 'MVHR Unit (TBC)', '1', 'no.'],
+    // Terminals
+    ...(counts.supplyManifolds  > 0 ? [['MAN-S',  'Supply manifold', counts.supplyManifolds,  'no.']] : []),
+    ...(counts.extractManifolds > 0 ? [['MAN-E',  'Extract manifold', counts.extractManifolds, 'no.']] : []),
+    ...(counts.supplyTerminals  > 0 ? [['TERM-S', 'Supply air terminal / valve', counts.supplyTerminals,  'no.']] : []),
+    ...(counts.extractTerminals > 0 ? [['TERM-E', 'Extract air terminal / valve', counts.extractTerminals, 'no.']] : []),
+    // Semi-rigid
+    ['SR-90 (measured)', '90 mm semi-rigid duct — measured', fmt(sr.measured_m, 1), 'm'],
+    ['SR-90 (bends 20%)', '90 mm semi-rigid duct — bends & fittings allowance', fmt(sr.bendsAllowance_m, 1), 'm'],
+    ['SR-90 TOTAL', '90 mm semi-rigid duct — total to order', fmt(sr.total_m, 1), 'm'],
+    // EPP
+    [`EPP-${epp.diameter_mm} (intake)`, `${epp.diameter_mm} mm EPP fresh air intake run`, fmt(epp.intake_m, 1), 'm'],
+    [`EPP-${epp.diameter_mm} (exhaust)`, `${epp.diameter_mm} mm EPP exhaust air run`, fmt(epp.exhaust_m, 1), 'm'],
+    [`EPP-${epp.diameter_mm} TOTAL`, `${epp.diameter_mm} mm EPP outside air duct — total`, fmt(epp.total_m, 1), 'm'],
+    // Grilles
+    ...(counts.intakeGrilles  > 0 ? [['GRL-IN', `External fresh air intake grille (${epp.diameter_mm} mm)`, counts.intakeGrilles,  'no.']] : []),
+    ...(counts.exhaustGrilles > 0 ? [['GRL-EX', `External exhaust air grille (${epp.diameter_mm} mm)`, counts.exhaustGrilles, 'no.']] : []),
+    // Wall sleeve
+    ...(ws.required && ws.qty_m > 0 ? [['SLV-200', '200 mm EPP wall penetration sleeve', ws.qty_m, 'm']] : []),
+  ];
+
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `BOM-${(_bom ? '' : 'project')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Init ─────────────────────────────────────────────────────
+async function init() {
+  _token = getToken();
+  if (!_token) { window.location.href = '/'; return; }
+
+  _projectId = getProjectIdFromUrl();
+  if (!_projectId) { window.location.href = '/studio/projects'; return; }
+
+  // Wire nav
+  el('topBar').style.display   = '';
+  el('stageNav').style.display = '';
+  el('stageBtn0').href = `/studio/projects/${_projectId}/details`;
+  el('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
+  el('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
+  el('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
+  el('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
+  el('stageBtn5').href = `/studio/projects/${_projectId}/duct-design`;
+  el('stageBtn6').href = `/studio/projects/${_projectId}/bom`;
+  el('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
+  if (el('goDuctDesign')) el('goDuctDesign').href = `/studio/projects/${_projectId}/duct-design`;
+
+  try {
+    const data = await apiFetch(`/bom?projectId=${_projectId}`);
+    el('topBarProject').textContent = data.project?.name ?? '';
+    el('loadingState').style.display  = 'none';
+    el('mainContent').style.display   = '';
+    render(data);
+  } catch (e) {
+    el('loadingState').textContent = `Error: ${e.message}`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
