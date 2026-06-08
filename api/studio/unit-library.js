@@ -141,6 +141,17 @@ export default async function handler(req, res) {
       if (!Array.isArray(units) || units.length === 0)
         return res.status(400).json({ error: 'units array required' });
 
+      // Clean up any broken custom units this user has where names are the literal
+      // string "null" (caused by String(null) bug in a previous version of this API)
+      const { data: brokenUnits } = await supabase
+        .from('mvhr_units')
+        .select('id')
+        .eq('user_id', user.id)
+        .or('manufacturer.eq.null,model.eq.null');
+      if (brokenUnits?.length) {
+        await supabase.from('mvhr_units').delete().in('id', brokenUnits.map(u => u.id));
+      }
+
       // Fetch ALL units visible to this user (standard + their custom) for upsert matching
       const { data: existingUnits } = await supabase
         .from('mvhr_units')
@@ -170,7 +181,8 @@ export default async function handler(req, res) {
       // Require core numeric fields; manufacturer/model are optional for PHPP-format imports
       // (PHPP rows are identified by phi_cert_id instead)
       const REQUIRED_NUMERIC = ['hr_eff', 'sfp', 'flow_min', 'flow_max'];
-      const imported = [];
+      const updated  = [];
+      const inserted = [];
       const errors   = [];
 
       for (const [i, u] of units.entries()) {
@@ -187,8 +199,9 @@ export default async function handler(req, res) {
 
         const row = {
           user_id:          user.id,
-          manufacturer:     String(u.manufacturer).trim(),
-          model:            String(u.model).trim(),
+          // Guard against String(null) = "null" — keep null as proper null
+          manufacturer:     u.manufacturer != null ? String(u.manufacturer).trim() || null : null,
+          model:            u.model        != null ? String(u.model).trim()        || null : null,
           hr_eff:           Number(u.hr_eff),
           sfp:              Number(u.sfp),
           flow_min:         Number(u.flow_min),
@@ -228,9 +241,9 @@ export default async function handler(req, res) {
           for (const field of UPDATABLE) {
             if (row[field] != null) updatePayload[field] = row[field];
           }
-          // Only update name fields if the import actually has sensible values
-          if (row.manufacturer) updatePayload.manufacturer = row.manufacturer;
-          if (row.model)        updatePayload.model        = row.model;
+          // Only overwrite name fields if the import has a real non-null value
+          if (row.manufacturer && row.manufacturer !== 'null') updatePayload.manufacturer = row.manufacturer;
+          if (row.model        && row.model        !== 'null') updatePayload.model        = row.model;
 
           const { error: updErr } = await supabase
             .from('mvhr_units')
@@ -241,15 +254,16 @@ export default async function handler(req, res) {
             errors.push(`Row ${i + 1} (${label}): ${updErr.message}`);
             continue;
           }
-          unitId = existing.id;
+          updated.push(existing.id);
+          // Do NOT auto-add to library on update — user controls their own library
         } else {
           // No match — insert as a new custom unit
           // For PHPP rows with no name, use cert ID as the model identifier
           const insertRow = {
             ...row,
             user_id:      user.id,
-            manufacturer: row.manufacturer || 'PHI Database',
-            model:        row.model || row.phi_cert_id || `Unit ${i + 1}`,
+            manufacturer: (row.manufacturer && row.manufacturer !== 'null') ? row.manufacturer : 'PHI Database',
+            model:        (row.model        && row.model        !== 'null') ? row.model        : (row.phi_cert_id || `Unit ${i + 1}`),
           };
 
           const { data: inserted, error: insErr } = await supabase
@@ -263,19 +277,19 @@ export default async function handler(req, res) {
             continue;
           }
           unitId = inserted.id;
+          // Auto-add newly created custom units to library
+          await supabase
+            .from('user_unit_library')
+            .upsert({ user_id: user.id, unit_id: unitId }, { onConflict: 'user_id,unit_id' });
+          inserted.push(unitId);
         }
-
-        // Add to library (no-op if already present)
-        await supabase
-          .from('user_unit_library')
-          .upsert({ user_id: user.id, unit_id: unitId }, { onConflict: 'user_id,unit_id' });
-
-        imported.push(unitId);
       }
 
       return res.status(200).json({
         ok:            true,
-        importedCount: imported.length,
+        importedCount: updated.length + inserted.length,
+        updatedCount:  updated.length,
+        insertedCount: inserted.length,
         errorCount:    errors.length,
         errors:        errors.length ? errors : undefined,
       });

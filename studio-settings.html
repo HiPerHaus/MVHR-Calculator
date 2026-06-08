@@ -275,6 +275,15 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
       <button class="btn btn-secondary btn-sm" onclick="el('phppFile').click()">⬆ Import PHPP file</button>
       <div class="phpp-hint">Accepts the standard PHPP 10 component update .xlsx, or a custom .csv (columns: Manufacturer, Model, HR Eff %, SFP, Flow Min, Flow Max, PHI Cert ID, Ext Pressure). Matched by PHI cert ID — existing units are updated, new ones added.</div>
     </div>
+    <div id="importProgress" style="display:none; margin-top:10px;">
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:4px;">
+        <span id="importProgressLabel">Importing…</span>
+        <span id="importProgressPct">0%</span>
+      </div>
+      <div style="background:var(--border); border-radius:99px; height:6px; overflow:hidden;">
+        <div id="importProgressBar" style="height:100%; width:0%; background:var(--accent); border-radius:99px; transition:width .2s ease;"></div>
+      </div>
+    </div>
     <div id="importStatus" style="font-size:12px; margin-top:8px;"></div>
   </div>
 
@@ -628,21 +637,59 @@ async function importPhpp(input) {
     return;
   }
 
-  statusEl.textContent = `Importing ${validUnits.length} unit(s)…`;
+  // ── Batched upload with progress bar ─────────────────────────
+  const BATCH = 50;
+  const total  = validUnits.length;
+  let done = 0, importedCount = 0, errorCount = 0;
+  const allErrors = [];
 
-  const res = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units: validUnits });
+  const progressWrap = el('importProgress');
+  const progressBar  = el('importProgressBar');
+  const progressLbl  = el('importProgressLabel');
+  const progressPct  = el('importProgressPct');
+
+  statusEl.textContent = '';
+  progressWrap.style.display = 'block';
+
+  function setProgress(n) {
+    const pct = Math.round((n / total) * 100);
+    progressBar.style.width = `${pct}%`;
+    progressPct.textContent = `${pct}%`;
+    progressLbl.textContent = `Importing ${n} / ${total} units…`;
+  }
+  setProgress(0);
+
   input.value = '';
 
-  if (!res.ok) {
-    const { error } = await res.json().catch(() => ({ error: 'Import failed' }));
-    statusEl.textContent = error ?? 'Import failed';
-    statusEl.style.color = 'var(--critical)';
-    return;
+  for (let i = 0; i < total; i += BATCH) {
+    const batch = validUnits.slice(i, i + BATCH);
+    const res   = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units: batch });
+
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: 'Batch failed' }));
+      progressWrap.style.display = 'none';
+      statusEl.textContent = error ?? 'Import failed';
+      statusEl.style.color = 'var(--critical)';
+      return;
+    }
+
+    const result = await res.json();
+    importedCount += result.importedCount ?? 0;
+    errorCount    += result.errorCount    ?? 0;
+    if (result.errors) allErrors.push(...result.errors);
+
+    done = Math.min(i + BATCH, total);
+    setProgress(done);
   }
 
-  const { importedCount, errorCount, errors } = await res.json();
+  // Final state
+  progressBar.style.width = '100%';
+  progressPct.textContent = '100%';
+  progressLbl.textContent = 'Done';
+  setTimeout(() => { progressWrap.style.display = 'none'; }, 1200);
+
   if (errorCount) {
-    statusEl.textContent = `Updated/added ${importedCount} unit(s). ${errorCount} error(s): ${errors[0]}`;
+    statusEl.textContent = `Updated/added ${importedCount} unit(s). ${errorCount} error(s): ${allErrors[0]}`;
     statusEl.style.color = 'var(--warn)';
   } else {
     statusEl.textContent = `✓ ${importedCount} unit(s) updated or added to your library.`;
