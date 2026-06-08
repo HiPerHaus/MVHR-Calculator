@@ -154,7 +154,7 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
 
 <!-- ── Stage navigation ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>Projects</a>
+  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">1</span>Project Details</a>
   <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">2</span>Upload Plans</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">3</span>Room Schedule</a>
@@ -203,12 +203,7 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
       </div>
     </div>
 
-    <div class="form-row cols-2">
-      <div class="field">
-        <label>Number of storeys</label>
-        <input type="number" id="fStoreys" min="1" max="10" placeholder="1" value="1">
-      </div>
-    </div>
+
   </div>
 
   <!-- Site address card -->
@@ -294,6 +289,20 @@ function getProjectIdFromUrl() {
 const _projectId = getProjectIdFromUrl();
 const _isNew     = !_projectId;
 let   _userId    = null;
+let   _token     = null;
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+const apiGet  = (url)       => fetch(url, { headers: { Authorization: 'Bearer ' + _token } });
+const apiPost = (url, body) => fetch(url, {
+  method:  'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+  body:    JSON.stringify(body),
+});
+const apiPatch = (url, body) => fetch(url, {
+  method:  'PATCH',
+  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _token },
+  body:    JSON.stringify(body),
+});
 
 console.log(JSON.stringify({ event: 'studio-project:route', pathname: location.pathname, projectId: _projectId, isNew: _isNew }));
 
@@ -346,6 +355,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
     return;
   }
   _userId = session.user.id;
+  _token  = session.access_token;
   el('headerUser').textContent = session.user.email;
   el('loginOverlay').classList.add('hidden');
   el('loginOverlay').classList.remove('show-login');
@@ -378,28 +388,24 @@ async function init() {
 
 // ── Load existing project ─────────────────────────────────────────────────────
 async function loadProject() {
-  const { data, error } = await sb
-    .from('projects')
-    .select('name,client_name,site_address,suburb,address_state,postcode,building_type,storey_count,notes')
-    .eq('id', _projectId)
-    .single();
-
-  if (error || !data) {
-    showAlert(`Could not load project: ${error?.message ?? 'not found'}`);
+  const res = await apiGet(`/api/studio/projects?projectId=${_projectId}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    showAlert(`Could not load project: ${body.error ?? res.status}`);
     return;
   }
+  const { project } = await res.json();
 
-  el('fName').value         = data.name         ?? '';
-  el('fClientName').value   = data.client_name  ?? '';
-  el('fAddress').value      = data.site_address ?? '';
-  el('fSuburb').value       = data.suburb       ?? '';
-  el('fState').value        = data.address_state ?? '';
-  el('fPostcode').value     = data.postcode     ?? '';
-  el('fBuildingType').value = data.building_type ?? '';
-  el('fStoreys').value      = data.storey_count ?? 1;
-  el('fNotes').value        = data.notes        ?? '';
+  el('fName').value         = project.name          ?? '';
+  el('fClientName').value   = project.client_name   ?? '';
+  el('fAddress').value      = project.site_address  ?? '';
+  el('fSuburb').value       = project.suburb        ?? '';
+  el('fState').value        = project.address_state ?? '';
+  el('fPostcode').value     = project.postcode      ?? '';
+  el('fBuildingType').value = project.building_type ?? '';
+  el('fNotes').value        = project.notes         ?? '';
 
-  el('headerProject').textContent = data.name || 'Project Details';
+  el('headerProject').textContent = project.name || 'Project Details';
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -433,50 +439,40 @@ el('saveBtn').addEventListener('click', async () => {
     address_state:  el('fState').value              || null,
     postcode:       el('fPostcode').value.trim()    || null,
     building_type:  el('fBuildingType').value       || null,
-    storey_count:   parseInt(el('fStoreys').value, 10) || 1,
     notes:          el('fNotes').value.trim()       || null,
   };
 
   if (_isNew) {
-    payload.user_id = _userId;
-    const { data, error } = await sb
-      .from('projects')
-      .insert(payload)
-      .select('id')
-      .single();
+    // Create via API (credits deducted, service-role insert)
+    const res = await apiPost('/api/studio/projects', { action: 'create', ...payload });
+    const data = await res.json().catch(() => ({}));
 
-    if (error || !data) {
-      showAlert(`Failed to create project: ${error?.message ?? 'unknown error'}`);
+    if (!res.ok) {
+      const msg = data.error === 'insufficient_credits'
+        ? `Not enough credits (have ${data.balance}, need ${data.required})`
+        : (data.error ?? 'Failed to create project');
+      showAlert(msg);
       setSaveStatus('Save failed.', 'fail');
       el('saveBtn').disabled = false;
       return;
     }
 
-    console.log(JSON.stringify({ event: 'studio-project:created', projectId: data.id }));
-    // Redirect to upload page
-    window.location.href = `/studio/projects/${data.id}/upload`;
+    window.location.href = `/studio/projects/${data.project.id}/upload`;
   } else {
-    const { error } = await sb
-      .from('projects')
-      .update(payload)
-      .eq('id', _projectId)
-      .eq('user_id', _userId);
+    // Update via API (service-role, bypasses RLS)
+    const res = await apiPatch('/api/studio/projects', { projectId: _projectId, ...payload });
+    const data = await res.json().catch(() => ({}));
 
-    if (error) {
-      showAlert(`Failed to update project: ${error.message}`);
+    if (!res.ok) {
+      showAlert(`Failed to save: ${data.error ?? res.status}`);
       setSaveStatus('Save failed.', 'fail');
       el('saveBtn').disabled = false;
       return;
     }
 
-    console.log(JSON.stringify({ event: 'studio-project:updated', projectId: _projectId }));
-    setSaveStatus('Saved.', 'ok');
-    el('saveBtn').disabled = false;
+    setSaveStatus('Saved. Taking you to upload…', 'ok');
     el('headerProject').textContent = payload.name;
-    // Continue to upload page
-    setTimeout(() => {
-      window.location.href = `/studio/projects/${_projectId}/upload`;
-    }, 600);
+    window.location.href = `/studio/projects/${_projectId}/upload`;
   }
 });
 </script>

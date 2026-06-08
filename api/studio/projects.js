@@ -35,8 +35,26 @@ export default async function handler(req, res) {
   const user = await getUser(req);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-  // ── GET: list projects + credit balance ──────────────────────────────────
+  // ── GET: single project details OR list projects + credit balance ─────────
   if (req.method === 'GET') {
+    const { projectId } = req.query;
+
+    // Single project detail fetch
+    if (projectId) {
+      const { data: project, error: projErr } = await supabase
+        .from('projects')
+        .select('id, name, client_name, site_address, suburb, address_state, postcode, building_type, notes, created_at, updated_at')
+        .eq('id', projectId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (projErr || !project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      return res.status(200).json({ project });
+    }
+
+    // List all projects + credit balance
     const [projectsResult, profileResult] = await Promise.all([
       supabase
         .from('projects')
@@ -96,11 +114,17 @@ export default async function handler(req, res) {
       const { data: project, error: insertErr } = await supabase
         .from('projects')
         .insert({
-          user_id: user.id,
-          name:    name.trim(),
-          site_address: site_address?.trim() || null,
+          user_id:        user.id,
+          name:           name.trim(),
+          site_address:   req.body.site_address?.trim()   || null,
+          client_name:    req.body.client_name?.trim()    || null,
+          suburb:         req.body.suburb?.trim()         || null,
+          address_state:  req.body.address_state          || null,
+          postcode:       req.body.postcode?.trim()       || null,
+          building_type:  req.body.building_type          || null,
+          notes:          req.body.notes?.trim()          || null,
         })
-        .select('id, name, site_address, created_at, updated_at')
+        .select('id, name, client_name, site_address, suburb, address_state, postcode, building_type, notes, created_at, updated_at')
         .single();
 
       if (insertErr) {
@@ -185,23 +209,37 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'action must be create or copy' });
   }
 
-  // ── PATCH: rename ────────────────────────────────────────────────────────
+  // ── PATCH: update project (rename-only or full detail update) ───────────
   if (req.method === 'PATCH') {
-    const { projectId, name } = req.body ?? {};
+    const body = req.body ?? {};
+    const { projectId } = body;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
-    if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+
+    // Build update payload — allow name-only (rename) or full detail fields
+    const DETAIL_FIELDS = ['name', 'client_name', 'site_address', 'suburb', 'address_state', 'postcode', 'building_type', 'notes'];
+    const updates = {};
+    for (const f of DETAIL_FIELDS) {
+      if (f in body) updates[f] = body[f] ?? null;
+    }
+    if (updates.name !== undefined && !updates.name?.trim()) {
+      return res.status(400).json({ error: 'name cannot be empty' });
+    }
+    if (updates.name) updates.name = updates.name.trim();
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
 
     const { data: project, error: updateErr } = await supabase
       .from('projects')
-      .update({ name: name.trim() })
+      .update(updates)
       .eq('id', projectId)
       .eq('user_id', user.id)
-      .select('id, name, site_address, created_at, updated_at')
+      .select('id, name, client_name, site_address, suburb, address_state, postcode, building_type, notes, created_at, updated_at')
       .single();
 
     if (updateErr) {
-      console.error('rename error:', updateErr);
-      return res.status(500).json({ error: 'Rename failed' });
+      console.error('project update error:', updateErr);
+      return res.status(500).json({ error: updateErr.message });
     }
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
