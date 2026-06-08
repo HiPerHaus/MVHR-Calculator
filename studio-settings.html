@@ -708,7 +708,20 @@ async function importPhpp(input) {
   input.value = '';
 
   for (let i = 0; i < total; i += BATCH) {
-    const batch = validUnits.slice(i, i + BATCH);
+    const rawBatch = validUnits.slice(i, i + BATCH);
+    const batch = rawBatch.filter(u =>
+      u &&
+      u.manufacturer &&
+      u.model &&
+      String(u.manufacturer).trim() &&
+      String(u.model).trim()
+    );
+
+    if (!batch.length) {
+      done = Math.min(i + BATCH, total);
+      setProgress(done);
+      continue;
+    }
     const res   = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units: batch });
 
     if (!res.ok) {
