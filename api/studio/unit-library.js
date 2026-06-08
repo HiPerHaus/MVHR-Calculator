@@ -144,28 +144,44 @@ export default async function handler(req, res) {
       // Fetch ALL units visible to this user (standard + their custom) for upsert matching
       const { data: existingUnits } = await supabase
         .from('mvhr_units')
-        .select('id, manufacturer, model, user_id')
+        .select('id, manufacturer, model, user_id, phi_cert_id')
         .or(`user_id.is.null,user_id.eq.${user.id}`);
 
-      // Prefer the user's own custom unit if both a standard and custom version exist
-      const existingMap = new Map();
+      // Build two lookup maps: by phi_cert_id and by manufacturer::model
+      // Custom (user-owned) units take priority over standard units on same key
+      const byCertId = new Map();
+      const byName   = new Map();
       for (const u of (existingUnits ?? [])) {
-        const key = `${String(u.manufacturer).trim().toLowerCase()}::${String(u.model).trim().toLowerCase()}`;
-        const existing = existingMap.get(key);
-        // Custom (user-owned) unit takes priority over standard
-        if (!existing || u.user_id !== null) {
-          existingMap.set(key, { id: u.id, isCustom: u.user_id !== null });
+        if (u.phi_cert_id) {
+          const existing = byCertId.get(u.phi_cert_id.trim().toLowerCase());
+          if (!existing || u.user_id !== null) {
+            byCertId.set(u.phi_cert_id.trim().toLowerCase(), { id: u.id, isCustom: u.user_id !== null });
+          }
+        }
+        if (u.manufacturer && u.model) {
+          const key = `${String(u.manufacturer).trim().toLowerCase()}::${String(u.model).trim().toLowerCase()}`;
+          const existing = byName.get(key);
+          if (!existing || u.user_id !== null) {
+            byName.set(key, { id: u.id, isCustom: u.user_id !== null });
+          }
         }
       }
 
-      const REQUIRED = ['manufacturer', 'model', 'hr_eff', 'sfp', 'flow_min', 'flow_max'];
+      // Require core numeric fields; manufacturer/model are optional for PHPP-format imports
+      // (PHPP rows are identified by phi_cert_id instead)
+      const REQUIRED_NUMERIC = ['hr_eff', 'sfp', 'flow_min', 'flow_max'];
       const imported = [];
       const errors   = [];
 
       for (const [i, u] of units.entries()) {
-        const missing = REQUIRED.filter(k => u[k] == null || (typeof u[k] === 'number' && isNaN(u[k])));
+        // Must have either (manufacturer + model) or phi_cert_id
+        if (!u.phi_cert_id && (!u.manufacturer || !u.model)) {
+          errors.push(`Row ${i + 1}: needs either phi_cert_id or both manufacturer and model`);
+          continue;
+        }
+        const missing = REQUIRED_NUMERIC.filter(k => u[k] == null || isNaN(Number(u[k])));
         if (missing.length > 0) {
-          errors.push(`Row ${i + 1}: missing ${missing.join(', ')}`);
+          errors.push(`Row ${i + 1}: missing or invalid ${missing.join(', ')}`);
           continue;
         }
 
@@ -189,18 +205,32 @@ export default async function handler(req, res) {
           additional_info:  u.additional_info  ? String(u.additional_info).trim()   : null,
         };
 
-        const key = `${row.manufacturer.toLowerCase()}::${row.model.toLowerCase()}`;
-        const existing = existingMap.get(key);
+        // Match: cert ID first, then manufacturer+model name
+        let existing = null;
+        if (row.phi_cert_id) {
+          existing = byCertId.get(row.phi_cert_id.trim().toLowerCase()) ?? null;
+        }
+        if (!existing && row.manufacturer && row.model) {
+          const nameKey = `${row.manufacturer.trim().toLowerCase()}::${row.model.trim().toLowerCase()}`;
+          existing = byName.get(nameKey) ?? null;
+        }
 
         let unitId;
+        const label = row.phi_cert_id || `${row.manufacturer} ${row.model}`;
+
         if (existing) {
-          // Build update payload — only overwrite fields that are non-null in the import
-          // (preserves existing DB values when import doesn't supply them)
+          // Update — only write fields that are non-null in the import
+          // Never change user_id (ownership) or manufacturer/model when import has none
           const updatePayload = {};
-          for (const [k, v] of Object.entries(row)) {
-            if (k === 'user_id') continue; // never change ownership
-            if (v !== null && v !== undefined) updatePayload[k] = v;
+          const UPDATABLE = ['hr_eff', 'sfp', 'flow_min', 'flow_max', 'phi_cert_id',
+            'humidity_winter', 'humidity_summer', 'hr_eff_cooling', 'ext_pressure',
+            'fittings_dp', 'frost_protection', 'noise_supply', 'noise_extract', 'additional_info'];
+          for (const field of UPDATABLE) {
+            if (row[field] != null) updatePayload[field] = row[field];
           }
+          // Only update name fields if the import actually has sensible values
+          if (row.manufacturer) updatePayload.manufacturer = row.manufacturer;
+          if (row.model)        updatePayload.model        = row.model;
 
           const { error: updErr } = await supabase
             .from('mvhr_units')
@@ -208,20 +238,28 @@ export default async function handler(req, res) {
             .eq('id', existing.id);
 
           if (updErr) {
-            errors.push(`Row ${i + 1} (${row.manufacturer} ${row.model}): ${updErr.message}`);
+            errors.push(`Row ${i + 1} (${label}): ${updErr.message}`);
             continue;
           }
           unitId = existing.id;
         } else {
-          // No match — insert as a new custom unit for this user
+          // No match — insert as a new custom unit
+          // For PHPP rows with no name, use cert ID as the model identifier
+          const insertRow = {
+            ...row,
+            user_id:      user.id,
+            manufacturer: row.manufacturer || 'PHI Database',
+            model:        row.model || row.phi_cert_id || `Unit ${i + 1}`,
+          };
+
           const { data: inserted, error: insErr } = await supabase
             .from('mvhr_units')
-            .insert(row)
+            .insert(insertRow)
             .select('id')
             .single();
 
           if (insErr) {
-            errors.push(`Row ${i + 1} (${row.manufacturer} ${row.model}): ${insErr.message}`);
+            errors.push(`Row ${i + 1} (${label}): ${insErr.message}`);
             continue;
           }
           unitId = inserted.id;
