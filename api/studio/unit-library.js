@@ -182,7 +182,7 @@ export default async function handler(req, res) {
       // (PHPP rows are identified by phi_cert_id instead)
       const REQUIRED_NUMERIC = ['hr_eff', 'sfp', 'flow_min', 'flow_max'];
       const updated  = [];
-      const inserted = [];
+      let insertedCount = 0;
       const errors   = [];
 
       for (const [i, u] of units.entries()) {
@@ -254,7 +254,7 @@ export default async function handler(req, res) {
             errors.push(`Row ${i + 1} (${label}): ${updErr.message}`);
             continue;
           }
-          updated.push(existing.id);
+          updatedCount += 1;
           // Do NOT auto-add to library on update — user controls their own library
         } else {
           // No match — insert as a new custom unit
@@ -266,7 +266,7 @@ export default async function handler(req, res) {
             model:        (row.model        && row.model        !== 'null') ? row.model        : (row.phi_cert_id || `Unit ${i + 1}`),
           };
 
-          const { data: inserted, error: insErr } = await supabase
+          const { data: inserted: insertedCount, error: insErr } = await supabase
             .from('mvhr_units')
             .insert(insertRow)
             .select('id')
@@ -281,15 +281,15 @@ export default async function handler(req, res) {
           await supabase
             .from('user_unit_library')
             .upsert({ user_id: user.id, unit_id: unitId }, { onConflict: 'user_id,unit_id' });
-          inserted.push(unitId);
+          insertedCount += 1;
         }
       }
 
       return res.status(200).json({
         ok:            true,
-        importedCount: updated.length + inserted.length,
-        updatedCount:  updated.length,
-        insertedCount: inserted.length,
+        importedCount: updatedCount + insertedCount,
+        updatedCount:  updatedCount,
+        insertedCount: insertedCount,
         errorCount:    errors.length,
         errors:        errors.length ? errors : undefined,
       });
