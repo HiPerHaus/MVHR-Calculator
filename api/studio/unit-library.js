@@ -141,55 +141,98 @@ export default async function handler(req, res) {
       if (!Array.isArray(units) || units.length === 0)
         return res.status(400).json({ error: 'units array required' });
 
+      // Fetch ALL units visible to this user (standard + their custom) for upsert matching
+      const { data: existingUnits } = await supabase
+        .from('mvhr_units')
+        .select('id, manufacturer, model, user_id')
+        .or(`user_id.is.null,user_id.eq.${user.id}`);
+
+      // Prefer the user's own custom unit if both a standard and custom version exist
+      const existingMap = new Map();
+      for (const u of (existingUnits ?? [])) {
+        const key = `${String(u.manufacturer).trim().toLowerCase()}::${String(u.model).trim().toLowerCase()}`;
+        const existing = existingMap.get(key);
+        // Custom (user-owned) unit takes priority over standard
+        if (!existing || u.user_id !== null) {
+          existingMap.set(key, { id: u.id, isCustom: u.user_id !== null });
+        }
+      }
+
       const REQUIRED = ['manufacturer', 'model', 'hr_eff', 'sfp', 'flow_min', 'flow_max'];
       const imported = [];
       const errors   = [];
 
       for (const [i, u] of units.entries()) {
-        const missing = REQUIRED.filter(k => u[k] == null);
+        const missing = REQUIRED.filter(k => u[k] == null || (typeof u[k] === 'number' && isNaN(u[k])));
         if (missing.length > 0) {
           errors.push(`Row ${i + 1}: missing ${missing.join(', ')}`);
           continue;
         }
 
         const row = {
-          user_id:        user.id,
-          manufacturer:   String(u.manufacturer).trim(),
-          model:          String(u.model).trim(),
-          hr_eff:         Number(u.hr_eff),
-          sfp:            Number(u.sfp),
-          flow_min:       Number(u.flow_min),
-          flow_max:       Number(u.flow_max),
-          phi_cert_id:    u.phi_cert_id    ? String(u.phi_cert_id).trim()    : null,
-          humidity_winter: u.humidity_winter != null ? Number(u.humidity_winter) : null,
-          humidity_summer: u.humidity_summer != null ? Number(u.humidity_summer) : null,
-          hr_eff_cooling:  u.hr_eff_cooling  != null ? Number(u.hr_eff_cooling)  : null,
-          ext_pressure:    u.ext_pressure    != null ? Number(u.ext_pressure)    : null,
-          fittings_dp:     u.fittings_dp     != null ? Number(u.fittings_dp)     : null,
-          frost_protection: u.frost_protection ? String(u.frost_protection).trim() : null,
-          noise_extract:   u.noise_extract   != null ? Number(u.noise_extract)   : null,
-          noise_supply:    u.noise_supply    != null ? Number(u.noise_supply)    : null,
-          additional_info: u.additional_info ? String(u.additional_info).trim()  : null,
+          user_id:          user.id,
+          manufacturer:     String(u.manufacturer).trim(),
+          model:            String(u.model).trim(),
+          hr_eff:           Number(u.hr_eff),
+          sfp:              Number(u.sfp),
+          flow_min:         Number(u.flow_min),
+          flow_max:         Number(u.flow_max),
+          phi_cert_id:      u.phi_cert_id      ? String(u.phi_cert_id).trim()       : null,
+          humidity_winter:  u.humidity_winter  != null ? Number(u.humidity_winter)  : null,
+          humidity_summer:  u.humidity_summer  != null ? Number(u.humidity_summer)  : null,
+          hr_eff_cooling:   u.hr_eff_cooling   != null ? Number(u.hr_eff_cooling)   : null,
+          ext_pressure:     u.ext_pressure     != null ? Number(u.ext_pressure)     : null,
+          fittings_dp:      u.fittings_dp      != null ? Number(u.fittings_dp)      : null,
+          frost_protection: u.frost_protection ? String(u.frost_protection).trim()  : null,
+          noise_extract:    u.noise_extract    != null ? Number(u.noise_extract)    : null,
+          noise_supply:     u.noise_supply     != null ? Number(u.noise_supply)     : null,
+          additional_info:  u.additional_info  ? String(u.additional_info).trim()   : null,
         };
 
-        // Insert custom unit
-        const { data: inserted, error: insErr } = await supabase
-          .from('mvhr_units')
-          .insert(row)
-          .select('id')
-          .single();
+        const key = `${row.manufacturer.toLowerCase()}::${row.model.toLowerCase()}`;
+        const existing = existingMap.get(key);
 
-        if (insErr) {
-          errors.push(`Row ${i + 1} (${u.manufacturer} ${u.model}): ${insErr.message}`);
-          continue;
+        let unitId;
+        if (existing) {
+          // Build update payload — only overwrite fields that are non-null in the import
+          // (preserves existing DB values when import doesn't supply them)
+          const updatePayload = {};
+          for (const [k, v] of Object.entries(row)) {
+            if (k === 'user_id') continue; // never change ownership
+            if (v !== null && v !== undefined) updatePayload[k] = v;
+          }
+
+          const { error: updErr } = await supabase
+            .from('mvhr_units')
+            .update(updatePayload)
+            .eq('id', existing.id);
+
+          if (updErr) {
+            errors.push(`Row ${i + 1} (${row.manufacturer} ${row.model}): ${updErr.message}`);
+            continue;
+          }
+          unitId = existing.id;
+        } else {
+          // No match — insert as a new custom unit for this user
+          const { data: inserted, error: insErr } = await supabase
+            .from('mvhr_units')
+            .insert(row)
+            .select('id')
+            .single();
+
+          if (insErr) {
+            errors.push(`Row ${i + 1} (${row.manufacturer} ${row.model}): ${insErr.message}`);
+            continue;
+          }
+          unitId = inserted.id;
         }
 
-        // Add to library
+        // Add to library (no-op if already present)
         await supabase
           .from('user_unit_library')
-          .upsert({ user_id: user.id, unit_id: inserted.id }, { onConflict: 'user_id,unit_id' });
+          .upsert({ user_id: user.id, unit_id: unitId }, { onConflict: 'user_id,unit_id' });
 
-        imported.push(inserted.id);
+        imported.push(unitId);
       }
 
       return res.status(200).json({

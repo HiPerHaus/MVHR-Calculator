@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiPer Studio — Settings</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
 :root {
   --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
@@ -194,12 +195,12 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn" href="/studio/projects"><span class="stage-num">0</span>Projects</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">1</span>Project Details</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">2</span>Upload Plans</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">3</span>Room Schedule</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">4</span>Airflow Design</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">5</span>Unit Selection</a>
+  <a class="stage-btn" href="/studio/projects"><span class="stage-num">0</span>New/Open</a>
+  <a class="stage-btn locked" id="sNavBtn1" href="#"><span class="stage-num">1</span>Project Details</a>
+  <a class="stage-btn locked" id="sNavBtn2" href="#"><span class="stage-num">2</span>Upload Plans</a>
+  <a class="stage-btn locked" id="sNavBtn3" href="#"><span class="stage-num">3</span>Room Schedule</a>
+  <a class="stage-btn locked" id="sNavBtn4" href="#"><span class="stage-num">4</span>Airflow Design</a>
+  <a class="stage-btn locked" id="sNavBtn5" href="#"><span class="stage-num">5</span>Unit Selection</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">6</span>Duct Design</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
   <a class="stage-btn settings-link active" href="/studio/settings">⚙ Settings</a>
@@ -270,9 +271,9 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
     </div>
 
     <div class="phpp-upload-wrap">
-      <input type="file" id="phppFile" accept=".csv,.txt" style="display:none" onchange="importPhpp(this)">
-      <button class="btn btn-secondary btn-sm" onclick="el('phppFile').click()">⬆ Import PHPP CSV</button>
-      <div class="phpp-hint">CSV columns (in order): Manufacturer, Model, HR Efficiency (%), SFP (W·s/m³), Flow Min (m³/h), Flow Max (m³/h), PHI Cert ID (optional), External Pressure (optional)</div>
+      <input type="file" id="phppFile" accept=".xlsx,.csv,.txt" style="display:none" onchange="importPhpp(this)">
+      <button class="btn btn-secondary btn-sm" onclick="el('phppFile').click()">⬆ Import PHPP file</button>
+      <div class="phpp-hint">Accepts .xlsx or .csv. Columns (in order): Manufacturer, Model, HR Efficiency (%), SFP (W·s/m³), Flow Min (m³/h), Flow Max (m³/h), PHI Cert ID (optional), External Pressure (optional). Existing units are updated; new units are added.</div>
     </div>
     <div id="importStatus" style="font-size:12px; margin-top:8px;"></div>
   </div>
@@ -407,8 +408,32 @@ sb.auth.onAuthStateChange((_ev, session) => {
 let _allUnits    = [];   // all units with in_library flag
 let _unitTab     = 'all';
 
+// ── Helpers ───────────────────────────────────────────────────
+function getProjectIdFromUrl() {
+  return new URLSearchParams(location.search).get('projectId') || null;
+}
+
 // ── Init ──────────────────────────────────────────────────────
 async function init() {
+  // Wire stage nav if we arrived from a project
+  const pid = getProjectIdFromUrl();
+  if (pid) {
+    const stageMap = [
+      ['sNavBtn1', 'details'],
+      ['sNavBtn2', 'upload'],
+      ['sNavBtn3', 'rooms'],
+      ['sNavBtn4', 'airflow'],
+      ['sNavBtn5', 'unit-selection'],
+    ];
+    for (const [btnId, path] of stageMap) {
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        btn.href = `/studio/projects/${pid}/${path}`;
+        btn.classList.remove('locked');
+      }
+    }
+  }
+
   const [settingsRes] = await Promise.all([
     apiGet(`${API_BASE}/settings`),
     loadUnitLibrary(),
@@ -508,47 +533,83 @@ async function importPhpp(input) {
   if (!file) return;
 
   const statusEl = el('importStatus');
-  statusEl.textContent = 'Parsing CSV…';
+  statusEl.textContent = 'Parsing file…';
   statusEl.style.color = 'var(--muted)';
 
-  const text = await file.text();
-  const lines = text.trim().split('\n').filter(l => l.trim());
-
-  // Skip header row if it looks non-numeric (has letters in col 3)
-  const dataLines = lines.filter((l, i) => {
-    if (i === 0) {
-      const cols = l.split(',');
-      return !isNaN(parseFloat(cols[2])); // col 2 = HR eff, numeric → data row
-    }
-    return true;
-  });
-
+  const ext  = file.name.split('.').pop().toLowerCase();
   const units = [];
-  for (const line of dataLines) {
-    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-    if (cols.length < 6) continue;
-    units.push({
-      manufacturer:  cols[0],
-      model:         cols[1],
-      hr_eff:        parseFloat(cols[2]),
-      sfp:           parseFloat(cols[3]),
-      flow_min:      parseFloat(cols[4]),
-      flow_max:      parseFloat(cols[5]),
-      phi_cert_id:   cols[6] || null,
-      ext_pressure:  cols[7] ? parseFloat(cols[7]) : null,
+
+  if (ext === 'xlsx' || ext === 'xls') {
+    // Parse Excel using SheetJS
+    const ab   = await file.arrayBuffer();
+    const wb   = XLSX.read(ab, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+    // Skip header row if col 2 is non-numeric
+    const dataRows = rows.filter((r, i) => {
+      if (i === 0) return !isNaN(parseFloat(r[2]));
+      return r.some(c => c !== '');
     });
+
+    for (const r of dataRows) {
+      if (r.length < 6) continue;
+      units.push({
+        manufacturer: String(r[0] ?? '').trim(),
+        model:        String(r[1] ?? '').trim(),
+        hr_eff:       parseFloat(r[2]),
+        sfp:          parseFloat(r[3]),
+        flow_min:     parseFloat(r[4]),
+        flow_max:     parseFloat(r[5]),
+        phi_cert_id:  r[6] != null && r[6] !== '' ? String(r[6]).trim() : null,
+        ext_pressure: r[7] != null && r[7] !== '' ? parseFloat(r[7]) : null,
+      });
+    }
+  } else {
+    // CSV / TXT parsing
+    const text  = await file.text();
+    const lines = text.trim().split('\n').filter(l => l.trim());
+
+    const dataLines = lines.filter((l, i) => {
+      if (i === 0) {
+        const cols = l.split(',');
+        return !isNaN(parseFloat(cols[2]));
+      }
+      return true;
+    });
+
+    for (const line of dataLines) {
+      const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 6) continue;
+      units.push({
+        manufacturer: cols[0],
+        model:        cols[1],
+        hr_eff:       parseFloat(cols[2]),
+        sfp:          parseFloat(cols[3]),
+        flow_min:     parseFloat(cols[4]),
+        flow_max:     parseFloat(cols[5]),
+        phi_cert_id:  cols[6] || null,
+        ext_pressure: cols[7] ? parseFloat(cols[7]) : null,
+      });
+    }
   }
 
-  if (!units.length) {
-    statusEl.textContent = 'No valid rows found in CSV. Check format.';
+  // Filter out rows missing required data
+  const validUnits = units.filter(u =>
+    u.manufacturer && u.model &&
+    !isNaN(u.hr_eff) && !isNaN(u.sfp) && !isNaN(u.flow_min) && !isNaN(u.flow_max)
+  );
+
+  if (!validUnits.length) {
+    statusEl.textContent = 'No valid rows found. Check format.';
     statusEl.style.color = 'var(--warn)';
     input.value = '';
     return;
   }
 
-  statusEl.textContent = `Importing ${units.length} unit(s)…`;
+  statusEl.textContent = `Importing ${validUnits.length} unit(s)…`;
 
-  const res = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units });
+  const res = await apiPost(`${API_BASE}/unit-library`, { action: 'import', units: validUnits });
   input.value = '';
 
   if (!res.ok) {
@@ -560,10 +621,10 @@ async function importPhpp(input) {
 
   const { importedCount, errorCount, errors } = await res.json();
   if (errorCount) {
-    statusEl.textContent = `Imported ${importedCount} unit(s). ${errorCount} error(s): ${errors[0]}`;
+    statusEl.textContent = `Updated/added ${importedCount} unit(s). ${errorCount} error(s): ${errors[0]}`;
     statusEl.style.color = 'var(--warn)';
   } else {
-    statusEl.textContent = `✓ Imported ${importedCount} unit(s) into your library.`;
+    statusEl.textContent = `✓ ${importedCount} unit(s) updated or added to your library.`;
     statusEl.style.color = '#166534';
   }
 
