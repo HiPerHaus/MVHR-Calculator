@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       const units = (unitsRes.data ?? []).map(u => ({
         ...u,
         in_library: librarySet.has(u.id),
-        is_custom:  u.user_id !== null,
+        is_custom:  u.user_id !== null && !u.phi_cert_id,
       }));
 
       return res.status(200).json({ units, libraryCount: librarySet.size });
