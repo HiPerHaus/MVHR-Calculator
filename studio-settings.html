@@ -548,6 +548,19 @@ function isPhppDataRow(r) {
          !isNaN(parseFloat(r[2]));
 }
 
+
+function extractHyperlinkLabel(v) {
+  if (!v) return '';
+
+  const s = String(v).trim();
+
+  // Handles: =HYPERLINK("url", "Manufacturer - Model")
+  const m = s.match(/=HYPERLINK\([^,]+,\s*"([^"]+)"\)/i);
+  if (m) return m[1].trim();
+
+  return s;
+}
+
 function parsePhppXlsx(rows) {
   // PHPP component update xlsx column layout (0-indexed):
   // 0: PHI cert ID  1: Description e.g. "Zehnder - ComfoAir Q350 HRV"  2: HR eff %
