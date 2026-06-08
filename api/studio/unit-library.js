@@ -181,7 +181,7 @@ export default async function handler(req, res) {
       // Require core numeric fields; manufacturer/model are optional for PHPP-format imports
       // (PHPP rows are identified by phi_cert_id instead)
       const REQUIRED_NUMERIC = ['hr_eff', 'sfp', 'flow_min', 'flow_max'];
-      const updated  = [];
+      let updatedCount = 0;
       let insertedCount = 0;
       const errors   = [];
 
@@ -266,7 +266,7 @@ export default async function handler(req, res) {
             model:        (row.model        && row.model        !== 'null') ? row.model        : (row.phi_cert_id || `Unit ${i + 1}`),
           };
 
-          const { data: inserted: insertedCount, error: insErr } = await supabase
+          const { data: insertedUnit, error: insErr } = await supabase
             .from('mvhr_units')
             .insert(insertRow)
             .select('id')
@@ -276,7 +276,7 @@ export default async function handler(req, res) {
             errors.push(`Row ${i + 1} (${label}): ${insErr.message}`);
             continue;
           }
-          unitId = inserted.id;
+          unitId = insertedUnit.id;
           // Auto-add newly created custom units to library
           await supabase
             .from('user_unit_library')
