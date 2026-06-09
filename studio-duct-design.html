@@ -93,11 +93,21 @@ main { padding:0 0 80px; }
 .notice-warn    { background:var(--warn-bg); border:1px solid #fed7aa; color:var(--warn); }
 .notice-success { background:var(--ok-bg); border:1px solid var(--ok-border); color:#166534; }
 
+/* ── Workflow status bar ── */
+.workflow-status { display:flex; align-items:center; gap:8px; padding:10px 28px; background:#fff; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.status-pill { display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; white-space:nowrap; }
+.status-done     { background:var(--ok-bg); color:#166534; border:1px solid var(--ok-border); }
+.status-required { background:var(--critical-bg); color:var(--critical); border:1px solid #fecaca; }
+.status-pending  { background:var(--amber-bg); color:var(--amber); border:1px solid #fde68a; }
+.status-sep { color:var(--border); font-size:16px; }
+
 /* ── View tab bar ── */
 .view-tabs { display:flex; gap:0; padding:0 28px; background:#fff; border-bottom:2px solid var(--border); }
 .view-tab { padding:10px 22px; font-size:13px; font-weight:700; color:var(--muted); border:none; background:none; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; transition:.15s; }
 .view-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
 .view-tab:hover:not(.active) { color:var(--text); }
+.view-tab:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-disabled { opacity:0.4; pointer-events:none; cursor:not-allowed; }
 
 /* ── Dirty indicator ── */
 .dirty-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--amber); margin-right:4px; animation:pulse 2s infinite; }
@@ -375,9 +385,9 @@ main { padding:0 0 80px; }
     <div class="page-actions">
       <a class="btn btn-secondary" id="backBtn" href="#">← Unit Selection</a>
       <span id="dirtyIndicator" style="display:none;align-items:center"><span class="dirty-dot"></span><span style="font-size:12px;color:var(--amber)">Unsaved changes</span></span>
-      <button class="btn btn-danger btn-sm" id="btnRegenerate" onclick="regenerateLayout()">↺ Regenerate</button>
+      <button class="btn btn-primary" id="btnGenerate" onclick="regenerateLayout()" disabled>⚡ Generate Layout</button>
       <button class="btn btn-primary" id="btnSave" onclick="saveLayout()" disabled>Save Layout</button>
-      <a class="btn btn-primary" id="btnBom" href="#" style="margin-left:4px">Continue → BOM &amp; Export</a>
+      <button class="btn btn-primary btn-disabled" id="btnBom" onclick="navToBom()" style="margin-left:4px">Continue → BOM &amp; Export</button>
     </div>
   </div>
 
@@ -398,9 +408,23 @@ main { padding:0 0 80px; }
   <!-- Content (shown after load) -->
   <div id="mainContent" style="display:none">
 
+    <!-- Workflow status bar -->
+    <div id="workflowStatus" class="workflow-status">
+      <span class="status-pill status-done">✅ Rooms Analysed</span>
+      <span class="status-sep">›</span>
+      <span class="status-pill status-done">✅ Unit Selected</span>
+      <span class="status-sep">›</span>
+      <span class="status-pill status-required" id="statusMvhr">❌ MVHR Location Required</span>
+      <span class="status-sep">›</span>
+      <span class="status-pill status-pending" id="statusLayout">⏳ Layout Not Generated</span>
+    </div>
+
     <!-- Notices -->
     <div id="generatedNotice" class="notice notice-success" style="display:none">
       ✓ Layout generated from airflow data. Drag nodes to reposition in either view. Save to persist.
+    </div>
+    <div id="staleNotice" class="notice notice-warn" style="display:none">
+      ⚠ MVHR unit moved — existing duct routes are now approximate. Click <strong>Generate Updated Layout</strong> to recalculate.
     </div>
     <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
       ⚠ No airflow design found. Complete Stage 4 to populate terminal airflows automatically.
@@ -408,8 +432,8 @@ main { padding:0 0 80px; }
 
     <!-- HRV placement banner (shown when HRV not yet placed or after skip) -->
     <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
-      📍 <span id="hrvBannerText"><strong>Place the HRV unit on the floor plan</strong> — this helps generate more realistic duct routes.</span>
-      <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">Locate HRV unit</button>
+      📍 <span id="hrvBannerText"><strong>Place the MVHR unit on the floor plan</strong> — required before generating the layout.</span>
+      <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">📍 Place MVHR Unit</button>
       <button class="btn btn-secondary btn-sm" onclick="suggestMvhrPosition()" style="white-space:nowrap">💡 Suggest</button>
     </div>
 
@@ -471,23 +495,23 @@ main { padding:0 0 80px; }
           onwheel="onPlanWheel(event)"
           onclick="onPlanViewportClick(event)">
 
-          <!-- HRV first-run modal (shown after image loads) -->
+          <!-- HRV placement modal — Stage 2 (shown after image loads) -->
           <div id="hrvOverlay" style="display:none">
             <div class="hrv-card">
               <div class="hrv-card-icon">📍</div>
-              <div class="hrv-card-title">Place HRV Unit</div>
-              <p class="hrv-card-text">Where is the HRV/MVHR unit located? Placing it on the floor plan helps HiPer Studio generate more realistic duct routes.</p>
+              <div class="hrv-card-title">Place the MVHR unit before generating the layout</div>
+              <p class="hrv-card-text">Duct routing accuracy depends heavily on the MVHR location. Click the approximate installation location on the floor plan.</p>
               <div class="hrv-card-actions">
-                <button class="btn btn-primary" onclick="startHrvPlacementMode()">📍 Place HRV unit</button>
-                <button class="btn btn-secondary" onclick="suggestMvhrPosition()">💡 HiPer Studio suggest</button>
+                <button class="btn btn-primary" onclick="startHrvPlacementMode()">📍 Place MVHR Unit</button>
+                <button class="btn btn-secondary" onclick="suggestMvhrPosition()">💡 Let HiPer Studio Suggest</button>
               </div>
               <div style="margin-top:14px">
-                <button style="font-size:12px;background:none;border:none;cursor:pointer;color:var(--muted);text-decoration:underline;padding:0" onclick="skipMvhrPlacement()">Skip for now</button>
+                <a id="hrvOverlayBack" href="#" style="font-size:12px;color:var(--muted);text-decoration:none;" onclick="event.preventDefault();window.location.href=el('backBtn').href">← Back</a>
               </div>
             </div>
           </div>
           <!-- Placement-mode hint (shown while user is clicking to place HRV) -->
-          <div id="hrvPlacingHint" class="hrv-click-hint" style="display:none">📍 Click the floor plan to place the HRV unit · Esc to cancel</div>
+          <div id="hrvPlacingHint" class="hrv-click-hint" style="display:none">📍 Click the floor plan to place the MVHR unit · Esc to cancel</div>
 
           <!-- Empty state -->
           <div id="planEmpty" style="display:none">
@@ -713,6 +737,8 @@ let _planTool           = 'move'; // 'move' | 'supply' | 'extract' | 'mvhr' | 's
 let _planRouteStart     = null;   // node id of first node selected for route tool
 let _mvhrNeedsPlacement = false;  // true when MVHR has no user-set plan position
 let _placingHrv         = false;  // true while user is clicking to place HRV
+let _layoutGenerated    = false;  // true once layout has been generated at least once
+let _layoutStale        = false;  // true when MVHR moved after layout was generated
 
 // ── Schematic drag state ──────────────────────────────────────
 let _dragging     = null;
@@ -844,7 +870,8 @@ async function init() {
       el('scaleInput').value = _scaleM;
     }
 
-    if (data.generated) el('generatedNotice').style.display = 'block';
+    _layoutGenerated = data.generated ?? false;
+    if (_layoutGenerated) el('generatedNotice').style.display = 'block';
     if (!_design?.airflow_design_id) el('noAirflowNotice').style.display = 'block';
 
     // Detect whether MVHR needs user placement BEFORE ensurePlanPositions()
@@ -860,11 +887,12 @@ async function init() {
 
     setDirty(false);
     showMain();
+    updateWorkflowState();
 
     // Show HRV banner if MVHR needs placement (modal appears once image loads)
     if (_mvhrNeedsPlacement) {
-      el('hrvBannerText').innerHTML = '<strong>Place the HRV unit on the floor plan</strong> — this helps generate more realistic duct routes.';
-      el('hrvBannerBtn').textContent = 'Locate HRV unit';
+      el('hrvBannerText').innerHTML = '<strong>Place the MVHR unit on the floor plan</strong> — required before generating the layout.';
+      el('hrvBannerBtn').textContent = '📍 Place MVHR Unit';
       el('hrvBanner').style.display = 'flex';
     }
 
@@ -1229,9 +1257,18 @@ function onPlanViewportMouseMove(e) {
 }
 
 function onPlanViewportMouseUp(e) {
+  const draggedId = _planDragging;
   _planDragging = null;
   _planPanning  = false;
   el('planViewport').classList.remove('panning');
+
+  // If the MVHR unit was dragged, mark the layout stale
+  if (draggedId) {
+    const draggedNode = _nodes.find(n => n.id === draggedId);
+    if (draggedNode?.node_type === 'mvhr_unit') {
+      markLayoutStale();
+    }
+  }
 }
 
 function onPlanViewportMouseLeave(e) {
@@ -1303,6 +1340,81 @@ function renderPlanPropsPanel() {
   `;
 }
 
+// ── Workflow state ────────────────────────────────────────────
+function updateWorkflowState() {
+  const mvhrPlaced = !_mvhrNeedsPlacement;
+  const layoutDone = _layoutGenerated;
+  const stale      = _layoutStale;
+
+  // Status pills
+  const mvhrPill   = el('statusMvhr');
+  const layoutPill = el('statusLayout');
+  if (mvhrPlaced) {
+    mvhrPill.className   = 'status-pill status-done';
+    mvhrPill.textContent = '✅ MVHR Located';
+  } else {
+    mvhrPill.className   = 'status-pill status-required';
+    mvhrPill.textContent = '❌ MVHR Location Required';
+  }
+  if (layoutDone) {
+    layoutPill.className   = 'status-pill status-done';
+    layoutPill.textContent = '✅ Layout Generated';
+  } else if (stale) {
+    layoutPill.className   = 'status-pill status-required';
+    layoutPill.textContent = '⚠️ Layout Outdated';
+  } else {
+    layoutPill.className   = 'status-pill status-pending';
+    layoutPill.textContent = '⏳ Generate Layout';
+  }
+
+  // Generate / Regenerate button
+  const btnGen = el('btnGenerate');
+  if (layoutDone && !stale) {
+    btnGen.textContent = '↺ Regenerate';
+    btnGen.className   = 'btn btn-danger btn-sm';
+  } else if (stale) {
+    btnGen.textContent = '⚡ Generate Updated Layout';
+    btnGen.className   = 'btn btn-primary';
+  } else {
+    btnGen.textContent = '⚡ Generate Layout';
+    btnGen.className   = 'btn btn-primary';
+  }
+  btnGen.disabled = !mvhrPlaced;
+
+  // BOM button — enabled only after layout generated and not stale
+  const btnBom = el('btnBom');
+  if (layoutDone && !stale) {
+    btnBom.classList.remove('btn-disabled');
+  } else {
+    btnBom.classList.add('btn-disabled');
+  }
+
+  // Schematic and Schedule tabs — disabled until MVHR placed and layout not stale
+  el('tabBtnSchematic').disabled = !mvhrPlaced || stale;
+  el('tabBtnSchedule').disabled  = !mvhrPlaced || stale;
+
+  // Stale notice
+  el('staleNotice').style.display = stale ? 'block' : 'none';
+  if (stale) el('generatedNotice').style.display = 'none';
+
+  // Dim existing routes when stale to signal they're approximate
+  const overlay = el('planOverlay');
+  if (overlay) overlay.style.opacity = stale ? '0.35' : '1';
+}
+
+function markLayoutStale() {
+  if (!_layoutGenerated) return; // only stale if a layout existed
+  _layoutGenerated = false;
+  _layoutStale     = true;
+  updateWorkflowState();
+}
+
+function navToBom() {
+  if (!_layoutGenerated) return;
+  const pid = _projectId;
+  if (pid) location.href = `/studio/projects/${pid}/bom`;
+}
+
 // ── Plan tool mode ────────────────────────────────────────────
 const TOOL_STATUS = {
   move:    'Drag to pan · Scroll to zoom · Click node to select',
@@ -1357,7 +1469,7 @@ function startHrvPlacementMode() {
   _placingHrv = true;
   el('planViewport').classList.add('tool-mvhr'); // crosshair cursor
   el('hrvPlacingHint').style.display = 'block';
-  el('planStatus').textContent = '📍 Click the floor plan to place the HRV unit · Esc to cancel';
+  el('planStatus').textContent = '📍 Click the floor plan to place the MVHR unit · Esc to cancel';
 }
 
 // Cancel HRV placement mode (Esc key) — returns to banner, not modal
@@ -1390,14 +1502,22 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
     ...(mvhrNode.metadata ?? {}),
     plan: { floor_index: _planFloor, x_pct, y_pct },
   };
+  // If layout already existed, mark stale before clearing the placement flag
+  if (_layoutGenerated) {
+    _layoutGenerated = false;
+    _layoutStale     = true;
+  }
   _mvhrNeedsPlacement = false;
 
   renderPlanNodes();
   renderPlanRoutes();
   selectPlanItem('node', mvhrNode.id);
 
-  // Hide banner — node is on the plan and draggable, no need to linger
+  // Hide banner — node is on the plan and draggable
   el('hrvBanner').style.display = 'none';
+
+  // Update workflow status immediately
+  updateWorkflowState();
 
   // Persist immediately
   try {
@@ -1444,13 +1564,14 @@ function suggestMvhrPosition() {
   placeMvhrFromOverlay(x_pct, y_pct);
 }
 
-// "Skip for now" — close modal, show persistent banner for later placement
+// "Skip for now" — removed from modal (← Back is the exit now). Kept as fallback.
 function skipMvhrPlacement() {
   el('hrvOverlay').style.display = 'none';
   _mvhrNeedsPlacement = true;
-  el('hrvBannerText').innerHTML = '<strong>HRV unit not placed yet</strong> — duct routes are approximate.';
-  el('hrvBannerBtn').textContent = 'Locate HRV unit';
+  el('hrvBannerText').innerHTML = '<strong>MVHR unit not placed yet</strong> — place it before generating the layout.';
+  el('hrvBannerBtn').textContent = 'Locate MVHR unit';
   el('hrvBanner').style.display = 'flex';
+  updateWorkflowState();
 }
 
 // Viewport background click handler (not on a node)
@@ -2024,7 +2145,7 @@ async function saveLayout() {
 // ── Regenerate layout ─────────────────────────────────────────
 async function regenerateLayout(mode) {
   const modeToUse = mode ?? _manifoldMode;
-  if (!mode && !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
+  if (!mode && _layoutGenerated && !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
 
   showLoading();
   _selected = null;
@@ -2040,11 +2161,14 @@ async function regenerateLayout(mode) {
 
     if (_design?.design_json?.scale_m) { _scaleM=_design.design_json.scale_m; el('scaleInput').value=_scaleM; }
 
+    _layoutGenerated = true;
+    _layoutStale     = false;
     buildFloorSelector();
     ensurePlanPositions();
     el('generatedNotice').style.display = 'block';
     setDirty(false);
     showMain();
+    updateWorkflowState();
 
     if (_activeTab === 'schematic') renderCanvas();
     else switchTab(_activeTab);
