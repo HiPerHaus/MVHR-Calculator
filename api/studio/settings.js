@@ -31,6 +31,7 @@ export const DEFAULT_ROOM_RATES = {
   second_living_m3h:        25,
   dining_m3h:               20,
   kitchen_extract_m3h:      40,
+  pantry_extract_m3h:       20,
   bathroom_extract_m3h:     40,
   ensuite_extract_m3h:      30,
   laundry_extract_m3h:      40,

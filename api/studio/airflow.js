@@ -54,6 +54,7 @@ const DEFAULT_ROOM_RATES = {
   second_living_m3h:        25,
   dining_m3h:               20,
   kitchen_extract_m3h:      40,
+  pantry_extract_m3h:       20,
   bathroom_extract_m3h:     40,
   ensuite_extract_m3h:      30,
   laundry_extract_m3h:      40,
@@ -78,6 +79,8 @@ const AREA_COMPLETENESS_THRESHOLD = 0.80; // 80%
 function extractRate(room, rates = DEFAULT_ROOM_RATES) {
   const t = room.room_type;
   const n = room.name ?? '';
+  // Pantry first — checked before kitchen so a room named "Pantry" gets pantry rate
+  if (/pantry/i.test(n)) return rates.pantry_extract_m3h ?? 20;
   if (t === 'kitchen' || t === 'kitchenette') return rates.kitchen_extract_m3h;
   if (t === 'laundry')  return rates.laundry_extract_m3h;
   if (t === 'wet_area') {
@@ -87,6 +90,43 @@ function extractRate(room, rates = DEFAULT_ROOM_RATES) {
   }
   if (t === 'service') return 15;
   return 0;
+}
+
+// ── Extract room classification helpers ───────────────────────
+// Protected extract rooms must NEVER be reduced below their configured rate.
+// Adjustable extract rooms can be reduced to balance total extract to design flow.
+function isProtectedExtract(room) {
+  return room.room_type === 'wet_area'; // bathroom, ensuite, WC
+}
+function isAdjustableExtract(room, n) {
+  const t = room.room_type;
+  return /pantry/i.test(n) || t === 'kitchen' || t === 'kitchenette' || t === 'laundry';
+}
+// Priority order for extract reduction: 1=kitchen, 2=pantry, 3=laundry
+function extractReducePriority(room, n) {
+  const t = room.room_type;
+  if (/pantry/i.test(n)) return 2;
+  if (t === 'kitchen' || t === 'kitchenette') return 1;
+  if (t === 'laundry') return 3;
+  return 0;
+}
+
+// ── Supply room classification helpers ────────────────────────
+// Adjustable supply rooms absorb remaining design-flow capacity after fixed rooms.
+// Priority: Living(1) > Family(2) > Dining(3) > Rumpus(4) > Retreat(5) > Other living(6)
+function supplyAdjPriority(srcRoom) {
+  const t = srcRoom.room_type;
+  const n = srcRoom.name ?? '';
+  if (t === 'living') {
+    if (/family/i.test(n))  return 2;
+    if (/dining/i.test(n))  return 3;
+    if (/rumpus/i.test(n))  return 4;
+    if (/retreat/i.test(n)) return 5;
+    if (/media|games|lounge|second|2nd/i.test(n)) return 6;
+    return 1; // main living — highest priority
+  }
+  if (t === 'dining') return 3;
+  return 0; // fixed supply (bedroom, office, gym, etc.)
 }
 
 // ── Supply rate lookup ────────────────────────────────────────
@@ -205,13 +245,14 @@ function calcAreaFlow(rooms, method) {
 }
 
 /**
- * Wet-room extract requirement: sum of all extract rates.
+ * Boost airflow = sum of ALL extract room rates (wet rooms, kitchen, laundry, etc.).
+ * Used as a separate "Boost Capacity Check" value — NOT used to drive continuous design airflow.
  */
-function calcWetRoomFlow(rooms) {
+function calcBoostFlow(rooms, rates) {
   let total = 0;
   for (const r of rooms) {
     if (r.classification === 'ignore') continue;
-    total += extractRate(r);
+    total += extractRate(r, rates);
   }
   return r0(total);
 }
@@ -276,105 +317,140 @@ function mkRoom(room, supplyM3h, extractM3h, driver, notes = null) {
 
 // ── Balance logic ─────────────────────────────────────────────
 //
-// Only living and dining supply may be adjusted.
-//   living:  base 40, min 30, max 50
-//   dining:  base 20, min 15, max 25
-// Bedrooms and wet rooms are NEVER modified.
-// If balance cannot be achieved → major_imbalance.
+// SUPPLY: Fixed rooms (bedrooms, offices, gym) remain unchanged.
+//   Adjustable: living, family, dining, rumpus, retreat.
+//   These absorb the remaining capacity after fixed supply is summed.
+//   Priority: Living(1) > Family(2) > Dining(3) > Rumpus(4) > Retreat(5)
 //
-const BALANCE_RULES = [
-  { type: 'living', min: 30, max: 50 },
-  { type: 'dining', min: 15, max: 25 },
-];
+// EXTRACT: Protected rooms (bathroom, ensuite, WC) are NEVER reduced.
+//   Adjustable: kitchen, pantry, laundry.
+//   Reduced in priority order (kitchen→pantry→laundry) when total > designFlow.
+//
+// Balance status is relative to designFlowM3h (not supply vs extract diff).
+//
+function balanceDesign(roomResults, rooms, designFlowM3h) {
+  // ─── SUPPLY BALANCING ─────────────────────────────────────
+  const sumKey = (key) => r1(roomResults.reduce((s, r) => s + (r[key] || 0), 0));
 
-function balanceDesign(roomResults, rooms) {
-  const sumKey = key => r1(roomResults.reduce((s, r) => s + (r[key] || 0), 0));
-
-  let totalSupply  = sumKey('supply_m3h');
-  let totalExtract = sumKey('extract_m3h');
-  const maxFlow    = Math.max(totalSupply, totalExtract);
-  const initRatio  = maxFlow > 0 ? Math.abs(totalSupply - totalExtract) / maxFlow : 0;
+  const baseSupplyTotal = sumKey('supply_m3h');
+  let supplyDiff        = r1(designFlowM3h - baseSupplyTotal); // positive = need more
 
   console.log(JSON.stringify({
-    event: 'airflow:base-supply-total',  baseSupplyM3h: totalSupply,
-    event2: 'airflow:base-extract-total', baseExtractM3h: totalExtract,
-    initDiffM3h: r1(totalSupply - totalExtract), initRatio: r1(initRatio * 100),
+    event: 'airflow:balance-start',
+    designFlowM3h, baseSupplyM3h: baseSupplyTotal, baseExtractM3h: sumKey('extract_m3h'),
+    supplyGapM3h: supplyDiff,
   }));
 
-  if (initRatio <= 0.05) {
-    return { roomResults, adjustmentM3h: 0, balanceStatus: 'balanced' };
-  }
+  let totalSupplyAdj = 0;
 
-  let needed = r1(totalExtract - totalSupply); // positive = need more supply
-  let totalApplied = 0;
+  if (Math.abs(supplyDiff) > 0.5) {
+    // Gather adjustable supply rooms, sorted by priority (lowest number = first to adjust)
+    const adjSupply = roomResults
+      .map((r, i) => ({ r, i, priority: supplyAdjPriority(rooms[i]) }))
+      .filter(x => x.priority > 0 && (supplyDiff > 0 || x.r.supply_m3h > 0))
+      .sort((a, b) => a.priority - b.priority);
 
-  for (const rule of BALANCE_RULES) {
-    if (Math.abs(needed) < 1) break;
+    for (const { r, i } of adjSupply) {
+      if (Math.abs(supplyDiff) < 0.5) break;
+      const srcRoom = rooms[i];
+      const t = srcRoom.room_type;
 
-    // Only adjust rooms that already carry supply (supply_m3h > 0).
-    // Ignored / transfer living rooms correctly have supply = 0 and must NOT
-    // be pulled up to the rule minimum during balancing.
-    const candidates = roomResults
-      .map((r, i) => ({ r, i, srcRoom: rooms[i] }))
-      .filter(({ r, srcRoom }) => srcRoom.room_type === rule.type && r.supply_m3h > 0);
-
-    for (const { r, i } of candidates) {
-      if (Math.abs(needed) < 1) break;
-
-      const current = r.supply_m3h;
-      const capped  = needed > 0
-        ? Math.min(rule.max, current + needed)
-        : Math.max(rule.min, current + needed);
-      const applied = r1(capped - current);
-      if (Math.abs(applied) < 0.5) continue;
-
-      roomResults[i] = {
-        ...r,
-        supply_m3h:  r1(current + applied),
-        supply_lps:  toLps(r1(current + applied)),
-        notes: (r.notes ? r.notes + '; ' : '') +
-               `Balance adj: ${applied >= 0 ? '+' : ''}${applied} m³/h`,
-      };
-      needed       = r1(needed - applied);
-      totalApplied = r1(totalApplied + applied);
+      if (supplyDiff > 0) {
+        // Need more supply — increase this room
+        const maxRate = t === 'living' ? 80 : 50;
+        const canAdd = maxRate - r.supply_m3h;
+        if (canAdd < 0.5) continue;
+        const add = r1(Math.min(supplyDiff, canAdd));
+        roomResults[i] = {
+          ...r, supply_m3h: r1(r.supply_m3h + add), supply_lps: toLps(r1(r.supply_m3h + add)),
+          notes: (r.notes ? r.notes + '; ' : '') + `Supply balance +${add} m³/h`,
+          airflow_driver: r.airflow_driver === 'unclassified' ? 'supply_balance' : r.airflow_driver,
+        };
+        supplyDiff  = r1(supplyDiff - add);
+        totalSupplyAdj = r1(totalSupplyAdj + add);
+      } else {
+        // Reduce this room (too much fixed supply)
+        const canRemove = r.supply_m3h; // can reduce to 0
+        if (canRemove < 0.5) continue;
+        const remove = r1(Math.min(-supplyDiff, canRemove));
+        roomResults[i] = {
+          ...r, supply_m3h: r1(r.supply_m3h - remove), supply_lps: toLps(r1(r.supply_m3h - remove)),
+          notes: (r.notes ? r.notes + '; ' : '') + `Supply balance -${remove} m³/h`,
+        };
+        supplyDiff    = r1(supplyDiff + remove);
+        totalSupplyAdj = r1(totalSupplyAdj - remove);
+      }
     }
   }
 
-  // Final ratio
-  totalSupply  = sumKey('supply_m3h');
-  totalExtract = sumKey('extract_m3h');
-  const finalMax   = Math.max(totalSupply, totalExtract);
-  const finalRatio = finalMax > 0 ? Math.abs(totalSupply - totalExtract) / finalMax : 0;
+  // ─── EXTRACT BALANCING ────────────────────────────────────
+  const totalExtract = sumKey('extract_m3h');
+  let extractExcess  = r1(totalExtract - designFlowM3h);
+
+  if (extractExcess > 0.5) {
+    // Sort adjustable extract rooms by priority (kitchen=1 first, laundry=3 last)
+    const adjExtract = roomResults
+      .map((r, i) => {
+        const n = rooms[i].name ?? '';
+        const p = extractReducePriority(rooms[i], n);
+        return { r, i, priority: p };
+      })
+      .filter(x => x.priority > 0 && x.r.extract_m3h > 0)
+      .sort((a, b) => a.priority - b.priority);
+
+    for (const { r, i } of adjExtract) {
+      if (extractExcess < 0.5) break;
+      const remove = r1(Math.min(extractExcess, r.extract_m3h));
+      roomResults[i] = {
+        ...r, extract_m3h: r1(r.extract_m3h - remove), extract_lps: toLps(r1(r.extract_m3h - remove)),
+        notes: (r.notes ? r.notes + '; ' : '') + `Extract balance -${remove} m³/h`,
+      };
+      extractExcess = r1(extractExcess - remove);
+    }
+  }
+
+  // ─── FINAL STATUS ─────────────────────────────────────────
+  const finalSupply  = sumKey('supply_m3h');
+  const finalExtract = sumKey('extract_m3h');
+  const supplyDeviation  = Math.abs(finalSupply  - designFlowM3h);
+  const extractDeviation = Math.abs(finalExtract - designFlowM3h);
+  const maxDeviation = Math.max(supplyDeviation, extractDeviation);
+  const ratio = designFlowM3h > 0 ? maxDeviation / designFlowM3h : 0;
 
   console.log(JSON.stringify({
-    event: 'airflow:balance-adjustment',
-    adjustmentM3h: totalApplied, neededRemainingM3h: r1(needed),
-    finalSupplyM3h: totalSupply, finalExtractM3h: totalExtract,
-    finalDiffM3h: r1(totalSupply - totalExtract), finalRatio: r1(finalRatio * 100),
+    event: 'airflow:balance-result',
+    designFlowM3h,
+    finalSupplyM3h: finalSupply, finalExtractM3h: finalExtract,
+    supplyDevM3h: r1(supplyDeviation), extractDevM3h: r1(extractDeviation),
+    maxDeviationPct: r1(ratio * 100),
   }));
 
-  const balanceStatus = finalRatio <= 0.05
+  const balanceStatus = ratio <= 0.05
     ? 'balanced'
-    : finalRatio <= 0.10
+    : ratio <= 0.10
       ? 'minor_adjustment'
       : 'major_imbalance';
 
-  return { roomResults, adjustmentM3h: totalApplied, balanceStatus };
+  return { roomResults, adjustmentM3h: totalSupplyAdj, balanceStatus };
 }
 
 // ── Main calculation ──────────────────────────────────────────
 function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
   const rates = { ...DEFAULT_ROOM_RATES, ...userRates };
+
   // 1. Whole-house design basis
   const { occupancyCount, occupancyFlowM3h } = calcOccupancyFlow(rooms);
   const { treatedAreaM2, areaFlowM3h, hasAreaData, areaWithCount, areaExpectedCount } = calcAreaFlow(rooms, method);
-  const wetRoomFlowM3h = calcWetRoomFlow(rooms);
 
-  // Design airflow = max of the three methods
-  const designFlowM3h = r0(Math.max(occupancyFlowM3h, areaFlowM3h, wetRoomFlowM3h));
-  const designDriver  = designFlowM3h === occupancyFlowM3h ? 'occupancy'
-    : designFlowM3h === areaFlowM3h    ? 'area'
-    : 'wet_room';
+  // Boost airflow = total wet-room + kitchen + laundry extract (peak demand, NOT design basis)
+  const boostFlowM3h = calcBoostFlow(rooms, rates);
+
+  // Continuous Design Airflow = MAX(occupancy, area) only.
+  // Wet-room extract is NOT used to size the continuous design airflow — it is a boost check.
+  const candidateFlows = [occupancyFlowM3h];
+  if (hasAreaData) candidateFlows.push(areaFlowM3h);
+  const designFlowM3h = r0(Math.max(...candidateFlows));
+  const designDriver  = (hasAreaData && areaFlowM3h >= occupancyFlowM3h) ? 'area' : 'occupancy';
 
   // Diagnostic: floor distribution
   const floorGroups = {};
@@ -435,8 +511,8 @@ function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
     })),
   }));
 
-  // 3. Balance supply vs extract
-  const { roomResults: balanced, adjustmentM3h, balanceStatus } = balanceDesign(roomResults, rooms);
+  // 3. Balance both sides to design airflow target
+  const { roomResults: balanced, adjustmentM3h, balanceStatus } = balanceDesign(roomResults, rooms, designFlowM3h);
 
   // 4. Final totals — sum directly from room values (no lps round-trip)
   const totalSupplyM3h  = r1(balanced.reduce((s, r) => s + r.supply_m3h,  0));
@@ -455,7 +531,8 @@ function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
     occupancyFlowM3h,
     treatedAreaM2,
     areaFlowM3h,
-    wetRoomFlowM3h,
+    boostFlowM3h,          // peak extract demand (boost mode)
+    wetRoomFlowM3h: boostFlowM3h, // alias for DB compat
     hasAreaData,
     areaWithCount,
     areaExpectedCount,
@@ -489,8 +566,11 @@ function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
 //   - PHI certification bonus.
 //   - High HR efficiency bonus, low SFP bonus.
 //
-async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId = null) {
+async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId = null, boostM3h = 0) {
   const preferredCapacityM3h = designM3h / (preferredLoadPct / 100);
+  // Unit must handle at least the continuous design flow.
+  // Boost flow is a separate capacity check surfaced in scoring/display.
+  const minimumCapacity = designM3h;
 
   // If user has a library, fetch their preferred unit IDs first
   let libraryUnitIds = null;
@@ -508,7 +588,7 @@ async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId
   let query = supabase
     .from('mvhr_units')
     .select('id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, frost_protection, phi_cert_id, user_id')
-    .gte('flow_max', designM3h)
+    .gte('flow_max', minimumCapacity)
     .order('hr_eff', { ascending: false });
 
   if (libraryUnitIds) {
@@ -536,11 +616,14 @@ async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId
     else if (deltaFromPref <= 20) loadScore = 500;  // marginal
     else                         loadScore = 100;   // outside preference
 
-    const phiScore  = phiCertified ? 500 : 0;
-    const effScore  = (u.hr_eff || 0) * 10;
-    const sfpScore  = -(u.sfp || 1.0) * 50; // lower SFP is better
+    const phiScore   = phiCertified ? 500 : 0;
+    const effScore   = (u.hr_eff || 0) * 10;
+    const sfpScore   = -(u.sfp || 1.0) * 50; // lower SFP is better
+    // Bonus if unit can also handle boost airflow (handles wet-room peak demand)
+    const boostCapable  = boostM3h > 0 && u.flow_max >= boostM3h;
+    const boostScore    = boostCapable ? 200 : 0;
 
-    const score = loadScore + phiScore + effScore + sfpScore;
+    const score = loadScore + phiScore + effScore + sfpScore + boostScore;
 
     // Load rating for display
     const loadRating = actualOpPct > 85  ? 'too_high'
@@ -556,6 +639,8 @@ async function matchMvhrUnits(supabase, designM3h, preferredLoadPct = 60, userId
       actual_operating_pct:      actualOpPct,
       preferred_load_pct:        preferredLoadPct,
       preferred_capacity_m3h:    Math.round(preferredCapacityM3h),
+      boost_capable:             boostCapable,
+      boost_required_m3h:        boostM3h || null,
       load_rating:               loadRating,
       score,
     };
@@ -650,7 +735,7 @@ export default async function handler(req, res) {
         .maybeSingle();
       if (settings?.preferred_unit_load_percent) getPreferredLoadPct = settings.preferred_unit_load_percent;
     }
-    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h, getPreferredLoadPct, user.id);
+    const units = await matchMvhrUnits(supabase, design.design_airflow_m3h, getPreferredLoadPct, user.id, design.wet_room_flow_m3h ?? 0);
     return res.status(200).json({
       design: {
         ...enrichDesign(design, null),
@@ -740,14 +825,33 @@ export default async function handler(req, res) {
     // Calculate
     const calc = calculateAirflow(rooms, designMethod, userRates);
 
-    // Delete previous designs for this project
-    await supabase
+    // ── Delete previous designs ────────────────────────────────
+    // Step 1: find existing design ids
+    const { data: existingDesigns } = await supabase
+      .from('airflow_designs')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('user_id', user.id);
+
+    // Step 2: null out duct_designs.airflow_design_id to avoid FK block
+    // (duct_designs references airflow_designs without ON DELETE CASCADE)
+    if (existingDesigns?.length) {
+      const existingIds = existingDesigns.map(d => d.id);
+      await supabase
+        .from('duct_designs')
+        .update({ airflow_design_id: null })
+        .in('airflow_design_id', existingIds);
+    }
+
+    // Step 3: delete old designs (airflow_rooms cascade-deletes via FK)
+    const { error: delErr } = await supabase
       .from('airflow_designs')
       .delete()
       .eq('project_id', projectId)
       .eq('user_id', user.id);
+    if (delErr) return res.status(500).json({ error: `Failed to clear previous design: ${delErr.message}` });
 
-    // Insert new design
+    // ── Insert new design ──────────────────────────────────────
     const { data: design, error: insErr } = await supabase
       .from('airflow_designs')
       .insert({
@@ -796,7 +900,7 @@ export default async function handler(req, res) {
 
     if (roomInsErr) return res.status(500).json({ error: roomInsErr.message });
 
-    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id);
+    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id, calc.boostFlowM3h);
 
     return res.status(200).json({
       ok:     true,

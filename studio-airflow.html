@@ -270,29 +270,45 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
       <div class="basis-grid">
         <!-- Occupancy -->
         <div class="basis-card" id="basisOccCard">
-          <div class="basis-label">Occupancy</div>
+          <div class="basis-label">Occupancy Airflow</div>
           <div><span class="basis-flow" id="basisOccFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
           <div class="basis-sub" id="basisOccSub"></div>
         </div>
         <!-- Area -->
         <div class="basis-card" id="basisAreaCard">
-          <div class="basis-label">Floor Area (ACH)</div>
+          <div class="basis-label">Floor Area Airflow</div>
           <div><span class="basis-flow" id="basisAreaFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
           <div class="basis-sub" id="basisAreaSub"></div>
         </div>
-        <!-- Wet rooms -->
-        <div class="basis-card" id="basisWetCard">
-          <div class="basis-label">Wet Room Extract</div>
-          <div><span class="basis-flow" id="basisWetFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
-          <div class="basis-sub" id="basisWetSub"></div>
+        <!-- Selected design airflow -->
+        <div class="basis-card" id="basisDesignCard">
+          <div class="basis-label">Selected Design Airflow</div>
+          <div><span class="basis-flow" id="basisDesignFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisDesignSub"></div>
         </div>
       </div>
       <div id="areaWarningBanner" style="display:none" class="area-warning">
         <span>⚠</span>
         <div>
           <strong>Area data incomplete</strong> — area-based calculation skipped.
-          Using occupancy / wet-room method only.
+          Using occupancy method only.
           <span id="areaWarningCount" style="display:none;margin-left:4px;font-size:12px;opacity:.8"></span>
+        </div>
+      </div>
+    </div>
+    <!-- Boost Capacity Check -->
+    <div class="card" style="margin-top:0">
+      <div class="card-title">Boost Capacity Check</div>
+      <div class="basis-grid">
+        <div class="basis-card">
+          <div class="basis-label">Wet Room Extract Total</div>
+          <div><span class="basis-flow" id="basisWetFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisWetSub">Sum of all extract rooms at full rate</div>
+        </div>
+        <div class="basis-card" id="basisBoostCard">
+          <div class="basis-label">Boost Airflow Required</div>
+          <div><span class="basis-flow" id="basisBoostFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="basisBoostSub">Unit must support this at boost setting</div>
         </div>
       </div>
     </div>
@@ -599,25 +615,34 @@ function renderResults() {
   const hasArea     = d.area_data_available;
   const occFlow     = d.occupancy_flow_m3h  ?? 0;
   const areaFlow    = d.area_flow_m3h       ?? 0;
-  const wetFlow     = d.wet_room_flow_m3h   ?? 0;
+  const boostFlow   = d.wet_room_flow_m3h   ?? 0;  // stored in wet_room column
+  const designFlow  = d.design_airflow_m3h  ?? 0;
 
+  // Occupancy card
   setCard('basisOccCard',  driver === 'occupancy');
-  setCard('basisAreaCard', driver === 'area');
-  setCard('basisWetCard',  driver === 'wet_room');
+  el('basisOccFlow').textContent = occFlow;
+  el('basisOccSub').textContent  = `${d.occupancy_count ?? '—'} occupants × 30 m³/h`;
+  if (driver === 'occupancy') addDriverTag('basisOccCard', 'Selected');
 
-  el('basisOccFlow').textContent  = occFlow;
-  el('basisOccSub').textContent   = `${d.occupancy_count ?? '—'} occupants × 30 m³/h`;
-  el('basisAreaFlow').textContent = hasArea ? areaFlow : '—';
+  // Area card
+  setCard('basisAreaCard', driver === 'area');
   const areaWith     = d.area_with_count     ?? null;
   const areaExpected = d.area_expected_count ?? null;
+  el('basisAreaFlow').textContent = hasArea ? areaFlow : '—';
   el('basisAreaSub').textContent  = hasArea
     ? `${d.treated_area_m2} m² × ${d.design_method === 'as1668' ? '1.5' : '1.0'} m³/h per m²`
     : (areaWith != null && areaExpected != null)
       ? `Area incomplete — ${areaWith} of ${areaExpected} rooms have area > 0`
       : 'No area data in room schedule';
-  el('basisWetFlow').textContent  = wetFlow;
-  el('basisWetSub').textContent   = 'Sum of kitchen + bathrooms + laundry + WCs';
+  if (driver === 'area') addDriverTag('basisAreaCard', 'Selected');
 
+  // Selected design airflow card (always shown as the result)
+  setCard('basisDesignCard', true);
+  el('basisDesignFlow').textContent = designFlow;
+  el('basisDesignSub').textContent  = `MAX(${driver === 'area' ? 'area' : 'occupancy'}) — continuous operation target`;
+  addDriverTag('basisDesignCard', 'Design Airflow');
+
+  // Area warning
   if (!hasArea) {
     el('areaWarningBanner').style.display = 'flex';
     const countSpan = el('areaWarningCount');
@@ -631,9 +656,12 @@ function renderResults() {
     el('areaWarningBanner').style.display = 'none';
   }
 
-  if (driver === 'occupancy') addDriverTag('basisOccCard', 'Drives design');
-  else if (driver === 'area') addDriverTag('basisAreaCard', 'Drives design');
-  else if (driver === 'wet_room') addDriverTag('basisWetCard', 'Drives design');
+  // Boost Capacity Check
+  el('basisWetFlow').textContent  = boostFlow;
+  el('basisBoostFlow').textContent = boostFlow;
+  el('basisBoostSub').textContent  = boostFlow > designFlow
+    ? `${boostFlow - designFlow} m³/h above continuous — unit must support boost mode`
+    : 'Within continuous design airflow';
 
   el('basisArea').style.display = '';
 
