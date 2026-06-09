@@ -872,11 +872,17 @@ function editCell(cellEl, field, id) {
     updateStats();
   }
 
-  input.addEventListener('blur',   () => { commit(); });
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { input.blur(); }
-    if (e.key === 'Escape') { renderTable(); }
-  });
+  if (input.tagName === 'SELECT') {
+    // Use 'change' for selects — 'blur' fires before the click lands on an option
+    input.addEventListener('change', () => { commit(); });
+    input.addEventListener('keydown', e => { if (e.key === 'Escape') { renderTable(); } });
+  } else {
+    input.addEventListener('blur',   () => { commit(); });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { input.blur(); }
+      if (e.key === 'Escape') { renderTable(); }
+    });
+  }
 }
 
 function getRoomField(id, field) {

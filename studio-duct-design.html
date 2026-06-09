@@ -1396,10 +1396,8 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
   renderPlanRoutes();
   selectPlanItem('node', mvhrNode.id);
 
-  // Update banner to "Change HRV location"
-  el('hrvBannerText').innerHTML = '<strong>HRV unit placed.</strong> Drag it to reposition, or click below to move it.';
-  el('hrvBannerBtn').textContent = 'Change HRV location';
-  el('hrvBanner').style.display = 'flex';
+  // Hide banner — node is on the plan and draggable, no need to linger
+  el('hrvBanner').style.display = 'none';
 
   // Persist immediately
   try {
@@ -1408,8 +1406,6 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
       nodes: [{ id: mvhrNode.id, x: mvhrNode.x, y: mvhrNode.y, metadata: mvhrNode.metadata }],
     });
     setDirty(false);
-    // Hide the success banner after a short delay
-    setTimeout(() => { el('hrvBanner').style.display = 'none'; }, 4000);
   } catch (err) {
     console.error('[HRV placement] save failed:', err.message);
     setDirty(true);
