@@ -522,45 +522,98 @@ function parseFloorIndex(floor) {
 
 // ── Load plan pages (floor plan images) ──────────────────────
 const FLOOR_NAMES = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
+const BUCKET      = 'plan-uploads';
+
+// Storage paths in pdf_pages are stored with the bucket prefix included,
+// e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.jpg".
+// Strip it before calling createSignedUrl, which only wants the path within the bucket.
+function storagePath(rawPath) {
+  if (!rawPath) return null;
+  return rawPath.startsWith(`${BUCKET}/`) ? rawPath.slice(BUCKET.length + 1) : rawPath;
+}
+
+async function makeSignedUrl(supabase, rawPath) {
+  const path = storagePath(rawPath);
+  if (!path) return null;
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 3600); // 1-hour TTL
+  if (error) {
+    console.log(JSON.stringify({ event: 'system-layout:signed-url-error', path, error: error.message }));
+    return null;
+  }
+  console.log(JSON.stringify({ event: 'system-layout:signed-url-created', path }));
+  return data.signedUrl;
+}
 
 async function loadPlanPages(supabase, projectId) {
-  // Get all pdf_upload ids for this project
+  // 1. Find all pdf_upload ids for this project
   const { data: uploads } = await supabase
     .from('pdf_uploads')
     .select('id')
     .eq('project_id', projectId);
 
-  if (!uploads?.length) return [];
+  if (!uploads?.length) {
+    console.log(JSON.stringify({ event: 'system-layout:plan-pages-found', projectId, count: 0, reason: 'no pdf_uploads' }));
+    return [];
+  }
 
   const uploadIds = uploads.map(u => u.id);
 
-  // Query primary floor plan pages
+  // 2. Query floor plan pages — prefer floor_plan_primary, accept floor_plan / floor_plan_detail
   const { data: pages } = await supabase
     .from('pdf_pages')
-    .select('id, page_number, page_type, image_path, hires_image_path, hires_width_px, floor_name, floor_level, sheet_title')
+    .select('id, page_number, page_type, image_path, hires_image_path, hires_width_px, hires_height_px, render_width_px, render_height_px, floor_name, floor_level, sheet_title')
     .in('pdf_upload_id', uploadIds)
-    .in('page_type', ['floor_plan_primary', 'floor_plan'])
+    .in('page_type', ['floor_plan_primary', 'floor_plan', 'floor_plan_detail'])
+    .order('page_type', { ascending: true })  // floor_plan_detail < floor_plan < floor_plan_primary → primary sorts last; re-sort below
     .order('page_number', { ascending: true });
 
+  console.log(JSON.stringify({ event: 'system-layout:plan-pages-found', projectId, count: pages?.length ?? 0 }));
   if (!pages?.length) return [];
 
-  // Build public URLs from storage paths
-  const BUCKET = 'plan-uploads';
-  const storageBase = `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}`;
+  // Prefer floor_plan_primary pages; fall back to others if none exist
+  const primary   = pages.filter(p => p.page_type === 'floor_plan_primary');
+  const pageList  = primary.length > 0 ? primary : pages;
 
-  return pages.map((p, i) => {
-    const rawPath  = p.hires_image_path || p.image_path || '';
-    const imageUrl = rawPath ? `${storageBase}/${rawPath}` : null;
+  // 3. Build signed URLs (bucket is private)
+  const results = await Promise.all(pageList.map(async (p, i) => {
+    // Prefer hi-res PNG; fall back to low-DPI JPEG
+    const rawPath  = p.hires_image_path || p.image_path || null;
+    const imgField = p.hires_image_path ? 'hires_image_path' : 'image_path';
+
+    console.log(JSON.stringify({ event: 'system-layout:image-field-selected', pageId: p.id, field: imgField, rawPath }));
+
+    if (!rawPath) {
+      console.log(JSON.stringify({ event: 'system-layout:image-url-missing', pageId: p.id, page_number: p.page_number }));
+    }
+
+    const image_url = rawPath ? await makeSignedUrl(supabase, rawPath) : null;
+    if (!image_url) {
+      console.log(JSON.stringify({ event: 'system-layout:image-url-missing', pageId: p.id, reason: 'no signed url' }));
+    }
+
+    // Dimensions: prefer hires, fall back to low-DPI render dimensions
+    const width_px  = p.hires_width_px  ?? p.render_width_px  ?? null;
+    const height_px = p.hires_height_px ?? p.render_height_px ?? null;
+
+    // Floor name: prefer DB value, fall back to positional name
+    const floor_name = p.floor_name ?? FLOOR_NAMES[i] ?? `Floor ${i}`;
+
     return {
       floor_index: i,
-      floor_name:  FLOOR_NAMES[i] ?? `Floor ${i}`,
+      floor_name,
       page_id:     p.id,
       page_number: p.page_number,
-      image_url:   imageUrl,
-      width_px:    p.hires_width_px ?? null,
-      height_px:   null,    // hires_height_px not stored separately; derive from image if needed
+      page_type:   p.page_type,
+      image_url,
+      image_path:  rawPath,   // raw path included for client-side debugging
+      width_px,
+      height_px,
     };
-  });
+  }));
+
+  return results;
 }
 
 // ── Load existing design ──────────────────────────────────────

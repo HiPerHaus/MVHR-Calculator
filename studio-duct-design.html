@@ -781,6 +781,7 @@ async function init() {
     _nodes     = data.nodes   ?? [];
     _runs      = data.runs    ?? [];
     _planPages = data.planPages ?? [];
+    console.log('[System Layout] planPages received:', _planPages.length, _planPages.map(p => ({ floor_name: p.floor_name, image_url: p.image_url?.slice(0, 80), image_path: p.image_path })));
 
     // Restore design_json state
     if (_design?.design_json?.manifold_mode) {
@@ -1413,9 +1414,14 @@ async function deletePlanNode(nodeId) {
 // Image load error handler
 function onPlanImgError() {
   _planImgLoaded = false;
+  const img     = el('planImage');
+  const failUrl = img.src || img.getAttribute('data-src') || '(unknown)';
+  console.error('[System Layout] Floor plan image failed to load:', failUrl);
   const emptyEl = el('planEmpty');
   emptyEl.querySelector('h3').textContent = 'Floor plan image unavailable';
-  emptyEl.querySelector('p').textContent  = 'The floor plan image could not be loaded. Check that the PDF was processed correctly, or use Schematic View.';
+  emptyEl.querySelector('p').innerHTML    =
+    'The floor plan image could not be loaded. Check that the PDF was processed correctly, or use Schematic View.' +
+    `<br><small style="font-family:monospace;word-break:break-all;color:var(--muted);font-size:10px">URL: ${failUrl.slice(0, 120)}</small>`;
   el('planStage').style.display  = 'none';
   emptyEl.style.display          = 'flex';
 }
