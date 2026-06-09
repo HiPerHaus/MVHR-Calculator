@@ -287,6 +287,30 @@ main { padding:0 0 80px; }
 /* ── Loading/error states ── */
 #loadingState { text-align:center; padding:80px; }
 #errorState { display:none; padding:20px 28px; }
+
+/* ── HRV placement overlay ── */
+#hrvOverlay {
+  position:absolute; inset:0; z-index:200;
+  background:rgba(10,25,18,0.52);
+  display:flex; align-items:center; justify-content:center;
+  cursor:crosshair;
+}
+.hrv-card {
+  background:#fff; border-radius:16px; padding:32px 36px;
+  max-width:440px; width:calc(100% - 48px); text-align:center;
+  box-shadow:0 24px 60px rgba(0,0,0,.35); cursor:default;
+}
+.hrv-card-icon  { font-size:36px; margin-bottom:10px; }
+.hrv-card-title { font-size:19px; font-weight:900; color:var(--primary); margin-bottom:10px; }
+.hrv-card-text  { font-size:13px; color:var(--muted); line-height:1.65; margin-bottom:24px; }
+.hrv-card-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+.hrv-click-hint {
+  position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+  background:rgba(255,255,255,.92); border-radius:20px; padding:6px 18px;
+  font-size:12px; font-weight:700; color:var(--primary); pointer-events:none;
+  white-space:nowrap; box-shadow:0 2px 12px rgba(0,0,0,.15);
+  animation:pulse 2s infinite;
+}
 .error-card { background:var(--critical-bg); border:1px solid #fecaca; border-radius:10px; padding:20px 24px; color:var(--critical); }
 </style>
 </head>
@@ -382,6 +406,13 @@ main { padding:0 0 80px; }
       ⚠ No airflow design found. Complete Stage 4 to populate terminal airflows automatically.
     </div>
 
+    <!-- HRV placement banner -->
+    <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px">
+      📍 <span><strong>Place the HRV unit on the floor plan</strong> first — this helps generate more realistic duct routes.</span>
+      <button class="btn btn-secondary btn-sm" onclick="showHrvOverlay()">Place now →</button>
+      <button style="font-size:11px;background:none;border:none;cursor:pointer;color:var(--muted);padding:0" onclick="skipMvhrPlacement()">Skip</button>
+    </div>
+
     <!-- View tab bar -->
     <div class="view-tabs">
       <button class="view-tab active" id="tabBtnPlan" onclick="switchTab('plan')">📐 Floor Plan Layout</button>
@@ -439,6 +470,20 @@ main { padding:0 0 80px; }
           onmouseleave="onPlanViewportMouseLeave(event)"
           onwheel="onPlanWheel(event)"
           onclick="onPlanViewportClick(event)">
+
+          <!-- HRV first-run placement overlay (shown after image loads) -->
+          <div id="hrvOverlay" onclick="onHrvOverlayClick(event)" style="display:none">
+            <div class="hrv-card" onclick="event.stopPropagation()">
+              <div class="hrv-card-icon">📍</div>
+              <div class="hrv-card-title">Place HRV Unit</div>
+              <p class="hrv-card-text">Click the approximate location of the HRV/MVHR unit on the floor plan. This helps HiPer Studio generate more realistic duct routes.</p>
+              <div class="hrv-card-actions">
+                <button class="btn btn-primary" onclick="suggestMvhrPosition()">💡 Let HiPer Studio suggest</button>
+                <button class="btn btn-secondary" onclick="skipMvhrPlacement()">Skip for now</button>
+              </div>
+            </div>
+            <div class="hrv-click-hint">👆 Click the floor plan to place the HRV</div>
+          </div>
 
           <!-- Empty state -->
           <div id="planEmpty" style="display:none">
@@ -659,9 +704,10 @@ let _planPanOriginY = 0;
 let _planDragging  = null;   // node id being dragged in plan view
 let _planDragStartPct = null;// {x_pct, y_pct} before drag
 let _planDragMouseStart = null;
-let _planImgLoaded  = false;
-let _planTool       = 'move'; // 'move' | 'supply' | 'extract' | 'mvhr' | 'smfd' | 'emfd' | 'route'
-let _planRouteStart = null;   // node id of first node selected for route tool
+let _planImgLoaded      = false;
+let _planTool           = 'move'; // 'move' | 'supply' | 'extract' | 'mvhr' | 'smfd' | 'emfd' | 'route'
+let _planRouteStart     = null;   // node id of first node selected for route tool
+let _mvhrNeedsPlacement = false;  // true when MVHR has no user-set plan position
 
 // ── Schematic drag state ──────────────────────────────────────
 let _dragging     = null;
@@ -796,14 +842,24 @@ async function init() {
     if (data.generated) el('generatedNotice').style.display = 'block';
     if (!_design?.airflow_design_id) el('noAirflowNotice').style.display = 'block';
 
+    // Detect whether MVHR needs user placement BEFORE ensurePlanPositions()
+    // (ensurePlanPositions fills in defaults, so we check the raw DB metadata here)
+    const mvhrNodeRaw = _nodes.find(n => n.node_type === 'mvhr_unit');
+    _mvhrNeedsPlacement = !!(mvhrNodeRaw && mvhrNodeRaw.metadata?.plan?.x_pct == null && _planPages.length > 0);
+
     // Build floor selector from planPages
     buildFloorSelector();
 
-    // Ensure all nodes have plan positions
+    // Ensure all nodes have plan positions (fills in defaults for unplaced nodes)
     ensurePlanPositions();
 
     setDirty(false);
     showMain();
+
+    // Show HRV banner if MVHR needs placement
+    if (_mvhrNeedsPlacement) {
+      el('hrvBanner').style.display = 'flex';
+    }
 
     // Default to Floor Plan Layout
     switchTab('plan');
@@ -931,7 +987,13 @@ function renderPlanView() {
       el('planOverlay').setAttribute('viewBox', `0 0 ${ow} ${oh}`);
       el('planNodes').style.width  = `${ow}px`;
       el('planNodes').style.height = `${oh}px`;
-      requestAnimationFrame(() => { planFitScreen(); renderPlanNodes(); renderPlanRoutes(); });
+      requestAnimationFrame(() => {
+        planFitScreen();
+        renderPlanNodes();
+        renderPlanRoutes();
+        // Show HRV placement overlay after plan is visible
+        if (_mvhrNeedsPlacement) showHrvOverlay();
+      });
     };
     imgEl.src = targetUrl;
   } else {
@@ -1274,10 +1336,105 @@ function viewportClickToPct(e) {
   };
 }
 
+// ── HRV placement overlay ─────────────────────────────────────
+
+function showHrvOverlay() {
+  if (!_planImgLoaded) return; // wait until image is ready
+  el('hrvOverlay').style.display = 'flex';
+}
+
+function hideHrvOverlay() {
+  el('hrvOverlay').style.display = 'none';
+  el('hrvBanner').style.display  = 'none';
+  _mvhrNeedsPlacement = false;
+}
+
+// Overlay background click → place MVHR at that position
+function onHrvOverlayClick(e) {
+  const pct = viewportClickToPct(e);
+  if (!pct) return;
+  placeMvhrFromOverlay(pct.x_pct, pct.y_pct);
+}
+
+// Core: move the mvhr_unit node to (x_pct, y_pct) and persist immediately
+async function placeMvhrFromOverlay(x_pct, y_pct) {
+  const mvhrNode = _nodes.find(n => n.node_type === 'mvhr_unit');
+  if (!mvhrNode) { hideHrvOverlay(); return; }
+
+  // Update local state first for instant feedback
+  mvhrNode.metadata = {
+    ...(mvhrNode.metadata ?? {}),
+    plan: { floor_index: _planFloor, x_pct, y_pct },
+  };
+
+  hideHrvOverlay();
+  renderPlanNodes();
+  renderPlanRoutes();
+  selectPlanItem('node', mvhrNode.id);
+
+  // Persist immediately — don't rely on the user hitting Save
+  try {
+    await apiPatch(`${API_BASE}/duct-design`, {
+      projectId: _projectId,
+      nodes: [{ id: mvhrNode.id, x: mvhrNode.x, y: mvhrNode.y, metadata: mvhrNode.metadata }],
+    });
+    setDirty(false);
+  } catch (err) {
+    console.error('[HRV placement] save failed:', err.message);
+    setDirty(true); // fall back to manual save
+  }
+}
+
+// "Let HiPer Studio suggest" — find best candidate room, place MVHR near it
+function suggestMvhrPosition() {
+  // Priority order: plant/mech → laundry → garage → store/utility → any extract
+  const PRIORITY = [
+    /plant|services|mech|hvac|mvhr|hrv|ahu|plant\s*room/i,
+    /laundry/i,
+    /garage/i,
+    /store|storeroom|storage|cupboard|robe|wir|utility/i,
+    /kitchen/i,  // wet rooms as last resort
+  ];
+
+  let bestNode = null;
+  for (const pattern of PRIORITY) {
+    bestNode = _nodes.find(n =>
+      (n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal') &&
+      pattern.test(n.room_name ?? '')
+    );
+    if (bestNode) break;
+  }
+
+  let x_pct, y_pct;
+  if (bestNode?.metadata?.plan?.x_pct != null) {
+    // Place MVHR to the left of the matched room, same vertical band
+    x_pct = Math.max(5, (bestNode.metadata.plan.x_pct) - 10);
+    y_pct = bestNode.metadata.plan.y_pct;
+  } else {
+    // Default: left-centre — typical MVHR plant room location
+    x_pct = 20;
+    y_pct = 50;
+  }
+
+  placeMvhrFromOverlay(x_pct, y_pct);
+}
+
+// "Skip for now" — use the auto-placed schematic fallback, mark as approximate
+function skipMvhrPlacement() {
+  hideHrvOverlay();
+  // The mvhr_unit already has an ensurePlanPositions() default (8%, 50%)
+  // Just show a gentle reminder rather than blocking anything
+  const notice = el('generatedNotice');
+  notice.style.display = 'block';
+  notice.className = 'notice notice-warn';
+  notice.textContent = '⚠ HRV position not confirmed — duct routes are approximate. Use the ▪ MVHR tool to place it on the floor plan.';
+}
+
 // Viewport background click handler (not on a node)
 function onPlanViewportClick(e) {
   // Only act if click landed on the viewport or stage background (not a node)
   if (e.target.closest('.plan-node')) return;
+  if (e.target.closest('#hrvOverlay'))   return; // handled by onHrvOverlayClick
   if (_planTool === 'move') {
     selectPlanItem(null, null);
     return;
