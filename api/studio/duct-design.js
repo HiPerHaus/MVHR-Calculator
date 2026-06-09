@@ -653,11 +653,100 @@ export default async function handler(req, res) {
       .maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
 
+    // ── Shared helper: find existing design for this project ──
+    async function getDesignId() {
+      const { data: d } = await supabase
+        .from('duct_designs').select('id')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(1).maybeSingle();
+      return d?.id ?? null;
+    }
+
     try {
       if (action === 'regenerate') {
         await deleteDesign(supabase, projectId);
         const generated = await generateLayout(supabase, projectId, user.id, manifoldMode);
         return res.status(200).json({ ...generated, generated: true });
+      }
+
+      // ── add_node: insert a single node into the existing design ──
+      if (action === 'add_node') {
+        const designId = await getDesignId();
+        if (!designId) return res.status(404).json({ error: 'No duct design found. Generate a layout first.' });
+
+        const { node_type, floor_index = 0, room_name = '', airflow_m3h = 0, x_pct = 50, y_pct = 50 } = body;
+        if (!node_type) return res.status(400).json({ error: 'node_type required' });
+
+        // Schematic canvas position: place in floor band centre
+        const BAND_H = 280, Y_START = 100;
+        const schX = 600;
+        const schY = Y_START + floor_index * BAND_H + BAND_H / 2;
+
+        const { data: node, error } = await supabase
+          .from('duct_nodes')
+          .insert({
+            duct_design_id: designId,
+            node_type,
+            floor_index,
+            room_name,
+            airflow_m3h,
+            x: schX,
+            y: schY,
+            metadata: { plan: { floor_index, x_pct, y_pct } },
+          })
+          .select()
+          .single();
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ node });
+      }
+
+      // ── add_run: insert a run between two existing nodes ──
+      if (action === 'add_run') {
+        const designId = await getDesignId();
+        if (!designId) return res.status(404).json({ error: 'No duct design found.' });
+
+        const { from_node_id, to_node_id, run_type = 'supply' } = body;
+        if (!from_node_id || !to_node_id) return res.status(400).json({ error: 'from_node_id and to_node_id required' });
+
+        const DIAM_MAP = { supply: 90, extract: 90, intake: 160, exhaust: 160 };
+        const { data: run, error } = await supabase
+          .from('duct_runs')
+          .insert({
+            duct_design_id: designId,
+            from_node_id,
+            to_node_id,
+            run_type,
+            diameter_mm: DIAM_MAP[run_type] ?? 90,
+            duct_type: run_type === 'supply' || run_type === 'extract' ? 'semi_rigid_90' : 'epp_160',
+          })
+          .select()
+          .single();
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ run });
+      }
+
+      // ── delete_node: remove a node and its connected runs ──
+      if (action === 'delete_node') {
+        const designId = await getDesignId();
+        if (!designId) return res.status(404).json({ error: 'No duct design found.' });
+
+        const { node_id } = body;
+        if (!node_id) return res.status(400).json({ error: 'node_id required' });
+
+        // Delete connected runs first
+        await supabase.from('duct_runs')
+          .delete()
+          .eq('duct_design_id', designId)
+          .or(`from_node_id.eq.${node_id},to_node_id.eq.${node_id}`);
+
+        // Delete the node
+        const { error } = await supabase.from('duct_nodes')
+          .delete()
+          .eq('id', node_id)
+          .eq('duct_design_id', designId);
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ ok: true });
       }
 
       const existing = await loadDesign(supabase, projectId);

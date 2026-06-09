@@ -130,6 +130,13 @@ main { padding:0 0 80px; }
   cursor:grab;
 }
 .plan-viewport.panning { cursor:grabbing; }
+.plan-viewport.tool-supply,
+.plan-viewport.tool-extract,
+.plan-viewport.tool-mvhr,
+.plan-viewport.tool-smfd,
+.plan-viewport.tool-emfd { cursor:crosshair; }
+.plan-viewport.tool-route { cursor:cell; }
+.plan-node.route-start .node-body { outline:3px solid var(--accent); outline-offset:2px; animation:pulse 1s infinite; }
 
 .plan-stage {
   position:absolute;
@@ -385,6 +392,7 @@ main { padding:0 0 80px; }
     <!-- ═══════════ TAB: Floor Plan Layout ═══════════ -->
     <div id="tabPlan">
       <div class="plan-toolbar">
+        <!-- Floor selector -->
         <div class="plan-toolbar-group">
           <label style="font-size:12px;font-weight:700;color:var(--muted)">Floor:</label>
           <select class="floor-select" id="planFloorSelect" onchange="onFloorChange()">
@@ -392,12 +400,26 @@ main { padding:0 0 80px; }
           </select>
         </div>
         <div class="plan-toolbar-sep"></div>
+        <!-- Placement tools -->
+        <div class="plan-toolbar-group">
+          <span style="font-size:11px;font-weight:700;color:var(--muted);margin-right:2px">Tool:</span>
+          <button class="tool-btn active" data-tool="move"    onclick="setActiveTool('move')"    title="Move / pan (M)">✥ Move</button>
+          <button class="tool-btn"        data-tool="supply"  onclick="setActiveTool('supply')"  title="Place supply outlet (S)" style="color:var(--supply)">● Supply</button>
+          <button class="tool-btn"        data-tool="extract" onclick="setActiveTool('extract')" title="Place extract outlet (E)" style="color:var(--extract)">● Extract</button>
+          <button class="tool-btn"        data-tool="mvhr"    onclick="setActiveTool('mvhr')"    title="Place MVHR unit" style="color:#1a4731">▪ MVHR</button>
+          <button class="tool-btn"        data-tool="smfd"    onclick="setActiveTool('smfd')"    title="Place supply manifold" style="color:var(--manifold)">▪ S-Man</button>
+          <button class="tool-btn"        data-tool="emfd"    onclick="setActiveTool('emfd')"    title="Place extract manifold" style="color:var(--manifold)">▪ E-Man</button>
+          <button class="tool-btn"        data-tool="route"   onclick="setActiveTool('route')"   title="Draw duct route (R)">— Route</button>
+        </div>
+        <div class="plan-toolbar-sep"></div>
+        <!-- Zoom -->
         <div class="plan-toolbar-group">
           <button class="tool-btn" onclick="planZoom(1.2)" title="Zoom in">＋</button>
           <button class="tool-btn" onclick="planZoom(1/1.2)" title="Zoom out">－</button>
           <button class="tool-btn" onclick="planFitScreen()" title="Fit to screen">⊡ Fit</button>
         </div>
         <div class="plan-toolbar-sep"></div>
+        <!-- Layer toggles -->
         <div class="plan-toolbar-group" style="gap:12px">
           <label class="toggle-label"><input type="checkbox" id="tglSupply"   checked onchange="renderPlanRoutes()"> Supply</label>
           <label class="toggle-label"><input type="checkbox" id="tglExtract"  checked onchange="renderPlanRoutes()"> Extract</label>
@@ -405,7 +427,7 @@ main { padding:0 0 80px; }
           <label class="toggle-label"><input type="checkbox" id="tglLabels"   checked onchange="renderPlanNodes()"> Labels</label>
           <label class="toggle-label"><input type="checkbox" id="tglRoutes"   checked onchange="renderPlanRoutes()"> Routes</label>
         </div>
-        <div style="margin-left:auto; font-size:11px; color:var(--muted)" id="planStatus">Floor plan overlay</div>
+        <div style="margin-left:auto; font-size:11px; color:var(--muted)" id="planStatus">Drag to pan · Scroll to zoom</div>
       </div>
 
       <div class="plan-with-props">
@@ -415,7 +437,8 @@ main { padding:0 0 80px; }
           onmousemove="onPlanViewportMouseMove(event)"
           onmouseup="onPlanViewportMouseUp(event)"
           onmouseleave="onPlanViewportMouseLeave(event)"
-          onwheel="onPlanWheel(event)">
+          onwheel="onPlanWheel(event)"
+          onclick="onPlanViewportClick(event)">
 
           <!-- Empty state -->
           <div id="planEmpty" style="display:none">
@@ -426,7 +449,7 @@ main { padding:0 0 80px; }
 
           <!-- Plan stage (transform target) -->
           <div id="planStage" class="plan-stage">
-            <img id="planImage" class="plan-image" alt="Floor plan" draggable="false">
+            <img id="planImage" class="plan-image" alt="Floor plan" draggable="false" onerror="onPlanImgError()">
             <svg id="planOverlay" class="plan-overlay"></svg>
             <div id="planNodes" class="plan-nodes"></div>
           </div>
@@ -636,7 +659,9 @@ let _planPanOriginY = 0;
 let _planDragging  = null;   // node id being dragged in plan view
 let _planDragStartPct = null;// {x_pct, y_pct} before drag
 let _planDragMouseStart = null;
-let _planImgLoaded = false;
+let _planImgLoaded  = false;
+let _planTool       = 'move'; // 'move' | 'supply' | 'extract' | 'mvhr' | 'smfd' | 'emfd' | 'route'
+let _planRouteStart = null;   // node id of first node selected for route tool
 
 // ── Schematic drag state ──────────────────────────────────────
 let _dragging     = null;
@@ -890,23 +915,24 @@ function renderPlanView() {
   stageEl.style.display = 'block';
 
   // Load plan image
-  if (imgEl.src !== page.image_url) {
+  const targetUrl = page.image_url;
+  // Normalise: imgEl.src is always absolute, page.image_url should match
+  const alreadyLoaded = _planImgLoaded && (imgEl.src === targetUrl || imgEl.getAttribute('data-src') === targetUrl);
+  if (!alreadyLoaded) {
     _planImgLoaded = false;
+    imgEl.setAttribute('data-src', targetUrl);
     imgEl.onload = () => {
       _planImgLoaded = true;
-      // Set overlay size to match image
-      const ow = imgEl.naturalWidth || imgEl.offsetWidth;
+      const ow = imgEl.naturalWidth  || imgEl.offsetWidth;
       const oh = imgEl.naturalHeight || imgEl.offsetHeight;
       el('planOverlay').style.width  = `${ow}px`;
       el('planOverlay').style.height = `${oh}px`;
       el('planOverlay').setAttribute('viewBox', `0 0 ${ow} ${oh}`);
       el('planNodes').style.width  = `${ow}px`;
       el('planNodes').style.height = `${oh}px`;
-      planFitScreen();
-      renderPlanNodes();
-      renderPlanRoutes();
+      requestAnimationFrame(() => { planFitScreen(); renderPlanNodes(); renderPlanRoutes(); });
     };
-    imgEl.src = page.image_url;
+    imgEl.src = targetUrl;
   } else {
     renderPlanNodes();
     renderPlanRoutes();
@@ -1003,8 +1029,14 @@ function renderPlanNodes() {
       }
     }
 
-    div.addEventListener('mousedown', e => onPlanNodeMouseDown(e, node.id));
-    div.addEventListener('click', e => { e.stopPropagation(); selectPlanItem('node', node.id); });
+    if (_planTool === 'route' && _planRouteStart === node.id) div.classList.add('route-start');
+    div.addEventListener('mousedown', e => { if (_planTool === 'move') onPlanNodeMouseDown(e, node.id); });
+    div.addEventListener('click', e => {
+      e.stopPropagation();
+      if (_planTool === 'route') { onPlanRouteNodeClick(node.id); return; }
+      if (_planTool !== 'move') return; // other placement tools click viewport, not nodes
+      selectPlanItem('node', node.id);
+    });
     container.appendChild(div);
   }
 }
@@ -1195,8 +1227,211 @@ function renderPlanPropsPanel() {
       <span class="prop-value" style="font-size:11px">${(node.metadata?.plan?.x_pct ?? 50).toFixed(1)}%, ${(node.metadata?.plan?.y_pct ?? 50).toFixed(1)}%</span>
       <div class="prop-hint">Drag the node on the floor plan to reposition.</div>
     </div>
+    <div class="prop-row" style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <button class="btn btn-danger btn-sm" style="width:100%" onclick="deletePlanNode('${node.id}')">🗑 Delete Node</button>
+    </div>
   `;
 }
+
+// ── Plan tool mode ────────────────────────────────────────────
+const TOOL_STATUS = {
+  move:    'Drag to pan · Scroll to zoom · Click node to select',
+  supply:  'Click on the floor plan to place a supply outlet',
+  extract: 'Click on the floor plan to place an extract outlet',
+  mvhr:    'Click on the floor plan to place the MVHR unit',
+  smfd:    'Click on the floor plan to place a supply manifold',
+  emfd:    'Click on the floor plan to place an extract manifold',
+  route:   'Click first node, then click second node to draw a duct run',
+};
+
+function setActiveTool(t) {
+  _planTool       = t;
+  _planRouteStart = null;
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === t);
+  });
+  const vp = el('planViewport');
+  vp.className = 'plan-viewport' + (t !== 'move' ? ` tool-${t}` : '');
+  el('planStatus').textContent = TOOL_STATUS[t] ?? '';
+  // Panning only in move mode
+  renderPlanNodes(); // refresh route-start highlights
+}
+
+// Convert viewport click to image percentage position
+function viewportClickToPct(e) {
+  const img = el('planImage');
+  if (!img.naturalWidth) return null;
+  const vpRect = el('planViewport').getBoundingClientRect();
+  const vpX = e.clientX - vpRect.left;
+  const vpY = e.clientY - vpRect.top;
+  // stage transform: translate(_planOffsetX, _planOffsetY) scale(_planScale)
+  const imgX = (vpX - _planOffsetX) / _planScale;
+  const imgY = (vpY - _planOffsetY) / _planScale;
+  return {
+    x_pct: Math.max(0, Math.min(100, (imgX / img.naturalWidth)  * 100)),
+    y_pct: Math.max(0, Math.min(100, (imgY / img.naturalHeight) * 100)),
+  };
+}
+
+// Viewport background click handler (not on a node)
+function onPlanViewportClick(e) {
+  // Only act if click landed on the viewport or stage background (not a node)
+  if (e.target.closest('.plan-node')) return;
+  if (_planTool === 'move') {
+    selectPlanItem(null, null);
+    return;
+  }
+  if (_planTool === 'route') return; // route uses node clicks
+  const pct = viewportClickToPct(e);
+  if (!pct) return;
+  placeNode(_planTool, pct.x_pct, pct.y_pct);
+}
+
+// Click-to-place a new node
+async function placeNode(tool, x_pct, y_pct) {
+  const TYPE_MAP   = { supply:'supply_terminal', extract:'extract_terminal', mvhr:'mvhr_unit', smfd:'supply_manifold', emfd:'extract_manifold' };
+  const NAME_MAP   = { supply_terminal:'Supply', extract_terminal:'Extract', mvhr_unit:'MVHR', supply_manifold:'S-Manifold', extract_manifold:'E-Manifold' };
+  const node_type  = TYPE_MAP[tool];
+  if (!node_type) return;
+
+  const btn = el(`[data-tool="${tool}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  try {
+    const res = await apiPost(`${API_BASE}/duct-design`, {
+      projectId:   _projectId,
+      action:      'add_node',
+      node_type,
+      floor_index: _planFloor,
+      room_name:   NAME_MAP[node_type] ?? '',
+      airflow_m3h: 0,
+      x_pct,
+      y_pct,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(()=>({}));
+      alert('Failed to place node: ' + (e.error ?? `HTTP ${res.status}`));
+      return;
+    }
+    const { node } = await res.json();
+    _nodes.push(node);
+    renderPlanNodes();
+    renderPlanRoutes();
+    selectPlanItem('node', node.id);
+  } catch (err) {
+    alert('Error placing node: ' + err.message);
+  } finally {
+    // Restore button
+    const tBtn = el(`[data-tool="${tool}"]`);
+    if (tBtn) {
+      const labels = { supply:'● Supply', extract:'● Extract', mvhr:'▪ MVHR', smfd:'▪ S-Man', emfd:'▪ E-Man' };
+      tBtn.disabled    = false;
+      tBtn.textContent = labels[tool] ?? tool;
+    }
+  }
+}
+
+// Route tool: two-click node connection
+async function onPlanRouteNodeClick(nodeId) {
+  if (!_planRouteStart) {
+    _planRouteStart = nodeId;
+    renderPlanNodes();
+    el('planStatus').textContent = 'Now click the destination node to complete the route (click same node to cancel)';
+    return;
+  }
+  if (_planRouteStart === nodeId) {
+    _planRouteStart = null;
+    renderPlanNodes();
+    el('planStatus').textContent = TOOL_STATUS.route;
+    return;
+  }
+
+  const fromNode = _nodes.find(n => n.id === _planRouteStart);
+  const toNode   = _nodes.find(n => n.id === nodeId);
+
+  // Auto-detect run type from node types
+  const fromType = fromNode?.node_type ?? '';
+  const toType   = toNode?.node_type   ?? '';
+  let run_type = 'supply';
+  if (fromType.includes('extract') || toType.includes('extract')) run_type = 'extract';
+  else if (fromType === 'external_intake'  || toType === 'external_intake')  run_type = 'intake';
+  else if (fromType === 'external_exhaust' || toType === 'external_exhaust') run_type = 'exhaust';
+
+  const fromId = _planRouteStart;
+  _planRouteStart = null;
+  renderPlanNodes();
+
+  try {
+    const res = await apiPost(`${API_BASE}/duct-design`, {
+      projectId:    _projectId,
+      action:       'add_run',
+      from_node_id: fromId,
+      to_node_id:   nodeId,
+      run_type,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(()=>({}));
+      alert('Failed to create run: ' + (e.error ?? `HTTP ${res.status}`));
+    } else {
+      const { run } = await res.json();
+      _runs.push(run);
+      renderPlanRoutes();
+      renderSchedule();
+    }
+  } catch (err) {
+    alert('Error creating run: ' + err.message);
+  }
+  el('planStatus').textContent = TOOL_STATUS.route;
+}
+
+// Delete a node and its connected runs
+async function deletePlanNode(nodeId) {
+  if (!confirm('Delete this node and all its connected duct runs?')) return;
+  try {
+    const res = await apiPost(`${API_BASE}/duct-design`, {
+      projectId: _projectId,
+      action:    'delete_node',
+      node_id:   nodeId,
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(()=>({}));
+      alert('Delete failed: ' + (e.error ?? `HTTP ${res.status}`));
+      return;
+    }
+    // Remove from local state
+    _nodes = _nodes.filter(n => n.id !== nodeId);
+    _runs  = _runs.filter(r => r.from_node_id !== nodeId && r.to_node_id !== nodeId);
+    selectPlanItem(null, null);
+    renderPlanNodes();
+    renderPlanRoutes();
+    renderSchedule();
+  } catch (err) {
+    alert('Error deleting node: ' + err.message);
+  }
+}
+
+// Image load error handler
+function onPlanImgError() {
+  _planImgLoaded = false;
+  const emptyEl = el('planEmpty');
+  emptyEl.querySelector('h3').textContent = 'Floor plan image unavailable';
+  emptyEl.querySelector('p').textContent  = 'The floor plan image could not be loaded. Check that the PDF was processed correctly, or use Schematic View.';
+  el('planStage').style.display  = 'none';
+  emptyEl.style.display          = 'flex';
+}
+
+// Keyboard shortcuts for tool switching
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (_activeTab !== 'plan') return;
+  const map = { m:'move', s:'supply', e:'extract', r:'route' };
+  if (map[e.key.toLowerCase()]) { setActiveTool(map[e.key.toLowerCase()]); e.preventDefault(); }
+  if (e.key === 'Escape') { setActiveTool('move'); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && _selected?.type === 'node') {
+    deletePlanNode(_selected.id);
+    e.preventDefault();
+  }
+});
 
 // ═════════════════════════════════════════════════════════════
 // SCHEMATIC VIEW LOGIC (preserved from existing)
