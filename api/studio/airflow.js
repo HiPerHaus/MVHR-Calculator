@@ -119,17 +119,18 @@ function extractRate(room, rates = DEFAULT_ROOM_RATES) {
 
 // ── Extract room classification helpers ───────────────────────
 // All extract rooms can be reduced during balancing, but never below their EXTRACT_MINIMUMS.
-// Priority: WC/Powder(1) → Bathroom(2) → Ensuite(3) → Laundry(4) → Pantry(5) → Kitchen(6, last resort).
+// Priority: WC/Powder(1) → Bathroom+Ensuite(2, same tier) → Laundry(3) → Pantry(4) → Kitchen(5).
+// Rooms sharing the same priority tier are reduced PROPORTIONALLY, not sequentially,
+// so bath and ensuite shrink together rather than one being exhausted first.
 function extractReducePriority(room, n) {
   const t = room.room_type;
   if (t === 'wet_area') {
-    if (isWC(n))      return 1; // WC / powder / toilet — reduce first
-    if (isEnsuite(n)) return 3; // Ensuite
-    return 2;                    // Bathroom
+    if (isWC(n)) return 1;  // WC / powder / toilet — reduce first
+    return 2;                // Bathroom AND ensuite share tier 2 → proportional reduction
   }
-  if (t === 'laundry') return 4;
-  if (/pantry/i.test(n)) return 5;
-  if (t === 'kitchen' || t === 'kitchenette') return 6; // last resort — never to zero
+  if (t === 'laundry') return 3;
+  if (/pantry/i.test(n)) return 4;
+  if (t === 'kitchen' || t === 'kitchenette') return 5; // last resort — never to zero
   return 0;
 }
 
@@ -434,10 +435,13 @@ function balanceDesign(roomResults, rooms, designFlowM3h) {
   }
 
   // ─── STEP 2: EXTRACT BALANCING ────────────────────────────
-  // Reduce extract rooms in priority order (WC→Kitchen), respecting EXTRACT_MINIMUMS.
+  // Reduce extract rooms tier by tier (WC→Kitchen), respecting EXTRACT_MINIMUMS.
+  // Within each priority tier, reduction is spread PROPORTIONALLY across all rooms
+  // in that tier so no single room is disproportionately penalised.
   let extractExcess = r1(sumKey('extract_m3h') - designFlowM3h);
 
   if (extractExcess > 0.5) {
+    // Build candidate list with priority + minimum headroom
     const adjExtract = roomResults
       .map((r, i) => {
         const n   = rooms[i].name ?? '';
@@ -445,21 +449,38 @@ function balanceDesign(roomResults, rooms, designFlowM3h) {
         const min = extractMin(rooms[i], n);
         return { r, i, priority: p, min };
       })
-      .filter(x => x.priority > 0 && x.r.extract_m3h > x.min) // only rooms with headroom
-      .sort((a, b) => a.priority - b.priority);
+      .filter(x => x.priority > 0 && x.r.extract_m3h > x.min);
 
-    for (const { r, i, min } of adjExtract) {
+    // Group by priority tier and process tier by tier (lowest priority number first)
+    const tiers = [...new Set(adjExtract.map(x => x.priority))].sort((a, b) => a - b);
+
+    for (const tier of tiers) {
       if (extractExcess < 0.5) break;
-      const canReduce = r1(r.extract_m3h - min); // never go below minimum
-      if (canReduce < 0.5) continue;
-      const remove = r1(Math.min(extractExcess, canReduce));
-      roomResults[i] = {
-        ...r,
-        extract_m3h: r1(r.extract_m3h - remove),
-        extract_lps: toLps(r1(r.extract_m3h - remove)),
-        notes: (r.notes ? r.notes + '; ' : '') + `Balancing adjustment: -${remove} m³/h`,
-      };
-      extractExcess = r1(extractExcess - remove);
+      const group = adjExtract.filter(x => x.priority === tier);
+
+      // Total headroom available in this tier
+      const tierHeadroom = r1(group.reduce((s, x) => s + r1(roomResults[x.i].extract_m3h - x.min), 0));
+      if (tierHeadroom < 0.5) continue;
+
+      // Take the minimum of what we need and what this tier can give
+      const removeFromTier = r1(Math.min(extractExcess, tierHeadroom));
+
+      // Distribute proportionally — each room's share = its headroom / tier headroom
+      for (const { i, min } of group) {
+        const currentExtract = roomResults[i].extract_m3h;
+        const headroom       = r1(currentExtract - min);
+        if (headroom < 0.5) continue;
+        const share = r1(removeFromTier * (headroom / tierHeadroom));
+        if (share < 0.5) continue;
+        const newExtract = r1(currentExtract - share);
+        roomResults[i] = {
+          ...roomResults[i],
+          extract_m3h: newExtract,
+          extract_lps: toLps(newExtract),
+          notes: (roomResults[i].notes ? roomResults[i].notes + '; ' : '') + `Balancing adjustment: -${share} m³/h`,
+        };
+      }
+      extractExcess = r1(extractExcess - removeFromTier);
     }
 
     // ─── STEP 3: SUPPLY TOP-UP ────────────────────────────────
