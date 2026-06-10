@@ -99,11 +99,22 @@ const AREA_EXPECTED_TYPES = new Set([
 ]);
 const AREA_COMPLETENESS_THRESHOLD = 0.80; // 80%
 
+// Combined Butler's Pantry / Laundry — detected by room_type OR name pattern.
+// Airflow: continuous = laundry rate (25 m³/h), boost = laundry rate (40 m³/h).
+// Must be checked before the individual pantry and laundry rules.
+const PANTRY_LAUNDRY_RT = 'Pantry/Laundry';
+const PANTRY_LAUNDRY_RE = /\b(b['']?pty|butler['']?s?\s+pantry|pantry)\s*[/&]\s*(ldy|laundry)\b|\b(ldy|laundry)\s*[/&]\s*(b['']?pty|butler['']?s?\s+pantry|pantry)\b/i;
+function isPantryLaundry(room, n) {
+  return room.room_type === PANTRY_LAUNDRY_RT || PANTRY_LAUNDRY_RE.test(n);
+}
+
 // ── Extract rate lookup ───────────────────────────────────────
 // Design extract rates (m³/h). Accepts user-customised rates object.
 function extractRate(room, rates = DEFAULT_ROOM_RATES) {
   const t = room.room_type;
   const n = room.name ?? '';
+  // Combined pantry/laundry uses laundry rate (higher of the two continuous rates)
+  if (isPantryLaundry(room, n)) return rates.laundry_extract_m3h;
   // Pantry first — checked before kitchen so a room named "Pantry" gets pantry rate
   if (/pantry/i.test(n)) return rates.pantry_extract_m3h ?? 20;
   if (t === 'kitchen' || t === 'kitchenette') return rates.kitchen_extract_m3h;
@@ -128,6 +139,7 @@ function extractReducePriority(room, n) {
     if (isWC(n)) return 1;  // WC / powder / toilet — reduce first
     return 2;                // Bathroom AND ensuite share tier 2 → proportional reduction
   }
+  if (isPantryLaundry(room, n)) return 3; // same priority as laundry
   if (t === 'laundry') return 3;
   if (/pantry/i.test(n)) return 4;
   if (t === 'kitchen' || t === 'kitchenette') return 5; // last resort — never to zero
@@ -137,6 +149,7 @@ function extractReducePriority(room, n) {
 // Minimum extract airflow for a room (m³/h) — enforced during balancing.
 function extractMin(room, n) {
   const t = room.room_type;
+  if (isPantryLaundry(room, n)) return EXTRACT_MINIMUMS.laundry;
   if (/pantry/i.test(n)) return EXTRACT_MINIMUMS.pantry;
   if (t === 'kitchen' || t === 'kitchenette') return EXTRACT_MINIMUMS.kitchen;
   if (t === 'laundry') return EXTRACT_MINIMUMS.laundry;
@@ -151,6 +164,7 @@ function extractMin(room, n) {
 // Boost extract rate for a room (m³/h) — PHI peak demand, used for boost capacity check only.
 function boostExtractRate(room, n) {
   const t = room.room_type;
+  if (isPantryLaundry(room, n)) return BOOST_EXTRACT_RATES.laundry; // 40 m³/h
   if (/pantry/i.test(n)) return BOOST_EXTRACT_RATES.pantry;
   if (t === 'kitchen' || t === 'kitchenette') return BOOST_EXTRACT_RATES.kitchen;
   if (t === 'laundry')  return BOOST_EXTRACT_RATES.laundry;

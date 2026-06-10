@@ -94,7 +94,7 @@ const MINIMUM_ROOM_COUNT = 3;   // plans with fewer rooms after Stage 1 trigger 
 
 // Valid room types (must match frontend PHPP_SUPPLY_DEFAULTS / PHPP_EXTRACT_DEFAULTS)
 const SUPPLY_TYPES   = new Set(['Single Bedroom','Double Bedroom','Master Bedroom','Study / Office','Living Room','Dining Room','Rumpus Room','Other']);
-const EXTRACT_TYPES  = new Set(['Kitchen','Bathroom','Ensuite','Laundry','WC','Pantry','Other']);
+const EXTRACT_TYPES  = new Set(['Kitchen','Bathroom','Ensuite','Laundry','WC','Pantry','Pantry/Laundry','Other']);
 const TRANSFER_TYPES = new Set(['Hallway','Entry','Corridor','Other']);
 const IGNORE_TYPES   = new Set(['WIR','Garage','Porch','Carport','Alfresco','Store','Other']);
 const ALL_TYPES      = new Set([...SUPPLY_TYPES, ...EXTRACT_TYPES, ...TRANSFER_TYPES, ...IGNORE_TYPES]);
@@ -173,7 +173,15 @@ function deriveTerminalPriority(spaceType, ventClass) {
 }
 
 // name → roomType (canonical label for display/legacy use)
+// Combined pantry+laundry rooms — common in Australian residential (Butler's Pantry / Laundry)
+const PANTRY_LAUNDRY_PATTERN = /\b(b['']?pty|butler['']?s?\s+pantry|pantry)\s*[/&]\s*(ldy|laundry)\b|\b(ldy|laundry)\s*[/&]\s*(b['']?pty|butler['']?s?\s+pantry|pantry)\b/i;
+
 const NAME_LOWER_TO_ROOM_TYPE = {
+  // Combined pantry/laundry (must be checked before individual matches)
+  "butler's pantry / laundry": 'Pantry/Laundry', "butler's pantry/laundry": 'Pantry/Laundry',
+  "butlers pantry / laundry":  'Pantry/Laundry', "pantry / laundry": 'Pantry/Laundry',
+  "pantry/laundry":            'Pantry/Laundry', "b'pty / ldy": 'Pantry/Laundry',
+  "b'pty/ldy":                 'Pantry/Laundry', "bpty / ldy": 'Pantry/Laundry',
   'single bedroom': 'Single Bedroom', 'double bedroom': 'Double Bedroom',
   'master bedroom': 'Master Bedroom', 'bedroom':        'Double Bedroom',
   'study':          'Study / Office', 'study / office': 'Study / Office',
@@ -196,6 +204,8 @@ const NAME_LOWER_TO_ROOM_TYPE = {
 function deriveRoomType(name, spaceType) {
   const lower = (name || '').toLowerCase().trim();
   if (NAME_LOWER_TO_ROOM_TYPE[lower]) return NAME_LOWER_TO_ROOM_TYPE[lower];
+  // Catch any variant not in the static map
+  if (PANTRY_LAUNDRY_PATTERN.test(name)) return 'Pantry/Laundry';
   // Fall back to spaceType-based label
   const SPACE_TO_TYPE = {
     bedroom: 'Double Bedroom', living: 'Living Room', dining: 'Dining Room',
@@ -276,7 +286,7 @@ function validateRoom(raw, floorIndex) {
     bedroom: /\bbed(?:room)?\b|\bmaster\b|\bnursery\b|\bguest\s+bed/i,
     kitchen: /\bkitchen\b|\bscullery\b|\bbutler\b|\bpantry\b/i,
     wet_area: /\bbath(?:room)?\b|\bensuite\b|\bwc\b|\btoilet\b|\bpowder\b/i,
-    laundry: /\blaundry\b|\butility\b/i,
+    laundry:  /\blaundry\b|\butility\b/i,
     circulation: /\bhall(?:way)?\b|\bentry\b|\bcorridor\b|\bpassage(?:way)?\b|\bvestibule\b|\bstair|\blobby\b|\bfoyer\b|\blanding\b/i,
     robe: /\bwir\b|\bwtr\b|\brobe\b|\bdressing\b/i,
     service: /\bgarage\b|\bcarport\b|\bpatio\b|\bbalcon|\balfresco\b|\bverandah\b|\bporch\b|\bdeck\b|\bstore\b|\bstorage\b|\bservery\b/i,
@@ -287,8 +297,14 @@ function validateRoom(raw, floorIndex) {
   };
   let spaceType = SPACE_TYPE_VALUES.has(rawSpaceType) ? rawSpaceType : null;
   if (!spaceType) {
-    for (const [st, pattern] of Object.entries(NAME_TO_SPACE)) {
-      if (pattern.test(name)) { spaceType = st; break; }
+    // Combined pantry/laundry must be checked before NAME_TO_SPACE to avoid
+    // the kitchen pattern (which matches 'butler' and 'pantry') winning.
+    if (PANTRY_LAUNDRY_PATTERN.test(name)) {
+      spaceType = 'laundry'; // laundry drives the higher continuous + boost extract rates
+    } else {
+      for (const [st, pattern] of Object.entries(NAME_TO_SPACE)) {
+        if (pattern.test(name)) { spaceType = st; break; }
+      }
     }
   }
   spaceType = spaceType ?? 'other';
@@ -321,7 +337,9 @@ function validateRoom(raw, floorIndex) {
     /\bmedia\b/i,       /\btheatre\b/i,         /\bmedia\s+room\b/i,
     /\bgames\s+room\b/i, /\bhome\s+theatre\b/i,
   ];
-  const hasDualPurposeName = name.includes('/');    // e.g. "Study/Bed 4"
+  // Known combined room types with "/" are NOT ambiguous — exempt from manual review.
+  const isKnownCombined = PANTRY_LAUNDRY_PATTERN.test(name);
+  const hasDualPurposeName = !isKnownCombined && name.includes('/');  // e.g. "Study/Bed 4"
   const requiresManualReview =
     (confidence !== null && confidence < 0.75) ||
     hasDualPurposeName ||
@@ -590,7 +608,8 @@ function postProcessRooms(rooms, warnings) {
     const isAmbiguousNoFixtures =
       AMBIGUOUS_LABEL_PATTERNS.some(p => p.test(name)) &&
       (!Array.isArray(room.fixtures) || room.fixtures.length === 0);
-    const hasDualPurpose = name.includes('/');
+    // Known combined types (e.g. Butler's Pantry / Laundry) are NOT ambiguous.
+    const hasDualPurpose = name.includes('/') && !PANTRY_LAUNDRY_PATTERN.test(name);
 
     if (isAmbiguousNoFixtures) {
       room.requiresManualReview = true;
@@ -641,6 +660,20 @@ function postProcessRooms(rooms, warnings) {
         // Fall through — room continues to label-pattern rules which will confirm supply
       }
     }
+
+    // ── 2b. Combined Pantry/Laundry → extract, no manual review ─
+    // Handles: Butler's Pantry / Laundry, B'Pty / Ldy, Pantry/Laundry, etc.
+    // These are well-defined combined rooms common in Australian residential builds.
+    // Both functions are extract; no ambiguity; do not flag for manual review.
+    if (PANTRY_LAUNDRY_PATTERN.test(name)) {
+      room.roomType                  = 'Pantry/Laundry';
+      room.ventilationClassification = 'extract';
+      room.requiresManualReview      = false;
+      room.classificationReason      = 'Combined Butler\'s Pantry and Laundry — classified as extract.';
+      out.push(room);
+      matched = true;
+    }
+    if (matched) continue;
 
     // ── 3. WIR → transfer + optionalSupply ───────────────────
     // Matched against name + labelSeen + roomType to catch "Walk-in Robe" variants.
@@ -899,6 +932,14 @@ MOISTURE/ODOUR-PRODUCING SPACES — assign spaceType:
   Bathroom  Ensuite  Powder Room  WC  Toilet          → "wet_area"
   Laundry  Mudroom (with laundry)  Utility (wet)      → "laundry"
   Habitable room + sink + cabinetry                   → "kitchenette"
+
+COMBINED PANTRY / LAUNDRY ROOMS:
+  Common in Australian residential: Butler's Pantry / Laundry, B'Pty / Ldy, Pantry/Laundry.
+  Use "name" = the label as written on the plan (e.g. "B'Pty / Ldy", "Butler's Pantry / Laundry").
+  Use spaceType = "laundry" (laundry function drives the higher extract airflow requirement).
+  Do NOT split into separate rooms unless physically separated on the plan.
+  Do NOT flag requiresManualReview when both functions are clear from the label.
+  Classification is always extract.
 
 CIRCULATION SPACES — assign spaceType:
   Hallway  Corridor  Entry  Foyer  Passage  Passageway  Vestibule  Landing  Stair  Lobby  Entry Hall  Stair Hall  → "circulation"
@@ -1445,6 +1486,8 @@ SPACE TYPE ASSIGNMENT:
   "kitchen"     — kitchen, scullery, butler's pantry, pantry
   "wet_area"    — bathroom, ensuite, WC, powder, toilet
   "laundry"     — laundry, mudroom (with fixtures), utility (with fixtures)
+  "laundry"     — combined Butler's Pantry / Laundry, B'Pty / Ldy, Pantry/Laundry
+                   (use "name" as written on plan; spaceType "laundry"; do NOT flag manual review)
   "office"      — study, office, library
   "gym"         — gym, exercise
   "robe"        — WIR, walk-in robe, dressing room

@@ -423,8 +423,9 @@ function deduplicateFloors(successPages) {
           ?? successPages[keepIdx].floorName
           ?? `Page ${successPages[keepIdx].pageNumber}`;
 
+        // Use a concise informational notice — the merge is automatic, no user action needed.
         warnings.push(
-          `Possible duplicate floor extraction detected — "${discardLabel}" appears to be the same floor as "${keepLabel}" (${Math.round(overlap * 100)}% room name overlap). Rooms merged into "${keepLabel}".`
+          `Duplicate floor sheets detected and automatically merged into ${keepLabel}.`
         );
         console.log(JSON.stringify({
           event:          'auto-analyse:duplicate-floor-detected',
@@ -801,7 +802,9 @@ export default async function handler(req, res) {
 
         if (successPages.length > 0) {
           const mergedRooms = { supply: [], extract: [], transfer: [], ignore: [] };
-          const allWarnings = [...dedupWarnings], allAssumptions = [], allReviewCandidates = [];
+          // dedupWarnings are informational notices — separate from actionable warnings.
+          const allNotices  = [...dedupWarnings];
+          const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
           let totalBedSpaces = 0, totalPotential = 0;
 
           // ── Duplicate room detection ──────────────────────────────────────
@@ -874,6 +877,7 @@ export default async function handler(req, res) {
 
           const mergedJson = {
             rooms:            mergedRooms,
+            notices:          allNotices,    // low-priority info messages — no user action required
             warnings:         allWarnings,
             assumptions:      allAssumptions,
             reviewCandidates: allReviewCandidates,
