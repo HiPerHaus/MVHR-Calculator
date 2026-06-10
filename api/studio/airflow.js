@@ -936,17 +936,25 @@ export default async function handler(req, res) {
       .eq('project_id', projectId)
       .eq('user_id', user.id);
 
-    // Step 2: null out duct_designs.airflow_design_id to avoid FK block
-    // (duct_designs references airflow_designs without ON DELETE CASCADE)
+    // Step 2: explicitly delete/null all child references first
+    // Do not rely on FK cascade behaviour here.
     if (existingDesigns?.length) {
       const existingIds = existingDesigns.map(d => d.id);
-      await supabase
+
+      const { error: delRoomsErr } = await supabase
+        .from('airflow_rooms')
+        .delete()
+        .in('airflow_design_id', existingIds);
+      if (delRoomsErr) return res.status(500).json({ error: `Failed to clear old airflow rooms: ${delRoomsErr.message}` });
+
+      const { error: nullDuctErr } = await supabase
         .from('duct_designs')
         .update({ airflow_design_id: null })
         .in('airflow_design_id', existingIds);
+      if (nullDuctErr) return res.status(500).json({ error: `Failed to detach duct designs: ${nullDuctErr.message}` });
     }
 
-    // Step 3: delete old designs (airflow_rooms cascade-deletes via FK)
+    // Step 3: delete old designs after child rows have been cleared
     const { error: delErr } = await supabase
       .from('airflow_designs')
       .delete()
@@ -981,6 +989,7 @@ export default async function handler(req, res) {
       .single();
 
     if (insErr) return res.status(500).json({ error: insErr.message });
+    if (!design?.id) return res.status(500).json({ error: 'Failed to create airflow design: no design.id returned' });
 
     // Insert room rows
     const roomRows = calc.roomResults.map(r => ({
@@ -1001,7 +1010,7 @@ export default async function handler(req, res) {
       .insert(roomRows)
       .select();
 
-    if (roomInsErr) return res.status(500).json({ error: roomInsErr.message });
+    if (roomInsErr) return res.status(500).json({ error: `Failed to insert airflow rooms for design ${design.id}: ${roomInsErr.message}` });
 
     const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id, calc.boostFlowM3h);
 
