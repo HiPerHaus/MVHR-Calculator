@@ -1005,6 +1005,18 @@ export default async function handler(req, res) {
     if (insErr) return res.status(500).json({ error: insErr.message });
     if (!design?.id) return res.status(500).json({ error: 'Failed to create airflow design: no design.id returned' });
 
+    const { data: designCheck, error: designCheckErr } = await supabase
+      .from('airflow_designs')
+      .select('id')
+      .eq('id', design.id)
+      .maybeSingle();
+
+    if (designCheckErr || !designCheck) {
+      return res.status(500).json({
+        error: `Airflow design insert did not persist before room insert. designId=${design.id}`
+      });
+    }
+
     // Insert room rows
     const roomRows = calc.roomResults.map(r => ({
       airflow_design_id: design.id,
