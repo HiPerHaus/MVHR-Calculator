@@ -1,20 +1,44 @@
 // ============================================================
-// HiPer Studio Stage 6 — Duct Design API
+// HiPer Studio Stage 5 — Duct Layout Engine
+//
+// Two-phase layout generation:
+//
+//   Phase 1 — terminals_only
+//     Supply + extract terminal nodes only.
+//     Generated automatically on page load — no MVHR required.
+//     The floor plan shows room terminals so the designer can
+//     review placements before committing to an MVHR location.
+//
+//   Phase 2 — routes_generated
+//     Full layout: MVHR assembly, distribution nodes (ComfoWell
+//     or manifold depending on manufacturer), intake/exhaust
+//     connections, and all duct runs.
+//     Requires the MVHR unit to be placed on the plan first.
+//     The MVHR location is the single source of truth for routing.
+//
+// Manufacturer profiles
+//   Zehnder Q350/Q450 — ComfoWell 320 attached directly to MVHR.
+//     node_types: comfowell_supply, comfowell_extract.
+//     Always co-located with MVHR (max 500 mm separation).
+//   Default — separate supply/extract distribution box/manifold.
+//     node_types: supply_manifold, extract_manifold.
 //
 // GET  /api/studio/duct-design?projectId=...
-//   Returns existing duct design (or generates one if none exists).
-//   Response: { design, nodes, runs, generated? }
+//   Returns existing design. If none exists, auto-generates Phase 1.
 //
 // POST /api/studio/duct-design
-//   Body: { projectId, action?, manifoldMode? }
-//   action === 'regenerate': delete and regenerate layout
-//   Otherwise: return existing or generate if none.
-//   Response: { design, nodes, runs, generated? }
+//   action='regenerate'      — clear routes/assembly, regenerate from
+//                               current MVHR position (preserves terminals
+//                               and MVHR node). Standard regeneration path.
+//   action='generate_routes' — alias for 'regenerate'.
+//   action='full_regenerate' — delete everything, rebuild Phase 1 from
+//                               airflow data (use when rooms change).
+//   action='add_node'        — insert a single node into existing design.
+//   action='add_run'         — insert a run between two existing nodes.
+//   action='delete_node'     — remove a node and its connected runs.
 //
 // PATCH /api/studio/duct-design
-//   Body: { projectId, nodes?, runs?, status?, designJson? }
-//   Persist node positions, run properties, and design metadata.
-//   Response: { ok: true, design }
+//   Persist node positions, run properties, design metadata.
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
@@ -36,9 +60,7 @@ function isPlantRoom(name) {
 }
 
 // ── Trunk diameter sizing ─────────────────────────────────────
-// Standard MVHR duct sizing by velocity (target ~2-3 m/s)
-// Q = v × A  →  A = Q / v  →  d = sqrt(4A/π)
-// At 2.5 m/s target velocity:
+// Standard MVHR duct sizing by velocity (target ~2–3 m/s).
 function calcTrunkDiameter(totalFlowM3h) {
   if (totalFlowM3h <= 0)   return 90;
   if (totalFlowM3h <= 100) return 100;
@@ -54,24 +76,84 @@ function buildFloorBands(numFloors) {
   const Y_START = 100;
   const COLORS  = ['#f0fdf4', '#eff6ff', '#faf5ff', '#fff7ed'];
   const LABELS  = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
-  const bands = [];
-  for (let i = 0; i < numFloors; i++) {
-    bands.push({
-      floor_index: i,
-      label:       LABELS[i] ?? `Floor ${i}`,
-      y_start:     Y_START + i * BAND_H,
-      y_end:       Y_START + (i + 1) * BAND_H,
-      color:       COLORS[i] ?? '#f0f4f8',
-    });
-  }
-  return bands;
+  return Array.from({ length: numFloors }, (_, i) => ({
+    floor_index: i,
+    label:       LABELS[i] ?? `Floor ${i}`,
+    y_start:     Y_START + i * BAND_H,
+    y_end:       Y_START + (i + 1) * BAND_H,
+    color:       COLORS[i] ?? '#f0f4f8',
+  }));
 }
 
-// ── generateLayout ────────────────────────────────────────────
-// Creates the initial schematic layout from project rooms and airflow data.
-// Returns { design, nodes, runs } (all records freshly inserted).
-async function generateLayout(supabase, projectId, userId, manifoldMode = 'single') {
-  // 1. Load project_rooms
+// ── Floor index helper ────────────────────────────────────────
+function parseFloorIndex(floor) {
+  if (!floor) return 0;
+  const s = String(floor).toLowerCase();
+  if (s.includes('ground') || s.includes('lower') || s === '0') return 0;
+  if (s.includes('first')  || s === '1') return 1;
+  if (s.includes('second') || s === '2') return 2;
+  if (s.includes('third')  || s === '3') return 3;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? 0 : n;
+}
+
+// ── Unit assembly profile ─────────────────────────────────────
+//
+// Returns the distribution assembly configuration for a given MVHR unit.
+// This determines:
+//   - What node types are created for supply/extract distribution
+//   - Whether the assembly is attached directly to the MVHR or remote
+//   - Schematic offset from the MVHR node centre
+//
+// Adding a new manufacturer: extend the if/else chain with the relevant
+// manufacturer or model string patterns.
+//
+function getUnitAssemblyProfile(manufacturer, model) {
+  const mfr = (manufacturer ?? '').toLowerCase();
+  const mdl = (model ?? '').toLowerCase();
+
+  if (
+    mfr.includes('zehnder') ||
+    mdl.includes('comfoair') ||
+    mdl.includes('q350') ||
+    mdl.includes('q450') ||
+    mdl.includes('comfod')
+  ) {
+    // Zehnder ComfoWell 320: mounted directly to the MVHR unit.
+    // Acts as distribution module, attenuator, and transition assembly.
+    return {
+      assemblyType:    'comfowell',
+      supplyNodeType:  'comfowell_supply',
+      extractNodeType: 'comfowell_extract',
+      supplyLabel:     'ComfoWell 320 (Supply)',
+      extractLabel:    'ComfoWell 320 (Extract)',
+      attachedToMvhr:  true,
+      // Schematic offsets from MVHR (x, y) in canvas pixels.
+      // Supply and extract ComfoWells sit to the right of the MVHR,
+      // slightly above and below centre line.
+      supplyOffsetX:   90, supplyOffsetY:   -40,
+      extractOffsetX:  90, extractOffsetY:   40,
+    };
+  }
+
+  // Default: separate supply and extract distribution boxes / manifolds.
+  // Positioned further from MVHR than the ComfoWell assembly.
+  return {
+    assemblyType:    'manifold',
+    supplyNodeType:  'supply_manifold',
+    extractNodeType: 'extract_manifold',
+    supplyLabel:     'Supply Manifold',
+    extractLabel:    'Extract Manifold',
+    attachedToMvhr:  false,
+    supplyOffsetX:   170, supplyOffsetY:  -120,
+    extractOffsetX:  170, extractOffsetY:  120,
+  };
+}
+
+// ── Load airflow data ─────────────────────────────────────────
+// Shared helper used by both generation phases.
+// Returns rooms, supply/extract room lists, and the current airflow design.
+async function loadAirflowData(supabase, projectId) {
   const { data: allRooms } = await supabase
     .from('project_rooms')
     .select('id, name, room_type, floor, classification, is_confirmed, sort_order')
@@ -81,7 +163,6 @@ async function generateLayout(supabase, projectId, userId, manifoldMode = 'singl
   const rooms = (allRooms ?? []).filter(r => r.is_confirmed);
   const sourceRooms = rooms.length > 0 ? rooms : (allRooms ?? []);
 
-  // 2. Load latest airflow_design for this project
   const { data: airflowDesign } = await supabase
     .from('airflow_designs')
     .select('id, selected_unit_id, design_airflow_m3h')
@@ -90,7 +171,6 @@ async function generateLayout(supabase, projectId, userId, manifoldMode = 'singl
     .limit(1)
     .maybeSingle();
 
-  // 3. Load airflow_rooms if design exists
   let airflowRooms = [];
   if (airflowDesign?.id) {
     const { data: ar } = await supabase
@@ -100,80 +180,55 @@ async function generateLayout(supabase, projectId, userId, manifoldMode = 'singl
     airflowRooms = ar ?? [];
   }
 
-  // 4. Build supply/extract room lists from airflow data
-  // Convert lps to m3h for storage
   const toLps2m3h = lps => Math.round((lps ?? 0) * 3.6 * 10) / 10;
-
-  let supplyRooms = [];
-  let extractRooms = [];
+  const supplyRooms  = [];
+  const extractRooms = [];
 
   if (airflowRooms.length > 0) {
     for (const ar of airflowRooms) {
       const supplyM3h  = toLps2m3h(ar.supply_lps);
       const extractM3h = toLps2m3h(ar.extract_lps);
-      // Find matching project_room for the id
-      const matchedRoom = sourceRooms.find(r => r.id === ar.project_room_id);
-      const floorIdx = parseFloorIndex(ar.floor ?? matchedRoom?.floor);
-      if (supplyM3h > 0) {
-        supplyRooms.push({
-          project_room_id: ar.project_room_id,
-          room_name:       ar.room_name ?? matchedRoom?.name ?? 'Room',
-          airflow_m3h:     supplyM3h,
-          floor_index:     floorIdx,
-        });
-      }
-      if (extractM3h > 0) {
-        extractRooms.push({
-          project_room_id: ar.project_room_id,
-          room_name:       ar.room_name ?? matchedRoom?.name ?? 'Room',
-          airflow_m3h:     extractM3h,
-          floor_index:     floorIdx,
-        });
-      }
+      const matched    = sourceRooms.find(r => r.id === ar.project_room_id);
+      const floorIdx   = parseFloorIndex(ar.floor ?? matched?.floor);
+      const name       = ar.room_name ?? matched?.name ?? 'Room';
+      if (supplyM3h  > 0) supplyRooms.push({ project_room_id: ar.project_room_id, room_name: name, airflow_m3h: supplyM3h,  floor_index: floorIdx });
+      if (extractM3h > 0) extractRooms.push({ project_room_id: ar.project_room_id, room_name: name, airflow_m3h: extractM3h, floor_index: floorIdx });
     }
   } else {
-    // No airflow data yet — use room classification from project_rooms
+    // No airflow data yet — classify from project_rooms
     for (const r of sourceRooms) {
-      const floorIdx = parseFloorIndex(r.floor);
-      if (r.classification === 'supply' || ['bedroom','living','dining','office','gym'].includes(r.room_type)) {
-        supplyRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: floorIdx });
-      } else if (r.classification === 'extract' || ['wet_area','laundry','kitchen','kitchenette'].includes(r.room_type)) {
-        extractRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: floorIdx });
-      }
+      const fi = parseFloorIndex(r.floor);
+      if (r.classification === 'supply' || ['bedroom','living','dining','office','gym'].includes(r.room_type))
+        supplyRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: fi });
+      else if (r.classification === 'extract' || ['wet_area','laundry','kitchen','kitchenette'].includes(r.room_type))
+        extractRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: fi });
     }
   }
 
-  // Sort by floor index
-  supplyRooms.sort((a, b) => a.floor_index - b.floor_index);
+  supplyRooms.sort( (a, b) => a.floor_index - b.floor_index);
   extractRooms.sort((a, b) => a.floor_index - b.floor_index);
 
-  // Detect plant room
-  const plantRoom = sourceRooms.find(r => isPlantRoom(r.name));
+  const plantRoom       = sourceRooms.find(r => isPlantRoom(r.name));
+  const allFloorIndices = [...new Set([...supplyRooms.map(r => r.floor_index), ...extractRooms.map(r => r.floor_index)])].sort((a, b) => a - b);
+  const numFloors       = Math.max(allFloorIndices.length, 1);
 
-  // 5. Calculate number of floors and canvas height
-  const allFloorIndices = [...new Set([
-    ...supplyRooms.map(r => r.floor_index),
-    ...extractRooms.map(r => r.floor_index),
-  ])].sort((a, b) => a - b);
-  const numFloors = Math.max(allFloorIndices.length, 1);
+  return { sourceRooms, supplyRooms, extractRooms, airflowDesign, plantRoom, allFloorIndices, numFloors };
+}
+
+// ── Phase 1: Generate terminal nodes only ────────────────────
+//
+// Creates the duct_design record and places supply + extract terminal
+// nodes in schematic position. No MVHR, no distribution assembly,
+// no intake/exhaust, no runs.
+//
+// Called automatically on first page load. Allows the user to
+// review terminal positions before placing the MVHR unit.
+//
+async function generateTerminalsOnly(supabase, projectId, userId) {
+  const { supplyRooms, extractRooms, airflowDesign, plantRoom, numFloors } = await loadAirflowData(supabase, projectId);
   const CANVAS_H  = Math.max(800, numFloors * 280 + 100);
-
-  // 6. Build floor bands
   const floorBands = buildFloorBands(numFloors);
 
-  // 7. Calculate total airflows for trunk sizing
-  const totalSupplyFlow  = supplyRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-  const totalExtractFlow = extractRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-  const trunkSupplyDiam  = calcTrunkDiameter(totalSupplyFlow);
-  const trunkExtractDiam = calcTrunkDiameter(totalExtractFlow);
-
-  // 8. Fixed node positions
-  const MVHR_X = 200;
-  const MVHR_Y = Math.round(CANVAS_H / 2);
-  const INTAKE_X  = 50; const INTAKE_Y  = Math.round(CANVAS_H * 0.35);
-  const EXHAUST_X = 50; const EXHAUST_Y = Math.round(CANVAS_H * 0.65);
-
-  // 9. Create duct_design row
   const { data: design, error: designErr } = await supabase
     .from('duct_designs')
     .insert({
@@ -188,9 +243,10 @@ async function generateLayout(supabase, projectId, userId, manifoldMode = 'singl
         plant_room_name:    plantRoom?.name ?? null,
         design_airflow_m3h: airflowDesign?.design_airflow_m3h ?? null,
         generated_at:       new Date().toISOString(),
-        manifold_mode:      manifoldMode,
+        manifold_mode:      'single',
         scale_m:            12,
-        floorBands:         floorBands,
+        floorBands,
+        phase:              'terminals_only',
       },
     })
     .select()
@@ -198,335 +254,241 @@ async function generateLayout(supabase, projectId, userId, manifoldMode = 'singl
 
   if (designErr) throw new Error(`Failed to create duct_design: ${designErr.message}`);
 
+  const did          = design.id;
+  const nodeInserts  = [];
+
+  // Supply terminals: one per supply room, distributed across their floor band
+  for (let fi = 0; fi < numFloors; fi++) {
+    const band    = floorBands[fi];
+    const floors  = supplyRooms.filter(r => r.floor_index === fi);
+    const spacing = floors.length > 0 ? (band.y_end - band.y_start) / (floors.length + 1) : 0;
+    floors.forEach((sr, i) => nodeInserts.push({
+      duct_design_id:   did,
+      node_type:        'supply_terminal',
+      project_room_id:  sr.project_room_id,
+      room_name:        sr.room_name,
+      floor_index:      fi,
+      x:                700,
+      y:                Math.round(band.y_start + spacing * (i + 1)),
+      airflow_m3h:      sr.airflow_m3h,
+      duct_diameter_mm: 90,
+    }));
+  }
+
+  // Extract terminals: one per extract room
+  for (let fi = 0; fi < numFloors; fi++) {
+    const band    = floorBands[fi];
+    const floors  = extractRooms.filter(r => r.floor_index === fi);
+    const spacing = floors.length > 0 ? (band.y_end - band.y_start) / (floors.length + 1) : 0;
+    floors.forEach((er, i) => nodeInserts.push({
+      duct_design_id:   did,
+      node_type:        'extract_terminal',
+      project_room_id:  er.project_room_id,
+      room_name:        er.room_name,
+      floor_index:      fi,
+      x:                950,
+      y:                Math.round(band.y_start + spacing * (i + 1)),
+      airflow_m3h:      er.airflow_m3h,
+      duct_diameter_mm: 90,
+    }));
+  }
+
+  const { data: nodes, error: nodeErr } = await supabase.from('duct_nodes').insert(nodeInserts).select();
+  if (nodeErr) throw new Error(`Failed to insert terminal nodes: ${nodeErr.message}`);
+
+  return { design, nodes: nodes ?? [], runs: [] };
+}
+
+// ── Phase 2: Generate routes ──────────────────────────────────
+//
+// Requires an existing duct_design with a placed mvhr_unit node.
+// Adds the intake/exhaust nodes, distribution assembly (ComfoWell or
+// manifold), and all duct runs connecting MVHR → assembly → terminals.
+//
+// The MVHR node's schematic (x, y) is used as the origin for all
+// assembly and intake/exhaust positioning.
+//
+async function generateRoutes(supabase, projectId, userId, manifoldMode = 'single') {
+  // 1. Load existing design (must already have terminals + mvhr_unit)
+  const existing = await loadDesign(supabase, projectId);
+  if (!existing) throw new Error('No duct design found. Reload the page and try again.');
+  const { design, nodes: existingNodes } = existing;
   const did = design.id;
 
-  // 10. Insert nodes
+  // 2. Require placed MVHR node
+  const mvhrNode = existingNodes.find(n => n.node_type === 'mvhr_unit');
+  if (!mvhrNode) {
+    throw new Error('MVHR unit has not been placed. Place the MVHR unit on the floor plan first.');
+  }
+
+  // 3. Clear previous routes and assembly (keep terminals + MVHR)
+  await clearRoutesAndAssembly(supabase, did);
+
+  // 4. Load airflow data and geometry
+  const { supplyRooms, extractRooms, numFloors } = await loadAirflowData(supabase, projectId);
+  const CANVAS_H   = design.design_json?.canvas_h ?? Math.max(800, numFloors * 280 + 100);
+  const floorBands = design.design_json?.floorBands ?? buildFloorBands(numFloors);
+
+  // 5. MVHR schematic position
+  // Use stored schematic coords; fall back to sensible default if unset.
+  const MVHR_X = mvhrNode.x ?? 200;
+  const MVHR_Y = mvhrNode.y ?? Math.round(CANVAS_H / 2);
+
+  // 6. Resolve unit assembly profile from selected unit's manufacturer
+  let profile = getUnitAssemblyProfile(null, null);
+  const selectedUnitId = design.selected_unit_id ?? design.design_json?.selected_unit_id ?? null;
+  if (selectedUnitId) {
+    const { data: unit } = await supabase
+      .from('mvhr_units')
+      .select('manufacturer, model')
+      .eq('id', selectedUnitId)
+      .maybeSingle();
+    if (unit) profile = getUnitAssemblyProfile(unit.manufacturer, unit.model);
+  }
+
+  // 7. Trunk diameters
+  const totalSupplyFlow  = supplyRooms.reduce((s, r)  => s + (r.airflow_m3h || 0), 0);
+  const totalExtractFlow = extractRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+  const trunkSupplyDiam  = calcTrunkDiameter(totalSupplyFlow);
+  const trunkExtractDiam = calcTrunkDiameter(totalExtractFlow);
+
+  // 8. Build new assembly + intake/exhaust nodes
   const nodeInserts = [];
 
-  // Fixed nodes (intake, exhaust, MVHR)
-  nodeInserts.push({ duct_design_id: did, node_type: 'external_intake',    room_name: 'Intake',          x: INTAKE_X,  y: INTAKE_Y,  airflow_m3h: null, duct_diameter_mm: 200 });
-  nodeInserts.push({ duct_design_id: did, node_type: 'external_exhaust',   room_name: 'Exhaust',         x: EXHAUST_X, y: EXHAUST_Y, airflow_m3h: null, duct_diameter_mm: 200 });
-  nodeInserts.push({ duct_design_id: did, node_type: 'mvhr_unit',          room_name: 'MVHR Unit',       x: MVHR_X,    y: MVHR_Y,    airflow_m3h: airflowDesign?.design_airflow_m3h ?? null, duct_diameter_mm: null });
+  // Intake and exhaust: positioned to the left of MVHR in schematic.
+  const INTAKE_X  = Math.max(30, MVHR_X - 150);
+  const EXHAUST_X = INTAKE_X;
+  nodeInserts.push({ duct_design_id: did, node_type: 'external_intake',  room_name: 'Intake',  x: INTAKE_X,  y: MVHR_Y - 60, airflow_m3h: null, duct_diameter_mm: 200 });
+  nodeInserts.push({ duct_design_id: did, node_type: 'external_exhaust', room_name: 'Exhaust', x: EXHAUST_X, y: MVHR_Y + 60, airflow_m3h: null, duct_diameter_mm: 200 });
 
+  // Distribution assembly nodes (ComfoWell or manifold)
   if (manifoldMode === 'per_floor') {
-    // Per-floor manifolds: one supply + one extract manifold per floor
-    const floorGroups = {};
-    for (const fi of allFloorIndices) {
-      floorGroups[fi] = {
-        supply:  supplyRooms.filter(r => r.floor_index === fi),
-        extract: extractRooms.filter(r => r.floor_index === fi),
-      };
-    }
-
-    // Manifold positions: at the start of each floor band
+    // Per-floor mode: one supply + one extract assembly node per floor band.
     for (const band of floorBands) {
-      const fi = band.floor_index;
-      const bandMidY = Math.round((band.y_start + band.y_end) / 2);
-      const SUPPLY_MAN_X  = 370; const SUPPLY_MAN_Y  = bandMidY - 40;
-      const EXTRACT_MAN_X = 370; const EXTRACT_MAN_Y = bandMidY + 40;
-
+      const fi     = band.floor_index;
+      const midY   = Math.round((band.y_start + band.y_end) / 2);
+      const asmX   = MVHR_X + profile.supplyOffsetX;
       nodeInserts.push({
-        duct_design_id:  did,
-        node_type:       'supply_manifold',
-        room_name:       `Supply Manifold F${fi}`,
-        floor_index:     fi,
-        x:               SUPPLY_MAN_X,
-        y:               SUPPLY_MAN_Y,
-        airflow_m3h:     null,
-        duct_diameter_mm: trunkSupplyDiam,
+        duct_design_id:   did, node_type: profile.supplyNodeType,
+        room_name: `${profile.supplyLabel} F${fi}`, floor_index: fi,
+        x: asmX, y: midY - 40, airflow_m3h: null, duct_diameter_mm: trunkSupplyDiam,
       });
       nodeInserts.push({
-        duct_design_id:  did,
-        node_type:       'extract_manifold',
-        room_name:       `Extract Manifold F${fi}`,
-        floor_index:     fi,
-        x:               EXTRACT_MAN_X,
-        y:               EXTRACT_MAN_Y,
-        airflow_m3h:     null,
-        duct_diameter_mm: trunkExtractDiam,
+        duct_design_id:   did, node_type: profile.extractNodeType,
+        room_name: `${profile.extractLabel} F${fi}`, floor_index: fi,
+        x: asmX, y: midY + 40, airflow_m3h: null, duct_diameter_mm: trunkExtractDiam,
       });
-
-      // Supply terminals for this floor
-      const sRooms = floorGroups[fi]?.supply ?? [];
-      const eRooms = floorGroups[fi]?.extract ?? [];
-      const BAND_H_USED = band.y_end - band.y_start;
-      const sSpacing = sRooms.length > 0 ? BAND_H_USED / (sRooms.length + 1) : 0;
-      const eSpacing = eRooms.length > 0 ? BAND_H_USED / (eRooms.length + 1) : 0;
-
-      for (let i = 0; i < sRooms.length; i++) {
-        const sr = sRooms[i];
-        nodeInserts.push({
-          duct_design_id:  did,
-          node_type:       'supply_terminal',
-          project_room_id: sr.project_room_id,
-          room_name:       sr.room_name,
-          floor_index:     fi,
-          x:               700,
-          y:               Math.round(band.y_start + sSpacing * (i + 1)),
-          airflow_m3h:     sr.airflow_m3h,
-          duct_diameter_mm: 90,
-        });
-      }
-
-      for (let i = 0; i < eRooms.length; i++) {
-        const er = eRooms[i];
-        nodeInserts.push({
-          duct_design_id:  did,
-          node_type:       'extract_terminal',
-          project_room_id: er.project_room_id,
-          room_name:       er.room_name,
-          floor_index:     fi,
-          x:               950,
-          y:               Math.round(band.y_start + eSpacing * (i + 1)),
-          airflow_m3h:     er.airflow_m3h,
-          duct_diameter_mm: 90,
-        });
-      }
     }
   } else {
-    // Single manifold mode
-    const SUPPLY_MAN_X  = 370; const SUPPLY_MAN_Y  = Math.round(CANVAS_H * 0.35);
-    const EXTRACT_MAN_X = 370; const EXTRACT_MAN_Y = Math.round(CANVAS_H * 0.65);
-
-    nodeInserts.push({ duct_design_id: did, node_type: 'supply_manifold',    room_name: 'Supply Manifold',  x: SUPPLY_MAN_X,  y: SUPPLY_MAN_Y,  airflow_m3h: null, duct_diameter_mm: trunkSupplyDiam });
-    nodeInserts.push({ duct_design_id: did, node_type: 'extract_manifold',   room_name: 'Extract Manifold', x: EXTRACT_MAN_X, y: EXTRACT_MAN_Y, airflow_m3h: null, duct_diameter_mm: trunkExtractDiam });
-
-    // Place supply terminals: grouped by floor, left column
-    for (let fi = 0; fi < numFloors; fi++) {
-      const band = floorBands[fi];
-      const floorsSupply = supplyRooms.filter(r => r.floor_index === fi);
-      if (floorsSupply.length === 0) continue;
-      const bandH   = band.y_end - band.y_start;
-      const spacing = bandH / (floorsSupply.length + 1);
-      for (let i = 0; i < floorsSupply.length; i++) {
-        const sr = floorsSupply[i];
-        nodeInserts.push({
-          duct_design_id:  did,
-          node_type:       'supply_terminal',
-          project_room_id: sr.project_room_id,
-          room_name:       sr.room_name,
-          floor_index:     fi,
-          x:               700,
-          y:               Math.round(band.y_start + spacing * (i + 1)),
-          airflow_m3h:     sr.airflow_m3h,
-          duct_diameter_mm: 90,
-        });
-      }
-    }
-
-    // Place extract terminals: grouped by floor, right column
-    for (let fi = 0; fi < numFloors; fi++) {
-      const band = floorBands[fi];
-      const floorsExtract = extractRooms.filter(r => r.floor_index === fi);
-      if (floorsExtract.length === 0) continue;
-      const bandH   = band.y_end - band.y_start;
-      const spacing = bandH / (floorsExtract.length + 1);
-      for (let i = 0; i < floorsExtract.length; i++) {
-        const er = floorsExtract[i];
-        nodeInserts.push({
-          duct_design_id:  did,
-          node_type:       'extract_terminal',
-          project_room_id: er.project_room_id,
-          room_name:       er.room_name,
-          floor_index:     fi,
-          x:               950,
-          y:               Math.round(band.y_start + spacing * (i + 1)),
-          airflow_m3h:     er.airflow_m3h,
-          duct_diameter_mm: 90,
-        });
-      }
-    }
+    // Single assembly: one supply + one extract node.
+    nodeInserts.push({
+      duct_design_id:   did, node_type: profile.supplyNodeType,
+      room_name: profile.supplyLabel,
+      x: MVHR_X + profile.supplyOffsetX,  y: MVHR_Y + profile.supplyOffsetY,
+      airflow_m3h: null, duct_diameter_mm: trunkSupplyDiam,
+    });
+    nodeInserts.push({
+      duct_design_id:   did, node_type: profile.extractNodeType,
+      room_name: profile.extractLabel,
+      x: MVHR_X + profile.extractOffsetX, y: MVHR_Y + profile.extractOffsetY,
+      airflow_m3h: null, duct_diameter_mm: trunkExtractDiam,
+    });
   }
 
-  const { data: nodes, error: nodeErr } = await supabase
-    .from('duct_nodes')
-    .insert(nodeInserts)
-    .select();
+  // Insert new assembly nodes
+  const { data: assemblyNodes, error: asmErr } = await supabase.from('duct_nodes').insert(nodeInserts).select();
+  if (asmErr) throw new Error(`Failed to insert assembly nodes: ${asmErr.message}`);
 
-  if (nodeErr) throw new Error(`Failed to insert duct_nodes: ${nodeErr.message}`);
+  // Load terminal nodes (preserved by clearRoutesAndAssembly)
+  const { data: allExistingNodes } = await supabase.from('duct_nodes').select('*').eq('duct_design_id', did);
+  const supplyTerminals  = (allExistingNodes ?? []).filter(n => n.node_type === 'supply_terminal');
+  const extractTerminals = (allExistingNodes ?? []).filter(n => n.node_type === 'extract_terminal');
 
-  // 11. Build node type lookup maps
-  const nodeByType = {};
-  for (const n of nodes) {
-    if (['external_intake','external_exhaust','mvhr_unit'].includes(n.node_type)) {
-      nodeByType[n.node_type] = n;
-    }
-  }
-  const supplyTerminals  = nodes.filter(n => n.node_type === 'supply_terminal');
-  const extractTerminals = nodes.filter(n => n.node_type === 'extract_terminal');
+  const intakeNode  = assemblyNodes.find(n => n.node_type === 'external_intake');
+  const exhaustNode = assemblyNodes.find(n => n.node_type === 'external_exhaust');
 
-  // 12. Insert runs
+  // 9. Build duct runs
   const runInserts = [];
 
-  // intake → mvhr
-  runInserts.push({
-    duct_design_id: did,
-    from_node_id:   nodeByType['external_intake'].id,
-    to_node_id:     nodeByType['mvhr_unit'].id,
-    run_type:       'intake',
-    duct_type:      'epp_200',
-    diameter_mm:    200,
-  });
-
-  // mvhr → exhaust
-  runInserts.push({
-    duct_design_id: did,
-    from_node_id:   nodeByType['mvhr_unit'].id,
-    to_node_id:     nodeByType['external_exhaust'].id,
-    run_type:       'exhaust',
-    duct_type:      'epp_200',
-    diameter_mm:    200,
-  });
+  // intake → MVHR → exhaust
+  if (intakeNode)  runInserts.push({ duct_design_id: did, from_node_id: intakeNode.id,  to_node_id: mvhrNode.id,  run_type: 'intake',  duct_type: 'epp_200', diameter_mm: 200 });
+  if (exhaustNode) runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id,    to_node_id: exhaustNode.id, run_type: 'exhaust', duct_type: 'epp_200', diameter_mm: 200 });
 
   if (manifoldMode === 'per_floor') {
-    // Per-floor mode: MVHR → each floor's supply manifold, each floor's extract manifold → MVHR
-    const supplyManifolds  = nodes.filter(n => n.node_type === 'supply_manifold');
-    const extractManifolds = nodes.filter(n => n.node_type === 'extract_manifold');
+    const supplyAsms  = assemblyNodes.filter(n => n.node_type === profile.supplyNodeType);
+    const extractAsms = assemblyNodes.filter(n => n.node_type === profile.extractNodeType);
 
-    for (const sm of supplyManifolds) {
-      const fi = sm.floor_index ?? 0;
-      const floorSupplyFlow = supplyRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-      const diam = calcTrunkDiameter(floorSupplyFlow) || trunkSupplyDiam;
-      runInserts.push({
-        duct_design_id: did,
-        from_node_id:   nodeByType['mvhr_unit'].id,
-        to_node_id:     sm.id,
-        run_type:       'supply',
-        duct_type:      diam >= 160 ? 'epp_160' : 'semi_rigid_90',
-        diameter_mm:    diam,
-      });
+    for (const sn of supplyAsms) {
+      const fi   = sn.floor_index ?? 0;
+      const flow = supplyRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+      const diam = calcTrunkDiameter(flow) || trunkSupplyDiam;
+      // MVHR (or ComfoWell if attached) → supply assembly
+      runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: sn.id, run_type: 'supply', duct_type: diam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: diam });
+      // Supply assembly → terminals on this floor
+      for (const st of supplyTerminals.filter(t => (t.floor_index ?? 0) === fi))
+        runInserts.push({ duct_design_id: did, from_node_id: sn.id, to_node_id: st.id, run_type: 'supply', duct_type: 'semi_rigid_90', diameter_mm: 90 });
     }
 
-    for (const em of extractManifolds) {
-      const fi = em.floor_index ?? 0;
-      const floorExtractFlow = extractRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-      const diam = calcTrunkDiameter(floorExtractFlow) || trunkExtractDiam;
-      runInserts.push({
-        duct_design_id: did,
-        from_node_id:   em.id,
-        to_node_id:     nodeByType['mvhr_unit'].id,
-        run_type:       'extract',
-        duct_type:      diam >= 160 ? 'epp_160' : 'semi_rigid_90',
-        diameter_mm:    diam,
-      });
-    }
-
-    // Manifold → terminals for each floor
-    for (const sm of supplyManifolds) {
-      const fi = sm.floor_index ?? 0;
-      const floorTerminals = supplyTerminals.filter(t => t.floor_index === fi);
-      for (const st of floorTerminals) {
-        runInserts.push({
-          duct_design_id: did,
-          from_node_id:   sm.id,
-          to_node_id:     st.id,
-          run_type:       'supply',
-          duct_type:      'semi_rigid_90',
-          diameter_mm:    90,
-        });
-      }
-    }
-
-    for (const em of extractManifolds) {
-      const fi = em.floor_index ?? 0;
-      const floorTerminals = extractTerminals.filter(t => t.floor_index === fi);
-      for (const et of floorTerminals) {
-        runInserts.push({
-          duct_design_id: did,
-          from_node_id:   et.id,
-          to_node_id:     em.id,
-          run_type:       'extract',
-          duct_type:      'semi_rigid_90',
-          diameter_mm:    90,
-        });
-      }
+    for (const en of extractAsms) {
+      const fi   = en.floor_index ?? 0;
+      const flow = extractRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
+      const diam = calcTrunkDiameter(flow) || trunkExtractDiam;
+      // Extract assembly → MVHR
+      runInserts.push({ duct_design_id: did, from_node_id: en.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: diam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: diam });
+      // Terminals → extract assembly
+      for (const et of extractTerminals.filter(t => (t.floor_index ?? 0) === fi))
+        runInserts.push({ duct_design_id: did, from_node_id: et.id, to_node_id: en.id, run_type: 'extract', duct_type: 'semi_rigid_90', diameter_mm: 90 });
     }
   } else {
-    // Single manifold mode
-    const supplyManifold  = nodes.find(n => n.node_type === 'supply_manifold');
-    const extractManifold = nodes.find(n => n.node_type === 'extract_manifold');
+    const supplyAsm  = assemblyNodes.find(n => n.node_type === profile.supplyNodeType);
+    const extractAsm = assemblyNodes.find(n => n.node_type === profile.extractNodeType);
 
-    if (supplyManifold) {
-      runInserts.push({
-        duct_design_id: did,
-        from_node_id:   nodeByType['mvhr_unit'].id,
-        to_node_id:     supplyManifold.id,
-        run_type:       'supply',
-        duct_type:      trunkSupplyDiam >= 160 ? 'epp_160' : 'semi_rigid_90',
-        diameter_mm:    trunkSupplyDiam,
-      });
+    if (supplyAsm) {
+      runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: supplyAsm.id, run_type: 'supply', duct_type: trunkSupplyDiam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: trunkSupplyDiam });
+      for (const st of supplyTerminals)
+        runInserts.push({ duct_design_id: did, from_node_id: supplyAsm.id, to_node_id: st.id, run_type: 'supply', duct_type: 'semi_rigid_90', diameter_mm: 90 });
     }
 
-    if (extractManifold) {
-      runInserts.push({
-        duct_design_id: did,
-        from_node_id:   extractManifold.id,
-        to_node_id:     nodeByType['mvhr_unit'].id,
-        run_type:       'extract',
-        duct_type:      trunkExtractDiam >= 160 ? 'epp_160' : 'semi_rigid_90',
-        diameter_mm:    trunkExtractDiam,
-      });
-    }
-
-    // supply_manifold → each supply_terminal
-    if (supplyManifold) {
-      for (const st of supplyTerminals) {
-        runInserts.push({
-          duct_design_id: did,
-          from_node_id:   supplyManifold.id,
-          to_node_id:     st.id,
-          run_type:       'supply',
-          duct_type:      'semi_rigid_90',
-          diameter_mm:    90,
-        });
-      }
-    }
-
-    // each extract_terminal → extract_manifold
-    if (extractManifold) {
-      for (const et of extractTerminals) {
-        runInserts.push({
-          duct_design_id: did,
-          from_node_id:   et.id,
-          to_node_id:     extractManifold.id,
-          run_type:       'extract',
-          duct_type:      'semi_rigid_90',
-          diameter_mm:    90,
-        });
-      }
+    if (extractAsm) {
+      runInserts.push({ duct_design_id: did, from_node_id: extractAsm.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: trunkExtractDiam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: trunkExtractDiam });
+      for (const et of extractTerminals)
+        runInserts.push({ duct_design_id: did, from_node_id: et.id, to_node_id: extractAsm.id, run_type: 'extract', duct_type: 'semi_rigid_90', diameter_mm: 90 });
     }
   }
 
-  const { data: runs, error: runErr } = await supabase
-    .from('duct_runs')
-    .insert(runInserts)
-    .select();
-
+  const { data: runs, error: runErr } = await supabase.from('duct_runs').insert(runInserts).select();
   if (runErr) throw new Error(`Failed to insert duct_runs: ${runErr.message}`);
 
-  return { design, nodes, runs };
+  // 10. Update design phase and manifold mode
+  const updatedJson = {
+    ...(design.design_json ?? {}),
+    phase:         'routes_generated',
+    manifold_mode: manifoldMode,
+    assembly_type: profile.assemblyType,
+    generated_at:  new Date().toISOString(),
+  };
+  await supabase.from('duct_designs').update({ design_json: updatedJson }).eq('id', did);
+
+  return await loadDesign(supabase, projectId);
 }
 
-// ── Floor index helper ────────────────────────────────────────
-function parseFloorIndex(floor) {
-  if (!floor) return 0;
-  const s = String(floor).toLowerCase();
-  if (s.includes('ground') || s.includes('lower') || s === '0') return 0;
-  if (s.includes('first')  || s === '1') return 1;
-  if (s.includes('second') || s === '2') return 2;
-  if (s.includes('third')  || s === '3') return 3;
-  // Try numeric
-  const n = parseInt(s, 10);
-  return isNaN(n) ? 0 : n;
+// ── Clear routes and assembly nodes ──────────────────────────
+// Removes all duct_runs and all nodes except:
+//   supply_terminal, extract_terminal, mvhr_unit.
+// Used before regenerating routes so terminal placements and
+// the MVHR location are preserved.
+async function clearRoutesAndAssembly(supabase, designId) {
+  await supabase.from('duct_runs').delete().eq('duct_design_id', designId);
+  await supabase.from('duct_nodes')
+    .delete()
+    .eq('duct_design_id', designId)
+    .not('node_type', 'in', '(supply_terminal,extract_terminal,mvhr_unit)');
 }
 
-// ── Load plan pages (floor plan images) ──────────────────────
+// ── Load plan pages ───────────────────────────────────────────
 const FLOOR_NAMES = ['Ground Floor', 'First Floor', 'Second Floor', 'Third Floor'];
 const BUCKET      = 'plan-uploads';
 
-// Storage paths in pdf_pages are stored with the bucket prefix included,
-// e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.jpg".
-// Strip it before calling createSignedUrl, which only wants the path within the bucket.
 function storagePath(rawPath) {
   if (!rawPath) return null;
   return rawPath.startsWith(`${BUCKET}/`) ? rawPath.slice(BUCKET.length + 1) : rawPath;
@@ -535,85 +497,49 @@ function storagePath(rawPath) {
 async function makeSignedUrl(supabase, rawPath) {
   const path = storagePath(rawPath);
   if (!path) return null;
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(path, 3600); // 1-hour TTL
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
   if (error) {
     console.log(JSON.stringify({ event: 'system-layout:signed-url-error', path, error: error.message }));
     return null;
   }
-  console.log(JSON.stringify({ event: 'system-layout:signed-url-created', path }));
   return data.signedUrl;
 }
 
 async function loadPlanPages(supabase, projectId) {
-  // 1. Find all pdf_upload ids for this project
-  const { data: uploads } = await supabase
-    .from('pdf_uploads')
-    .select('id')
-    .eq('project_id', projectId);
-
-  if (!uploads?.length) {
-    console.log(JSON.stringify({ event: 'system-layout:plan-pages-found', projectId, count: 0, reason: 'no pdf_uploads' }));
-    return [];
-  }
+  const { data: uploads } = await supabase.from('pdf_uploads').select('id').eq('project_id', projectId);
+  if (!uploads?.length) return [];
 
   const uploadIds = uploads.map(u => u.id);
-
-  // 2. Query floor plan pages — prefer floor_plan_primary, accept floor_plan / floor_plan_detail
   const { data: pages } = await supabase
     .from('pdf_pages')
     .select('id, page_number, page_type, image_path, hires_image_path, hires_width_px, hires_height_px, render_width_px, render_height_px, floor_name, floor_level, sheet_title')
     .in('pdf_upload_id', uploadIds)
     .in('page_type', ['floor_plan_primary', 'floor_plan', 'floor_plan_detail'])
-    .order('page_type', { ascending: true })  // floor_plan_detail < floor_plan < floor_plan_primary → primary sorts last; re-sort below
+    .order('page_type', { ascending: true })
     .order('page_number', { ascending: true });
 
-  console.log(JSON.stringify({ event: 'system-layout:plan-pages-found', projectId, count: pages?.length ?? 0 }));
   if (!pages?.length) return [];
 
-  // Prefer floor_plan_primary pages; fall back to others if none exist
-  const primary   = pages.filter(p => p.page_type === 'floor_plan_primary');
-  const pageList  = primary.length > 0 ? primary : pages;
+  const primary  = pages.filter(p => p.page_type === 'floor_plan_primary');
+  const pageList = primary.length > 0 ? primary : pages;
 
-  // 3. Build signed URLs (bucket is private)
-  const results = await Promise.all(pageList.map(async (p, i) => {
-    // Prefer hi-res PNG; fall back to low-DPI JPEG
+  return Promise.all(pageList.map(async (p, i) => {
     const rawPath  = p.hires_image_path || p.image_path || null;
-    const imgField = p.hires_image_path ? 'hires_image_path' : 'image_path';
-
-    console.log(JSON.stringify({ event: 'system-layout:image-field-selected', pageId: p.id, field: imgField, rawPath }));
-
-    if (!rawPath) {
-      console.log(JSON.stringify({ event: 'system-layout:image-url-missing', pageId: p.id, page_number: p.page_number }));
-    }
-
     const image_url = rawPath ? await makeSignedUrl(supabase, rawPath) : null;
-    if (!image_url) {
-      console.log(JSON.stringify({ event: 'system-layout:image-url-missing', pageId: p.id, reason: 'no signed url' }));
-    }
-
-    // Dimensions: prefer hires, fall back to low-DPI render dimensions
     const width_px  = p.hires_width_px  ?? p.render_width_px  ?? null;
     const height_px = p.hires_height_px ?? p.render_height_px ?? null;
-
-    // Floor name: prefer DB value, fall back to positional name
-    const floor_name = p.floor_name ?? FLOOR_NAMES[i] ?? `Floor ${i}`;
-
     return {
       floor_index: i,
-      floor_name,
+      floor_name:  p.floor_name ?? FLOOR_NAMES[i] ?? `Floor ${i}`,
       page_id:     p.id,
       page_number: p.page_number,
       page_type:   p.page_type,
       image_url,
-      image_path:  rawPath,   // raw path included for client-side debugging
+      image_path:  rawPath,
       width_px,
       height_px,
     };
   }));
-
-  return results;
 }
 
 // ── Load existing design ──────────────────────────────────────
@@ -637,9 +563,8 @@ async function loadDesign(supabase, projectId) {
   return { design, nodes: nodes ?? [], runs: runs ?? [] };
 }
 
-// ── Delete existing design ────────────────────────────────────
+// ── Delete design (full reset) ────────────────────────────────
 async function deleteDesign(supabase, projectId) {
-  // Cascade deletes handle nodes + runs via FK
   await supabase.from('duct_designs').delete().eq('project_id', projectId);
 }
 
@@ -664,13 +589,7 @@ export default async function handler(req, res) {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    // Verify ownership
-    const { data: proj } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
 
     try {
@@ -681,8 +600,8 @@ export default async function handler(req, res) {
       if (designData) {
         return res.status(200).json({ ...designData, planPages });
       }
-      // Generate fresh
-      const generated = await generateLayout(supabase, projectId, user.id);
+      // No design: generate Phase 1 (terminals only — no MVHR required)
+      const generated = await generateTerminalsOnly(supabase, projectId, user.id);
       return res.status(200).json({ ...generated, planPages, generated: true });
     } catch (err) {
       console.error('duct-design GET error:', err.message);
@@ -697,33 +616,34 @@ export default async function handler(req, res) {
     const manifoldMode = body.manifoldMode ?? 'single';
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    // Verify ownership
-    const { data: proj } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
 
-    // ── Shared helper: find existing design for this project ──
     async function getDesignId() {
-      const { data: d } = await supabase
-        .from('duct_designs').select('id')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false })
-        .limit(1).maybeSingle();
+      const { data: d } = await supabase.from('duct_designs').select('id').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle();
       return d?.id ?? null;
     }
 
     try {
-      if (action === 'regenerate') {
-        await deleteDesign(supabase, projectId);
-        const generated = await generateLayout(supabase, projectId, user.id, manifoldMode);
+      // ── regenerate / generate_routes ────────────────────────────
+      // Standard regeneration path. Preserves terminal positions and
+      // MVHR placement. Clears and rebuilds routes + assembly only.
+      if (action === 'regenerate' || action === 'generate_routes') {
+        const generated = await generateRoutes(supabase, projectId, user.id, manifoldMode);
         return res.status(200).json({ ...generated, generated: true });
       }
 
-      // ── add_node: insert a single node into the existing design ──
+      // ── full_regenerate ──────────────────────────────────────────
+      // Nuclear reset: deletes entire design and rebuilds Phase 1.
+      // Use only when the room schedule has changed significantly.
+      if (action === 'full_regenerate') {
+        await deleteDesign(supabase, projectId);
+        const generated = await generateTerminalsOnly(supabase, projectId, user.id);
+        const planPages = await loadPlanPages(supabase, projectId);
+        return res.status(200).json({ ...generated, planPages, generated: true });
+      }
+
+      // ── add_node ────────────────────────────────────────────────
       if (action === 'add_node') {
         const designId = await getDesignId();
         if (!designId) return res.status(404).json({ error: 'No duct design found. Generate a layout first.' });
@@ -731,7 +651,6 @@ export default async function handler(req, res) {
         const { node_type, floor_index = 0, room_name = '', airflow_m3h = 0, x_pct = 50, y_pct = 50 } = body;
         if (!node_type) return res.status(400).json({ error: 'node_type required' });
 
-        // Schematic canvas position: place in floor band centre
         const BAND_H = 280, Y_START = 100;
         const schX = 600;
         const schY = Y_START + floor_index * BAND_H + BAND_H / 2;
@@ -754,7 +673,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ node });
       }
 
-      // ── add_run: insert a run between two existing nodes ──
+      // ── add_run ─────────────────────────────────────────────────
       if (action === 'add_run') {
         const designId = await getDesignId();
         if (!designId) return res.status(404).json({ error: 'No duct design found.' });
@@ -765,21 +684,14 @@ export default async function handler(req, res) {
         const DIAM_MAP = { supply: 90, extract: 90, intake: 160, exhaust: 160 };
         const { data: run, error } = await supabase
           .from('duct_runs')
-          .insert({
-            duct_design_id: designId,
-            from_node_id,
-            to_node_id,
-            run_type,
-            diameter_mm: DIAM_MAP[run_type] ?? 90,
-            duct_type: run_type === 'supply' || run_type === 'extract' ? 'semi_rigid_90' : 'epp_160',
-          })
+          .insert({ duct_design_id: designId, from_node_id, to_node_id, run_type, diameter_mm: DIAM_MAP[run_type] ?? 90, duct_type: run_type === 'supply' || run_type === 'extract' ? 'semi_rigid_90' : 'epp_160' })
           .select()
           .single();
         if (error) return res.status(500).json({ error: error.message });
         return res.status(200).json({ run });
       }
 
-      // ── delete_node: remove a node and its connected runs ──
+      // ── delete_node ─────────────────────────────────────────────
       if (action === 'delete_node') {
         const designId = await getDesignId();
         if (!designId) return res.status(404).json({ error: 'No duct design found.' });
@@ -787,27 +699,18 @@ export default async function handler(req, res) {
         const { node_id } = body;
         if (!node_id) return res.status(400).json({ error: 'node_id required' });
 
-        // Delete connected runs first
-        await supabase.from('duct_runs')
-          .delete()
-          .eq('duct_design_id', designId)
-          .or(`from_node_id.eq.${node_id},to_node_id.eq.${node_id}`);
-
-        // Delete the node
-        const { error } = await supabase.from('duct_nodes')
-          .delete()
-          .eq('id', node_id)
-          .eq('duct_design_id', designId);
+        await supabase.from('duct_runs').delete().eq('duct_design_id', designId).or(`from_node_id.eq.${node_id},to_node_id.eq.${node_id}`);
+        const { error } = await supabase.from('duct_nodes').delete().eq('id', node_id).eq('duct_design_id', designId);
         if (error) return res.status(500).json({ error: error.message });
         return res.status(200).json({ ok: true });
       }
 
+      // Default: return existing or generate terminals-only
       const existing = await loadDesign(supabase, projectId);
-      if (existing) {
-        return res.status(200).json(existing);
-      }
-      const generated = await generateLayout(supabase, projectId, user.id, manifoldMode);
+      if (existing) return res.status(200).json(existing);
+      const generated = await generateTerminalsOnly(supabase, projectId, user.id);
       return res.status(200).json({ ...generated, generated: true });
+
     } catch (err) {
       console.error('duct-design POST error:', err.message);
       return res.status(500).json({ error: err.message });
@@ -820,30 +723,15 @@ export default async function handler(req, res) {
     const { projectId, nodes, runs, status, designJson } = body;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    // Verify ownership
-    const { data: proj } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
 
-    // Load existing design
-    const { data: design, error: dErr } = await supabase
-      .from('duct_designs')
-      .select('id')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
+    const { data: design, error: dErr } = await supabase.from('duct_designs').select('id, design_json').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1).maybeSingle();
     if (dErr) return res.status(500).json({ error: dErr.message });
     if (!design) return res.status(404).json({ error: 'No duct design found for this project' });
 
     const errors = [];
 
-    // Update node positions
     if (Array.isArray(nodes) && nodes.length > 0) {
       for (const n of nodes) {
         if (!n.id) continue;
@@ -854,59 +742,40 @@ export default async function handler(req, res) {
         if (n.airflow_m3h !== undefined) update.airflow_m3h = n.airflow_m3h;
         if (n.metadata !== undefined) update.metadata = n.metadata;
         if (Object.keys(update).length === 0) continue;
-        const { error } = await supabase
-          .from('duct_nodes')
-          .update(update)
-          .eq('id', n.id)
-          .eq('duct_design_id', design.id);
+        const { error } = await supabase.from('duct_nodes').update(update).eq('id', n.id).eq('duct_design_id', design.id);
         if (error) errors.push(`node ${n.id}: ${error.message}`);
       }
     }
 
-    // Update run properties
     if (Array.isArray(runs) && runs.length > 0) {
       for (const r of runs) {
         if (!r.id) continue;
         const update = {};
+        if (r.run_type     !== undefined) update.run_type     = r.run_type;
         if (r.duct_type    !== undefined) update.duct_type    = r.duct_type;
         if (r.diameter_mm  !== undefined) update.diameter_mm  = r.diameter_mm;
         if (r.length_m     !== undefined) update.length_m     = r.length_m;
-        if (r.route_points !== undefined) update.route_points = r.route_points;
-        if (r.metadata     !== undefined) update.metadata     = r.metadata;
+        if (r.pressure_drop_pa !== undefined) update.pressure_drop_pa = r.pressure_drop_pa;
+        if (r.notes        !== undefined) update.notes        = r.notes;
         if (Object.keys(update).length === 0) continue;
-        const { error } = await supabase
-          .from('duct_runs')
-          .update(update)
-          .eq('id', r.id)
-          .eq('duct_design_id', design.id);
+        const { error } = await supabase.from('duct_runs').update(update).eq('id', r.id).eq('duct_design_id', design.id);
         if (error) errors.push(`run ${r.id}: ${error.message}`);
       }
     }
 
-    // Build design updates
-    const designUpdates = {};
-    if (status) designUpdates.status = status;
-    if (designJson) designUpdates.design_json = designJson;
-
-    if (Object.keys(designUpdates).length > 0) {
-      const { error: duErr } = await supabase
-        .from('duct_designs')
-        .update(designUpdates)
-        .eq('id', design.id);
-      if (duErr) errors.push(`design update: ${duErr.message}`);
+    if (status) {
+      const { error } = await supabase.from('duct_designs').update({ status }).eq('id', design.id);
+      if (error) errors.push(`status: ${error.message}`);
     }
 
-    // Reload design
-    const { data: updatedDesign } = await supabase
-      .from('duct_designs')
-      .select('*')
-      .eq('id', design.id)
-      .single();
-
-    if (errors.length > 0) {
-      return res.status(207).json({ ok: true, design: updatedDesign, errors });
+    if (designJson) {
+      const merged = { ...(design.design_json ?? {}), ...designJson };
+      const { error } = await supabase.from('duct_designs').update({ design_json: merged }).eq('id', design.id);
+      if (error) errors.push(`designJson: ${error.message}`);
     }
-    return res.status(200).json({ ok: true, design: updatedDesign });
+
+    if (errors.length > 0) return res.status(207).json({ ok: false, errors });
+    return res.status(200).json({ ok: true });
   }
 
   return res.status(405).json({ error: 'Method not allowed' });

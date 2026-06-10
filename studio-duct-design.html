@@ -197,13 +197,14 @@ main { padding:0 0 80px; }
 .node-body.rect { border-radius:5px; padding:4px 8px; }
 .node-body.circle { width:36px; height:36px; }
 
-.node-supply   .node-body { background:var(--supply); }
-.node-extract  .node-body { background:var(--extract); }
-.node-mvhr     .node-body { background:#1a4731; }
-.node-smfd     .node-body { background:var(--manifold); }
-.node-emfd     .node-body { background:var(--manifold); }
-.node-intake   .node-body { background:var(--intake); }
-.node-exhaust  .node-body { background:var(--exhaust); }
+.node-supply     .node-body { background:var(--supply); }
+.node-extract    .node-body { background:var(--extract); }
+.node-mvhr       .node-body { background:#1a4731; }
+.node-smfd       .node-body { background:var(--manifold); }
+.node-emfd       .node-body { background:var(--manifold); }
+.node-intake     .node-body { background:var(--intake); }
+.node-exhaust    .node-body { background:var(--exhaust); }
+.node-comfowell  .node-body { background:#2d6a4f; }
 
 .node-label {
   position:absolute; top:calc(100% + 4px); left:50%; transform:translateX(-50%);
@@ -871,14 +872,14 @@ async function init() {
       el('scaleInput').value = _scaleM;
     }
 
-    _layoutGenerated = data.generated ?? false;
+    _layoutGenerated = _design?.design_json?.phase === 'routes_generated';
     if (_layoutGenerated) el('generatedNotice').style.display = 'block';
     if (!_design?.airflow_design_id) el('noAirflowNotice').style.display = 'block';
 
     // Detect whether MVHR needs user placement BEFORE ensurePlanPositions()
-    // (ensurePlanPositions fills in defaults, so we check the raw DB metadata here)
+    // In terminals_only phase no mvhr_unit node exists yet; in later phases it may lack a plan position.
     const mvhrNodeRaw = _nodes.find(n => n.node_type === 'mvhr_unit');
-    _mvhrNeedsPlacement = !!(mvhrNodeRaw && mvhrNodeRaw.metadata?.plan?.x_pct == null && _planPages.length > 0);
+    _mvhrNeedsPlacement = !!((!mvhrNodeRaw || mvhrNodeRaw.metadata?.plan?.x_pct == null) && _planPages.length > 0);
 
     // Build floor selector from planPages
     buildFloorSelector();
@@ -940,7 +941,7 @@ function onFloorChange() {
 // ── Plan position helpers ─────────────────────────────────────
 // Ensure every node has a metadata.plan entry with x_pct/y_pct
 function ensurePlanPositions() {
-  const GLOBAL_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold'];
+  const GLOBAL_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold','comfowell_supply','comfowell_extract'];
   const nodesByFloor = {};
   for (const n of _nodes) {
     const fi = n.floor_index ?? 0;
@@ -969,6 +970,16 @@ function ensurePlanPositions() {
       x_pct = 20 + (fi * 5); y_pct = 30;
     } else if (n.node_type === 'extract_manifold') {
       x_pct = 20 + (fi * 5); y_pct = 65;
+    } else if (n.node_type === 'comfowell_supply') {
+      // Adjacent to MVHR, slightly above centre
+      const mvhr = _nodes.find(m => m.node_type === 'mvhr_unit');
+      x_pct = (mvhr?.metadata?.plan?.x_pct ?? 8) + 5;
+      y_pct = (mvhr?.metadata?.plan?.y_pct ?? 50) - 6;
+    } else if (n.node_type === 'comfowell_extract') {
+      // Adjacent to MVHR, slightly below centre
+      const mvhr = _nodes.find(m => m.node_type === 'mvhr_unit');
+      x_pct = (mvhr?.metadata?.plan?.x_pct ?? 8) + 5;
+      y_pct = (mvhr?.metadata?.plan?.y_pct ?? 50) + 6;
     } else if (n.node_type === 'supply_terminal') {
       const arr = nodesByFloor[fi]?.supply ?? [];
       const idx = arr.indexOf(n);
@@ -1071,7 +1082,7 @@ function planZoom(factor) {
 }
 
 // ── Plan node rendering ───────────────────────────────────────
-const GLOBAL_NODE_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold'];
+const GLOBAL_NODE_TYPES = ['mvhr_unit','external_intake','external_exhaust','supply_manifold','extract_manifold','comfowell_supply','comfowell_extract'];
 
 function planNodeVisible(n) {
   if (GLOBAL_NODE_TYPES.includes(n.node_type)) return true; // always show global nodes
@@ -1143,20 +1154,23 @@ function renderPlanNodes() {
 function planNodeClass(t) {
   return { supply_terminal:'node-supply', extract_terminal:'node-extract', mvhr_unit:'node-mvhr',
            supply_manifold:'node-smfd', extract_manifold:'node-emfd',
-           external_intake:'node-intake', external_exhaust:'node-exhaust' }[t] ?? '';
+           external_intake:'node-intake', external_exhaust:'node-exhaust',
+           comfowell_supply:'node-comfowell', comfowell_extract:'node-comfowell' }[t] ?? '';
 }
 function planNodeShape(t) {
   return (t === 'supply_terminal' || t === 'extract_terminal') ? 'circle' : 'rect';
 }
 function planNodeShortLabel(n) {
   switch (n.node_type) {
-    case 'mvhr_unit':        return 'MVHR';
-    case 'supply_manifold':  return 'S';
-    case 'extract_manifold': return 'E';
-    case 'external_intake':  return '↓';
-    case 'external_exhaust': return '↑';
-    case 'supply_terminal':  return truncate(n.room_name ?? 'S', 3);
-    case 'extract_terminal': return truncate(n.room_name ?? 'E', 3);
+    case 'mvhr_unit':         return 'MVHR';
+    case 'supply_manifold':   return 'S';
+    case 'extract_manifold':  return 'E';
+    case 'comfowell_supply':  return 'CW-S';
+    case 'comfowell_extract': return 'CW-E';
+    case 'external_intake':   return '↓';
+    case 'external_exhaust':  return '↑';
+    case 'supply_terminal':   return truncate(n.room_name ?? 'S', 3);
+    case 'extract_terminal':  return truncate(n.room_name ?? 'E', 3);
     default: return '?';
   }
 }
@@ -1165,6 +1179,11 @@ function planNodeShortLabel(n) {
 function renderPlanRoutes() {
   const svgEl = el('planOverlay');
   const img = el('planImage');
+  // No routes exist in terminals_only phase — MVHR not placed yet
+  if (_design?.design_json?.phase === 'terminals_only') {
+    svgEl.innerHTML = '';
+    return;
+  }
   if (!img.naturalWidth) { svgEl.innerHTML = ''; return; }
   const iw = img.naturalWidth;
   const ih = img.naturalHeight;
@@ -1486,7 +1505,9 @@ function cancelHrvPlacementMode() {
   el('hrvBanner').style.display = 'flex';
 }
 
-// Core: move the mvhr_unit node to (x_pct, y_pct) and persist immediately
+// Core: place the MVHR unit at (x_pct, y_pct).
+// In terminals_only phase, no mvhr_unit node exists — we create it via add_node.
+// In later phases, the node exists and we update its plan position.
 async function placeMvhrFromOverlay(x_pct, y_pct) {
   // Exit placement mode visuals first
   _placingHrv = false;
@@ -1495,15 +1516,46 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
   el('hrvOverlay').style.display     = 'none';
   el('planStatus').textContent = TOOL_STATUS[_planTool] ?? '';
 
-  const mvhrNode = _nodes.find(n => n.node_type === 'mvhr_unit');
-  if (!mvhrNode) return;
+  let mvhrNode  = _nodes.find(n => n.node_type === 'mvhr_unit');
+  let isNewNode = false;
 
-  // Update local state instantly
-  mvhrNode.metadata = {
-    ...(mvhrNode.metadata ?? {}),
-    plan: { floor_index: _planFloor, x_pct, y_pct },
-  };
-  // If layout already existed, mark stale before clearing the placement flag
+  if (!mvhrNode) {
+    // Phase 1 (terminals_only): no mvhr_unit yet — create it
+    try {
+      const res = await apiPost(`${API_BASE}/duct-design`, {
+        projectId:   _projectId,
+        action:      'add_node',
+        node_type:   'mvhr_unit',
+        floor_index: _planFloor,
+        room_name:   'MVHR Unit',
+        airflow_m3h: 0,
+        x_pct,
+        y_pct,
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(()=>({}));
+        alert('Failed to place MVHR: ' + (e.error ?? `HTTP ${res.status}`));
+        return;
+      }
+      const { node } = await res.json();
+      _nodes.push(node);
+      mvhrNode  = node;
+      isNewNode = true;
+    } catch (err) {
+      alert('Error placing MVHR: ' + err.message);
+      return;
+    }
+  }
+
+  if (!isNewNode) {
+    // Update local state instantly
+    mvhrNode.metadata = {
+      ...(mvhrNode.metadata ?? {}),
+      plan: { floor_index: _planFloor, x_pct, y_pct },
+    };
+  }
+
+  // If routes already existed, mark stale
   if (_layoutGenerated) {
     _layoutGenerated = false;
     _layoutStale     = true;
@@ -1513,27 +1565,23 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
   renderPlanNodes();
   renderPlanRoutes();
   selectPlanItem('node', mvhrNode.id);
-
-  // Hide banner — node is on the plan and draggable
   el('hrvBanner').style.display = 'none';
-
-  // Update workflow status immediately
   updateWorkflowState();
 
-  // Persist position immediately
-  try {
-    await apiPatch(`${API_BASE}/duct-design`, {
-      projectId: _projectId,
-      nodes: [{ id: mvhrNode.id, x: mvhrNode.x, y: mvhrNode.y, metadata: mvhrNode.metadata }],
-    });
-    setDirty(false);
-  } catch (err) {
-    console.error('[HRV placement] save failed:', err.message);
-    setDirty(true);
+  // Persist position (new nodes are already saved; existing nodes need a PATCH)
+  if (!isNewNode) {
+    try {
+      await apiPatch(`${API_BASE}/duct-design`, {
+        projectId: _projectId,
+        nodes: [{ id: mvhrNode.id, x: mvhrNode.x, y: mvhrNode.y, metadata: mvhrNode.metadata }],
+      });
+      setDirty(false);
+    } catch (err) {
+      console.error('[HRV placement] save failed:', err.message);
+      setDirty(true);
+    }
   }
-
-  // Auto-generate layout now that MVHR is located
-  regenerateLayout('auto');
+  // Routes are generated only when the user clicks "Generate Layout" — not automatically.
 }
 
 // "HiPer Studio suggest" — find best candidate room, place MVHR near it
@@ -1795,14 +1843,16 @@ function calcRunLength(run) {
 
 function nodeLabel(n) {
   switch (n.node_type) {
-    case 'mvhr_unit':        return 'MVHR';
-    case 'supply_manifold':  return 'S-Man';
-    case 'extract_manifold': return 'E-Man';
-    case 'external_intake':  return 'Intake';
-    case 'external_exhaust': return 'Exhaust';
-    case 'supply_terminal':  return n.room_name ? truncate(n.room_name, 10) : 'Supply';
-    case 'extract_terminal': return n.room_name ? truncate(n.room_name, 10) : 'Extract';
-    default:                 return n.room_name ?? n.node_type;
+    case 'mvhr_unit':         return 'MVHR';
+    case 'supply_manifold':   return 'S-Man';
+    case 'extract_manifold':  return 'E-Man';
+    case 'comfowell_supply':  return 'CW Supply';
+    case 'comfowell_extract': return 'CW Extract';
+    case 'external_intake':   return 'Intake';
+    case 'external_exhaust':  return 'Exhaust';
+    case 'supply_terminal':   return n.room_name ? truncate(n.room_name, 10) : 'Supply';
+    case 'extract_terminal':  return n.room_name ? truncate(n.room_name, 10) : 'Extract';
+    default:                  return n.room_name ?? n.node_type;
   }
 }
 function nodeLabel2(node) { return node.airflow_m3h > 0 ? `${node.airflow_m3h} m³/h` : ''; }
@@ -1816,7 +1866,8 @@ function isRunVisible(run) {
 }
 function isNodeVisible(node) {
   if ((node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal') && !_layers.terminals) return false;
-  if ((node.node_type === 'supply_manifold' || node.node_type === 'extract_manifold') && !_layers.manifolds) return false;
+  if ((node.node_type === 'supply_manifold' || node.node_type === 'extract_manifold' ||
+       node.node_type === 'comfowell_supply' || node.node_type === 'comfowell_extract') && !_layers.manifolds) return false;
   return true;
 }
 
@@ -1927,10 +1978,12 @@ function renderCanvas() {
         g.appendChild(svgText(node.x,node.y+9,nodeLabel2(node),'rgba(255,255,255,0.7)',9,'600'));
         break;
       }
-      case 'supply_manifold': renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
-      case 'extract_manifold': renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
-      case 'external_intake': renderRectNode(g,node,56,30,'#15803d','#fff',isSel); break;
-      case 'external_exhaust': renderRectNode(g,node,56,30,'#6b7280','#fff',isSel); break;
+      case 'supply_manifold':   renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
+      case 'extract_manifold':  renderRectNode(g,node,70,28,'#7c3aed','#fff',isSel); break;
+      case 'comfowell_supply':  renderRectNode(g,node,80,30,'#2d6a4f','#fff',isSel); break;
+      case 'comfowell_extract': renderRectNode(g,node,80,30,'#2d6a4f','#fff',isSel); break;
+      case 'external_intake':   renderRectNode(g,node,56,30,'#15803d','#fff',isSel); break;
+      case 'external_exhaust':  renderRectNode(g,node,56,30,'#6b7280','#fff',isSel); break;
       case 'supply_terminal': renderCircleNode(g,node,22,'#1d4ed8','#fff',isSel); break;
       case 'extract_terminal': renderCircleNode(g,node,22,'#b91c1c','#fff',isSel); break;
       default: renderCircleNode(g,node,14,'#9ca3af','#fff',isSel);
@@ -2165,11 +2218,11 @@ async function regenerateLayout(mode) {
 
     if (_design?.design_json?.scale_m) { _scaleM=_design.design_json.scale_m; el('scaleInput').value=_scaleM; }
 
-    _layoutGenerated = true;
+    _layoutGenerated = _design?.design_json?.phase === 'routes_generated';
     _layoutStale     = false;
     buildFloorSelector();
     ensurePlanPositions();
-    el('generatedNotice').style.display = 'block';
+    if (_layoutGenerated) el('generatedNotice').style.display = 'block';
     setDirty(false);
     showMain();
     updateWorkflowState();
@@ -2223,7 +2276,8 @@ function renderSchedule() {
 function formatNodeType(t) {
   return { mvhr_unit:'MVHR Unit', supply_manifold:'Supply Manifold', extract_manifold:'Extract Manifold',
            supply_terminal:'Supply Terminal', extract_terminal:'Extract Terminal',
-           external_intake:'External Intake', external_exhaust:'External Exhaust' }[t] ?? t;
+           external_intake:'External Intake', external_exhaust:'External Exhaust',
+           comfowell_supply:'ComfoWell (Supply)', comfowell_extract:'ComfoWell (Extract)' }[t] ?? t;
 }
 function formatDuctType(t) {
   return { semi_rigid_90:'Semi-rigid Ø90', epp_160:'EPP Ø160', epp_180:'EPP Ø180', epp_200:'EPP Ø200', custom:'Custom' }[t] ?? t;
