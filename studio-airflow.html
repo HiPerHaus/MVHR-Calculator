@@ -741,8 +741,11 @@ const BOOST_EXTRACT_RATES = {
 function isWCRoom(name) { return /\bwc\b|water\s*closet|\btoilet\b|\bpowder\b/i.test(name ?? ''); }
 function isEnsuiteRoom(name) { return /ensuite|en-suite|en\s+suite/i.test(name ?? ''); }
 function roomBoostExtract(r) {
-  // Use server-provided value when available; otherwise compute client-side.
+  // Ignored rooms never contribute to boost airflow.
+  if (r.airflow_driver === 'ignored') return 0;
+  // Use server-provided value when available (0 is a valid value — don't fall through).
   if (r.boost_extract_m3h != null) return r.boost_extract_m3h;
+  // Client-side fallback for legacy records that predate boost_extract_m3h storage.
   const t = r.room_type, n = r.room_name ?? '';
   if (/pantry/i.test(n)) return BOOST_EXTRACT_RATES.pantry;
   if (t === 'kitchen' || t === 'kitchenette') return BOOST_EXTRACT_RATES.kitchen;
