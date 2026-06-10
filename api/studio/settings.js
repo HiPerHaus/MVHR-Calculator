@@ -32,9 +32,9 @@ export const DEFAULT_ROOM_RATES = {
   dining_m3h:               20,
   kitchen_extract_m3h:      40,
   pantry_extract_m3h:       20,
-  bathroom_extract_m3h:     40,
+  bathroom_extract_m3h:     30,  // Normal continuous rate (boost = 40)
   ensuite_extract_m3h:      30,
-  laundry_extract_m3h:      40,
+  laundry_extract_m3h:      25,  // Normal continuous rate (boost = 40)
   wc_extract_m3h:           20,
 };
 

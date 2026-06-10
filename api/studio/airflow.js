@@ -35,7 +35,9 @@ const r0  = v  => Math.round(v);
 const toLps = m3h => r1(m3h / 3.6);
 const toM3h = lps => r1(lps * 3.6);
 
-const isWC      = n => /\bwc\b|water\s*closet|toilet(?!\s*room)|powder\s*room/i.test(n ?? '');
+// Detect WC / toilet / powder room (any room a person uses for toilet purposes).
+// Checked BEFORE isEnsuite so "powder room" and "toilet" get WC rate, not bathroom rate.
+const isWC      = n => /\bwc\b|water\s*closet|\btoilet\b|\bpowder\b/i.test(n ?? '');
 const isEnsuite = n => /ensuite|en-suite|en\s+suite/i.test(n ?? '');
 
 // Per-m² airflow rates per design method (m³/h per m² of treated floor area).
@@ -44,6 +46,7 @@ const isEnsuite = n => /ensuite|en-suite|en\s+suite/i.test(n ?? '');
 const AREA_RATE = { passive_house: 1.0, as1668: 1.5 };
 
 // ── Default room airflow rates (m³/h) ─────────────────────────
+// These are NORMAL / CONTINUOUS design rates (not peak/boost).
 // These match the defaults in api/studio/settings.js.
 // The POST handler loads user overrides and merges over these.
 const DEFAULT_ROOM_RATES = {
@@ -55,10 +58,32 @@ const DEFAULT_ROOM_RATES = {
   dining_m3h:               20,
   kitchen_extract_m3h:      40,
   pantry_extract_m3h:       20,
-  bathroom_extract_m3h:     40,
+  bathroom_extract_m3h:     30,  // Normal continuous rate (boost = 40)
   ensuite_extract_m3h:      30,
-  laundry_extract_m3h:      40,
+  laundry_extract_m3h:      25,  // Normal continuous rate (boost = 40)
   wc_extract_m3h:           20,
+};
+
+// Minimum extract airflow per room type (m³/h) — never reduce below these during balancing.
+// Based on PHI Good Practice Guide minimum ventilation requirements.
+const EXTRACT_MINIMUMS = {
+  kitchen:  30,
+  pantry:   15,
+  laundry:  15,
+  bathroom: 20,
+  ensuite:  20,
+  wc:       10,
+};
+
+// Boost / peak extract rates (m³/h) — PHI Good Practice Guide peak demand.
+// Used only for the boost capacity check; NOT used to drive continuous design airflow.
+const BOOST_EXTRACT_RATES = {
+  kitchen:  60,
+  bathroom: 40,
+  ensuite:  40,
+  laundry:  40,
+  wc:       20,
+  pantry:   20,
 };
 
 // Ignored room types and classifications for area calculation
@@ -93,21 +118,46 @@ function extractRate(room, rates = DEFAULT_ROOM_RATES) {
 }
 
 // ── Extract room classification helpers ───────────────────────
-// Protected extract rooms must NEVER be reduced below their configured rate.
-// Adjustable extract rooms can be reduced to balance total extract to design flow.
-function isProtectedExtract(room) {
-  return room.room_type === 'wet_area'; // bathroom, ensuite, WC
-}
-function isAdjustableExtract(room, n) {
-  const t = room.room_type;
-  return /pantry/i.test(n) || t === 'kitchen' || t === 'kitchenette' || t === 'laundry';
-}
-// Priority order for extract reduction: 1=kitchen, 2=pantry, 3=laundry
+// All extract rooms can be reduced during balancing, but never below their EXTRACT_MINIMUMS.
+// Priority: WC/Powder(1) → Bathroom(2) → Ensuite(3) → Laundry(4) → Pantry(5) → Kitchen(6, last resort).
 function extractReducePriority(room, n) {
   const t = room.room_type;
-  if (/pantry/i.test(n)) return 2;
-  if (t === 'kitchen' || t === 'kitchenette') return 1;
-  if (t === 'laundry') return 3;
+  if (t === 'wet_area') {
+    if (isWC(n))      return 1; // WC / powder / toilet — reduce first
+    if (isEnsuite(n)) return 3; // Ensuite
+    return 2;                    // Bathroom
+  }
+  if (t === 'laundry') return 4;
+  if (/pantry/i.test(n)) return 5;
+  if (t === 'kitchen' || t === 'kitchenette') return 6; // last resort — never to zero
+  return 0;
+}
+
+// Minimum extract airflow for a room (m³/h) — enforced during balancing.
+function extractMin(room, n) {
+  const t = room.room_type;
+  if (/pantry/i.test(n)) return EXTRACT_MINIMUMS.pantry;
+  if (t === 'kitchen' || t === 'kitchenette') return EXTRACT_MINIMUMS.kitchen;
+  if (t === 'laundry') return EXTRACT_MINIMUMS.laundry;
+  if (t === 'wet_area') {
+    if (isWC(n))      return EXTRACT_MINIMUMS.wc;
+    if (isEnsuite(n)) return EXTRACT_MINIMUMS.ensuite;
+    return EXTRACT_MINIMUMS.bathroom;
+  }
+  return 0;
+}
+
+// Boost extract rate for a room (m³/h) — PHI peak demand, used for boost capacity check only.
+function boostExtractRate(room, n) {
+  const t = room.room_type;
+  if (/pantry/i.test(n)) return BOOST_EXTRACT_RATES.pantry;
+  if (t === 'kitchen' || t === 'kitchenette') return BOOST_EXTRACT_RATES.kitchen;
+  if (t === 'laundry')  return BOOST_EXTRACT_RATES.laundry;
+  if (t === 'wet_area') {
+    if (isWC(n))      return BOOST_EXTRACT_RATES.wc;
+    if (isEnsuite(n)) return BOOST_EXTRACT_RATES.ensuite;
+    return BOOST_EXTRACT_RATES.bathroom;
+  }
   return 0;
 }
 
@@ -245,14 +295,15 @@ function calcAreaFlow(rooms, method) {
 }
 
 /**
- * Boost airflow = sum of ALL extract room rates (wet rooms, kitchen, laundry, etc.).
+ * Boost airflow = sum of ALL extract rooms at PEAK / BOOST rates (PHI Good Practice Guide).
  * Used as a separate "Boost Capacity Check" value — NOT used to drive continuous design airflow.
  */
-function calcBoostFlow(rooms, rates) {
+function calcBoostFlow(rooms) {
   let total = 0;
   for (const r of rooms) {
     if (r.classification === 'ignore') continue;
-    total += extractRate(r, rates);
+    const n = r.name ?? '';
+    total += boostExtractRate(r, n);
   }
   return r0(total);
 }
@@ -279,11 +330,12 @@ function allocateRooms(rooms, rates = DEFAULT_ROOM_RATES) {
     // Extract rooms
     const eRate = extractRate(room, rates);
     if (eRate > 0) {
+      const bRate = boostExtractRate(room, n);
       let driver = `${t}`;
       if (t === 'wet_area') {
         driver = isWC(n) ? `wc_${rates.wc_extract_m3h}` : isEnsuite(n) ? `ensuite_${rates.ensuite_extract_m3h}` : `bathroom_${rates.bathroom_extract_m3h}`;
       }
-      return mkRoom(room, 0, eRate, driver);
+      return mkRoom(room, 0, eRate, driver, null, bRate);
     }
 
     // Supply rooms
@@ -299,18 +351,19 @@ function allocateRooms(rooms, rates = DEFAULT_ROOM_RATES) {
   });
 }
 
-function mkRoom(room, supplyM3h, extractM3h, driver, notes = null) {
+function mkRoom(room, supplyM3h, extractM3h, driver, notes = null, boostExtractM3h = 0) {
   return {
-    project_room_id: room.id,
-    room_name:       room.name,
-    room_type:       room.room_type,
-    floor:           room.floor ?? null,
-    sort_order:      room.sort_order ?? 0,
-    supply_m3h:      supplyM3h,
-    extract_m3h:     extractM3h,
-    supply_lps:      toLps(supplyM3h),
-    extract_lps:     toLps(extractM3h),
-    airflow_driver:  driver,
+    project_room_id:   room.id,
+    room_name:         room.name,
+    room_type:         room.room_type,
+    floor:             room.floor ?? null,
+    sort_order:        room.sort_order ?? 0,
+    supply_m3h:        supplyM3h,
+    extract_m3h:       extractM3h,
+    boost_extract_m3h: boostExtractM3h,
+    supply_lps:        toLps(supplyM3h),
+    extract_lps:       toLps(extractM3h),
+    airflow_driver:    driver,
     notes,
   };
 }
@@ -319,32 +372,31 @@ function mkRoom(room, supplyM3h, extractM3h, driver, notes = null) {
 //
 // SUPPLY: Fixed rooms (bedrooms, offices, gym) remain unchanged.
 //   Adjustable: living, family, dining, rumpus, retreat.
-//   These absorb the remaining capacity after fixed supply is summed.
-//   Priority: Living(1) > Family(2) > Dining(3) > Rumpus(4) > Retreat(5)
+//   These absorb remaining capacity. Priority: Living(1) > Family(2) > Dining(3) > …
 //
-// EXTRACT: Protected rooms (bathroom, ensuite, WC) are NEVER reduced.
-//   Adjustable: kitchen, pantry, laundry.
-//   Reduced in priority order (kitchen→pantry→laundry) when total > designFlow.
+// EXTRACT: ALL extract rooms can be reduced, but never below EXTRACT_MINIMUMS.
+//   Priority: WC/Powder(1) → Bathroom(2) → Ensuite(3) → Laundry(4) → Pantry(5) → Kitchen(6).
+//   If extract cannot be fully reduced to design flow (minimums prevent it),
+//   supply is increased to match the remaining extract — preferred over over-reducing.
 //
-// Balance status is relative to designFlowM3h (not supply vs extract diff).
+// Balance status is relative to designFlowM3h.
 //
 function balanceDesign(roomResults, rooms, designFlowM3h) {
-  // ─── SUPPLY BALANCING ─────────────────────────────────────
   const sumKey = (key) => r1(roomResults.reduce((s, r) => s + (r[key] || 0), 0));
-
-  const baseSupplyTotal = sumKey('supply_m3h');
-  let supplyDiff        = r1(designFlowM3h - baseSupplyTotal); // positive = need more
 
   console.log(JSON.stringify({
     event: 'airflow:balance-start',
-    designFlowM3h, baseSupplyM3h: baseSupplyTotal, baseExtractM3h: sumKey('extract_m3h'),
-    supplyGapM3h: supplyDiff,
+    designFlowM3h,
+    baseSupplyM3h:  sumKey('supply_m3h'),
+    baseExtractM3h: sumKey('extract_m3h'),
   }));
 
+  // ─── STEP 1: SUPPLY BALANCING ─────────────────────────────
+  // Adjust supply rooms so total supply ≈ designFlowM3h.
   let totalSupplyAdj = 0;
+  let supplyDiff = r1(designFlowM3h - sumKey('supply_m3h')); // positive = need more supply
 
   if (Math.abs(supplyDiff) > 0.5) {
-    // Gather adjustable supply rooms, sorted by priority (lowest number = first to adjust)
     const adjSupply = roomResults
       .map((r, i) => ({ r, i, priority: supplyAdjPriority(rooms[i]) }))
       .filter(x => x.priority > 0 && (supplyDiff > 0 || x.r.supply_m3h > 0))
@@ -356,72 +408,102 @@ function balanceDesign(roomResults, rooms, designFlowM3h) {
       const t = srcRoom.room_type;
 
       if (supplyDiff > 0) {
-        // Need more supply — increase this room
         const maxRate = t === 'living' ? 80 : 50;
-        const canAdd = maxRate - r.supply_m3h;
+        const canAdd  = maxRate - r.supply_m3h;
         if (canAdd < 0.5) continue;
         const add = r1(Math.min(supplyDiff, canAdd));
         roomResults[i] = {
           ...r, supply_m3h: r1(r.supply_m3h + add), supply_lps: toLps(r1(r.supply_m3h + add)),
-          notes: (r.notes ? r.notes + '; ' : '') + `Supply balance +${add} m³/h`,
+          notes: (r.notes ? r.notes + '; ' : '') + `Balancing adjustment: +${add} m³/h`,
           airflow_driver: r.airflow_driver === 'unclassified' ? 'supply_balance' : r.airflow_driver,
         };
-        supplyDiff  = r1(supplyDiff - add);
+        supplyDiff     = r1(supplyDiff - add);
         totalSupplyAdj = r1(totalSupplyAdj + add);
       } else {
-        // Reduce this room (too much fixed supply)
-        const canRemove = r.supply_m3h; // can reduce to 0
+        const canRemove = r.supply_m3h;
         if (canRemove < 0.5) continue;
         const remove = r1(Math.min(-supplyDiff, canRemove));
         roomResults[i] = {
           ...r, supply_m3h: r1(r.supply_m3h - remove), supply_lps: toLps(r1(r.supply_m3h - remove)),
-          notes: (r.notes ? r.notes + '; ' : '') + `Supply balance -${remove} m³/h`,
+          notes: (r.notes ? r.notes + '; ' : '') + `Balancing adjustment: -${remove} m³/h`,
         };
-        supplyDiff    = r1(supplyDiff + remove);
+        supplyDiff     = r1(supplyDiff + remove);
         totalSupplyAdj = r1(totalSupplyAdj - remove);
       }
     }
   }
 
-  // ─── EXTRACT BALANCING ────────────────────────────────────
-  const totalExtract = sumKey('extract_m3h');
-  let extractExcess  = r1(totalExtract - designFlowM3h);
+  // ─── STEP 2: EXTRACT BALANCING ────────────────────────────
+  // Reduce extract rooms in priority order (WC→Kitchen), respecting EXTRACT_MINIMUMS.
+  let extractExcess = r1(sumKey('extract_m3h') - designFlowM3h);
 
   if (extractExcess > 0.5) {
-    // Sort adjustable extract rooms by priority (kitchen=1 first, laundry=3 last)
     const adjExtract = roomResults
       .map((r, i) => {
-        const n = rooms[i].name ?? '';
-        const p = extractReducePriority(rooms[i], n);
-        return { r, i, priority: p };
+        const n   = rooms[i].name ?? '';
+        const p   = extractReducePriority(rooms[i], n);
+        const min = extractMin(rooms[i], n);
+        return { r, i, priority: p, min };
       })
-      .filter(x => x.priority > 0 && x.r.extract_m3h > 0)
+      .filter(x => x.priority > 0 && x.r.extract_m3h > x.min) // only rooms with headroom
       .sort((a, b) => a.priority - b.priority);
 
-    for (const { r, i } of adjExtract) {
+    for (const { r, i, min } of adjExtract) {
       if (extractExcess < 0.5) break;
-      const remove = r1(Math.min(extractExcess, r.extract_m3h));
+      const canReduce = r1(r.extract_m3h - min); // never go below minimum
+      if (canReduce < 0.5) continue;
+      const remove = r1(Math.min(extractExcess, canReduce));
       roomResults[i] = {
-        ...r, extract_m3h: r1(r.extract_m3h - remove), extract_lps: toLps(r1(r.extract_m3h - remove)),
-        notes: (r.notes ? r.notes + '; ' : '') + `Extract balance -${remove} m³/h`,
+        ...r,
+        extract_m3h: r1(r.extract_m3h - remove),
+        extract_lps: toLps(r1(r.extract_m3h - remove)),
+        notes: (r.notes ? r.notes + '; ' : '') + `Balancing adjustment: -${remove} m³/h`,
       };
       extractExcess = r1(extractExcess - remove);
+    }
+
+    // ─── STEP 3: SUPPLY TOP-UP ────────────────────────────────
+    // If extract minimums prevent full reduction, increase supply to match remaining extract
+    // rather than forcing extract below its minimum.
+    if (extractExcess > 0.5) {
+      const adjSupplyTopUp = roomResults
+        .map((r, i) => ({ r, i, priority: supplyAdjPriority(rooms[i]) }))
+        .filter(x => x.priority > 0)
+        .sort((a, b) => a.priority - b.priority);
+
+      for (const { r, i } of adjSupplyTopUp) {
+        if (extractExcess < 0.5) break;
+        const srcRoom = rooms[i];
+        const maxRate = srcRoom.room_type === 'living' ? 80 : 50;
+        const canAdd  = maxRate - r.supply_m3h;
+        if (canAdd < 0.5) continue;
+        const add = r1(Math.min(extractExcess, canAdd));
+        roomResults[i] = {
+          ...r, supply_m3h: r1(r.supply_m3h + add), supply_lps: toLps(r1(r.supply_m3h + add)),
+          notes: (r.notes ? r.notes + '; ' : '') + `Balancing adjustment: +${add} m³/h (supply top-up)`,
+          airflow_driver: r.airflow_driver === 'unclassified' ? 'supply_balance' : r.airflow_driver,
+        };
+        extractExcess  = r1(extractExcess - add);
+        totalSupplyAdj = r1(totalSupplyAdj + add);
+      }
     }
   }
 
   // ─── FINAL STATUS ─────────────────────────────────────────
-  const finalSupply  = sumKey('supply_m3h');
-  const finalExtract = sumKey('extract_m3h');
+  const finalSupply      = sumKey('supply_m3h');
+  const finalExtract     = sumKey('extract_m3h');
   const supplyDeviation  = Math.abs(finalSupply  - designFlowM3h);
   const extractDeviation = Math.abs(finalExtract - designFlowM3h);
-  const maxDeviation = Math.max(supplyDeviation, extractDeviation);
-  const ratio = designFlowM3h > 0 ? maxDeviation / designFlowM3h : 0;
+  const maxDeviation     = Math.max(supplyDeviation, extractDeviation);
+  const ratio            = designFlowM3h > 0 ? maxDeviation / designFlowM3h : 0;
 
   console.log(JSON.stringify({
     event: 'airflow:balance-result',
     designFlowM3h,
-    finalSupplyM3h: finalSupply, finalExtractM3h: finalExtract,
-    supplyDevM3h: r1(supplyDeviation), extractDevM3h: r1(extractDeviation),
+    finalSupplyM3h:  finalSupply,
+    finalExtractM3h: finalExtract,
+    supplyDevM3h:    r1(supplyDeviation),
+    extractDevM3h:   r1(extractDeviation),
     maxDeviationPct: r1(ratio * 100),
   }));
 
@@ -429,7 +511,7 @@ function balanceDesign(roomResults, rooms, designFlowM3h) {
     ? 'balanced'
     : ratio <= 0.10
       ? 'minor_adjustment'
-      : 'major_imbalance';
+      : 'manual_review';
 
   return { roomResults, adjustmentM3h: totalSupplyAdj, balanceStatus };
 }
@@ -442,8 +524,8 @@ function calculateAirflow(rooms, method, userRates = DEFAULT_ROOM_RATES) {
   const { occupancyCount, occupancyFlowM3h } = calcOccupancyFlow(rooms);
   const { treatedAreaM2, areaFlowM3h, hasAreaData, areaWithCount, areaExpectedCount } = calcAreaFlow(rooms, method);
 
-  // Boost airflow = total wet-room + kitchen + laundry extract (peak demand, NOT design basis)
-  const boostFlowM3h = calcBoostFlow(rooms, rates);
+  // Boost airflow = sum of all extract rooms at PEAK/BOOST rates (NOT continuous design basis)
+  const boostFlowM3h = calcBoostFlow(rooms);
 
   // Continuous Design Airflow = MAX(occupancy, area) only.
   // Wet-room extract is NOT used to size the continuous design airflow — it is a boost check.

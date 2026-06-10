@@ -301,9 +301,10 @@ main { padding:0 0 80px; }
 /* ── HRV placement overlay ── */
 #hrvOverlay {
   position:absolute; inset:0; z-index:200;
-  background:rgba(10,25,18,0.52);
+  background:rgba(10,25,18,0.22);
   display:flex; align-items:center; justify-content:center;
   cursor:crosshair;
+  backdrop-filter:blur(1px);
 }
 .hrv-card {
   background:#fff; border-radius:16px; padding:32px 36px;
@@ -1026,8 +1027,8 @@ function renderPlanView() {
         planFitScreen();
         renderPlanNodes();
         renderPlanRoutes();
-        // Show HRV placement overlay after plan is visible
-        if (_mvhrNeedsPlacement) showHrvOverlay();
+        // Brief pause so user sees the plan before the overlay appears
+        if (_mvhrNeedsPlacement) setTimeout(showHrvOverlay, 600);
       });
     };
     imgEl.src = targetUrl;
@@ -1519,7 +1520,7 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
   // Update workflow status immediately
   updateWorkflowState();
 
-  // Persist immediately
+  // Persist position immediately
   try {
     await apiPatch(`${API_BASE}/duct-design`, {
       projectId: _projectId,
@@ -1530,6 +1531,9 @@ async function placeMvhrFromOverlay(x_pct, y_pct) {
     console.error('[HRV placement] save failed:', err.message);
     setDirty(true);
   }
+
+  // Auto-generate layout now that MVHR is located
+  regenerateLayout('auto');
 }
 
 // "HiPer Studio suggest" — find best candidate room, place MVHR near it

@@ -357,7 +357,8 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
           <th>Floor</th>
           <th>Type</th>
           <th style="text-align:right">Supply</th>
-          <th style="text-align:right">Extract</th>
+          <th style="text-align:right">Normal Extract</th>
+          <th style="text-align:right">Boost Extract</th>
           <th>Driver</th>
           <th>Notes</th>
         </tr>
@@ -726,20 +727,45 @@ function setCard(id, isActive) {
   c.querySelector('.basis-driver-tag')?.remove();
 }
 
+// ── Boost extract rates (mirrors api/studio/airflow.js BOOST_EXTRACT_RATES) ────
+const BOOST_EXTRACT_RATES = {
+  kitchen: 60, bathroom: 40, ensuite: 40, laundry: 40, wc: 20, pantry: 20,
+};
+function isWCRoom(name) { return /\bwc\b|water\s*closet|\btoilet\b|\bpowder\b/i.test(name ?? ''); }
+function isEnsuiteRoom(name) { return /ensuite|en-suite|en\s+suite/i.test(name ?? ''); }
+function roomBoostExtract(r) {
+  // Use server-provided value when available; otherwise compute client-side.
+  if (r.boost_extract_m3h != null) return r.boost_extract_m3h;
+  const t = r.room_type, n = r.room_name ?? '';
+  if (/pantry/i.test(n)) return BOOST_EXTRACT_RATES.pantry;
+  if (t === 'kitchen' || t === 'kitchenette') return BOOST_EXTRACT_RATES.kitchen;
+  if (t === 'laundry') return BOOST_EXTRACT_RATES.laundry;
+  if (t === 'wet_area') {
+    if (isWCRoom(n))      return BOOST_EXTRACT_RATES.wc;
+    if (isEnsuiteRoom(n)) return BOOST_EXTRACT_RATES.ensuite;
+    return BOOST_EXTRACT_RATES.bathroom;
+  }
+  return 0;
+}
+
 function renderRoomTable() {
   const tbody = el('roomTableBody');
   const tfoot = el('roomTableFoot');
   tbody.innerHTML = '';
 
-  let ts = 0, te = 0;
+  let ts = 0, te = 0, tb = 0;
 
   for (const r of _rooms) {
-    const sm = r.supply_m3h  ?? r1(r.supply_lps  * 3.6);
-    const em = r.extract_m3h ?? r1(r.extract_lps * 3.6);
-    ts += sm; te += em;
+    const sm  = r.supply_m3h  ?? r1(r.supply_lps  * 3.6);
+    const em  = r.extract_m3h ?? r1(r.extract_lps * 3.6);
+    const bm  = roomBoostExtract(r);
+    ts += sm; te += em; if (bm > 0) tb += bm;
 
     const fmtFlow = (m3h, lps, cls) => m3h > 0
       ? `<span class="${cls}">${m3h}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span> <span style="font-size:11px;color:var(--muted)">(${lps})</span></span>`
+      : '<span class="zero-val">—</span>';
+    const fmtBoost = (m3h) => m3h > 0
+      ? `<span style="font-weight:700;color:#9333ea">${m3h}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span></span>`
       : '<span class="zero-val">—</span>';
 
     const row = document.createElement('tr');
@@ -749,6 +775,7 @@ function renderRoomTable() {
       <td><span style="font-size:12px;color:var(--muted)">${fmtType(r.room_type)}</span></td>
       <td style="text-align:right">${fmtFlow(sm, r.supply_lps,  'supply-val')}</td>
       <td style="text-align:right">${fmtFlow(em, r.extract_lps, 'extract-val')}</td>
+      <td style="text-align:right">${fmtBoost(bm)}</td>
       <td><span class="driver-badge">${esc(r.airflow_driver || '—')}</span></td>
       <td>${r.notes ? `<span class="note-text">${esc(r.notes)}</span>` : ''}</td>
     `;
@@ -761,6 +788,7 @@ function renderRoomTable() {
       <td colspan="3" style="color:var(--muted)">TOTALS</td>
       <td style="text-align:right"><span class="supply-val">${r1(ts)} m³/h</span></td>
       <td style="text-align:right"><span class="extract-val">${r1(te)} m³/h</span></td>
+      <td style="text-align:right"><span style="font-weight:800;color:#9333ea">${r1(tb)} m³/h</span></td>
       <td colspan="2"></td>
     </tr>`;
 }

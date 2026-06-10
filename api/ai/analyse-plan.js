@@ -279,7 +279,7 @@ function validateRoom(raw, floorIndex) {
     laundry: /\blaundry\b|\butility\b/i,
     circulation: /\bhall(?:way)?\b|\bentry\b|\bcorridor\b|\bpassage(?:way)?\b|\bvestibule\b|\bstair|\blobby\b|\bfoyer\b|\blanding\b/i,
     robe: /\bwir\b|\bwtr\b|\brobe\b|\bdressing\b/i,
-    service: /\bgarage\b|\bcarport\b|\bpatio\b|\bbalcon|\balfresco\b|\bverandah\b|\bporch\b|\bdeck\b|\bstore\b|\bstorage\b/i,
+    service: /\bgarage\b|\bcarport\b|\bpatio\b|\bbalcon|\balfresco\b|\bverandah\b|\bporch\b|\bdeck\b|\bstore\b|\bstorage\b|\bservery\b/i,
     living: /\bliving\b|\blounge\b|\bfamily\b|\brumpus\b|\brumpus\b|\bretreat\b|\bactivity\b|\bmedia\b|\btheatre\b|\bsitting\b/i,
     dining: /\bdining\b|\bmeals\b/i,
     office: /\bstudy\b|\boffice\b|\blibrary\b/i,
@@ -886,7 +886,7 @@ CIRCULATION SPACES — assign spaceType:
 STORAGE/SERVICE SPACES — assign spaceType:
   Walk-in Robe  WIR  Dressing Room                   → "robe"
   Garage  Carport  Plant Room  Electrical  HWS
-  Attic  Roof Space  Outdoor areas                   → "service"
+  Attic  Roof Space  Outdoor areas  Servery         → "service"
 
 JOINERY (BIR/CPD/linen/cupboards) — NOT rooms. Do not list them as room entries.
 
@@ -1229,7 +1229,7 @@ Use the room function, not the room label.
   "robe"        — Walk-in Robe (WIR)  Dressing Room  Wardrobe Room
   "circulation" — Hallway  Corridor  Entry  Foyer  Passage  Landing  Stair  Lobby
   "service"     — Store  Cupboard  Plant Room  Mechanical  Electrical  HWS  Garage  Carport
-                  Bin Store  Roof Space  Attic  Outdoor areas
+                  Bin Store  Roof Space  Attic  Outdoor areas  Servery
   "other"       — Any zone that does not clearly fit the above
 
 Notes:
@@ -1429,7 +1429,7 @@ SPACE TYPE ASSIGNMENT:
   "robe"        — WIR, walk-in robe, dressing room
   "circulation" — entry, hall, hallway, passage, corridor, lobby, landing, stair
   "service"     — garage, carport, alfresco, verandah, porch, deck, outdoor areas,
-                   plant room, electrical, HRV/MVHR, HWS, bin store
+                   plant room, electrical, HRV/MVHR, HWS, bin store, servery
   "other"       — anything else
 
 AMBIGUOUS ROOM INSPECTION — inspect every wall before assigning spaceType:
