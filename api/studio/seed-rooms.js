@@ -29,6 +29,60 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
+// ── Room-content floor deduplication (for plan_analysis_log fallback path) ──
+// If two analysed floors share >70% of room names (after normalisation) they are
+// almost certainly the same physical floor on different drawing sheets.  Keep the
+// one with more rooms; discard the other.
+const FLOOR_OVERLAP_THRESHOLD = 0.70;
+
+function normaliseName(name) {
+  return (name ?? '')
+    .toLowerCase()
+    .replace(/\bbedroom\b/g, 'bed')
+    .replace(/\broom\b/g, '')
+    .replace(/\bfloor\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function roomNamesFromObj(roomsObj) {
+  return ['supply','extract','transfer','ignore']
+    .flatMap(cat => (roomsObj[cat] ?? []).map(r => normaliseName(r.name)))
+    .filter(Boolean);
+}
+
+function deduplicateLogFloors(floors) {
+  // floors: [{ floorIndex, roomsObj }]
+  if (floors.length <= 1) return floors;
+  const discarded = new Set();
+  for (let i = 0; i < floors.length; i++) {
+    if (discarded.has(i)) continue;
+    for (let j = i + 1; j < floors.length; j++) {
+      if (discarded.has(j)) continue;
+      const namesI = roomNamesFromObj(floors[i].roomsObj);
+      const namesJ = roomNamesFromObj(floors[j].roomsObj);
+      if (!namesI.length || !namesJ.length) continue;
+      const setI = new Set(namesI), setJ = new Set(namesJ);
+      let matches = 0;
+      for (const n of setI) { if (setJ.has(n)) matches++; }
+      const overlap = matches / Math.min(setI.size, setJ.size);
+      if (overlap >= FLOOR_OVERLAP_THRESHOLD) {
+        // Discard the floor with fewer rooms
+        const discardIdx = namesJ.length <= namesI.length ? j : i;
+        console.log(JSON.stringify({
+          event:        'seed-rooms:duplicate-floor-discarded',
+          keepFloor:    floors[discardIdx === j ? i : j].floorIndex,
+          discardFloor: floors[discardIdx].floorIndex,
+          overlap:      Math.round(overlap * 100),
+        }));
+        discarded.add(discardIdx);
+        if (discardIdx === i) break;
+      }
+    }
+  }
+  return floors.filter((_, idx) => !discarded.has(idx));
+}
+
 // Map ventilationClassification (or classification) → classification column value.
 // Also accepts category-key inference if the room doesn't carry the field.
 function classificationFromRoom(r, categoryKey) {
@@ -128,14 +182,35 @@ export default async function handler(req, res) {
       });
     }
 
-    // Deduplicate: keep the most-recent row per floor_index (logs are ordered created_at desc per floor)
+    // Deduplicate step 1: keep the most-recent row per floor_index
     const floorMap = new Map();
     for (const log of logs) {
       const key = log.floor_index ?? 0;
       if (!floorMap.has(key)) floorMap.set(key, log); // first = most recent (desc sort)
     }
 
-    const sortedFloors = [...floorMap.values()].sort((a, b) => (a.floor_index ?? 0) - (b.floor_index ?? 0));
+    let sortedFloors = [...floorMap.values()].sort((a, b) => (a.floor_index ?? 0) - (b.floor_index ?? 0));
+
+    // Deduplicate step 2: room-content similarity — discard floors that are the same
+    // physical floor shown on different drawing sheets (e.g. Dimensioned Plan).
+    if (sortedFloors.length > 1) {
+      const floorsWithRooms = sortedFloors.map(log => ({
+        floorIndex: log.floor_index ?? 0,
+        log,
+        roomsObj: (() => {
+          const r = log.parsed_rooms?.rooms ?? log.parsed_rooms ?? {};
+          return { supply: r.supply ?? [], extract: r.extract ?? [], transfer: r.transfer ?? [], ignore: r.ignore ?? [] };
+        })(),
+      }));
+      const deduped = deduplicateLogFloors(floorsWithRooms);
+      sortedFloors = deduped.map(f => f.log);
+      console.log(JSON.stringify({
+        event:          'seed-rooms:plan-log-dedup',
+        before:         floorsWithRooms.length,
+        after:          deduped.length,
+        discardedCount: floorsWithRooms.length - deduped.length,
+      }));
+    }
 
     // Build a synthetic analysis object with _pageResults for consistent downstream handling
     analysis = {

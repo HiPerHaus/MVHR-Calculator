@@ -765,19 +765,10 @@ export default async function handler(req, res) {
       });
     }
 
-    await supabase
-      .from('pdf_uploads')
-      .update({
-        status:              'complete',
-        analysed_page_count: successCount,
-        error_detail:        null,
-        completed_at:        completedAt,
-      })
-      .eq('id', uploadId);
-
     // ── Persist merged analysis to projects.ai_analysis_json ──────────────
-    // Build a merged JSON containing all floors so Stage 2 (seed-rooms) has
-    // a single source of truth without needing to read plan_analysis_log.
+    // IMPORTANT: ai_analysis_json MUST be written BEFORE status='complete'.
+    // If status is set first, the client may call seed-rooms before the merged
+    // data is available and fall back to plan_analysis_log (un-deduped, all pages).
     if (projectId) {
       try {
         const rawSuccessPages = analysisResults.filter(r => r.success && r.result);
@@ -785,6 +776,28 @@ export default async function handler(req, res) {
         // Cross-floor duplicate detection — discard pages that are re-drawings of an
         // already-analysed floor (e.g. Dimensioned Plan duplicating Ground Floor Plan).
         const { pages: successPages, warnings: dedupWarnings } = deduplicateFloors(rawSuccessPages);
+
+        // ── Diagnostic: floor dedup result ──────────────────────────────────
+        const rawRoomCount = rawSuccessPages.reduce((n, ar) => {
+          const r = ar.result.rooms ?? {};
+          return n + (r.supply?.length ?? 0) + (r.extract?.length ?? 0)
+                   + (r.transfer?.length ?? 0) + (r.ignore?.length ?? 0);
+        }, 0);
+        const dedupedRoomCount = successPages.reduce((n, ar) => {
+          const r = ar.result.rooms ?? {};
+          return n + (r.supply?.length ?? 0) + (r.extract?.length ?? 0)
+                   + (r.transfer?.length ?? 0) + (r.ignore?.length ?? 0);
+        }, 0);
+        console.log(JSON.stringify({
+          event:             'auto-analyse:floor-dedup',
+          jobId,
+          rawPageCount:      rawSuccessPages.length,
+          dedupedPageCount:  successPages.length,
+          discardedPages:    rawSuccessPages.length - successPages.length,
+          roomsBefore:       rawRoomCount,
+          roomsAfter:        dedupedRoomCount,
+          dedupWarnings,
+        }));
 
         if (successPages.length > 0) {
           const mergedRooms = { supply: [], extract: [], transfer: [], ignore: [] };
@@ -897,6 +910,21 @@ export default async function handler(req, res) {
         console.error('auto-analyse: merge/project-update error:', mergeErr.message);
       }
     }
+
+    // ── Mark upload complete — AFTER ai_analysis_json is written ─────────────
+    // This order ensures that when the client sees status='complete' and calls
+    // seed-rooms, the deduplicated ai_analysis_json is already available.
+    // If seed-rooms ran before this write it would fall back to plan_analysis_log
+    // (all raw pages, no dedup) and create duplicate floor records.
+    await supabase
+      .from('pdf_uploads')
+      .update({
+        status:              'complete',
+        analysed_page_count: successCount,
+        error_detail:        null,
+        completed_at:        completedAt,
+      })
+      .eq('id', uploadId);
 
     console.log(JSON.stringify({
       event:        'auto-analyse:complete',
