@@ -333,6 +333,9 @@ function isHabitableAnalysisPage(page) {
     // Detail / enlarged plans (not separate floors)
     'north wing', 'south wing', 'east wing', 'west wing',
     'enlarged plan', 'enlarged floor', 'partial plan',
+    // Dimensioned / set-out plans — same floor as the primary floor plan, just annotated
+    'dimensioned plan', 'dimension plan', 'set out plan', 'set-out plan',
+    'dimensioned floor', 'dimension floor',
     // Non-floor plan types
     'ceiling height', 'reflected ceiling', 'ceiling plan', ' rcp',
     'roof plan',
@@ -356,6 +359,92 @@ function isHabitableAnalysisPage(page) {
   }
 
   return true;
+}
+
+// ── Cross-floor duplicate detection ───────────────────────────────────────────
+// After all pages are analysed, compare room name lists across floors.
+// If two "floors" share >70% of rooms by normalised name, they are almost certainly
+// the same physical floor shown on different drawing sheets (e.g. Ground Floor Plan
+// + Dimensioned Plan). Discard the one with fewer rooms and add a warning.
+const DUPLICATE_FLOOR_THRESHOLD = 0.70;
+
+function normaliseRoomName(name) {
+  return (name ?? '')
+    .toLowerCase()
+    .replace(/\bbedroom\b/g, 'bed')
+    .replace(/\broom\b/g, '')
+    .replace(/\bfloor\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function roomNamesFromResult(result) {
+  return [
+    ...(result.rooms?.supply   ?? []),
+    ...(result.rooms?.extract  ?? []),
+    ...(result.rooms?.transfer ?? []),
+    ...(result.rooms?.ignore   ?? []),
+  ].map(r => normaliseRoomName(r.name)).filter(Boolean);
+}
+
+function floorOverlapScore(namesA, namesB) {
+  if (!namesA.length || !namesB.length) return 0;
+  const setA = new Set(namesA);
+  const setB = new Set(namesB);
+  let matches = 0;
+  for (const n of setA) { if (setB.has(n)) matches++; }
+  return matches / Math.min(setA.size, setB.size);
+}
+
+function deduplicateFloors(successPages) {
+  if (successPages.length <= 1) return { pages: successPages, warnings: [] };
+
+  const warnings = [];
+  const discarded = new Set();
+
+  for (let i = 0; i < successPages.length; i++) {
+    if (discarded.has(i)) continue;
+    for (let j = i + 1; j < successPages.length; j++) {
+      if (discarded.has(j)) continue;
+
+      const namesI = roomNamesFromResult(successPages[i].result);
+      const namesJ = roomNamesFromResult(successPages[j].result);
+      const overlap = floorOverlapScore(namesI, namesJ);
+
+      if (overlap >= DUPLICATE_FLOOR_THRESHOLD) {
+        // Discard the one with fewer rooms (prefer the richer extraction).
+        const discardIdx = namesJ.length <= namesI.length ? j : i;
+        const keepIdx    = discardIdx === j ? i : j;
+
+        const discardLabel = successPages[discardIdx].sheetTitle
+          ?? successPages[discardIdx].floorName
+          ?? `Page ${successPages[discardIdx].pageNumber}`;
+        const keepLabel = successPages[keepIdx].sheetTitle
+          ?? successPages[keepIdx].floorName
+          ?? `Page ${successPages[keepIdx].pageNumber}`;
+
+        warnings.push(
+          `Possible duplicate floor extraction detected — "${discardLabel}" appears to be the same floor as "${keepLabel}" (${Math.round(overlap * 100)}% room name overlap). Rooms merged into "${keepLabel}".`
+        );
+        console.log(JSON.stringify({
+          event:          'auto-analyse:duplicate-floor-detected',
+          keepFloor:      keepLabel,
+          discardFloor:   discardLabel,
+          overlapScore:   Math.round(overlap * 100) / 100,
+          keptRoomCount:  namesI.length,
+          discardedRoomCount: namesJ.length,
+        }));
+
+        discarded.add(discardIdx);
+        if (discardIdx === i) break; // i was discarded — stop comparing i against further j
+      }
+    }
+  }
+
+  return {
+    pages:    successPages.filter((_, idx) => !discarded.has(idx)),
+    warnings,
+  };
 }
 
 export default async function handler(req, res) {
@@ -619,6 +708,7 @@ export default async function handler(req, res) {
         analysisResults.push({
           pageId:      pageUpdate.id,
           pageNumber:  page?.page_number,
+          sheetTitle:  page?.sheet_title ?? null,
           floorName:   pageUpdate.floor_name,   // canonical index-based name; AI-detected ignored (unreliable)
           floorIndex:  pageUpdate.floor_index,
           supplyCount: result.rooms?.supply?.length ?? 0,
@@ -690,11 +780,15 @@ export default async function handler(req, res) {
     // a single source of truth without needing to read plan_analysis_log.
     if (projectId) {
       try {
-        const successPages = analysisResults.filter(r => r.success && r.result);
+        const rawSuccessPages = analysisResults.filter(r => r.success && r.result);
+
+        // Cross-floor duplicate detection — discard pages that are re-drawings of an
+        // already-analysed floor (e.g. Dimensioned Plan duplicating Ground Floor Plan).
+        const { pages: successPages, warnings: dedupWarnings } = deduplicateFloors(rawSuccessPages);
 
         if (successPages.length > 0) {
           const mergedRooms = { supply: [], extract: [], transfer: [], ignore: [] };
-          const allWarnings = [], allAssumptions = [], allReviewCandidates = [];
+          const allWarnings = [...dedupWarnings], allAssumptions = [], allReviewCandidates = [];
           let totalBedSpaces = 0, totalPotential = 0;
 
           // ── Duplicate room detection ──────────────────────────────────────

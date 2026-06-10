@@ -845,6 +845,27 @@ Rules:
   • If the title is clearly visible: use it exactly (normalised to title case).
   • If no title is visible: use "Unknown Floor" and add a warning.
 
+════ MULTIPLE DRAWINGS OF THE SAME FLOOR ════
+Architectural drawing sets frequently include several sheets of the SAME floor:
+  e.g.  A1.0  Ground Floor Plan      ← primary
+        A1.1  Dimensioned Plan        ← same floor, annotated with dimensions
+        A1.3  Electrical Plan         ← same floor, annotated with electrical layouts
+
+You are given ONE sheet at a time. You do NOT know what other sheets exist.
+
+CRITICAL RULES:
+  • You are extracting rooms from ONE floor only.
+  • Do NOT invent additional floors because a room appears on a dimensioned or electrical sheet.
+  • A "Dimensioned Plan", "Set-Out Plan", "Electrical Plan", "Hydraulic Plan", "Services Plan",
+    or "Lighting Plan" is NOT a separate floor — it is the SAME floor shown with different annotations.
+  • If the sheet title says "Dimensioned", "Set Out", "Services", "Electrical", "Hydraulic",
+    "Lighting", "Furniture", "Finishes", or similar — read the rooms from the plan geometry
+    but treat them as belonging to the SAME floor as the corresponding primary floor plan.
+  • Do NOT create rooms with names like "Ground Floor Bedroom 2" — use "Bedroom 2" only.
+    Floor assignment is handled by the calling system, not by you.
+  • The number of DISTINCT floors must not exceed the number of clearly different floor levels
+    shown on THIS sheet (almost always 1).
+
 ════ STEP 1: READ EVERY ROOM LABEL ════
 Scan the entire plan. List every labelled space. Use the room name as "name" (title case).
 Do NOT return empty rooms[]. If a label is unclear, use a generic name and set confidence 0.5.
@@ -1454,6 +1475,13 @@ Also read the floor/sheet title printed on the plan and return it as "floorName"
 Normalise to title case (e.g. "FIRST FLOOR PLAN" → "First Floor").
 If no title is visible: use "Unknown Floor".
 Do NOT infer floor name from page order.
+
+IMPORTANT — ONE FLOOR PER SHEET:
+You are extracting rooms from ONE floor only — the floor shown on this sheet.
+A "Dimensioned Plan", "Set-Out Plan", "Electrical Plan", "Hydraulic Plan", or any
+annotated variant is the SAME floor as the corresponding primary floor plan.
+Do NOT create rooms named "Ground Floor Bedroom 2" — use "Bedroom 2" only.
+Floor assignment is handled by the calling system.
 
 Do NOT generate warnings about missing master bedrooms or incomplete occupancy — this sheet
 may be one of several floors in a multi-storey project.
