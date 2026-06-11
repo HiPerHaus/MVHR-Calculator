@@ -571,6 +571,9 @@ async function loadSavedDesign() {
       document.querySelectorAll('input[name=designMethod]').forEach(r => r.checked = r.value === m);
       updateMethodStyles();
       renderResults();
+      hideLoading();
+      qs('#mainContent').style.display = 'block';
+      qs('#recalcBtn').disabled = false;
     } else {
       qs('#loading').style.display = 'none';
       qs('#mainContent').style.display = 'block';
