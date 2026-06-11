@@ -41,12 +41,13 @@ const APP_URL            = (process.env.APP_URL ?? 'https://hiper-studio.au').re
 const EMAIL_FROM         = process.env.EMAIL_FROM ?? 'HiPer Studio <no-reply@hiper-studio.au>';
 
 // ── Internal auth ──────────────────────────────────────────────────────────
+// Fail CLOSED: if INTERNAL_API_SECRET is not set we reject the request rather
+// than falling back to a host-header check (host headers are trivially forgeable).
 function validateInternalToken(req) {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
-    console.warn('auto-analyse: INTERNAL_API_SECRET is not set — falling back to host check.');
-    const host = req.headers.host ?? '';
-    return host.includes('localhost') || host.includes('vercel.internal');
+    console.error('auto-analyse: INTERNAL_API_SECRET env var is not set — rejecting request. Set this variable in your Vercel project settings.');
+    return false;
   }
   return req.headers['x-internal-secret'] === secret;
 }

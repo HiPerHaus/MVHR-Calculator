@@ -42,21 +42,29 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors }           from '../../lib/cors.js';
+import { validateUuids, isUuid } from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const CANVAS_W = 1200;
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
-
 // ── Plant room detection ──────────────────────────────────────
 function isPlantRoom(name) {
   return /plant|services|laundry|garage|store|mech|mvhr|utility|plant\s*room/i.test(name ?? '');
+}
+
+// ── Terminal count per room ───────────────────────────────────
+// Determines how many terminals a room requires based on its airflow.
+// Rule: one 90mm terminal handles up to 40 m³/h.
+//   ≤40 m³/h  → 1 terminal
+//   >40–80    → 2 terminals
+//   >80–120   → 3 terminals
+//   >120      → ceil(airflow / 40) terminals
+function terminalCount(airflow_m3h) {
+  if (!airflow_m3h || airflow_m3h <= 0) return 1;
+  return Math.max(1, Math.ceil(airflow_m3h / 40));
 }
 
 // ── Trunk diameter sizing ─────────────────────────────────────
@@ -257,40 +265,62 @@ async function generateTerminalsOnly(supabase, projectId, userId) {
   const did          = design.id;
   const nodeInserts  = [];
 
-  // Supply terminals: one per supply room, distributed across their floor band
+  // Supply terminals: N terminals per room based on airflow (1 terminal per 40 m³/h).
+  // Multiple terminals for the same room are placed adjacently in the schematic.
   for (let fi = 0; fi < numFloors; fi++) {
-    const band    = floorBands[fi];
-    const floors  = supplyRooms.filter(r => r.floor_index === fi);
-    const spacing = floors.length > 0 ? (band.y_end - band.y_start) / (floors.length + 1) : 0;
-    floors.forEach((sr, i) => nodeInserts.push({
-      duct_design_id:   did,
-      node_type:        'supply_terminal',
-      project_room_id:  sr.project_room_id,
-      room_name:        sr.room_name,
-      floor_index:      fi,
-      x:                700,
-      y:                Math.round(band.y_start + spacing * (i + 1)),
-      airflow_m3h:      sr.airflow_m3h,
-      duct_diameter_mm: 90,
-    }));
+    const band  = floorBands[fi];
+    const rooms = supplyRooms.filter(r => r.floor_index === fi);
+    // Total terminal slots on this floor determines schematic spacing
+    const totalSlots = rooms.reduce((sum, r) => sum + terminalCount(r.airflow_m3h), 0);
+    const spacing    = totalSlots > 0 ? (band.y_end - band.y_start) / (totalSlots + 1) : 0;
+    let slotIdx = 0;
+    for (const sr of rooms) {
+      const N             = terminalCount(sr.airflow_m3h);
+      const flowPerTerm   = N > 1 ? Math.round(sr.airflow_m3h / N * 10) / 10 : sr.airflow_m3h;
+      for (let t = 0; t < N; t++) {
+        nodeInserts.push({
+          duct_design_id:   did,
+          node_type:        'supply_terminal',
+          project_room_id:  sr.project_room_id,
+          room_name:        sr.room_name,
+          floor_index:      fi,
+          x:                700,
+          y:                Math.round(band.y_start + spacing * (slotIdx + 1)),
+          airflow_m3h:      flowPerTerm,
+          duct_diameter_mm: 90,
+          metadata: N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: sr.airflow_m3h } : null,
+        });
+        slotIdx++;
+      }
+    }
   }
 
-  // Extract terminals: one per extract room
+  // Extract terminals: N terminals per room based on airflow.
   for (let fi = 0; fi < numFloors; fi++) {
-    const band    = floorBands[fi];
-    const floors  = extractRooms.filter(r => r.floor_index === fi);
-    const spacing = floors.length > 0 ? (band.y_end - band.y_start) / (floors.length + 1) : 0;
-    floors.forEach((er, i) => nodeInserts.push({
-      duct_design_id:   did,
-      node_type:        'extract_terminal',
-      project_room_id:  er.project_room_id,
-      room_name:        er.room_name,
-      floor_index:      fi,
-      x:                950,
-      y:                Math.round(band.y_start + spacing * (i + 1)),
-      airflow_m3h:      er.airflow_m3h,
-      duct_diameter_mm: 90,
-    }));
+    const band  = floorBands[fi];
+    const rooms = extractRooms.filter(r => r.floor_index === fi);
+    const totalSlots = rooms.reduce((sum, r) => sum + terminalCount(r.airflow_m3h), 0);
+    const spacing    = totalSlots > 0 ? (band.y_end - band.y_start) / (totalSlots + 1) : 0;
+    let slotIdx = 0;
+    for (const er of rooms) {
+      const N           = terminalCount(er.airflow_m3h);
+      const flowPerTerm = N > 1 ? Math.round(er.airflow_m3h / N * 10) / 10 : er.airflow_m3h;
+      for (let t = 0; t < N; t++) {
+        nodeInserts.push({
+          duct_design_id:   did,
+          node_type:        'extract_terminal',
+          project_room_id:  er.project_room_id,
+          room_name:        er.room_name,
+          floor_index:      fi,
+          x:                950,
+          y:                Math.round(band.y_start + spacing * (slotIdx + 1)),
+          airflow_m3h:      flowPerTerm,
+          duct_diameter_mm: 90,
+          metadata: N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: er.airflow_m3h } : null,
+        });
+        slotIdx++;
+      }
+    }
   }
 
   const { data: nodes, error: nodeErr } = await supabase.from('duct_nodes').insert(nodeInserts).select();
@@ -570,7 +600,7 @@ async function deleteDesign(supabase, projectId) {
 
 // ── Handler ───────────────────────────────────────────────────
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,PATCH,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -588,6 +618,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
 
     const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
@@ -615,6 +646,7 @@ export default async function handler(req, res) {
     const { projectId, action } = body;
     const manifoldMode = body.manifoldMode ?? 'single';
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
 
     const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });
@@ -681,6 +713,19 @@ export default async function handler(req, res) {
         const { from_node_id, to_node_id, run_type = 'supply' } = body;
         if (!from_node_id || !to_node_id) return res.status(400).json({ error: 'from_node_id and to_node_id required' });
 
+        // Validate UUIDs before touching DB
+        const uuidCheck = validateUuids({ from_node_id, to_node_id });
+        if (!uuidCheck.valid) return res.status(400).json({ error: uuidCheck.error });
+
+        // Ownership: both nodes must belong to this design
+        const { data: nodeCheck } = await supabase
+          .from('duct_nodes')
+          .select('id')
+          .eq('duct_design_id', designId)
+          .in('id', [from_node_id, to_node_id]);
+        if (!nodeCheck || nodeCheck.length !== 2)
+          return res.status(403).json({ error: 'One or both nodes do not belong to this design' });
+
         const DIAM_MAP = { supply: 90, extract: 90, intake: 160, exhaust: 160 };
         const { data: run, error } = await supabase
           .from('duct_runs')
@@ -698,8 +743,11 @@ export default async function handler(req, res) {
 
         const { node_id } = body;
         if (!node_id) return res.status(400).json({ error: 'node_id required' });
+        if (!isUuid(node_id)) return res.status(400).json({ error: 'Invalid node_id: must be a UUID' });
 
-        await supabase.from('duct_runs').delete().eq('duct_design_id', designId).or(`from_node_id.eq.${node_id},to_node_id.eq.${node_id}`);
+        // Use parameterised filters instead of .or() string interpolation
+        await supabase.from('duct_runs').delete().eq('duct_design_id', designId).eq('from_node_id', node_id);
+        await supabase.from('duct_runs').delete().eq('duct_design_id', designId).eq('to_node_id',   node_id);
         const { error } = await supabase.from('duct_nodes').delete().eq('id', node_id).eq('duct_design_id', designId);
         if (error) return res.status(500).json({ error: error.message });
         return res.status(200).json({ ok: true });
@@ -722,6 +770,7 @@ export default async function handler(req, res) {
     const body = req.body ?? {};
     const { projectId, nodes, runs, status, designJson } = body;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
 
     const { data: proj } = await supabase.from('projects').select('id').eq('id', projectId).eq('user_id', user.id).maybeSingle();
     if (!proj) return res.status(403).json({ error: 'Project not found or access denied' });

@@ -7,6 +7,9 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors }          from '../../lib/cors.js';
+import { requireProjectOwner } from '../../lib/requireProjectOwner.js';
+import { isUuid, validateUuids } from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -27,34 +30,24 @@ function pick(obj, keys) {
   return out;
 }
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
-
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,PATCH,DELETE,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return res.status(500).json({ error: 'Missing Supabase environment variables' });
   }
 
-  // ── Auth ──────────────────────────────────────────────────
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
-
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-  // Verify the token and get user
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
   // ── GET — list rooms for a project ───────────────────────
   if (req.method === 'GET') {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
+
+    const { user, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+    if (errorResponse) return;
 
     const { data, error } = await supabase
       .from('project_rooms')
@@ -72,6 +65,10 @@ export default async function handler(req, res) {
     const body = req.body || {};
     const { projectId } = body;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
+
+    const { user, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+    if (errorResponse) return;
 
     // Validate
     if (body.room_type && !VALID_ROOM_TYPES.includes(body.room_type))
@@ -98,6 +95,13 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'id required' });
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id: must be a UUID' });
+
+    // Auth (PATCH uses user_id on the row itself as the ownership guard)
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
     const body = req.body || {};
 
@@ -131,6 +135,13 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'id required' });
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id: must be a UUID' });
+
+    // Auth
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
     const { error } = await supabase
       .from('project_rooms')

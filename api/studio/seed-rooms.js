@@ -19,15 +19,12 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors }           from '../../lib/cors.js';
+import { requireProjectOwner }  from '../../lib/requireProjectOwner.js';
+import { isUuid }               from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
 
 // ── Room-content floor deduplication (for plan_analysis_log fallback path) ──
 // If two analysed floors share >70% of room names (after normalisation) they are
@@ -126,7 +123,7 @@ function emitRoomsFromObject({ roomsObj, floor, projectId, userId, rows, startOr
 }
 
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -134,24 +131,23 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Missing Supabase environment variables' });
   }
 
-  // ── Auth ──────────────────────────────────────────────────
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
-
   // ── Validate input ─────────────────────────────────────────
   const { projectId } = req.body || {};
   if (!projectId) return res.status(400).json({ error: 'projectId required' });
+  if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
 
-  // ── Load project ───────────────────────────────────────────
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── Auth + ownership ──────────────────────────────────────
+  const { user, project: ownedProject, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+  if (errorResponse) return;
+
+  // ── Load project (need ai_analysis_json) ──────────────────
   const { data: project, error: projErr } = await supabase
     .from('projects')
     .select('id, ai_analysis_json')
     .eq('id', projectId)
+    .eq('user_id', user.id)
     .single();
 
   if (projErr || !project) return res.status(404).json({ error: 'Project not found' });

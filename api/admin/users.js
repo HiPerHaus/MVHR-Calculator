@@ -30,7 +30,9 @@ export default async function handler(req, res) {
 
   const page  = Math.max(0, parseInt(req.query.page  || '0'));
   const limit = Math.min(100, parseInt(req.query.limit || '50'));
-  const q     = (req.query.q || '').trim().toLowerCase();
+  // Sanitise the search term: strip characters that have special meaning in
+  // PostgREST .or() / .ilike() filter strings before interpolation.
+  const q = (req.query.q || '').trim().toLowerCase().replace(/[%_*()[\]{}\\'"`,;]/g, '');
 
   // Fetch all auth users to get invite/sign-in status
   let authUsers = [];

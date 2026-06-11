@@ -8,6 +8,21 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit, applyRateLimit } from '../../lib/rate-limit.js';
 
+// Allowed origins for Stripe success/cancel redirect URLs.
+// An untrusted origin from the request must not become part of these URLs.
+const ALLOWED_CHECKOUT_ORIGINS = [
+  'https://hiper-studio.au',
+  'https://www.hiper-studio.au',
+];
+const CHECKOUT_ORIGIN_RE = /^https?:\/\/localhost(:\d+)?$/;
+
+function safeCheckoutOrigin(reqOrigin) {
+  if (reqOrigin && ALLOWED_CHECKOUT_ORIGINS.includes(reqOrigin)) return reqOrigin;
+  if (reqOrigin && CHECKOUT_ORIGIN_RE.test(reqOrigin)) return reqOrigin;
+  // Fall back to hard-coded APP_URL env var; never reflect an untrusted origin.
+  return (process.env.APP_URL ?? 'https://hiper-studio.au').replace(/\/$/, '');
+}
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -60,7 +75,7 @@ export default async function handler(req, res) {
     companyId = profile.company_id;
   }
 
-  const origin = req.headers.origin || process.env.APP_URL;
+  const origin = safeCheckoutOrigin(req.headers.origin);
 
   const metadata = {
     user_id:    user.id,

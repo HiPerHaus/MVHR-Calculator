@@ -19,15 +19,12 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors }           from '../../lib/cors.js';
+import { requireProjectOwner }  from '../../lib/requireProjectOwner.js';
+import { isUuid }               from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
 
 // ── Helpers ───────────────────────────────────────────────────
 const r1  = v  => Math.round(v  * 10) / 10;
@@ -803,24 +800,23 @@ function enrichRooms(rows) {
 
 // ── Handler ───────────────────────────────────────────────────
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,PATCH,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return res.status(500).json({ error: 'Missing Supabase environment variables' });
   }
 
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
-
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
 
   // ── GET — load saved design ──────────────────────────────────
   if (req.method === 'GET') {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
+
+    const { user, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+    if (errorResponse) return;
 
     const { data: design, error: dErr } = await supabase
       .from('airflow_designs')
@@ -872,6 +868,10 @@ export default async function handler(req, res) {
     const designMethod = body.designMethod ?? 'passive_house';
 
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
+
+    const { user, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+    if (errorResponse) return;
 
     // ── Shortcut: unit selection only (no recalculation) ─────────
     if ('selectedUnitId' in body) {
