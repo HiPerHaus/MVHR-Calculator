@@ -583,6 +583,7 @@ let _recalculating = false;
 async function recalculate() {
   if (_recalculating) return;
   _recalculating = true;
+  qs('#recalcBtn').disabled = true;
   showLoading();
   document.getElementById('recalcBar').style.display = 'none';
   const method = document.querySelector('input[name=designMethod]:checked')?.value ?? 'passive_house';
