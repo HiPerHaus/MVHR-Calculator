@@ -398,6 +398,24 @@ export default async function handler(req, res) {
       });
     }
 
+    // Verify parent design row exists before inserting child airflow_rooms
+    const { data: designCheck, error: designCheckErr } = await supabase
+      .from('airflow_designs')
+      .select('id')
+      .eq('id', design.id)
+      .maybeSingle();
+
+    if (designCheckErr || !designCheck) {
+      console.error('airflow:parent-design-missing-before-rooms', {
+        designId: design?.id,
+        designCheckErr
+      });
+
+      return res.status(500).json({
+        error: `Airflow design parent row missing before room insert. designId=${design?.id}`
+      });
+    }
+
     // ── Insert room rows ───────────────────────────────────────
     const roomRows = calc.roomResults.map(r => ({
       airflow_design_id: design.id,
