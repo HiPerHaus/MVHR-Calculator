@@ -369,10 +369,8 @@ export default async function handler(req, res) {
         area_data_available:    calc.hasAreaData,
         // Design airflow
         design_airflow_m3h:     calc.designFlowM3h,
-        design_airflow_lps:     calc.designFlowLps,
-        design_driver:          calc.designDriver,
-        // ACH compliance (P1.3)
-        total_volume_m3:        calc.hasVolumeData ? calc.totalVolumeM3 : null,
+        design_airflow_lps:     calc.designFlowLps,// ACH compliance (P1.3)
+        treated_volume_m3: calc.hasVolumeData ? calc.totalVolumeM3 : null,
         ach_at_design:          calc.achAtDesign,
         ach_passes:             calc.achPasses,
         // Room totals (after balancing)
