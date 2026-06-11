@@ -570,7 +570,10 @@ async function loadSavedDesign() {
       updateMethodStyles();
       renderResults();
     } else {
-      await recalculate(); // no saved design → calculate fresh
+      qs('#loading').style.display = 'none';
+      qs('#mainContent').style.display = 'block';
+      qs('#recalcBtn').disabled = false;
+      console.warn('No saved airflow design found — waiting for manual recalculation.');
     }
   } catch(e) {
     console.error('loadSavedDesign', e);
