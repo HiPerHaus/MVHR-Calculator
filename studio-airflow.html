@@ -533,6 +533,9 @@ async function init() {
             </div>`
           ).join('');
 
+          hideLoading();
+          qs('#mainContent').style.display = 'block';
+          qs('#recalcBtn').disabled = false;
           modal.style.display = 'flex';
 
           contBtn.addEventListener('click', () => {
