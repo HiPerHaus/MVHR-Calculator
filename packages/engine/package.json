@@ -1,0 +1,17 @@
+{
+  "name": "@hiper/engine",
+  "version": "1.0.0",
+  "description": "HiPer Studio MVHR airflow calculation engine — pure functions, no I/O.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./calculate": "./calculate.js",
+    "./units": "./units.js",
+    "./ach": "./ach.js",
+    "./constants": "./constants.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

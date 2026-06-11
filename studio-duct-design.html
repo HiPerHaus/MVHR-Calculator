@@ -981,17 +981,29 @@ function ensurePlanPositions() {
       x_pct = (mvhr?.metadata?.plan?.x_pct ?? 8) + 5;
       y_pct = (mvhr?.metadata?.plan?.y_pct ?? 50) + 6;
     } else if (n.node_type === 'supply_terminal') {
-      const arr = nodesByFloor[fi]?.supply ?? [];
-      const idx = arr.indexOf(n);
-      const total = arr.length;
-      x_pct = 35 + (idx / Math.max(total, 1)) * 50;
-      y_pct = 20 + (idx % 4) * 18;
+      const arr      = nodesByFloor[fi]?.supply ?? [];
+      // Group by project_room_id to position rooms first, then spread terminals within each room
+      const roomIds  = [...new Set(arr.map(t => t.project_room_id))];
+      const roomIdx  = roomIds.indexOf(n.project_room_id);
+      const totalRooms = roomIds.length;
+      const baseX    = 35 + (roomIdx / Math.max(totalRooms, 1)) * 50;
+      const baseY    = 20 + (roomIdx % 4) * 18;
+      const N        = n.metadata?.terminal_count ?? 1;
+      const t        = n.metadata?.terminal_index ?? 0;
+      // Spread multi-terminal nodes horizontally ±3% around room base position
+      x_pct = baseX + (N > 1 ? (t - (N - 1) / 2) * 3 : 0);
+      y_pct = baseY;
     } else if (n.node_type === 'extract_terminal') {
-      const arr = nodesByFloor[fi]?.extract ?? [];
-      const idx = arr.indexOf(n);
-      const total = arr.length;
-      x_pct = 35 + (idx / Math.max(total, 1)) * 50;
-      y_pct = 60 + (idx % 3) * 14;
+      const arr      = nodesByFloor[fi]?.extract ?? [];
+      const roomIds  = [...new Set(arr.map(t => t.project_room_id))];
+      const roomIdx  = roomIds.indexOf(n.project_room_id);
+      const totalRooms = roomIds.length;
+      const baseX    = 35 + (roomIdx / Math.max(totalRooms, 1)) * 50;
+      const baseY    = 60 + (roomIdx % 3) * 14;
+      const N        = n.metadata?.terminal_count ?? 1;
+      const t        = n.metadata?.terminal_index ?? 0;
+      x_pct = baseX + (N > 1 ? (t - (N - 1) / 2) * 3 : 0);
+      y_pct = baseY;
     } else {
       x_pct = 50; y_pct = 50;
     }
@@ -1169,8 +1181,16 @@ function planNodeShortLabel(n) {
     case 'comfowell_extract': return 'CW-E';
     case 'external_intake':   return '↓';
     case 'external_exhaust':  return '↑';
-    case 'supply_terminal':   return truncate(n.room_name ?? 'S', 3);
-    case 'extract_terminal':  return truncate(n.room_name ?? 'E', 3);
+    case 'supply_terminal': {
+      const N = n.metadata?.terminal_count;
+      if (N > 1) return `${(n.metadata.terminal_index ?? 0) + 1}/${N}`;
+      return truncate(n.room_name ?? 'S', 3);
+    }
+    case 'extract_terminal': {
+      const N = n.metadata?.terminal_count;
+      if (N > 1) return `${(n.metadata.terminal_index ?? 0) + 1}/${N}`;
+      return truncate(n.room_name ?? 'E', 3);
+    }
     default: return '?';
   }
 }
@@ -1850,8 +1870,16 @@ function nodeLabel(n) {
     case 'comfowell_extract': return 'CW Extract';
     case 'external_intake':   return 'Intake';
     case 'external_exhaust':  return 'Exhaust';
-    case 'supply_terminal':   return n.room_name ? truncate(n.room_name, 10) : 'Supply';
-    case 'extract_terminal':  return n.room_name ? truncate(n.room_name, 10) : 'Extract';
+    case 'supply_terminal': {
+      const base = n.room_name ? truncate(n.room_name, 12) : 'Supply';
+      const N = n.metadata?.terminal_count;
+      return N > 1 ? `${base} (${(n.metadata.terminal_index ?? 0) + 1}/${N})` : base;
+    }
+    case 'extract_terminal': {
+      const base = n.room_name ? truncate(n.room_name, 12) : 'Extract';
+      const N = n.metadata?.terminal_count;
+      return N > 1 ? `${base} (${(n.metadata.terminal_index ?? 0) + 1}/${N})` : base;
+    }
     default:                  return n.room_name ?? n.node_type;
   }
 }
@@ -2008,11 +2036,16 @@ function renderRectNode(g, node, W, H, fill, textFill, isSel) {
 function renderCircleNode(g, node, r, fill, textFill, isSel) {
   if (isSel) { const ring=svgEl('circle'); ring.setAttribute('cx',node.x); ring.setAttribute('cy',node.y); ring.setAttribute('r',r+5); ring.setAttribute('fill','none'); ring.setAttribute('stroke','#f59e0b'); ring.setAttribute('stroke-width','3'); g.appendChild(ring); }
   const circ=svgEl('circle'); circ.setAttribute('cx',node.x); circ.setAttribute('cy',node.y); circ.setAttribute('r',r); circ.setAttribute('fill',fill); circ.setAttribute('fill-opacity','0.85'); g.appendChild(circ);
-  const shortLabel = node.room_name ? truncate(node.room_name,4) : nodeLabel(node);
+  const _termN = node.metadata?.terminal_count;
+  const _termT = node.metadata?.terminal_index ?? 0;
+  const shortLabel = (_termN > 1)
+    ? `${_termT + 1}/${_termN}`
+    : (node.room_name ? truncate(node.room_name, 4) : nodeLabel(node));
   g.appendChild(svgText(node.x,node.y+4,shortLabel,textFill,9,'700'));
   if (node.node_type==='supply_terminal'||node.node_type==='extract_terminal') {
-    const fullName = node.room_name ? truncate(node.room_name,12) : '';
-    if (fullName) { const sub=svgText(node.x,node.y+r+13,fullName,'#374151',9,'600'); sub.setAttribute('pointer-events','none'); g.appendChild(sub); }
+    const baseName   = node.room_name ? truncate(node.room_name, _termN > 1 ? 8 : 12) : '';
+    const displayName = (_termN > 1 && baseName) ? `${baseName} ${_termT + 1}/${_termN}` : baseName;
+    if (displayName) { const sub=svgText(node.x,node.y+r+13,displayName,'#374151',9,'600'); sub.setAttribute('pointer-events','none'); g.appendChild(sub); }
     if (node.airflow_m3h>0) { const af=svgText(node.x,node.y+r+25,`${node.airflow_m3h} m³/h`,'#6b7280',9,'500'); af.setAttribute('pointer-events','none'); g.appendChild(af); }
   }
 }

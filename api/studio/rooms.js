@@ -19,6 +19,7 @@ const WRITABLE_FIELDS = [
   'name', 'floor', 'room_type', 'area', 'classification',
   'bed_spaces', 'optional_supply', 'optional_extract',
   'confidence', 'requires_manual_review', 'source', 'sort_order', 'is_confirmed',
+  'ceiling_height_m',  // P1.3: used for ACH compliance check (default 2.4 m in engine)
 ];
 
 const VALID_ROOM_TYPES       = ['bedroom','living','dining','kitchen','kitchenette','wet_area','laundry','office','gym','robe','circulation','service','other'];
