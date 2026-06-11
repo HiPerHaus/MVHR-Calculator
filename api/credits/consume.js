@@ -6,6 +6,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { rateLimit, applyRateLimit } from '../../lib/rate-limit.js';
+import { isUuid } from '../../lib/validateUuid.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -14,11 +15,6 @@ const supabase = createClient(
 
 // 30 consume attempts per user per minute (per instance — see lib/rate-limit.js)
 const limiter = rateLimit({ windowMs: 60_000, max: 30 });
-
-function isUuid(value) {
-  return typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

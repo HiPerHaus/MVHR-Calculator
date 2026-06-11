@@ -30,12 +30,13 @@ const BUCKET         = 'plan-uploads';
 const TOKENS_PER_PAGE = 400; // increased budget for new richer output (planType + sheetTitle + detectedFloor)
 
 // ── Internal auth ─────────────────────────────────────────────────────────
+// Fail CLOSED: if INTERNAL_API_SECRET is not set we reject rather than
+// falling back to host-header validation (host headers are trivially forgeable).
 function validateInternalToken(req) {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
-    console.warn('classify-pages: INTERNAL_API_SECRET is not set. Falling back to host check — set this env var in production.');
-    const host = req.headers.host ?? '';
-    return host.includes('localhost') || host.includes('vercel.internal');
+    console.error('classify-pages: INTERNAL_API_SECRET env var is not set — rejecting request. Set this variable in your Vercel project settings.');
+    return false;
   }
   return req.headers['x-internal-secret'] === secret;
 }

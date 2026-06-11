@@ -782,6 +782,11 @@ export default async function handler(req, res) {
     const errors = [];
 
     if (Array.isArray(nodes) && nodes.length > 0) {
+      // Validate all node IDs up-front; reject the whole request on first bad ID
+      for (const n of nodes) {
+        if (!n.id) continue; // skip items with no id (no-op)
+        if (!isUuid(n.id)) return res.status(400).json({ error: `Invalid node id "${n.id}": must be a UUID` });
+      }
       for (const n of nodes) {
         if (!n.id) continue;
         const update = {};
@@ -797,6 +802,11 @@ export default async function handler(req, res) {
     }
 
     if (Array.isArray(runs) && runs.length > 0) {
+      // Validate all run IDs up-front
+      for (const r of runs) {
+        if (!r.id) continue;
+        if (!isUuid(r.id)) return res.status(400).json({ error: `Invalid run id "${r.id}": must be a UUID` });
+      }
       for (const r of runs) {
         if (!r.id) continue;
         const update = {};

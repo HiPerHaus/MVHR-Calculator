@@ -9,7 +9,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { applyCors }          from '../../lib/cors.js';
 import { requireProjectOwner } from '../../lib/requireProjectOwner.js';
-import { isUuid, validateUuids } from '../../lib/validateUuid.js';
+import { isUuid } from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -97,15 +97,9 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id: must be a UUID' });
 
-    // Auth (PATCH uses user_id on the row itself as the ownership guard)
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
-
     const body = req.body || {};
 
-    // Validate
+    // Validate fields first (cheap, no DB round-trip)
     if (body.room_type && !VALID_ROOM_TYPES.includes(body.room_type))
       return res.status(400).json({ error: `Invalid room_type: ${body.room_type}` });
     if (body.classification && !VALID_CLASSIFICATIONS.includes(body.classification))
@@ -118,16 +112,27 @@ export default async function handler(req, res) {
     if (Object.keys(fields).length === 0)
       return res.status(400).json({ error: 'No updatable fields provided' });
 
+    // Load room to get its project_id — required for ownership check
+    const { data: existing } = await supabase
+      .from('project_rooms')
+      .select('id, project_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Room not found' });
+
+    // Verify the caller owns the project that contains this room
+    const { user, errorResponse } = await requireProjectOwner(req, res, supabase, existing.project_id);
+    if (errorResponse) return;
+
     const { data, error } = await supabase
       .from('project_rooms')
       .update(fields)
       .eq('id', id)
-      .eq('user_id', user.id)   // RLS + explicit guard
       .select()
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
-    if (!data)  return res.status(404).json({ error: 'Room not found or access denied' });
+    if (!data)  return res.status(404).json({ error: 'Room not found' });
     return res.status(200).json({ room: data });
   }
 
@@ -137,17 +142,22 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: 'id required' });
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id: must be a UUID' });
 
-    // Auth
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
+    // Load room to get its project_id — required for ownership check
+    const { data: existing } = await supabase
+      .from('project_rooms')
+      .select('id, project_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Room not found' });
+
+    // Verify the caller owns the project that contains this room
+    const { errorResponse } = await requireProjectOwner(req, res, supabase, existing.project_id);
+    if (errorResponse) return;
 
     const { error } = await supabase
       .from('project_rooms')
       .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
+      .eq('id', id);
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ ok: true });
