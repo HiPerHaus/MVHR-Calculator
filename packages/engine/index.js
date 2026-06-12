@@ -14,3 +14,17 @@ export { calcExtractDemandNominal, calcBoostDemand } from './extract.js';
 export { balanceDesign } from './balance.js';
 export { allocateRooms } from './allocation.js';
 export { DEFAULT_ROOM_RATES, PHI_MIN_ACH, PHI_MIN_HR_EFF, PHI_MAX_SFP } from './constants.js';
+export {
+  STANDARD_DIAMETERS_MM, PH_VELOCITY_LIMITS_MS,
+  ductAreaM2, calcVelocityMs, minDiameterMm,
+  selectDiameterMm, velocityStatus, diameterToDuctType,
+} from './duct.js';
+export {
+  DUCT_ROUGHNESS_MM,
+  frictionFactor, segmentPressurePa, specificResistancePam,
+  flowFromVelocity, calcSystemPressure, systemPressureStatus,
+} from './pressure.js';
+export {
+  ACOUSTIC_BASE_DBA, ACOUSTIC_THRESHOLDS,
+  terminalDbaEstimate, isBedroom, acousticStatus,
+} from './acoustic.js';

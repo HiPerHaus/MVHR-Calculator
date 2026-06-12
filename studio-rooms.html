@@ -75,11 +75,12 @@ header {
   padding: 14px 20px; border: none; background: none; cursor: pointer;
   font-size: 13px; font-weight: 600; color: var(--muted);
   border-bottom: 3px solid transparent; white-space: nowrap;
-  transition: color .15s;
+  transition: color .15s; text-decoration: none;
 }
 .stage-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 .stage-btn.done   { color: var(--accent); }
-.stage-btn.locked { cursor: default; opacity: .45; }
+.stage-btn.locked { cursor: default; opacity: .45; pointer-events: none; }
+.stage-btn.settings-link { margin-left: auto; color: var(--muted); }
 .stage-num {
   width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
@@ -363,7 +364,7 @@ tr.review-row:hover td { background: #fef3c7; }
 </header>
 
 <!-- ── Stage navigation ── -->
-<nav class="stage-nav">
+<nav class="stage-nav" id="stageNav" style="display:none">
   <a class="stage-btn done" href="/studio/projects">
     <span class="stage-num">✓</span> New/Open
   </a>
@@ -373,22 +374,22 @@ tr.review-row:hover td { background: #fef3c7; }
   <a class="stage-btn done" id="stageBtn1" href="#">
     <span class="stage-num">✓</span> Upload Plans
   </a>
-  <button class="stage-btn active">
+  <a class="stage-btn active" href="#">
     <span class="stage-num">3</span> Room Schedule
-  </button>
-  <button class="stage-btn locked" disabled>
+  </a>
+  <a class="stage-btn locked" id="stageBtn3" href="#">
     <span class="stage-num">4</span> Airflow Design
-  </button>
-  <button class="stage-btn locked" disabled>
+  </a>
+  <a class="stage-btn locked" id="stageBtn4" href="#">
     <span class="stage-num">5</span> Unit Selection
-  </button>
-  <button class="stage-btn locked" disabled>
+  </a>
+  <a class="stage-btn locked" id="stageBtn5" href="#">
     <span class="stage-num">6</span> System Layout
-  </button>
-  <button class="stage-btn locked" disabled>
+  </a>
+  <a class="stage-btn locked" id="stageBtn6" href="#">
     <span class="stage-num">7</span> BOM &amp; Export
-  </button>
-  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" href="/studio/settings">⚙ Settings</a>
+  </a>
+  <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main content ── -->
@@ -643,6 +644,7 @@ async function init() {
     _session = session;
     document.getElementById('loginOverlay').classList.add('hidden');
     document.getElementById('headerUser').textContent = session.user.email;
+    document.getElementById('stageNav').style.display = 'flex';
     await loadPage();
   } else {
     document.getElementById('loginOverlay').classList.add('show-login');
@@ -671,12 +673,30 @@ async function loadPage() {
     _confirmed = !!project.schedule_confirmed_at;
 
     // Wire up stage nav links
-    const s0 = document.getElementById('stageBtn0');
-    if (s0) s0.href = `/studio/projects/${_projectId}/details`;
-    const s1 = document.getElementById('stageBtn1');
-    if (s1) s1.href = `/studio/projects/${_projectId}/upload`;
-    const _sl = document.querySelector('a[href="/studio/settings"]');
-    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
+    document.getElementById('stageBtn0').href  = `/studio/projects/${_projectId}/details`;
+    document.getElementById('stageBtn1').href  = `/studio/projects/${_projectId}/upload`;
+    document.getElementById('stageBtn3').href  = `/studio/projects/${_projectId}/airflow`;
+    document.getElementById('stageBtn4').href  = `/studio/projects/${_projectId}/unit-selection`;
+    document.getElementById('stageBtn5').href  = `/studio/projects/${_projectId}/duct-design`;
+    document.getElementById('stageBtn6').href  = `/studio/projects/${_projectId}/bom`;
+    document.getElementById('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
+
+    // Restore downstream stage state for returning visitors
+    const { data: design } = await sb
+      .from('airflow_designs')
+      .select('id, selected_unit_id')
+      .eq('project_id', _projectId)
+      .maybeSingle();
+    if (design) {
+      const s3 = document.getElementById('stageBtn3');
+      s3.classList.replace('locked', 'done');
+      s3.querySelector('.stage-num').textContent = '✓';
+      if (design.selected_unit_id) {
+        const s4 = document.getElementById('stageBtn4');
+        s4.classList.replace('locked', 'done');
+        s4.querySelector('.stage-num').textContent = '✓';
+      }
+    }
 
     // Load or seed rooms
     const { rooms } = await apiGet(`${API_BASE}/rooms?projectId=${_projectId}`);
@@ -1122,8 +1142,9 @@ function showConfirmedState() {
   card.querySelector('p').textContent  = 'Airflow calculations will use this confirmed room schedule. You can edit rooms and re-confirm at any time.';
   document.getElementById('confirmBtn').textContent = 'Re-confirm Room Schedule';
   document.getElementById('confirmBtn').disabled    = false;
-  // Unlock Stage 3
-  document.querySelectorAll('.stage-btn.locked')[0]?.classList.remove('locked');
+  // Unlock Airflow Design stage
+  const s3 = document.getElementById('stageBtn3');
+  s3.classList.remove('locked');
 }
 
 // ── Save indicator ────────────────────────────────────────────

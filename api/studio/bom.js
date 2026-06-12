@@ -15,15 +15,13 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 }
 
-// ── EPP duct sizing ──────────────────────────────────────────
-// Based on MVHR unit's max airflow:
-//   ≤ 250 m³/h  → 125 mm EPP
-//   ≤ 450 m³/h  → 160 mm EPP
-//   > 450 m³/h  → 160 mm EPP runs + 200 mm EPP wall sleeve
-function eppSpec(flowMax) {
-  if (!flowMax || flowMax <= 250) return { diameter_mm: 125, wallSleeve: false };
-  if (flowMax <= 450)             return { diameter_mm: 160, wallSleeve: false };
-  return                                 { diameter_mm: 160, wallSleeve: true  };
+// ── EPP external duct diameter (fallback only) ───────────────
+// Used only when no intake/exhaust runs exist yet.
+// Actual diameter is read from duct_runs.diameter_mm when available.
+function eppSpecFallback(flowMax) {
+  if (!flowMax || flowMax <= 250) return 125;
+  if (flowMax <= 450)             return 160;
+  return 200;
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -31,36 +29,58 @@ function ceilHalf(n) { return Math.ceil(n * 2) / 2; }   // round up to nearest 0
 
 // ── BOM computation ──────────────────────────────────────────
 function computeBom({ design, nodes, runs, unit }) {
-  // — Terminals & manifolds —
+  // — Terminals & distribution nodes —
   const count = (type) => nodes.filter(n => n.node_type === type).length;
-  const supplyTerminals   = count('supply_terminal');
-  const extractTerminals  = count('extract_terminal');
-  const supplyManifolds   = count('supply_manifold');
-  const extractManifolds  = count('extract_manifold');
-  const intakeGrilles     = count('external_intake');
-  const exhaustGrilles    = count('external_exhaust');
+  const supplyTerminals  = count('supply_terminal');
+  const extractTerminals = count('extract_terminal');
+  const supplyManifolds  = count('supply_manifold');
+  const extractManifolds = count('extract_manifold');
+  // Zehnder ComfoWell 320 distribution modules
+  const comfowellSupply  = count('comfowell_supply');
+  const comfowellExtract = count('comfowell_extract');
+  const intakeGrilles    = count('external_intake');
+  const exhaustGrilles   = count('external_exhaust');
 
-  // — Duct lengths —
-  const runLength = (type) => runs
-    .filter(r => r.run_type === type)
-    .reduce((s, r) => s + (Number(r.length_m) || 0), 0);
+  // — Internal duct: group supply + extract runs by duct_type ─
+  const internalRuns = runs.filter(r => r.run_type === 'supply' || r.run_type === 'extract');
+  const groupMap = {};
+  for (const r of internalRuns) {
+    const key = r.duct_type ?? 'semi_rigid_90';
+    groupMap[key] = (groupMap[key] ?? 0) + (Number(r.length_m) || 0);
+  }
+  // Ensure at least one group so the ductwork section always renders
+  if (Object.keys(groupMap).length === 0) groupMap['semi_rigid_90'] = 0;
 
-  const supplyLength  = runLength('supply');
-  const extractLength = runLength('extract');
-  const intakeLength  = runLength('intake');
-  const exhaustLength = runLength('exhaust');
+  // Sort: semi-rigid first, then EPP by diameter
+  const DUCT_ORDER = ['semi_rigid_90', 'epp_160', 'epp_180', 'epp_200', 'epp_250', 'epp_315'];
+  const internal = Object.entries(groupMap)
+    .sort(([a], [b]) => {
+      const ai = DUCT_ORDER.indexOf(a);
+      const bi = DUCT_ORDER.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    })
+    .map(([ductType, measured]) => {
+      const m = round2(measured);
+      const b = round2(m * 0.20);
+      const t = ceilHalf(m + b);
+      return { ductType, measured_m: m, bendsAllowance_m: b, total_m: t };
+    });
 
-  const semiRigidMeasured   = round2(supplyLength + extractLength);
-  const semiRigidBends      = round2(semiRigidMeasured * 0.20);
-  const semiRigidTotal      = ceilHalf(semiRigidMeasured + semiRigidBends);
+  // — External duct (intake + exhaust) ─────────────────────────
+  const intakeRuns  = runs.filter(r => r.run_type === 'intake');
+  const exhaustRuns = runs.filter(r => r.run_type === 'exhaust');
 
-  const eppIntake  = round2(intakeLength);
-  const eppExhaust = round2(exhaustLength);
-  const eppTotal   = ceilHalf(eppIntake + eppExhaust);
+  const intakeLength  = round2(intakeRuns .reduce((s, r) => s + (Number(r.length_m) || 0), 0));
+  const exhaustLength = round2(exhaustRuns.reduce((s, r) => s + (Number(r.length_m) || 0), 0));
 
-  const { diameter_mm: eppDiameter, wallSleeve } = eppSpec(unit?.flow_max);
+  // Prefer actual run diameter; fall back to flow-based estimate
+  const eppDiameter = intakeRuns[0]?.diameter_mm
+    ?? exhaustRuns[0]?.diameter_mm
+    ?? eppSpecFallback(unit?.flow_max);
 
-  // Wall sleeve: 1 m per external grille point when unit requires >160 mm connection
+  // Wall sleeve only needed for diameters > 160 mm
+  const wallSleeve    = eppDiameter > 160;
+  const eppTotal      = ceilHalf(intakeLength + exhaustLength);
   const wallSleeveQty = wallSleeve ? (intakeGrilles + exhaustGrilles) : 0;
 
   return {
@@ -80,21 +100,20 @@ function computeBom({ design, nodes, runs, unit }) {
       extractTerminals,
       supplyManifolds,
       extractManifolds,
+      comfowellSupply,
+      comfowellExtract,
       intakeGrilles,
       exhaustGrilles,
     },
 
     ductwork: {
-      semiRigid: {
-        diameter_mm:       90,
-        measured_m:        semiRigidMeasured,
-        bendsAllowance_m:  semiRigidBends,
-        total_m:           semiRigidTotal,
-      },
+      // Array of { ductType, measured_m, bendsAllowance_m, total_m }
+      // One entry per duct product type found in the design.
+      internal,
       epp: {
         diameter_mm: eppDiameter,
-        intake_m:    eppIntake,
-        exhaust_m:   eppExhaust,
+        intake_m:    intakeLength,
+        exhaust_m:   exhaustLength,
         total_m:     eppTotal,
       },
       wallSleeve: {

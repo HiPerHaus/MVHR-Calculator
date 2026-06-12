@@ -292,12 +292,31 @@ function tr(item, desc, note, qty, uom) {
   return `<tr>
     <td><span class="item-code">${esc(item)}</span></td>
     <td>
-      <div class="item-desc">${esc(desc)}</div>
+      <div class="item-desc">${desc}</div>
       ${note ? `<div class="item-note">${note}</div>` : ''}
     </td>
     <td class="qty-cell">${qty}</td>
     <td class="uom-cell">${esc(uom)}</td>
   </tr>`;
+}
+
+// ── Duct type helpers ─────────────────────────────────────────
+const DUCT_TYPE_META = {
+  semi_rigid_90: { label: '90 mm semi-rigid duct',  code: 'SR-90',    badge: '<span class="badge-sr">90mm SR</span>'   },
+  epp_160:       { label: '160 mm EPP rigid duct',  code: 'EPP-160',  badge: '<span class="badge-epp160">EPP 160</span>' },
+  epp_180:       { label: '180 mm EPP rigid duct',  code: 'EPP-180',  badge: '<span class="badge-epp160">EPP 180</span>' },
+  epp_200:       { label: '200 mm EPP rigid duct',  code: 'EPP-200',  badge: '<span class="badge-epp200">EPP 200</span>' },
+  epp_250:       { label: '250 mm EPP rigid duct',  code: 'EPP-250',  badge: '<span class="badge-epp200">EPP 250</span>' },
+  epp_315:       { label: '315 mm EPP rigid duct',  code: 'EPP-315',  badge: '<span class="badge-epp200">EPP 315</span>' },
+};
+function ductMeta(ductType) {
+  return DUCT_TYPE_META[ductType] ?? { label: ductType, code: ductType.toUpperCase(), badge: '' };
+}
+function eppBadgeHtml(diamMm) {
+  if (diamMm <= 125) return '<span class="badge-epp125">EPP 125</span>';
+  if (diamMm <= 160) return '<span class="badge-epp160">EPP 160</span>';
+  if (diamMm <= 200) return '<span class="badge-epp200">EPP ' + diamMm + '</span>';
+  return '<span class="badge-epp200">EPP ' + diamMm + '</span>';
 }
 
 // ── Render ───────────────────────────────────────────────────
@@ -351,7 +370,6 @@ function render({ project, bom, hasDesign }) {
 
   const { counts, ductwork, notes } = bom;
   const epp = ductwork.epp;
-  const sr  = ductwork.semiRigid;
   const ws  = ductwork.wallSleeve;
 
   // Wall sleeve banner
@@ -361,65 +379,66 @@ function render({ project, bom, hasDesign }) {
   let equipHtml = '';
   if (bom.unit) {
     const u = bom.unit;
-    equipHtml += tr('MVHR-01', `${u.manufacturer ?? ''} ${u.model ?? ''}`, `HR ${fmt(u.hr_eff,0)}% · SFP ${fmt(u.sfp,2)} Wh/m³ · ${fmt(u.flow_min,0)}–${fmt(u.flow_max,0)} m³/h`, '1', 'no.');
+    equipHtml += tr('MVHR-01', esc(`${u.manufacturer ?? ''} ${u.model ?? ''}`), `HR ${fmt(u.hr_eff,0)}% · SFP ${fmt(u.sfp,2)} Wh/m³ · ${fmt(u.flow_min,0)}–${fmt(u.flow_max,0)} m³/h`, '1', 'no.');
   } else {
     equipHtml += tr('MVHR-01', 'MVHR unit (not yet selected)', 'Complete Stage 5 to specify unit', '1', 'no.');
   }
   el('equipmentBody').innerHTML = equipHtml;
 
-  // ── Terminals & Manifolds ──
+  // ── Terminals & Distribution ──
   let termHtml = '';
-  if (counts.supplyManifolds > 0)  termHtml += tr('MAN-S', 'Supply manifold', '125 mm spigot(s)', counts.supplyManifolds, 'no.');
+  // Zehnder ComfoWell 320 distribution modules
+  if (counts.comfowellSupply  > 0) termHtml += tr('CW-S', 'Zehnder ComfoWell 320 — supply distribution module', 'Mounted directly to MVHR unit', counts.comfowellSupply,  'no.');
+  if (counts.comfowellExtract > 0) termHtml += tr('CW-E', 'Zehnder ComfoWell 320 — extract distribution module', 'Mounted directly to MVHR unit', counts.comfowellExtract, 'no.');
+  // Standard manifolds
+  if (counts.supplyManifolds  > 0) termHtml += tr('MAN-S', 'Supply manifold', '125 mm spigot(s)', counts.supplyManifolds,  'no.');
   if (counts.extractManifolds > 0) termHtml += tr('MAN-E', 'Extract manifold', '125 mm spigot(s)', counts.extractManifolds, 'no.');
-  if (counts.supplyTerminals > 0)  termHtml += tr('TERM-S', 'Supply air terminal / valve', '90 mm connection', counts.supplyTerminals, 'no.');
+  // Terminals
+  if (counts.supplyTerminals  > 0) termHtml += tr('TERM-S', 'Supply air terminal / valve', '90 mm connection', counts.supplyTerminals,  'no.');
   if (counts.extractTerminals > 0) termHtml += tr('TERM-E', 'Extract air terminal / valve', '90 mm connection', counts.extractTerminals, 'no.');
-  if (!termHtml) termHtml = tr('—', 'No terminals or manifolds in design', '', '—', '');
+  if (!termHtml) termHtml = tr('—', 'No terminals or distribution nodes in design', '', '—', '');
   el('terminalsBody').innerHTML = termHtml;
 
-  // ── Ductwork ──
-  const eppBadge = epp.diameter_mm === 125
-    ? '<span class="badge-epp125">EPP 125</span>'
-    : '<span class="badge-epp160">EPP 160</span>';
-  const srBadge = '<span class="badge-sr">90mm SR</span>';
-
+  // ── Internal ductwork — grouped by duct type ──
   let ductHtml = '';
-  // Semi-rigid measured
-  ductHtml += tr(
-    'SR-90',
-    `${srBadge} 90 mm semi-rigid duct — measured`,
-    `Supply ${fmt(sr.measured_m - ductwork.semiRigid.measured_m + sr.measured_m / 2, 1)} m · Extract — see duct design`,
-    `${fmt(sr.measured_m, 1)}`,
-    'm'
-  );
-  // Bends allowance (20%)
-  ductHtml += tr(
-    'SR-90B',
-    `${srBadge} 90 mm semi-rigid duct — bends &amp; fittings allowance (20%)`,
-    'Additional length for elbows, branches, and flexible connections',
-    `${fmt(sr.bendsAllowance_m, 1)}`,
-    'm'
-  );
-  // SR total
-  ductHtml += `<tr class="total-row">
-    <td><span class="item-code">SR-90 TOTAL</span></td>
-    <td><div class="item-desc">90 mm semi-rigid duct — total to order</div></td>
-    <td class="qty-cell">${fmt(sr.total_m, 1)}</td>
-    <td class="uom-cell">m</td>
-  </tr>`;
+  for (const g of (ductwork.internal ?? [])) {
+    const m = ductMeta(g.ductType);
+    ductHtml += tr(
+      m.code,
+      `${m.badge} ${esc(m.label)} — measured`,
+      'Supply + extract internal runs',
+      fmt(g.measured_m, 1),
+      'm'
+    );
+    ductHtml += tr(
+      `${m.code}B`,
+      `${m.badge} ${esc(m.label)} — bends &amp; fittings allowance (20%)`,
+      'Additional length for elbows, branches, and flexible connections',
+      fmt(g.bendsAllowance_m, 1),
+      'm'
+    );
+    ductHtml += `<tr class="total-row">
+      <td><span class="item-code">${esc(m.code)} TOTAL</span></td>
+      <td><div class="item-desc">${esc(m.label)} — total to order</div></td>
+      <td class="qty-cell">${fmt(g.total_m, 1)}</td>
+      <td class="uom-cell">m</td>
+    </tr>`;
+  }
 
   // EPP outside air
+  const eb = eppBadgeHtml(epp.diameter_mm);
   ductHtml += tr(
     `EPP-${epp.diameter_mm}-IN`,
-    `${eppBadge} ${epp.diameter_mm} mm EPP duct — fresh air intake run`,
+    `${eb} ${epp.diameter_mm} mm EPP duct — fresh air intake run`,
     'From external grille to MVHR unit',
-    `${fmt(epp.intake_m, 1)}`,
+    fmt(epp.intake_m, 1),
     'm'
   );
   ductHtml += tr(
     `EPP-${epp.diameter_mm}-EX`,
-    `${eppBadge} ${epp.diameter_mm} mm EPP duct — exhaust air run`,
+    `${eb} ${epp.diameter_mm} mm EPP duct — exhaust air run`,
     'From MVHR unit to external grille',
-    `${fmt(epp.exhaust_m, 1)}`,
+    fmt(epp.exhaust_m, 1),
     'm'
   );
   ductHtml += `<tr class="total-row">
@@ -431,17 +450,16 @@ function render({ project, bom, hasDesign }) {
 
   el('ductworkBody').innerHTML = ductHtml;
 
-  // ── External ──
+  // ── External grilles ──
   let extHtml = '';
-  if (counts.intakeGrilles > 0) extHtml += tr('GRL-IN', 'External fresh air intake grille', `${epp.diameter_mm} mm connection`, counts.intakeGrilles, 'no.');
-  if (counts.exhaustGrilles > 0) extHtml += tr('GRL-EX', 'External exhaust air grille', `${epp.diameter_mm} mm connection`, counts.exhaustGrilles, 'no.');
-
+  if (counts.intakeGrilles  > 0) extHtml += tr('GRL-IN', `External fresh air intake grille`, `${epp.diameter_mm} mm connection`, counts.intakeGrilles,  'no.');
+  if (counts.exhaustGrilles > 0) extHtml += tr('GRL-EX', `External exhaust air grille`,       `${epp.diameter_mm} mm connection`, counts.exhaustGrilles, 'no.');
   if (ws.required && ws.qty_m > 0) {
     extHtml += tr(
       'SLV-200',
       `<span class="badge-epp200">EPP 200</span> 200 mm EPP wall penetration sleeve`,
-      `Required for high-flow unit — 1 m per grille point (${counts.intakeGrilles + counts.exhaustGrilles} points)`,
-      `${ws.qty_m}`,
+      `Required for ${epp.diameter_mm} mm unit connection — 1 m per grille point (${counts.intakeGrilles + counts.exhaustGrilles} points)`,
+      ws.qty_m,
       'm'
     );
   }
@@ -470,29 +488,35 @@ function exportCsv() {
   if (!_bom) return;
   const { unit, counts, ductwork } = _bom;
   const epp = ductwork.epp;
-  const sr  = ductwork.semiRigid;
   const ws  = ductwork.wallSleeve;
 
   const rows = [
     ['Item Code', 'Description', 'Qty', 'Unit'],
     // Equipment
     ['MVHR-01', unit ? `${unit.manufacturer ?? ''} ${unit.model ?? ''}` : 'MVHR Unit (TBC)', '1', 'no.'],
-    // Terminals
+    // Distribution nodes (ComfoWell or manifold)
+    ...(counts.comfowellSupply  > 0 ? [['CW-S',   'Zehnder ComfoWell 320 — supply distribution module',  counts.comfowellSupply,  'no.']] : []),
+    ...(counts.comfowellExtract > 0 ? [['CW-E',   'Zehnder ComfoWell 320 — extract distribution module', counts.comfowellExtract, 'no.']] : []),
     ...(counts.supplyManifolds  > 0 ? [['MAN-S',  'Supply manifold', counts.supplyManifolds,  'no.']] : []),
     ...(counts.extractManifolds > 0 ? [['MAN-E',  'Extract manifold', counts.extractManifolds, 'no.']] : []),
     ...(counts.supplyTerminals  > 0 ? [['TERM-S', 'Supply air terminal / valve', counts.supplyTerminals,  'no.']] : []),
     ...(counts.extractTerminals > 0 ? [['TERM-E', 'Extract air terminal / valve', counts.extractTerminals, 'no.']] : []),
-    // Semi-rigid
-    ['SR-90 (measured)', '90 mm semi-rigid duct — measured', fmt(sr.measured_m, 1), 'm'],
-    ['SR-90 (bends 20%)', '90 mm semi-rigid duct — bends & fittings allowance', fmt(sr.bendsAllowance_m, 1), 'm'],
-    ['SR-90 TOTAL', '90 mm semi-rigid duct — total to order', fmt(sr.total_m, 1), 'm'],
-    // EPP
-    [`EPP-${epp.diameter_mm} (intake)`, `${epp.diameter_mm} mm EPP fresh air intake run`, fmt(epp.intake_m, 1), 'm'],
-    [`EPP-${epp.diameter_mm} (exhaust)`, `${epp.diameter_mm} mm EPP exhaust air run`, fmt(epp.exhaust_m, 1), 'm'],
-    [`EPP-${epp.diameter_mm} TOTAL`, `${epp.diameter_mm} mm EPP outside air duct — total`, fmt(epp.total_m, 1), 'm'],
+    // Internal duct per type
+    ...(ductwork.internal ?? []).flatMap(g => {
+      const m = ductMeta(g.ductType);
+      return [
+        [`${m.code} (measured)`,  `${m.label} — measured`,               fmt(g.measured_m,       1), 'm'],
+        [`${m.code} (bends 20%)`, `${m.label} — bends & fittings (20%)`, fmt(g.bendsAllowance_m, 1), 'm'],
+        [`${m.code} TOTAL`,       `${m.label} — total to order`,          fmt(g.total_m,          1), 'm'],
+      ];
+    }),
+    // EPP external
+    [`EPP-${epp.diameter_mm} (intake)`,  `${epp.diameter_mm} mm EPP fresh air intake run`, fmt(epp.intake_m,  1), 'm'],
+    [`EPP-${epp.diameter_mm} (exhaust)`, `${epp.diameter_mm} mm EPP exhaust air run`,       fmt(epp.exhaust_m, 1), 'm'],
+    [`EPP-${epp.diameter_mm} TOTAL`,     `${epp.diameter_mm} mm EPP outside air duct — total`, fmt(epp.total_m, 1), 'm'],
     // Grilles
     ...(counts.intakeGrilles  > 0 ? [['GRL-IN', `External fresh air intake grille (${epp.diameter_mm} mm)`, counts.intakeGrilles,  'no.']] : []),
-    ...(counts.exhaustGrilles > 0 ? [['GRL-EX', `External exhaust air grille (${epp.diameter_mm} mm)`, counts.exhaustGrilles, 'no.']] : []),
+    ...(counts.exhaustGrilles > 0 ? [['GRL-EX', `External exhaust air grille (${epp.diameter_mm} mm)`,      counts.exhaustGrilles, 'no.']] : []),
     // Wall sleeve
     ...(ws.required && ws.qty_m > 0 ? [['SLV-200', '200 mm EPP wall penetration sleeve', ws.qty_m, 'm']] : []),
   ];
@@ -502,7 +526,7 @@ function exportCsv() {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `BOM-${(_bom ? '' : 'project')}.csv`;
+  a.download = `BOM.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

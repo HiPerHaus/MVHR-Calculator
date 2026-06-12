@@ -294,6 +294,29 @@ main { padding:0 0 80px; }
 .pill-intake  { background:var(--intake-light); color:var(--intake); }
 .pill-exhaust { background:var(--exhaust-light); color:#374151; }
 .empty-row td { text-align:center; color:var(--muted); padding:24px; }
+/* ── Velocity badges ── */
+.vel-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:800; white-space:nowrap; }
+.vel-ok      { background:#d8f3dc; color:#1a4731; }
+.vel-warning { background:#fff7ed; color:#c05621; }
+.vel-exceed  { background:#fef2f2; color:#9b1c1c; }
+/* ── Pressure badges ── */
+.pres-badge   { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:800; white-space:nowrap; }
+.pres-ok      { background:#d8f3dc; color:#1a4731; }
+.pres-warning { background:#fff7ed; color:#c05621; }
+.pres-exceed  { background:#fef2f2; color:#9b1c1c; }
+/* ── Acoustic badges ── */
+.acou-badge      { display:inline-flex; align-items:center; gap:3px; padding:2px 7px; border-radius:10px; font-size:10px; font-weight:800; white-space:nowrap; }
+.acou-ok         { background:#d8f3dc; color:#1a4731; }
+.acou-attenuator { background:#fff7ed; color:#c05621; }
+.acou-exceed     { background:#fef2f2; color:#9b1c1c; }
+/* ── System pressure summary panel ── */
+.syspress-panel { background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; font-size:12px; }
+.syspress-title { font-weight:700; font-size:13px; margin-bottom:10px; color:var(--text); }
+.syspress-row   { display:flex; justify-content:space-between; align-items:center; padding:3px 0; color:var(--muted); }
+.syspress-row span:last-child { font-weight:600; color:var(--text); }
+.syspress-divider { border:none; border-top:1px solid var(--border); margin:8px 0; }
+.syspress-total { display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-weight:700; font-size:13px; gap:8px; }
+.syspress-unit-info { font-size:11px; color:var(--muted); margin-top:8px; }
 
 /* ── Loading/error states ── */
 #loadingState { text-align:center; padding:80px; }
@@ -672,6 +695,31 @@ main { padding:0 0 80px; }
           <div class="schedule-title">Duct Schedule</div>
           <div style="font-size:12px; color:var(--muted)" id="scheduleCount"></div>
         </div>
+
+        <!-- System pressure summary panel -->
+        <div class="syspress-panel" id="sysPressPanel" style="display:none">
+          <div class="syspress-title">System Pressure Analysis</div>
+          <div class="syspress-row"><span>External (intake + exhaust)</span><span id="spExternal">—</span></div>
+          <div class="syspress-row"><span>Supply index circuit</span><span id="spSupply">—</span></div>
+          <div class="syspress-row"><span>Extract index circuit</span><span id="spExtract">—</span></div>
+          <hr class="syspress-divider">
+          <div class="syspress-total">
+            <span>Total system pressure</span>
+            <span style="display:flex; align-items:center; gap:8px">
+              <span id="spTotal">—</span>
+              <span id="spStatusBadge"></span>
+            </span>
+          </div>
+          <div class="syspress-unit-info" id="spUnitInfo"></div>
+        </div>
+
+        <!-- Acoustic flags panel -->
+        <div class="syspress-panel" id="acouFlagsPanel" style="display:none">
+          <div class="syspress-title">Acoustic Flags</div>
+          <div id="acouFlagsBody"></div>
+          <div class="syspress-unit-info" style="margin-top:6px">Targets: bedroom ≤ 25 dBA, general ≤ 35 dBA (at 1 m from diffuser). Attenuator box recommended when flagged ⚠.</div>
+        </div>
+
         <table class="schedule-table" id="scheduleTable">
           <thead>
             <tr>
@@ -681,13 +729,14 @@ main { padding:0 0 80px; }
               <th>Type</th>
               <th>Duct</th>
               <th>Ø mm</th>
+              <th>Velocity</th>
               <th>Length m</th>
               <th>Airflow m³/h</th>
               <th>ΔP Pa</th>
             </tr>
           </thead>
           <tbody id="scheduleTbody">
-            <tr class="empty-row"><td colspan="9">Loading…</td></tr>
+            <tr class="empty-row"><td colspan="10">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -711,6 +760,7 @@ let _token        = null;
 let _design       = null;
 let _nodes        = [];
 let _runs         = [];
+let _unit         = null; // { manufacturer, model, ext_pressure } — from selected mvhr_units row
 let _planPages    = [];   // [{floor_index, floor_name, image_url, width_px, height_px}]
 let _selected     = null; // { type: 'node'|'run', id }
 let _dirty        = false;
@@ -859,6 +909,7 @@ async function init() {
     _design    = data.design;
     _nodes     = data.nodes   ?? [];
     _runs      = data.runs    ?? [];
+    _unit      = data.unit    ?? null;
     _planPages = data.planPages ?? [];
     console.log('[System Layout] planPages received:', _planPages.length, _planPages.map(p => ({ floor_name: p.floor_name, image_url: p.image_url?.slice(0, 80), image_path: p.image_path })));
 
@@ -1847,11 +1898,6 @@ function svgPoint(e) {
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
-function calcTrunkDiameter(f) {
-  if (f <= 0) return 90; if (f <= 100) return 100; if (f <= 160) return 125;
-  if (f <= 250) return 160; if (f <= 400) return 180; return 200;
-}
-
 function calcRunLength(run) {
   const from = _nodes.find(n => n.id === run.from_node_id);
   const to   = _nodes.find(n => n.id === run.to_node_id);
@@ -1979,6 +2025,12 @@ function renderCanvas() {
     const diam = run.diameter_mm ?? 90;
     const len = run.length_m ?? calcRunLength(run);
     let labelText = `Ø${diam}`;
+    if (run.velocity_m_s != null) {
+      const cat   = run.metadata?.run_category ?? 'main';
+      const limit = PH_VELOCITY_LIMITS[cat] ?? 3.0;
+      const marker = run.velocity_m_s > limit * 1.10 ? ' ✕' : run.velocity_m_s > limit ? ' ⚠' : '';
+      labelText += ` · ${run.velocity_m_s.toFixed(1)} m/s${marker}`;
+    }
     if (showLengths && len !== null) labelText += ` — ${len} m`;
     const label = svgEl('text');
     label.setAttribute('x',mx); label.setAttribute('y',my-6); label.setAttribute('text-anchor','middle');
@@ -2140,13 +2192,18 @@ function renderPropsPanel() {
       <div class="prop-row"><span class="prop-label">Type</span><span class="prop-value">${capitalize(run.run_type)}</span></div>
       <div class="prop-row"><span class="prop-label">From</span><span class="prop-value">${esc(fromNode?.room_name??fromNode?.node_type??'—')}</span></div>
       <div class="prop-row"><span class="prop-label">To</span><span class="prop-value">${esc(toNode?.room_name??toNode?.node_type??'—')}</span></div>
+      <div class="prop-row"><span class="prop-label">Velocity</span><span class="prop-value">${velocityBadgeHtml(run)}</span></div>
+      <div class="prop-row"><span class="prop-label">Pressure drop</span><span class="prop-value">${pressureBadgeHtml(run)}</span></div>
+      ${(run.metadata?.run_category === 'terminal') ? `<div class="prop-row"><span class="prop-label">Noise est.</span><span class="prop-value">${acousticBadgeHtml(run)}</span></div>` : ''}
       <div class="prop-row">
         <label class="prop-label" for="propDuctType">Duct Type</label>
         <select class="prop-select" id="propDuctType" onchange="updateRunProp('${run.id}','duct_type',this.value)">
-          <option value="semi_rigid_90" ${run.duct_type==='semi_rigid_90'?'selected':''}>Semi-rigid 90mm</option>
-          <option value="epp_160"       ${run.duct_type==='epp_160'?'selected':''}>EPP 160mm</option>
-          <option value="epp_180"       ${run.duct_type==='epp_180'?'selected':''}>EPP 180mm</option>
-          <option value="epp_200"       ${run.duct_type==='epp_200'?'selected':''}>EPP 200mm</option>
+          <option value="semi_rigid_90" ${run.duct_type==='semi_rigid_90'?'selected':''}>Semi-rigid ≤125mm</option>
+          <option value="epp_160"       ${run.duct_type==='epp_160'?'selected':''}>EPP Ø160</option>
+          <option value="epp_180"       ${run.duct_type==='epp_180'?'selected':''}>EPP Ø180</option>
+          <option value="epp_200"       ${run.duct_type==='epp_200'?'selected':''}>EPP Ø200</option>
+          <option value="epp_250"       ${run.duct_type==='epp_250'?'selected':''}>EPP Ø250</option>
+          <option value="epp_315"       ${run.duct_type==='epp_315'?'selected':''}>EPP Ø315</option>
           <option value="custom"        ${run.duct_type==='custom'?'selected':''}>Custom</option>
         </select>
       </div>
@@ -2247,6 +2304,7 @@ async function regenerateLayout(mode) {
     _design    = data.design;
     _nodes     = data.nodes  ?? [];
     _runs      = data.runs   ?? [];
+    _unit      = data.unit   ?? _unit;
     _planPages = data.planPages ?? _planPages;
 
     if (_design?.design_json?.scale_m) { _scaleM=_design.design_json.scale_m; el('scaleInput').value=_scaleM; }
@@ -2277,7 +2335,9 @@ function renderSchedule() {
   const visibleRuns = _runs.filter(r => nodeMap[r.from_node_id] && nodeMap[r.to_node_id]);
   el('scheduleCount').textContent = `${visibleRuns.length} run${visibleRuns.length!==1?'s':''}`;
 
-  if (!visibleRuns.length) { tbody.innerHTML='<tr class="empty-row"><td colspan="9">No duct runs yet.</td></tr>'; return; }
+  renderPressureSummary();
+  renderAcousticFlags();
+  if (!visibleRuns.length) { tbody.innerHTML='<tr class="empty-row"><td colspan="10">No duct runs yet.</td></tr>'; return; }
 
   tbody.innerHTML = visibleRuns.map((run, i) => {
     const from = nodeMap[run.from_node_id], to = nodeMap[run.to_node_id];
@@ -2288,9 +2348,13 @@ function renderSchedule() {
                      : (to?.node_type==='supply_terminal'||to?.node_type==='extract_terminal')     ? (to.airflow_m3h??'—') : '—';
     const lengthM = run.length_m ?? calcRunLength(run);
     const lengthDisplay = lengthM!=null ? `${lengthM.toFixed(1)} m` : '<span style="color:var(--muted)">—</span>';
-    const terminalFlow = airflowM3h!=='—' ? Number(airflowM3h) : 0;
-    const diam = run.diameter_mm ?? (terminalFlow>0 ? calcTrunkDiameter(terminalFlow) : null);
+    const diam = run.diameter_mm ?? null;
     const diamDisplay = diam!=null ? `Ø${diam}` : '<span style="color:var(--muted)">—</span>';
+    // Velocity + acoustic badge (acoustic only for terminal runs)
+    const velDisplay  = velocityBadgeHtml(run);
+    const acouDisplay = run.metadata?.run_category === 'terminal'
+      ? `<br><span style="margin-top:2px;display:inline-block">${acousticBadgeHtml(run)}</span>`
+      : '';
     return `<tr>
       <td style="color:var(--muted);font-size:11px">${i+1}</td>
       <td style="font-weight:600">${esc(fromName)}</td>
@@ -2298,6 +2362,7 @@ function renderSchedule() {
       <td><span class="run-type-pill ${pillClass}">${capitalize(run.run_type)}</span></td>
       <td style="color:var(--muted)">${esc(formatDuctType(run.duct_type))}</td>
       <td style="font-weight:700">${diamDisplay}</td>
+      <td>${velDisplay}${acouDisplay}</td>
       <td>${lengthDisplay}</td>
       <td>${airflowM3h!=='—'?airflowM3h:'<span style="color:var(--muted)">—</span>'}</td>
       <td>${run.pressure_drop_pa!=null?run.pressure_drop_pa:'<span style="color:var(--muted)">—</span>'}</td>
@@ -2312,8 +2377,185 @@ function formatNodeType(t) {
            external_intake:'External Intake', external_exhaust:'External Exhaust',
            comfowell_supply:'ComfoWell (Supply)', comfowell_extract:'ComfoWell (Extract)' }[t] ?? t;
 }
+
+// ── Velocity badge HTML ───────────────────────────────────────
+// PH limits: main/external ≤ 3.0 m/s, terminal ≤ 2.0 m/s.
+const PH_VELOCITY_LIMITS = { main: 3.0, branch: 2.5, terminal: 2.0 };
+function velocityBadgeHtml(run) {
+  const v = run.velocity_m_s;
+  if (v == null) return '<span style="color:var(--muted)">—</span>';
+  const cat   = run.metadata?.run_category ?? 'main';
+  const limit = PH_VELOCITY_LIMITS[cat] ?? 3.0;
+  const cls   = v <= limit ? 'vel-ok' : v <= limit * 1.10 ? 'vel-warning' : 'vel-exceed';
+  const icon  = v <= limit ? '' : v <= limit * 1.10 ? '⚠ ' : '✕ ';
+  return `<span class="vel-badge ${cls}">${icon}${v.toFixed(2)} m/s</span>`;
+}
 function formatDuctType(t) {
-  return { semi_rigid_90:'Semi-rigid Ø90', epp_160:'EPP Ø160', epp_180:'EPP Ø180', epp_200:'EPP Ø200', custom:'Custom' }[t] ?? t;
+  return { semi_rigid_90:'Semi-rigid ≤Ø125', epp_160:'EPP Ø160', epp_180:'EPP Ø180', epp_200:'EPP Ø200', epp_250:'EPP Ø250', epp_315:'EPP Ø315', custom:'Custom' }[t] ?? t;
+}
+
+// ── Pressure badge HTML ───────────────────────────────────────
+function pressureBadgeHtml(run) {
+  const p = run.pressure_drop_pa;
+  if (p == null) return '<span style="color:var(--muted)">—</span>';
+  return `<span class="pres-badge pres-ok">${p.toFixed(1)} Pa</span>`;
+}
+
+// ── Inline system pressure analysis ──────────────────────────
+// Uses stored pressure_drop_pa values (stamped by API at layout time).
+// Mirrors calcSystemPressure() in packages/engine/pressure.js.
+function calcSystemPressureSummary(runs) {
+  const sum = (arr) => arr.reduce((s, r) => s + (r.pressure_drop_pa ?? 0), 0);
+  const max = (arr) => arr.length === 0 ? 0 : Math.max(...arr.map(r => r.pressure_drop_pa ?? 0));
+
+  const intakePa   = sum(runs.filter(r => r.run_type === 'intake'));
+  const exhaustPa  = sum(runs.filter(r => r.run_type === 'exhaust'));
+  const externalPa = intakePa + exhaustPa;
+
+  const supplyMainPa  = sum(runs.filter(r => r.run_type === 'supply' && r.metadata?.run_category === 'main'));
+  const supplyTermPa  = max(runs.filter(r => r.run_type === 'supply' && r.metadata?.run_category === 'terminal'));
+  const supplyIndexPa = supplyMainPa + supplyTermPa;
+
+  const extractMainPa  = sum(runs.filter(r => r.run_type === 'extract' && r.metadata?.run_category === 'main'));
+  const extractTermPa  = max(runs.filter(r => r.run_type === 'extract' && r.metadata?.run_category === 'terminal'));
+  const extractIndexPa = extractMainPa + extractTermPa;
+
+  const extR   = Math.round(externalPa);
+  const supIR  = Math.round(supplyIndexPa);
+  const extIR  = Math.round(extractIndexPa);
+  const totalSystemPa = extR + supIR + extIR;
+
+  const hasData = runs.some(r => r.pressure_drop_pa != null);
+  return { externalPa: extR, supplyIndexPa: supIR, extractIndexPa: extIR, totalSystemPa, hasData };
+}
+
+function systemPressureStatus(totalPa, unitExtPa) {
+  if (!(unitExtPa > 0)) return 'unknown';
+  if (totalPa <= unitExtPa)         return 'ok';
+  if (totalPa <= unitExtPa * 1.15)  return 'warning';
+  return 'exceed';
+}
+
+// ── Inline acoustic check (mirrors packages/engine/acoustic.js) ──
+// Lw = BASE_dBA + 50·log10(v)
+// BASE: semi-rigid 20 dBA, EPP 15 dBA (all sizes) at v = 1.0 m/s
+const ACOUSTIC_BASE = { semi_rigid_90:20, epp_160:15, epp_180:15, epp_200:15, epp_250:15, epp_315:15, custom:20 };
+
+function terminalDba(velocityMs, ductType) {
+  if (!(velocityMs > 0)) return 0;
+  const base = ACOUSTIC_BASE[ductType] ?? 20;
+  return base + 50 * Math.log10(Math.max(velocityMs, 0.01));
+}
+
+function isBedroomRoom(roomName) {
+  return /bed|master|ensuite|sleep/i.test(roomName ?? '');
+}
+
+function terminalAcousticStatus(dba, roomName) {
+  if (isBedroomRoom(roomName)) {
+    if (dba > 30) return 'exceed';
+    if (dba > 25) return 'attenuator';
+  } else {
+    if (dba > 40) return 'exceed';
+    if (dba > 35) return 'attenuator';
+  }
+  return 'ok';
+}
+
+// Return acoustic info for a terminal run (null for non-terminal runs)
+function runAcousticInfo(run) {
+  const cat = run.metadata?.run_category ?? 'main';
+  if (cat !== 'terminal') return null;
+  const v = run.velocity_m_s;
+  if (v == null) return null;
+  const dba = terminalDba(v, run.duct_type);
+  const fromNode = _nodes.find(n => n.id === run.from_node_id);
+  const toNode   = _nodes.find(n => n.id === run.to_node_id);
+  const termNode = (fromNode?.node_type === 'supply_terminal' || fromNode?.node_type === 'extract_terminal') ? fromNode : toNode;
+  const roomName = termNode?.room_name ?? '';
+  return { dba, status: terminalAcousticStatus(dba, roomName), roomName };
+}
+
+function acousticBadgeHtml(run) {
+  const info = runAcousticInfo(run);
+  if (!info) return '<span style="color:var(--muted)">—</span>';
+  const { dba, status } = info;
+  const cls  = { ok:'acou-ok', attenuator:'acou-attenuator', exceed:'acou-exceed' }[status];
+  const icon = { ok:'', attenuator:'⚠ ', exceed:'✕ ' }[status];
+  return `<span class="acou-badge ${cls}">${icon}${dba.toFixed(0)} dBA</span>`;
+}
+
+// ── Render acoustic flags panel ───────────────────────────────
+function renderAcousticFlags() {
+  const panel    = el('acouFlagsPanel');
+  const bodyEl   = el('acouFlagsBody');
+  if (!panel || !bodyEl) return;
+
+  const flags = [];
+  for (const run of _runs) {
+    const info = runAcousticInfo(run);
+    if (!info || info.status === 'ok') continue;
+    const fromNode = _nodes.find(n => n.id === run.from_node_id);
+    const toNode   = _nodes.find(n => n.id === run.to_node_id);
+    const termNode = (fromNode?.node_type === 'supply_terminal' || fromNode?.node_type === 'extract_terminal') ? fromNode : toNode;
+    flags.push({ run, info, roomName: termNode?.room_name ?? '—' });
+  }
+
+  if (!flags.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  bodyEl.innerHTML = flags.map(({ info, roomName, run }) => {
+    const bedroom = isBedroomRoom(roomName);
+    const threshold = bedroom ? 25 : 35;
+    const cls  = { attenuator:'acou-attenuator', exceed:'acou-exceed' }[info.status];
+    const icon = info.status === 'exceed' ? '✕' : '⚠';
+    const rec  = info.status === 'exceed'
+      ? 'Reduce velocity — increase duct diameter or shorten run.'
+      : 'Consider in-line attenuator box or reduce velocity.';
+    return `<div class="syspress-row" style="align-items:flex-start; padding:5px 0; border-bottom:1px solid var(--border)">
+      <span style="flex:1">${esc(roomName)} <span style="color:var(--muted);font-size:10px">${bedroom?'(bedroom)':'(general)'}</span></span>
+      <span style="display:flex; flex-direction:column; align-items:flex-end; gap:2px">
+        <span class="acou-badge ${cls}">${icon} ${info.dba.toFixed(0)} dBA</span>
+        <span style="font-size:10px; color:var(--muted); text-align:right">${rec}</span>
+      </span>
+    </div>`;
+  }).join('');
+}
+
+// ── Render system pressure summary panel ─────────────────────
+function renderPressureSummary() {
+  const panel = el('sysPressPanel');
+  if (!panel) return;
+
+  const { externalPa, supplyIndexPa, extractIndexPa, totalSystemPa, hasData } = calcSystemPressureSummary(_runs);
+
+  if (!hasData) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  el('spExternal').textContent = `${externalPa} Pa`;
+  el('spSupply').textContent   = `${supplyIndexPa} Pa`;
+  el('spExtract').textContent  = `${extractIndexPa} Pa`;
+  el('spTotal').textContent    = `${totalSystemPa} Pa`;
+
+  const extPa  = _unit?.ext_pressure ?? null;
+  const status = systemPressureStatus(totalSystemPa, extPa);
+  const badgeEl = el('spStatusBadge');
+  const infoEl  = el('spUnitInfo');
+
+  if (status === 'ok') {
+    badgeEl.innerHTML = '<span class="pres-badge pres-ok">✓ Within capacity</span>';
+    infoEl.textContent = `Unit rated ${extPa} Pa ext. static — ${Math.round((extPa - totalSystemPa))} Pa headroom.`;
+  } else if (status === 'warning') {
+    badgeEl.innerHTML = '<span class="pres-badge pres-warning">⚠ Near limit</span>';
+    infoEl.textContent = `Unit rated ${extPa} Pa ext. static — total is ${Math.round(totalSystemPa - extPa)} Pa over. Review duct sizing.`;
+  } else if (status === 'exceed') {
+    badgeEl.innerHTML = '<span class="pres-badge pres-exceed">✕ Exceeds unit</span>';
+    infoEl.textContent = `Unit rated ${extPa} Pa ext. static — total exceeds by ${Math.round(totalSystemPa - extPa)} Pa. Increase duct diameters or shorten runs.`;
+  } else {
+    // unknown — no unit or no ext_pressure
+    badgeEl.innerHTML = '';
+    infoEl.textContent = _unit ? 'Unit ext. static pressure not on record.' : 'No MVHR unit selected — select a unit to check drivability.';
+  }
 }
 function capitalize(s) { return s ? s.charAt(0).toUpperCase()+s.slice(1) : ''; }
 function floorLabel(idx) { return ['Ground Floor','First Floor','Second Floor','Third Floor'][idx] ?? `Floor ${idx}`; }

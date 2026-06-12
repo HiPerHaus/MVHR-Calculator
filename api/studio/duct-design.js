@@ -44,6 +44,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { applyCors }           from '../../lib/cors.js';
 import { validateUuids, isUuid } from '../../lib/validateUuid.js';
+import {
+  selectDiameterMm, calcVelocityMs, diameterToDuctType,
+} from '../../packages/engine/duct.js';
+import { segmentPressurePa } from '../../packages/engine/pressure.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -67,15 +71,28 @@ function terminalCount(airflow_m3h) {
   return Math.max(1, Math.ceil(airflow_m3h / 40));
 }
 
-// ── Trunk diameter sizing ─────────────────────────────────────
-// Standard MVHR duct sizing by velocity (target ~2–3 m/s).
-function calcTrunkDiameter(totalFlowM3h) {
-  if (totalFlowM3h <= 0)   return 90;
-  if (totalFlowM3h <= 100) return 100;
-  if (totalFlowM3h <= 160) return 125;
-  if (totalFlowM3h <= 250) return 160;
-  if (totalFlowM3h <= 400) return 180;
-  return 200;
+// ── Duct run builder ─────────────────────────────────────────
+// Wraps a raw run object with computed velocity_m_s, flow_m3h,
+// pressure_drop_pa, and run_category.
+// category: 'main' (trunk/external) | 'terminal' (last leg to room)
+// Note: pressure is computed WITHOUT a length (length_m defaults to
+// null at insert time; the schematic measures and PATCH updates it).
+// pressure_drop_pa is stamped as null until the run has a length.
+function mkRun(base, flowM3h, category = 'main') {
+  const flow         = flowM3h > 0 ? flowM3h : null;
+  const velocity_m_s = flow
+    ? Math.round(calcVelocityMs(flow, base.diameter_mm) * 100) / 100
+    : null;
+  const pressure_drop_pa = (flow && base.length_m > 0)
+    ? Math.round(segmentPressurePa(flow, base.diameter_mm, base.length_m, base.duct_type) * 100) / 100
+    : null;
+  return {
+    ...base,
+    flow_m3h: flow ? Math.round(flow * 10) / 10 : null,
+    velocity_m_s,
+    pressure_drop_pa,
+    metadata: { ...(base.metadata ?? {}), run_category: category },
+  };
 }
 
 // ── Floor bands ───────────────────────────────────────────────
@@ -376,11 +393,11 @@ async function generateRoutes(supabase, projectId, userId, manifoldMode = 'singl
     if (unit) profile = getUnitAssemblyProfile(unit.manufacturer, unit.model);
   }
 
-  // 7. Trunk diameters
+  // 7. Trunk diameters — sized for ≤ 3 m/s (PH main limit)
   const totalSupplyFlow  = supplyRooms.reduce((s, r)  => s + (r.airflow_m3h || 0), 0);
   const totalExtractFlow = extractRooms.reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-  const trunkSupplyDiam  = calcTrunkDiameter(totalSupplyFlow);
-  const trunkExtractDiam = calcTrunkDiameter(totalExtractFlow);
+  const trunkSupplyDiam  = selectDiameterMm(totalSupplyFlow,  'main');
+  const trunkExtractDiam = selectDiameterMm(totalExtractFlow, 'main');
 
   // 8. Build new assembly + intake/exhaust nodes
   const nodeInserts = [];
@@ -440,9 +457,10 @@ async function generateRoutes(supabase, projectId, userId, manifoldMode = 'singl
   // 9. Build duct runs
   const runInserts = [];
 
-  // intake → MVHR → exhaust
-  if (intakeNode)  runInserts.push({ duct_design_id: did, from_node_id: intakeNode.id,  to_node_id: mvhrNode.id,  run_type: 'intake',  duct_type: 'epp_200', diameter_mm: 200 });
-  if (exhaustNode) runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id,    to_node_id: exhaustNode.id, run_type: 'exhaust', duct_type: 'epp_200', diameter_mm: 200 });
+  // intake → MVHR → exhaust  (always Ø200 EPP external connections)
+  const EXTERNAL_FLOW = Math.max(totalSupplyFlow, totalExtractFlow);
+  if (intakeNode)  runInserts.push(mkRun({ duct_design_id: did, from_node_id: intakeNode.id,  to_node_id: mvhrNode.id,    run_type: 'intake',  duct_type: 'epp_200', diameter_mm: 200 }, EXTERNAL_FLOW, 'main'));
+  if (exhaustNode) runInserts.push(mkRun({ duct_design_id: did, from_node_id: mvhrNode.id,    to_node_id: exhaustNode.id, run_type: 'exhaust', duct_type: 'epp_200', diameter_mm: 200 }, EXTERNAL_FLOW, 'main'));
 
   if (manifoldMode === 'per_floor') {
     const supplyAsms  = assemblyNodes.filter(n => n.node_type === profile.supplyNodeType);
@@ -451,38 +469,50 @@ async function generateRoutes(supabase, projectId, userId, manifoldMode = 'singl
     for (const sn of supplyAsms) {
       const fi   = sn.floor_index ?? 0;
       const flow = supplyRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-      const diam = calcTrunkDiameter(flow) || trunkSupplyDiam;
-      // MVHR (or ComfoWell if attached) → supply assembly
-      runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: sn.id, run_type: 'supply', duct_type: diam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: diam });
-      // Supply assembly → terminals on this floor
-      for (const st of supplyTerminals.filter(t => (t.floor_index ?? 0) === fi))
-        runInserts.push({ duct_design_id: did, from_node_id: sn.id, to_node_id: st.id, run_type: 'supply', duct_type: 'semi_rigid_90', diameter_mm: 90 });
+      const diam = selectDiameterMm(flow || totalSupplyFlow, 'main');
+      // MVHR → supply assembly (trunk)
+      runInserts.push(mkRun({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: sn.id, run_type: 'supply', duct_type: diameterToDuctType(diam), diameter_mm: diam }, flow || totalSupplyFlow, 'main'));
+      // Supply assembly → terminals on this floor (terminal legs)
+      for (const st of supplyTerminals.filter(t => (t.floor_index ?? 0) === fi)) {
+        const termFlow = st.airflow_m3h ?? 0;
+        const termDiam = selectDiameterMm(termFlow || 30, 'terminal');
+        runInserts.push(mkRun({ duct_design_id: did, from_node_id: sn.id, to_node_id: st.id, run_type: 'supply', duct_type: diameterToDuctType(termDiam), diameter_mm: termDiam }, termFlow, 'terminal'));
+      }
     }
 
     for (const en of extractAsms) {
       const fi   = en.floor_index ?? 0;
       const flow = extractRooms.filter(r => r.floor_index === fi).reduce((s, r) => s + (r.airflow_m3h || 0), 0);
-      const diam = calcTrunkDiameter(flow) || trunkExtractDiam;
-      // Extract assembly → MVHR
-      runInserts.push({ duct_design_id: did, from_node_id: en.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: diam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: diam });
-      // Terminals → extract assembly
-      for (const et of extractTerminals.filter(t => (t.floor_index ?? 0) === fi))
-        runInserts.push({ duct_design_id: did, from_node_id: et.id, to_node_id: en.id, run_type: 'extract', duct_type: 'semi_rigid_90', diameter_mm: 90 });
+      const diam = selectDiameterMm(flow || totalExtractFlow, 'main');
+      // Extract assembly → MVHR (trunk)
+      runInserts.push(mkRun({ duct_design_id: did, from_node_id: en.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: diameterToDuctType(diam), diameter_mm: diam }, flow || totalExtractFlow, 'main'));
+      // Terminals → extract assembly (terminal legs)
+      for (const et of extractTerminals.filter(t => (t.floor_index ?? 0) === fi)) {
+        const termFlow = et.airflow_m3h ?? 0;
+        const termDiam = selectDiameterMm(termFlow || 20, 'terminal');
+        runInserts.push(mkRun({ duct_design_id: did, from_node_id: et.id, to_node_id: en.id, run_type: 'extract', duct_type: diameterToDuctType(termDiam), diameter_mm: termDiam }, termFlow, 'terminal'));
+      }
     }
   } else {
     const supplyAsm  = assemblyNodes.find(n => n.node_type === profile.supplyNodeType);
     const extractAsm = assemblyNodes.find(n => n.node_type === profile.extractNodeType);
 
     if (supplyAsm) {
-      runInserts.push({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: supplyAsm.id, run_type: 'supply', duct_type: trunkSupplyDiam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: trunkSupplyDiam });
-      for (const st of supplyTerminals)
-        runInserts.push({ duct_design_id: did, from_node_id: supplyAsm.id, to_node_id: st.id, run_type: 'supply', duct_type: 'semi_rigid_90', diameter_mm: 90 });
+      runInserts.push(mkRun({ duct_design_id: did, from_node_id: mvhrNode.id, to_node_id: supplyAsm.id, run_type: 'supply', duct_type: diameterToDuctType(trunkSupplyDiam), diameter_mm: trunkSupplyDiam }, totalSupplyFlow, 'main'));
+      for (const st of supplyTerminals) {
+        const termFlow = st.airflow_m3h ?? 0;
+        const termDiam = selectDiameterMm(termFlow || 30, 'terminal');
+        runInserts.push(mkRun({ duct_design_id: did, from_node_id: supplyAsm.id, to_node_id: st.id, run_type: 'supply', duct_type: diameterToDuctType(termDiam), diameter_mm: termDiam }, termFlow, 'terminal'));
+      }
     }
 
     if (extractAsm) {
-      runInserts.push({ duct_design_id: did, from_node_id: extractAsm.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: trunkExtractDiam >= 160 ? 'epp_160' : 'semi_rigid_90', diameter_mm: trunkExtractDiam });
-      for (const et of extractTerminals)
-        runInserts.push({ duct_design_id: did, from_node_id: et.id, to_node_id: extractAsm.id, run_type: 'extract', duct_type: 'semi_rigid_90', diameter_mm: 90 });
+      runInserts.push(mkRun({ duct_design_id: did, from_node_id: extractAsm.id, to_node_id: mvhrNode.id, run_type: 'extract', duct_type: diameterToDuctType(trunkExtractDiam), diameter_mm: trunkExtractDiam }, totalExtractFlow, 'main'));
+      for (const et of extractTerminals) {
+        const termFlow = et.airflow_m3h ?? 0;
+        const termDiam = selectDiameterMm(termFlow || 20, 'terminal');
+        runInserts.push(mkRun({ duct_design_id: did, from_node_id: et.id, to_node_id: extractAsm.id, run_type: 'extract', duct_type: diameterToDuctType(termDiam), diameter_mm: termDiam }, termFlow, 'terminal'));
+      }
     }
   }
 
@@ -585,12 +615,17 @@ async function loadDesign(supabase, projectId) {
   if (dErr) throw new Error(dErr.message);
   if (!design) return null;
 
-  const [{ data: nodes }, { data: runs }] = await Promise.all([
+  const unitId = design.selected_unit_id ?? null;
+  const [{ data: nodes }, { data: runs }, { data: unitRow }] = await Promise.all([
     supabase.from('duct_nodes').select('*').eq('duct_design_id', design.id).order('created_at', { ascending: true }),
     supabase.from('duct_runs').select('*').eq('duct_design_id', design.id).order('created_at', { ascending: true }),
+    unitId
+      ? supabase.from('mvhr_units').select('manufacturer, model, ext_pressure').eq('id', unitId).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
-  return { design, nodes: nodes ?? [], runs: runs ?? [] };
+  const unit = unitRow ? { manufacturer: unitRow.manufacturer, model: unitRow.model, ext_pressure: unitRow.ext_pressure ?? null } : null;
+  return { design, nodes: nodes ?? [], runs: runs ?? [], unit };
 }
 
 // ── Delete design (full reset) ────────────────────────────────
@@ -807,6 +842,19 @@ export default async function handler(req, res) {
         if (!r.id) continue;
         if (!isUuid(r.id)) return res.status(400).json({ error: `Invalid run id "${r.id}": must be a UUID` });
       }
+
+      // Pre-fetch stored flow/duct data for runs that update length_m but
+      // don't supply pressure_drop_pa — so we can recompute server-side.
+      const needsRecompute = runs.filter(r => r.id && 'length_m' in r && !('pressure_drop_pa' in r));
+      const existingRunsMap = {};
+      if (needsRecompute.length > 0) {
+        const { data: existing } = await supabase
+          .from('duct_runs')
+          .select('id, flow_m3h, diameter_mm, duct_type')
+          .in('id', needsRecompute.map(r => r.id));
+        for (const ex of existing ?? []) existingRunsMap[ex.id] = ex;
+      }
+
       for (const r of runs) {
         if (!r.id) continue;
         const update = {};
@@ -816,6 +864,15 @@ export default async function handler(req, res) {
         if (r.length_m     !== undefined) update.length_m     = r.length_m;
         if (r.pressure_drop_pa !== undefined) update.pressure_drop_pa = r.pressure_drop_pa;
         if (r.notes        !== undefined) update.notes        = r.notes;
+        // Recompute pressure when length changes and client didn't supply it
+        if ('length_m' in update && !('pressure_drop_pa' in update)) {
+          const ex = existingRunsMap[r.id];
+          if (ex?.flow_m3h > 0 && update.length_m > 0) {
+            update.pressure_drop_pa = Math.round(
+              segmentPressurePa(ex.flow_m3h, ex.diameter_mm, update.length_m, ex.duct_type) * 100
+            ) / 100;
+          }
+        }
         if (Object.keys(update).length === 0) continue;
         const { error } = await supabase.from('duct_runs').update(update).eq('id', r.id).eq('duct_design_id', design.id);
         if (error) errors.push(`run ${r.id}: ${error.message}`);
