@@ -853,8 +853,11 @@ function showLoading() {
   el('emptyState').style.display    = 'none';
 }
 function hideLoading() {
-  el('loadingState').style.display = 'none';
-  el('mainContent').style.display = 'block';
+  const loading = el('loadingState');
+  if (loading) loading.style.display = 'none';
+
+  const main = el('mainContent');
+  if (main) main.style.display = 'block';
 }
 function showEmpty() {
   el('emptyState').style.display = 'block';
