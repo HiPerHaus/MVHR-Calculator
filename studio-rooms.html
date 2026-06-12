@@ -908,8 +908,15 @@ function editCell(cellEl, field, id) {
 
   cellEl.innerHTML = '';
   cellEl.appendChild(input);
+
+  // Prevent clicks/mousedowns on the control from bubbling to the cell's onclick handler.
+  // Without this, every click re-triggers editCell() and destroys the control before
+  // the user can interact with it (explains why selects open with keys but not mouse).
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('click',     e => e.stopPropagation());
+
   input.focus();
-  if (input.select) input.select();
+  if (input.tagName !== 'SELECT' && typeof input.select === 'function') input.select();
 
   async function commit() {
     let val = input.value;
@@ -920,6 +927,10 @@ function editCell(cellEl, field, id) {
   }
 
   if (input.tagName === 'SELECT') {
+    // Auto-open the native picker so the user doesn't need a second click.
+    // showPicker() is supported in Chrome/Safari/Firefox 101+; silently ignored elsewhere.
+    setTimeout(() => { try { input.showPicker(); } catch (_) {} }, 0);
+
     // Use 'change' for selects — 'blur' fires before the click lands on an option
     input.addEventListener('change', () => { commit(); });
     input.addEventListener('keydown', e => { if (e.key === 'Escape') { renderTable(); } });
