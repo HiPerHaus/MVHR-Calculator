@@ -4,20 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiPer Studio — Airflow Design</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js">
-setTimeout(() => {
-  const loading = document.querySelector('#loadingState');
-  const main = document.querySelector('#mainContent');
-  const btn = document.querySelector('#recalcBtn');
-  if (loading && loading.style.display !== 'none') {
-    loading.style.display = 'none';
-    if (main) main.style.display = 'block';
-    if (btn) btn.disabled = false;
-    console.warn('[airflow] loading fallback triggered');
-  }
-}, 4000);
-
-</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root {
   --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
@@ -271,7 +258,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
     <div class="loading-row"><div class="spinner"></div><span>Loading airflow design…</span></div>
   </div>
 
-  <!-- ── Empty state ── -->
+  <!-- ── Empty state (no confirmed rooms) ── -->
   <div id="emptyState" style="display:none">
     <div class="state-card">
       <div class="state-icon">📋</div>
@@ -279,6 +266,27 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
       <div class="state-desc">Return to Stage 2 and confirm the room schedule before running airflow calculations.</div>
       <div style="margin-top:20px">
         <a class="btn btn-primary" id="backToRoomsBtn2" href="#">← Back to Room Schedule</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── No design state (rooms exist, but no saved calculation yet) ── -->
+  <div id="noDesignState" style="display:none">
+    <div class="state-card">
+      <div class="state-icon">🔢</div>
+      <div class="state-title">No airflow design found</div>
+      <div class="state-desc">Click <strong>Recalculate</strong> above to run the airflow calculation for this project.</div>
+    </div>
+  </div>
+
+  <!-- ── Error state ── -->
+  <div id="errorState" style="display:none">
+    <div class="state-card" style="background:var(--critical-bg); border-color:#fecaca;">
+      <div class="state-icon">⚠️</div>
+      <div class="state-title" style="color:var(--critical)">Failed to load airflow design</div>
+      <div class="state-desc" id="errorStateMsg">An unexpected error occurred.</div>
+      <div style="margin-top:20px">
+        <button class="btn btn-primary" onclick="loadSavedDesign()">Try Again</button>
       </div>
     </div>
   </div>
@@ -494,15 +502,16 @@ sb.auth.onAuthStateChange((_ev, session) => {
 
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
+  console.log('[airflow] init start');
   _projectId = getProjectIdFromUrl();
   if (_projectId) {
     const stage4 = `/studio/projects/${_projectId}/unit-selection`;
-    document.getElementById('stageBtn0').href      = `/studio/projects/${_projectId}/details`;
-    document.getElementById('stageBtn1').href      = `/studio/projects/${_projectId}/upload`;
-    document.getElementById('stageBtn2').href      = `/studio/projects/${_projectId}/rooms`;
-    document.getElementById('stageBtn3').href      = `/studio/projects/${_projectId}/airflow`;
-    document.getElementById('stageBtn4').href      = stage4;
-    document.getElementById('toStage4Btn').href    = stage4;
+    document.getElementById('stageBtn0').href       = `/studio/projects/${_projectId}/details`;
+    document.getElementById('stageBtn1').href       = `/studio/projects/${_projectId}/upload`;
+    document.getElementById('stageBtn2').href       = `/studio/projects/${_projectId}/rooms`;
+    document.getElementById('stageBtn3').href       = `/studio/projects/${_projectId}/airflow`;
+    document.getElementById('stageBtn4').href       = stage4;
+    document.getElementById('toStage4Btn').href     = stage4;
     document.getElementById('backToRoomsBtn2').href = `/studio/projects/${_projectId}/rooms`;
     document.getElementById('backToRoomsBtn3').href = `/studio/projects/${_projectId}/rooms`;
     const _sl = document.querySelector('a[href="/studio/settings"]');
@@ -517,24 +526,22 @@ async function init() {
       document.getElementById('pageSubtitle').textContent = _projectId ?? 'No project';
     }
   }
-  document.getElementById('recalcBtn').disabled = false;
 
   // ── Review gate: check for rooms flagged for manual review ──────────────
   // This is a warning only — the user can proceed. We never block calculation.
   if (_projectId) {
     try {
-      const rRes  = await fetch(`${API_BASE}/rooms?projectId=${_projectId}`, {
+      const rRes = await fetch(`${API_BASE}/rooms?projectId=${_projectId}`, {
         headers: { Authorization: `Bearer ${_token}` },
       });
       if (rRes.ok) {
         const rData = await rRes.json();
         const reviewRooms = (rData.rooms ?? []).filter(r => r.requires_manual_review);
         if (reviewRooms.length > 0) {
-          // Show modal — defer recalculate() until user chooses Continue
-          const modal    = document.getElementById('reviewGateModal');
-          const list     = document.getElementById('reviewGateRoomList');
-          const goBtn    = document.getElementById('reviewGateGoBtn');
-          const contBtn  = document.getElementById('reviewGateContinueBtn');
+          const modal   = document.getElementById('reviewGateModal');
+          const list    = document.getElementById('reviewGateRoomList');
+          const goBtn   = document.getElementById('reviewGateGoBtn');
+          const contBtn = document.getElementById('reviewGateContinueBtn');
 
           goBtn.href = `/studio/projects/${_projectId}/rooms`;
           list.innerHTML = reviewRooms.map(r =>
@@ -546,9 +553,9 @@ async function init() {
             </div>`
           ).join('');
 
+          // Hide spinner; enable button while modal is open
           hideLoading();
-          if (el('mainContent')) el('mainContent').style.display = 'block';
-          if (el('recalcBtn')) el('recalcBtn').disabled = false;
+          document.getElementById('recalcBtn').disabled = false;
           modal.style.display = 'flex';
 
           contBtn.addEventListener('click', () => {
@@ -556,7 +563,7 @@ async function init() {
             recalculate();
           }, { once: true });
 
-          return; // Don't call recalculate() until user dismisses modal
+          return; // Don't load/calculate until user dismisses modal
         }
       }
     } catch (e) {
@@ -565,11 +572,8 @@ async function init() {
     }
   }
 
-  // Always recalculate on page load to avoid stale DB records from earlier
-  // engine versions. The calculation is fast (DB read + math only).
-  hideLoading();
-  if (el('mainContent')) el('mainContent').style.display = 'block';
-  if (el('recalcBtn')) el('recalcBtn').disabled = false;
+  // Load existing saved design (enables recalcBtn inside loadSavedDesign)
+  await loadSavedDesign();
 }
 
 // ── Load / recalculate ────────────────────────────────────────
@@ -578,7 +582,8 @@ async function loadSavedDesign() {
   try {
     const res  = await apiGet(`${API_BASE}/airflow?projectId=${_projectId}`);
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Load failed');
+    console.log('[airflow] saved design response', data);
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
     if (data.design) {
       _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
@@ -586,19 +591,25 @@ async function loadSavedDesign() {
       const m = _design.design_method;
       document.querySelectorAll('input[name=designMethod]').forEach(r => r.checked = r.value === m);
       updateMethodStyles();
-      renderResults();
+      try {
+        console.log('[airflow] renderResults input', { design: _design, rooms: _rooms, units: _units });
+        renderResults();
+      } catch (renderErr) {
+        console.error('[airflow] renderResults failed', renderErr);
+        showError('Results rendered with error: ' + renderErr.message);
+      }
       hideLoading();
-      if (el('mainContent')) el('mainContent').style.display = 'block';
-      if (el('recalcBtn')) el('recalcBtn').disabled = false;
     } else {
+      console.warn('[airflow] no saved design found');
       hideLoading();
-      if (el('mainContent')) el('mainContent').style.display = 'block';
-      if (el('recalcBtn')) el('recalcBtn').disabled = false;
-      console.warn('No saved airflow design found — waiting for manual recalculation.');
+      showNoDesign();
     }
-  } catch(e) {
-    console.error('loadSavedDesign', e);
-    hideLoading(); showEmpty();
+  } catch (e) {
+    console.error('[airflow] loadSavedDesign failed', e);
+    hideLoading();
+    showError(e.message);
+  } finally {
+    document.getElementById('recalcBtn').disabled = false;
   }
 }
 
@@ -607,7 +618,7 @@ let _recalculating = false;
 async function recalculate() {
   if (_recalculating) return;
   _recalculating = true;
-  el('recalcBtn').disabled = true;
+  document.getElementById('recalcBtn').disabled = true;
   showLoading();
   document.getElementById('recalcBar').style.display = 'none';
   const method = document.querySelector('input[name=designMethod]:checked')?.value ?? 'passive_house';
@@ -616,17 +627,24 @@ async function recalculate() {
     const data = await res.json();
     if (!res.ok) {
       if (res.status === 422) { hideLoading(); showEmpty(); return; }
-      throw new Error(data.error || 'Calculation failed');
+      throw new Error(data.error || `Calculation failed (HTTP ${res.status})`);
     }
     _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
-    renderResults();
+    try {
+      console.log('[airflow] renderResults input', { design: _design, rooms: _rooms, units: _units });
+      renderResults();
+    } catch (renderErr) {
+      console.error('[airflow] renderResults failed', renderErr);
+      showError('Calculation succeeded but rendering failed: ' + renderErr.message);
+    }
     hideLoading();
-    if (el('mainContent')) el('mainContent').style.display = 'block';
-    if (el('recalcBtn')) el('recalcBtn').disabled = false;
-  } catch(e) {
-    console.error('recalculate', e);
+  } catch (e) {
+    console.error('[airflow] recalculate failed', e);
     hideLoading();
-    alert('Airflow calculation failed: ' + e.message);
+    showError(e.message);
+  } finally {
+    _recalculating = false;
+    document.getElementById('recalcBtn').disabled = false;
   }
 }
 
@@ -703,21 +721,21 @@ function renderResults() {
     ? `${boostFlow - designFlow} m³/h above continuous — unit must support boost mode`
     : 'Within continuous design airflow';
 
-  el('basisArea').style.display = '';
+  el('basisArea').style.display = 'block';
 
   // ── Stats ─────────────────────────────────────────────
   // Always sum from room data so the header matches the table footer exactly.
-  const supplyM3h  = r1(_rooms.reduce((s, r) => s + (r.supply_m3h  ?? r1((r.supply_lps  || 0) * 3.6)), 0));
-  const extractM3h = r1(_rooms.reduce((s, r) => s + (r.extract_m3h ?? r1((r.extract_lps || 0) * 3.6)), 0));
+  const supplyM3h  = r1(_rooms.reduce((s, r) => s + (r.supply_m3h  ?? r1((r.supply_lps  ?? 0) * 3.6)), 0));
+  const extractM3h = r1(_rooms.reduce((s, r) => s + (r.extract_m3h ?? r1((r.extract_lps ?? 0) * 3.6)), 0));
   const diffM3h    = r1(Math.abs(supplyM3h - extractM3h));
 
-  el('statDesignM3h').textContent  = d.design_airflow_m3h;
-  el('statDesignLps').textContent  = d.design_airflow_lps;
-  el('statSupplyM3h').textContent  = supplyM3h;
-  el('statSupplyLps').textContent  = `${d.total_supply_lps} l/s`;
-  el('statExtractM3h').textContent = extractM3h;
-  el('statExtractLps').textContent = `${d.total_extract_lps} l/s`;
-  el('statDiff').textContent       = diffM3h.toFixed(1);
+  el('statDesignM3h').textContent  = fmtNum(d.design_airflow_m3h, 0);
+  el('statDesignLps').textContent  = fmtNum(d.design_airflow_lps, 1);
+  el('statSupplyM3h').textContent  = fmtNum(supplyM3h, 0);
+  el('statSupplyLps').textContent  = d.total_supply_lps != null ? `${fmtNum(d.total_supply_lps, 1)} l/s` : '';
+  el('statExtractM3h').textContent = fmtNum(extractM3h, 0);
+  el('statExtractLps').textContent = d.total_extract_lps != null ? `${fmtNum(d.total_extract_lps, 1)} l/s` : '';
+  el('statDiff').textContent       = fmtNum(diffM3h, 1);
 
   const status = d.balance_status;
   const icons  = {
@@ -736,12 +754,12 @@ function renderResults() {
     el('balanceNote').textContent = '';
   }
 
-  el('statsArea').style.display = '';
+  el('statsArea').style.display = 'block';
 
   // ── Room table ────────────────────────────────────────
   renderRoomTable();
 
-  el('roomTableCard').style.display = '';
+  el('roomTableCard').style.display = 'block';
   el('confirmCard').style.display   = 'flex';
 
   // Unlock Stage 4 nav
@@ -801,13 +819,13 @@ function renderRoomTable() {
   let ts = 0, te = 0, tb = 0;
 
   for (const r of _rooms) {
-    const sm  = r.supply_m3h  ?? r1(r.supply_lps  * 3.6);
-    const em  = r.extract_m3h ?? r1(r.extract_lps * 3.6);
+    const sm  = r.supply_m3h  ?? r1((r.supply_lps  ?? 0) * 3.6);
+    const em  = r.extract_m3h ?? r1((r.extract_lps ?? 0) * 3.6);
     const bm  = roomBoostExtract(r);
     ts += sm; te += em; if (bm > 0) tb += bm;
 
     const fmtFlow = (m3h, lps, cls) => m3h > 0
-      ? `<span class="${cls}">${m3h}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span> <span style="font-size:11px;color:var(--muted)">(${lps})</span></span>`
+      ? `<span class="${cls}">${fmtNum(m3h, 0)}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span>${lps != null ? ` <span style="font-size:11px;color:var(--muted)">(${fmtNum(lps,1)})</span>` : ''}</span>`
       : '<span class="zero-val">—</span>';
     const fmtBoost = (m3h) => m3h > 0
       ? `<span style="font-weight:700;color:#9333ea">${m3h}<span style="font-size:11px;font-weight:500;margin-left:2px;opacity:.7">m³/h</span></span>`
@@ -844,24 +862,27 @@ function renderRoomTable() {
 }
 
 // ── Show/hide helpers ─────────────────────────────────────────
+const ALL_STATES = ['loadingState','emptyState','noDesignState','errorState','basisArea','statsArea','roomTableCard','confirmCard'];
+
 function showLoading() {
+  ALL_STATES.forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
   el('loadingState').style.display = 'block';
-  el('basisArea').style.display    = 'none';
-  el('statsArea').style.display    = 'none';
-  el('roomTableCard').style.display = 'none';
-  el('confirmCard').style.display   = 'none';
-  el('emptyState').style.display    = 'none';
 }
 function hideLoading() {
-  const loading = el('loadingState');
-  if (loading) loading.style.display = 'none';
-
-  const main = el('mainContent');
-  if (main) main.style.display = 'block';
+  el('loadingState').style.display = 'none';
 }
 function showEmpty() {
+  ALL_STATES.forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
   el('emptyState').style.display = 'block';
-  el('loadingState').style.display = 'none';
+}
+function showNoDesign() {
+  ALL_STATES.forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
+  el('noDesignState').style.display = 'block';
+}
+function showError(msg) {
+  ALL_STATES.forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
+  el('errorStateMsg').textContent = msg || 'An unexpected error occurred.';
+  el('errorState').style.display = 'block';
 }
 
 // ── API helpers ───────────────────────────────────────────────
@@ -876,6 +897,12 @@ const apiPost = (url, body) => fetch(url, {
 const el  = id => document.getElementById(id);
 const r1  = v  => Math.round(v * 10) / 10;
 const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/** Safely format a number; returns fallback string when value is null/undefined/NaN. */
+function fmtNum(value, decimals = 1, fallback = '—') {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(decimals) : fallback;
+}
 
 const TYPE_LABELS = {
   bedroom:'Bedroom', living:'Living', dining:'Dining', kitchen:'Kitchen',
