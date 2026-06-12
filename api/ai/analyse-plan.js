@@ -96,7 +96,11 @@ const MINIMUM_ROOM_COUNT = 3;   // plans with fewer rooms after Stage 1 trigger 
 const SUPPLY_TYPES   = new Set(['Single Bedroom','Double Bedroom','Master Bedroom','Study / Office','Living Room','Dining Room','Rumpus Room','Other']);
 const EXTRACT_TYPES  = new Set(['Kitchen','Bathroom','Ensuite','Laundry','WC','Pantry','Pantry/Laundry','Other']);
 const TRANSFER_TYPES = new Set(['Hallway','Entry','Corridor','Other']);
-const IGNORE_TYPES   = new Set(['WIR','Garage','Porch','Carport','Alfresco','Store','Other']);
+const IGNORE_TYPES   = new Set([
+  'WIR','Garage','Porch','Carport','Alfresco','Store','Other',
+  // Extended external / outdoor types
+  'Verandah','Balcony','Deck','Patio','Shed','Workshop','BBQ Area','Outdoor Kitchen','Courtyard',
+]);
 const ALL_TYPES      = new Set([...SUPPLY_TYPES, ...EXTRACT_TYPES, ...TRANSFER_TYPES, ...IGNORE_TYPES]);
 
 const VENT_CLASSIFICATIONS = new Set(['supply','extract','transfer','ignore']);
@@ -199,6 +203,13 @@ const NAME_LOWER_TO_ROOM_TYPE = {
   'garage':         'Garage',         'porch':          'Porch',
   'carport':        'Carport',        'alfresco':       'Alfresco',
   'store':          'Store',          'storage':        'Store',
+  // External / outdoor display names
+  'verandah':       'Verandah',       'veranda':        'Verandah',
+  'balcony':        'Balcony',        'deck':           'Deck',
+  'patio':          'Patio',          'shed':           'Shed',
+  'workshop':       'Workshop',       'bbq':            'BBQ Area',
+  'bbq area':       'BBQ Area',       'outdoor kitchen':'Outdoor Kitchen',
+  'courtyard':      'Courtyard',
 };
 
 function deriveRoomType(name, spaceType) {
@@ -279,6 +290,34 @@ function validateRoom(raw, floorIndex) {
   const parentRoom = typeof raw.parentRoom === 'string' && raw.parentRoom.trim()
     ? raw.parentRoom.trim() : null;
 
+  // ── External space override: always ignored ──────────────────────────────
+  // Runs BEFORE spaceType derivation so the AI-provided spaceType has no effect.
+  // External/outdoor rooms (alfresco, garage, shed, workshop, BBQ, balcony, etc.)
+  // must NEVER contribute to supply, extract, boost, occupancy, or duct layout.
+  if (EXTERNAL_SPACE_PATTERN.test(name)) {
+    return {
+      name:                         name,
+      labelSeen:                    labelSeen || name,
+      roomType:                     deriveRoomType(name, 'service'),
+      area:                         area ?? 0,
+      floor:                        floorIndex,
+      ventilationClassification:    'ignore',
+      confidence:                   confidence ?? 1.0,
+      fixtures:                     [],           // clear AI-reported fixtures
+      optionalExtract:              false,
+      optionalSupply:               false,
+      containsSecondaryExtractZone: false,
+      classificationReason:         'External/outdoor space — excluded from MVHR ventilation.',
+      parentRoom,
+      terminalPriority:             'none',
+      spaceType:                    'service',
+      airflowDriver:                'optional',
+      bedSpaces:                    0,
+      potentialBedSpaces:           0,
+      requiresManualReview:         false,
+    };
+  }
+
   // ── spaceType: AI value validated; fallback to name-pattern lookup ──────
   const rawSpaceType = typeof raw.spaceType === 'string'
     ? raw.spaceType.toLowerCase().trim() : null;
@@ -332,7 +371,7 @@ function validateRoom(raw, floorIndex) {
     /\bmulti.?use\b/i,  /\bmulti.?purpose\b/i, /\bmpr\b/i,
     /\bstudio\b/i,      /\bretreat\b/i,         /\bactivity\b/i,
     /\boffice\b/i,      /\bhome.?office\b/i,    /\brumpus\b/i,
-    /\bgym\b/i,         /\bworkshop\b/i,        /\bhobby\b/i,
+    /\bgym\b/i,         /\bhobby\b/i,
     /\bcellar\b/i,      /\bgames\b/i,
     /\bmedia\b/i,       /\btheatre\b/i,         /\bmedia\s+room\b/i,
     /\bgames\s+room\b/i, /\bhome\s+theatre\b/i,
@@ -425,6 +464,11 @@ const FAILURE_SUGGESTIONS = [
 
 // ── Pattern sets ─────────────────────────────────────────────
 
+// External / outdoor spaces — always classified as ignore regardless of AI spaceType or fixtures.
+// Referenced in both validateRoom() (early return) and postProcessRooms() (step 0).
+const EXTERNAL_SPACE_PATTERN =
+  /\b(alfresco|verandah|veranda|balcon(?:y|ies)?|deck|porch|patio|outdoor\s+kitchen|bbq|carport|garage|shed|workshop|pool\s+equipment|courtyard|outdoor)\b/i;
+
 const SERVICE_PATTERNS = [
   /\bhws\b/i,           // hot water system
   /\bhot water\b/i,
@@ -459,6 +503,8 @@ const JOINERY_PATTERNS = [
 ];
 
 // Outdoor / non-ventilated — always ignore
+// Note: EXTERNAL_SPACE_PATTERN (step 0 in postProcessRooms) is the primary guard;
+// IGNORE_LABEL_PATTERNS is a defence-in-depth fallback at step 5.
 const IGNORE_LABEL_PATTERNS = [
   /\bverandah\b/i, /\bveranda\b/i,
   /\bporch\b/i,
@@ -470,6 +516,9 @@ const IGNORE_LABEL_PATTERNS = [
   /\bdeck\b/i,
   /\bcourtyard\b/i,
   /\boutdoor\b/i,
+  /\bbbq\b/i,           // BBQ area / outdoor grill
+  /\bshed\b/i,          // garden shed, tool shed
+  /\bworkshop\b/i,      // outdoor/backyard workshop
 ];
 
 // Circulation — always transfer
@@ -601,7 +650,7 @@ function postProcessRooms(rooms, warnings) {
       /\bmulti.?use\b/i, /\bmulti.?purpose\b/i, /\bmpr\b/i,
       /\bstudio\b/i,     /\bretreat\b/i,         /\bactivity\b/i,
       /\boffice\b/i,     /\bhome.?office\b/i,    /\brumpus\b/i,
-      /\bgym\b/i,        /\bworkshop\b/i,        /\bhobby\b/i,
+      /\bgym\b/i,        /\bhobby\b/i,
       /\bcellar\b/i,     /\bgames\b/i,
       /\bmedia\b/i,      /\btheatre\b/i,
     ];
@@ -620,6 +669,19 @@ function postProcessRooms(rooms, warnings) {
       room.requiresManualReview = true;
       // Low confidence cap — dual-purpose rooms need user decision
       if (room.confidence == null || room.confidence > 0.60) room.confidence = 0.60;
+    }
+
+    // ── 0. External / outdoor spaces → always ignore ─────────
+    // Must run BEFORE step 1 (service exclusion) and step 2 (wet fixture override)
+    // so that outdoor rooms with wet fixtures (e.g. outdoor kitchen sink) are still
+    // classified as ignore rather than extract.
+    if (EXTERNAL_SPACE_PATTERN.test(name)) {
+      room.ventilationClassification = 'ignore';
+      room.airflowDriver             = 'optional';
+      room.requiresManualReview      = false;
+      if (!IGNORE_TYPES.has(room.roomType)) room.roomType = 'Other';
+      out.push(room);
+      continue;
     }
 
     // ── 1. Service / equipment → exclude ─────────────────────
