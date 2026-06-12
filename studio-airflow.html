@@ -547,8 +547,8 @@ async function init() {
           ).join('');
 
           hideLoading();
-          el('mainContent').style.display = 'block';
-          el('recalcBtn').disabled = false;
+          if (el('mainContent')) el('mainContent').style.display = 'block';
+          if (el('recalcBtn')) el('recalcBtn').disabled = false;
           modal.style.display = 'flex';
 
           contBtn.addEventListener('click', () => {
@@ -568,8 +568,8 @@ async function init() {
   // Always recalculate on page load to avoid stale DB records from earlier
   // engine versions. The calculation is fast (DB read + math only).
   hideLoading();
-  el('mainContent').style.display = 'block';
-  el('recalcBtn').disabled = false;
+  if (el('mainContent')) el('mainContent').style.display = 'block';
+  if (el('recalcBtn')) el('recalcBtn').disabled = false;
 }
 
 // ── Load / recalculate ────────────────────────────────────────
@@ -588,12 +588,12 @@ async function loadSavedDesign() {
       updateMethodStyles();
       renderResults();
       hideLoading();
-      el('mainContent').style.display = 'block';
-      el('recalcBtn').disabled = false;
+      if (el('mainContent')) el('mainContent').style.display = 'block';
+      if (el('recalcBtn')) el('recalcBtn').disabled = false;
     } else {
       hideLoading();
-      el('mainContent').style.display = 'block';
-      el('recalcBtn').disabled = false;
+      if (el('mainContent')) el('mainContent').style.display = 'block';
+      if (el('recalcBtn')) el('recalcBtn').disabled = false;
       console.warn('No saved airflow design found — waiting for manual recalculation.');
     }
   } catch(e) {
@@ -621,8 +621,8 @@ async function recalculate() {
     _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
     renderResults();
     hideLoading();
-    el('mainContent').style.display = 'block';
-    el('recalcBtn').disabled = false;
+    if (el('mainContent')) el('mainContent').style.display = 'block';
+    if (el('recalcBtn')) el('recalcBtn').disabled = false;
   } catch(e) {
     console.error('recalculate', e);
     hideLoading();
