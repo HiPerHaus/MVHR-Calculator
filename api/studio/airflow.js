@@ -76,8 +76,37 @@ function enrichDesign(dbRow, calc) {
   const totalExtractM3h = calc?.totalExtractM3h ?? toM3h(dbRow.total_extract_lps);
   const adjM3h          = calc?.adjustmentM3h   ?? toM3h(dbRow.balance_adjustment_lps ?? 0);
 
-  // Boost for unit scoring: prefer explicit boost_flow_m3h column; fall back to wet_room_flow_m3h
-  const boostM3h = dbRow.boost_flow_m3h ?? dbRow.wet_room_flow_m3h ?? calc?.boostFlowM3h ?? calc?.boostDemandM3h ?? 0;
+  // Effective boost/fan-speed settings (DB row → fresh calc → defaults)
+  const effectiveBoostMethod = dbRow.boost_method               ?? calc?.boostMethod  ?? 'percentage';
+  const effectiveBoostPct    = dbRow.boost_airflow_offset_pct   ?? calc?.boostOffsetPct ?? 30;
+  const effectiveLowPct      = dbRow.low_airflow_offset_pct     ?? calc?.lowOffsetPct   ?? -30;
+  const designM3h            = dbRow.design_airflow_m3h         ?? 0;
+
+  // Boost airflow:
+  //   1. Fresh engine calc (POST/PATCH) — always correct.
+  //   2. Saved row where boost_method IS set (post-Task #35 designs) — stored value is valid.
+  //   3. Stale row where boost_method IS NULL (pre-Task #35) — recompute from design + defaults;
+  //      dbRow.boost_flow_m3h holds the old room-based value and MUST NOT be used here.
+  let boostM3h;
+  if (calc?.boostFlowM3h != null) {
+    boostM3h = calc.boostFlowM3h;
+  } else if (dbRow.boost_method != null && dbRow.boost_flow_m3h != null) {
+    boostM3h = dbRow.boost_flow_m3h;
+  } else {
+    // Stale design — recompute
+    boostM3h = effectiveBoostMethod === 'percentage'
+      ? Math.round(designM3h * (1 + effectiveBoostPct / 100))
+      : (dbRow.room_boost_demand_m3h ?? dbRow.wet_room_flow_m3h ?? 0);
+  }
+
+  // Low airflow: stored value if present; otherwise recompute from design + effective offset.
+  const lowM3h = dbRow.low_flow_m3h ?? calc?.lowFlowM3h
+    ?? (designM3h > 0 ? Math.round(designM3h * (1 + effectiveLowPct / 100)) : null);
+
+  // Boost warning: stored value if present; recompute from resolved values when stale.
+  const roomBoostDemandM3h = dbRow.room_boost_demand_m3h ?? calc?.roomBoostDemandM3h ?? null;
+  const boostWarning = dbRow.boost_warning ?? calc?.boostWarning
+    ?? (roomBoostDemandM3h != null ? roomBoostDemandM3h > boostM3h : false);
 
   return {
     ...dbRow,
@@ -90,12 +119,12 @@ function enrichDesign(dbRow, calc) {
     area_flow_m3h:              dbRow.area_flow_m3h               ?? calc?.areaFlowM3h,
     boost_flow_m3h:             boostM3h,
     wet_room_flow_m3h:          boostM3h, // backward compat alias
-    room_boost_demand_m3h:      dbRow.room_boost_demand_m3h       ?? calc?.roomBoostDemandM3h ?? null,
-    low_flow_m3h:               dbRow.low_flow_m3h                ?? calc?.lowFlowM3h ?? null,
-    boost_method:               dbRow.boost_method                ?? calc?.boostMethod ?? 'percentage',
-    boost_airflow_offset_pct:   dbRow.boost_airflow_offset_pct    ?? calc?.boostOffsetPct ?? 30,
-    low_airflow_offset_pct:     dbRow.low_airflow_offset_pct      ?? calc?.lowOffsetPct ?? -30,
-    boost_warning:              dbRow.boost_warning               ?? calc?.boostWarning ?? false,
+    room_boost_demand_m3h:      roomBoostDemandM3h,
+    low_flow_m3h:               lowM3h,
+    boost_method:               effectiveBoostMethod,
+    boost_airflow_offset_pct:   effectiveBoostPct,
+    low_airflow_offset_pct:     effectiveLowPct,
+    boost_warning:              boostWarning,
     occupancy_count:            dbRow.occupancy_count             ?? calc?.occupancyCount,
     treated_area_m2:            dbRow.treated_area_m2             ?? calc?.treatedAreaM2,
     area_data_available:        dbRow.area_data_available          ?? calc?.hasAreaData ?? false,
