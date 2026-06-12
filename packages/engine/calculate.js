@@ -14,7 +14,7 @@
 // The designDriver reports which criterion governed.
 // ============================================================
 
-import { ENGINE_VERSION, DEFAULT_ROOM_RATES } from './constants.js';
+import { ENGINE_VERSION, DEFAULT_ROOM_RATES, DEFAULT_BOOST_SETTINGS } from './constants.js';
 import { r0, r1, toLps } from './helpers.js';
 import { calcOccupancyFlow } from './occupancy.js';
 import { calcAreaFlow } from './area.js';
@@ -67,8 +67,16 @@ import { balanceDesign } from './balance.js';
  * @param {object}   [userRates]    — override DEFAULT_ROOM_RATES
  * @returns {CalculationResult}
  */
-export function calculateAirflow(rooms, method, userRates = {}) {
+export function calculateAirflow(rooms, method, userRates = {}, settings = {}) {
   const rates = { ...DEFAULT_ROOM_RATES, ...userRates };
+
+  // ── Boost / fan-speed settings (with defaults) ────────────────
+  const boostMethod    = settings.boost_method
+    ?? DEFAULT_BOOST_SETTINGS.boost_method;
+  const boostOffsetPct = Number(settings.boost_airflow_offset_pct
+    ?? DEFAULT_BOOST_SETTINGS.boost_airflow_offset_pct);
+  const lowOffsetPct   = Number(settings.low_airflow_offset_pct
+    ?? DEFAULT_BOOST_SETTINGS.low_airflow_offset_pct);
 
   // ── 1. Room allocations ─────────────────────────────────────
   //    Run first — extractDemandM3h and boostDemandM3h are derived
@@ -86,8 +94,9 @@ export function calculateAirflow(rooms, method, userRates = {}) {
   // are correctly excluded — consistent with what the room schedule will show.
   const extractDemandM3h = Math.round(roomResults.reduce((s, r) => s + r.extract_m3h, 0));
 
-  // Boost demand = peak capacity check only — never a design-flow candidate.
-  const boostDemandM3h = Math.round(roomResults.reduce((s, r) => s + (r.boost_extract_m3h || 0), 0));
+  // Room-based boost: always computed for validation (independent of methodology).
+  const roomBoostDemandM3h = Math.round(roomResults.reduce((s, r) => s + (r.boost_extract_m3h || 0), 0));
+
 
   const {
     treatedAreaM2, areaFlowM3h, hasAreaData,
@@ -112,6 +121,18 @@ export function calculateAirflow(rooms, method, userRates = {}) {
   const maxCandidate = candidates.reduce((best, c) => c.value > best.value ? c : best);
   const designFlowM3h = r0(maxCandidate.value);
   const designDriver  = /** @type {'occupancy'|'extract_demand'|'area'|'ach_minimum'} */ (maxCandidate.label);
+
+  // ── 2b. Boost and fan-speed targets (depend on designFlowM3h) ──
+  // Configured boost flow (unit selection + commissioning).
+  const boostFlowM3h = boostMethod === 'percentage'
+    ? Math.round(designFlowM3h * (1 + boostOffsetPct / 100))
+    : roomBoostDemandM3h; // room_based method
+
+  // Low speed target.
+  const lowFlowM3h = Math.round(designFlowM3h * (1 + lowOffsetPct / 100));
+
+  // Validation warning: configured boost may under-serve room peak demand.
+  const boostWarning = roomBoostDemandM3h > boostFlowM3h;
 
   // ── 3. ACH achieved at design flow (reporting only) ──────────
   const achReport = achFloor.hasVolumeData
@@ -138,7 +159,14 @@ export function calculateAirflow(rooms, method, userRates = {}) {
     hasAreaData,
     areaWithCount,
     areaExpectedCount,
-    boostDemandM3h,
+    boostFlowM3h,
+    roomBoostDemandM3h,    // always room-based (validation)
+    lowFlowM3h,
+    boostMethod,
+    boostOffsetPct,
+    lowOffsetPct,
+    boostWarning,
+    boostDemandM3h: boostFlowM3h, // backward-compat alias
 
     // Chosen design flow
     designFlowM3h,

@@ -211,8 +211,9 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
   <a class="stage-btn active" id="stageBtn3" href="#"><span class="stage-num">4</span>Airflow Design</a>
   <a class="stage-btn locked" id="stageBtn4" href="#"><span class="stage-num">5</span>Unit Selection</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">6</span>System Layout</a>
-  <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn locked" id="stageBtn5" href="#"><span class="stage-num">6</span>System Layout</a>
+  <a class="stage-btn locked" id="stageBtn6" href="#"><span class="stage-num">7</span>Commissioning</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
   <a class="stage-btn" style="margin-left:auto;color:var(--muted)" href="/studio/settings">⚙ Settings</a>
 </nav>
 
@@ -331,14 +332,40 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
       <div class="card-title">Boost Capacity Check</div>
       <div class="basis-grid">
         <div class="basis-card">
-          <div class="basis-label">Wet Room Extract Total</div>
-          <div><span class="basis-flow" id="basisWetFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
-          <div class="basis-sub" id="basisWetSub">Sum of all extract rooms at full rate</div>
+          <div class="basis-label">Room Peak Demand</div>
+          <div><span class="basis-flow" id="basisRoomBoostFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub">Sum of all extract rooms at boost rate</div>
         </div>
         <div class="basis-card" id="basisBoostCard">
-          <div class="basis-label">Boost Airflow Required</div>
+          <div class="basis-label">Configured Boost Target</div>
           <div><span class="basis-flow" id="basisBoostFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
           <div class="basis-sub" id="basisBoostSub">Unit must support this at boost setting</div>
+        </div>
+        <div class="basis-card" id="basisBoostStatusCard">
+          <div class="basis-label">Boost Status</div>
+          <div style="margin-top:6px" id="basisBoostStatus">—</div>
+          <div class="basis-sub" id="basisBoostMethodSub" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Fan Speed Targets -->
+    <div class="card" style="margin-top:0">
+      <div class="card-title">Fan Speed Targets</div>
+      <div class="basis-grid">
+        <div class="basis-card">
+          <div class="basis-label">Speed 1 — Low</div>
+          <div><span class="basis-flow" id="fanSpeedLow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="fanSpeedLowSub"></div>
+        </div>
+        <div class="basis-card" style="border-color:var(--primary); background:var(--primary-light)">
+          <div class="basis-label">Speed 2 — Normal</div>
+          <div><span class="basis-flow" id="fanSpeedNormal">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub">Design airflow — continuous running</div>
+        </div>
+        <div class="basis-card">
+          <div class="basis-label">Speed 3 — Boost</div>
+          <div><span class="basis-flow" id="fanSpeedBoost">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
+          <div class="basis-sub" id="fanSpeedBoostSub"></div>
         </div>
       </div>
     </div>
@@ -513,6 +540,8 @@ async function init() {
     document.getElementById('stageBtn2').href       = `/studio/projects/${_projectId}/rooms`;
     document.getElementById('stageBtn3').href       = `/studio/projects/${_projectId}/airflow`;
     document.getElementById('stageBtn4').href       = stage4;
+    document.getElementById('stageBtn5').href       = `/studio/projects/${_projectId}/layout`;
+    document.getElementById('stageBtn6').href       = `/studio/projects/${_projectId}/commissioning`;
     document.getElementById('toStage4Btn').href     = stage4;
     document.getElementById('backToRoomsBtn2').href = `/studio/projects/${_projectId}/rooms`;
     document.getElementById('backToRoomsBtn3').href = `/studio/projects/${_projectId}/rooms`;
@@ -728,12 +757,42 @@ function renderResults() {
     el('areaWarningBanner').style.display = 'none';
   }
 
-  // Boost Capacity Check — capacity check only, never the continuous design airflow
-  el('basisWetFlow').textContent   = boostFlow;
-  el('basisBoostFlow').textContent = boostFlow;
-  el('basisBoostSub').textContent  = boostFlow > designFlow
-    ? `${r1(boostFlow - designFlow)} m³/h above continuous design airflow — selected unit must support boost mode`
-    : 'Capacity check only — not the continuous design airflow';
+  // Boost Capacity Check
+  const roomBoostDemand = d.room_boost_demand_m3h ?? boostFlow;
+  const boostWarning    = d.boost_warning ?? (roomBoostDemand > boostFlow);
+  const boostMethod     = d.boost_method ?? 'percentage';
+  const boostOffsetPct  = d.boost_airflow_offset_pct ?? 30;
+  const lowFlowM3h      = d.low_flow_m3h ?? null;
+  const lowOffsetPct    = d.low_airflow_offset_pct ?? -30;
+
+  el('basisRoomBoostFlow').textContent = roomBoostDemand;
+  el('basisBoostFlow').textContent     = boostFlow;
+  el('basisBoostSub').textContent      = boostMethod === 'percentage'
+    ? `Design × ${boostOffsetPct > 0 ? '+' : ''}${boostOffsetPct}%`
+    : 'Room-based (sum of boost extract rates)';
+
+  if (boostWarning) {
+    el('basisBoostStatusCard').style.borderColor = 'var(--warn)';
+    el('basisBoostStatusCard').style.background  = 'var(--warn-bg)';
+    el('basisBoostStatus').innerHTML = `<span style="color:var(--warn);font-size:18px;font-weight:900">⚠ WARNING</span>`;
+    el('basisBoostMethodSub').textContent = `Room demand (${roomBoostDemand} m³/h) exceeds configured boost (${boostFlow} m³/h). Increase boost offset or check room schedule.`;
+  } else {
+    el('basisBoostStatusCard').style.borderColor = 'var(--ok-border)';
+    el('basisBoostStatusCard').style.background  = 'var(--ok-bg)';
+    el('basisBoostStatus').innerHTML = `<span style="color:#166534;font-size:18px;font-weight:900">✓ PASS</span>`;
+    el('basisBoostMethodSub').textContent = `Configured boost covers room peak demand (${roomBoostDemand} m³/h).`;
+  }
+
+  // Fan Speed Targets
+  el('fanSpeedLow').textContent    = lowFlowM3h ?? '—';
+  el('fanSpeedLowSub').textContent = lowFlowM3h != null
+    ? `Design × ${lowOffsetPct > 0 ? '+' : ''}${lowOffsetPct}%`
+    : 'Not configured';
+  el('fanSpeedNormal').textContent  = designFlow;
+  el('fanSpeedBoost').textContent   = boostFlow;
+  el('fanSpeedBoostSub').textContent = boostMethod === 'percentage'
+    ? `Design × ${boostOffsetPct > 0 ? '+' : ''}${boostOffsetPct}%`
+    : 'Room-based demand';
 
   el('basisArea').style.display = 'block';
 

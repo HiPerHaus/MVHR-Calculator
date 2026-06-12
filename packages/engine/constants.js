@@ -72,6 +72,18 @@ export const BOOST_EXTRACT_RATES = {
   pantry:   20,
 };
 
+// ── Boost / fan-speed methodology defaults ────────────────────
+// Used when no project-level or user-level override is supplied.
+// boost_method:
+//   'percentage'  — boostFlow = designFlow × (1 + boost_airflow_offset_pct / 100)
+//   'room_based'  — boostFlow = sum(room.boost_extract_m3h)
+export const DEFAULT_BOOST_SETTINGS = {
+  boost_method:             'percentage',
+  boost_airflow_offset_pct: 30,   // +30% above design airflow
+  low_airflow_offset_pct:   -30,  // −30% below design airflow
+};
+
+
 // ── Area calculation exclusions ───────────────────────────────
 // Classifications excluded from both the area sum and the ACH volume sum.
 // 'ignore' = deliberately excluded (garages, plant rooms).

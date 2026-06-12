@@ -77,32 +77,38 @@ function enrichDesign(dbRow, calc) {
   const adjM3h          = calc?.adjustmentM3h   ?? toM3h(dbRow.balance_adjustment_lps ?? 0);
 
   // Boost for unit scoring: prefer explicit boost_flow_m3h column; fall back to wet_room_flow_m3h
-  const boostM3h = dbRow.boost_flow_m3h ?? dbRow.wet_room_flow_m3h ?? calc?.boostDemandM3h ?? 0;
+  const boostM3h = dbRow.boost_flow_m3h ?? dbRow.wet_room_flow_m3h ?? calc?.boostFlowM3h ?? calc?.boostDemandM3h ?? 0;
 
   return {
     ...dbRow,
-    total_supply_m3h:         totalSupplyM3h,
-    total_extract_m3h:        totalExtractM3h,
-    balance_adjustment_m3h:   adjM3h,
+    total_supply_m3h:           totalSupplyM3h,
+    total_extract_m3h:          totalExtractM3h,
+    balance_adjustment_m3h:     adjM3h,
     // Design basis
-    occupancy_flow_m3h:       dbRow.occupancy_flow_m3h       ?? calc?.occupancyFlowM3h,
-    extract_demand_m3h:       dbRow.extract_demand_m3h       ?? calc?.extractDemandM3h,
-    area_flow_m3h:            dbRow.area_flow_m3h             ?? calc?.areaFlowM3h,
-    boost_flow_m3h:           boostM3h,
-    wet_room_flow_m3h:        boostM3h, // backward compat alias
-    occupancy_count:          dbRow.occupancy_count          ?? calc?.occupancyCount,
-    treated_area_m2:          dbRow.treated_area_m2          ?? calc?.treatedAreaM2,
-    area_data_available:      dbRow.area_data_available       ?? calc?.hasAreaData ?? false,
-    area_with_count:          calc?.areaWithCount             ?? null,
-    area_expected_count:      calc?.areaExpectedCount         ?? null,
-    design_driver:            dbRow.design_driver             ?? calc?.designDriver ?? null,
+    occupancy_flow_m3h:         dbRow.occupancy_flow_m3h         ?? calc?.occupancyFlowM3h,
+    extract_demand_m3h:         dbRow.extract_demand_m3h         ?? calc?.extractDemandM3h,
+    area_flow_m3h:              dbRow.area_flow_m3h               ?? calc?.areaFlowM3h,
+    boost_flow_m3h:             boostM3h,
+    wet_room_flow_m3h:          boostM3h, // backward compat alias
+    room_boost_demand_m3h:      dbRow.room_boost_demand_m3h       ?? calc?.roomBoostDemandM3h ?? null,
+    low_flow_m3h:               dbRow.low_flow_m3h                ?? calc?.lowFlowM3h ?? null,
+    boost_method:               dbRow.boost_method                ?? calc?.boostMethod ?? 'percentage',
+    boost_airflow_offset_pct:   dbRow.boost_airflow_offset_pct    ?? calc?.boostOffsetPct ?? 30,
+    low_airflow_offset_pct:     dbRow.low_airflow_offset_pct      ?? calc?.lowOffsetPct ?? -30,
+    boost_warning:              dbRow.boost_warning               ?? calc?.boostWarning ?? false,
+    occupancy_count:            dbRow.occupancy_count             ?? calc?.occupancyCount,
+    treated_area_m2:            dbRow.treated_area_m2             ?? calc?.treatedAreaM2,
+    area_data_available:        dbRow.area_data_available          ?? calc?.hasAreaData ?? false,
+    area_with_count:            calc?.areaWithCount                ?? null,
+    area_expected_count:        calc?.areaExpectedCount            ?? null,
+    design_driver:              dbRow.design_driver                ?? calc?.designDriver ?? null,
     // ACH compliance
-    total_volume_m3:          dbRow.total_volume_m3           ?? calc?.totalVolumeM3 ?? null,
-    ach_at_design:            dbRow.ach_at_design             ?? calc?.achAtDesign ?? null,
-    ach_passes:               dbRow.ach_passes                ?? calc?.achPasses ?? null,
-    ach_minimum:              0.30,
+    total_volume_m3:            dbRow.total_volume_m3              ?? calc?.totalVolumeM3 ?? null,
+    ach_at_design:              dbRow.ach_at_design                ?? calc?.achAtDesign ?? null,
+    ach_passes:                 dbRow.ach_passes                   ?? calc?.achPasses ?? null,
+    ach_minimum:                0.30,
     // Engine version
-    engine_version:           dbRow.engine_version            ?? calc?.engineVersion ?? ENGINE_VERSION,
+    engine_version:             dbRow.engine_version               ?? calc?.engineVersion ?? ENGINE_VERSION,
   };
 }
 
@@ -287,23 +293,41 @@ export default async function handler(req, res) {
       });
     }
 
-    // Load user settings for room rates + preferred unit load
+    // Load user settings for room rates + preferred unit load + boost/fan-speed defaults
     let userRates        = {};
     let preferredLoadPct = 60;
+    let boostSettings    = {};
     {
       const { data: settings } = await supabase
         .from('user_settings')
-        .select('room_airflow_defaults, preferred_unit_load_percent')
+        .select('room_airflow_defaults, preferred_unit_load_percent, boost_method, boost_airflow_offset_pct, low_airflow_offset_pct')
         .eq('user_id', user.id)
         .maybeSingle();
       if (settings) {
-        if (settings.room_airflow_defaults)      userRates       = settings.room_airflow_defaults;
+        if (settings.room_airflow_defaults)       userRates        = settings.room_airflow_defaults;
         if (settings.preferred_unit_load_percent) preferredLoadPct = settings.preferred_unit_load_percent;
+        if (settings.boost_method           != null) boostSettings.boost_method            = settings.boost_method;
+        if (settings.boost_airflow_offset_pct != null) boostSettings.boost_airflow_offset_pct = settings.boost_airflow_offset_pct;
+        if (settings.low_airflow_offset_pct != null) boostSettings.low_airflow_offset_pct  = settings.low_airflow_offset_pct;
+      }
+    }
+
+    // Load project-level boost overrides (these take precedence over user_settings defaults)
+    {
+      const { data: project } = await supabase
+        .from('projects')
+        .select('boost_method, boost_airflow_offset_pct, low_airflow_offset_pct')
+        .eq('id', projectId)
+        .maybeSingle();
+      if (project) {
+        if (project.boost_method            != null) boostSettings.boost_method            = project.boost_method;
+        if (project.boost_airflow_offset_pct != null) boostSettings.boost_airflow_offset_pct = project.boost_airflow_offset_pct;
+        if (project.low_airflow_offset_pct   != null) boostSettings.low_airflow_offset_pct   = project.low_airflow_offset_pct;
       }
     }
 
     // ── Run the engine (imported from packages/engine) ────────────
-    const calc = calculateAirflow(rooms, designMethod, userRates);
+    const calc = calculateAirflow(rooms, designMethod, userRates, boostSettings);
 
     console.log(JSON.stringify({
       event:            'airflow:engine-result',
@@ -364,8 +388,14 @@ export default async function handler(req, res) {
         occupancy_flow_m3h:     calc.occupancyFlowM3h,
         extract_demand_m3h:     calc.extractDemandM3h,    // P1.2: extract-demand candidate
         area_flow_m3h:          calc.hasAreaData ? calc.areaFlowM3h : null,
-        boost_flow_m3h:         calc.boostDemandM3h,      // P1.2: peak boost demand
-        wet_room_flow_m3h:      calc.boostDemandM3h,      // backward-compat alias
+        boost_flow_m3h:           calc.boostFlowM3h,         // configured boost target
+        wet_room_flow_m3h:        calc.boostFlowM3h,         // backward-compat alias
+        room_boost_demand_m3h:    calc.roomBoostDemandM3h,   // room-based validation value
+        low_flow_m3h:             calc.lowFlowM3h,
+        boost_method:             calc.boostMethod,
+        boost_airflow_offset_pct: calc.boostOffsetPct,
+        low_airflow_offset_pct:   calc.lowOffsetPct,
+        boost_warning:            calc.boostWarning,
         area_data_available:    calc.hasAreaData,
         // Design airflow
         design_driver:          calc.designDriver,
@@ -420,7 +450,7 @@ export default async function handler(req, res) {
 
     if (roomInsErr) return res.status(500).json({ error: `Failed to insert airflow rooms for design ${design.id}: ${roomInsErr.message}` });
 
-    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id, calc.boostDemandM3h);
+    const units = await matchMvhrUnits(supabase, calc.designFlowM3h, preferredLoadPct, user.id, calc.boostFlowM3h);
 
     return res.status(200).json({
       ok:   true,
@@ -432,8 +462,9 @@ export default async function handler(req, res) {
       },
       rooms:       enrichRooms(savedRooms ?? []),
       units,
-      areaWarning: !calc.hasAreaData,
-      achWarning:  calc.achPasses === false,
+      areaWarning:  !calc.hasAreaData,
+      achWarning:   calc.achPasses === false,
+      boostWarning: calc.boostWarning,
     });
   }
 

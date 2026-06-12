@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Commissioning</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
+  --primary: #1a4731; --accent: #40916c; --primary-light: #d8f3dc;
+  --text: #111827; --muted: #6b7280;
+  --warn: #c05621; --warn-bg: #fff7ed;
+  --critical: #9b1c1c; --critical-bg: #fef2f2;
+  --ok-bg: #d8f3dc; --ok-border: #74c69d;
+  --amber: #d97706; --amber-bg: #fffbeb;
+  --supply-text: #1d4ed8; --extract-text: #7e22ce; --boost-text: #9333ea;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ── Login ── */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.login-field input:focus { border-color:var(--accent); }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.btn-login:hover { background:var(--accent); }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loginOverlay .login-box { display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+
+/* ── Header ── */
+header { background:var(--primary); color:#fff; padding:0 28px; display:flex; align-items:stretch; justify-content:space-between; height:56px; }
+.header-left { display:flex; align-items:center; gap:16px; }
+.header-logo { font-size:11px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase; color:rgba(255,255,255,.55); }
+.header-sep { width:1px; height:22px; background:rgba(255,255,255,.2); }
+.header-project { font-size:15px; font-weight:700; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.header-user { font-size:12px; opacity:.6; }
+.btn-signout { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 14px; font-size:12px; font-weight:700; cursor:pointer; }
+.btn-signout:hover { background:rgba(255,255,255,.2); }
+
+/* ── Stage nav ── */
+.stage-nav { background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 28px; gap:0; overflow-x:auto; }
+.stage-btn { display:flex; align-items:center; gap:7px; padding:14px 20px; border:none; background:none; cursor:pointer; font-size:13px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; transition:color .15s; text-decoration:none; }
+.stage-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.stage-btn.done   { color:var(--accent); }
+.stage-btn.locked { cursor:default; opacity:.45; pointer-events:none; }
+.stage-num { width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:800; display:flex; align-items:center; justify-content:center; background:var(--border); color:var(--muted); }
+.stage-btn.active .stage-num { background:var(--primary); color:#fff; }
+.stage-btn.done   .stage-num { background:var(--accent);  color:#fff; }
+
+/* ── Layout ── */
+main { max-width:1100px; margin:0 auto; padding:24px 28px 80px; }
+.page-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px; }
+.page-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:4px; }
+.page-subtitle { font-size:13px; color:var(--muted); }
+.page-actions { display:flex; gap:10px; align-items:center; }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn-sm { padding:5px 12px; font-size:12px; border-radius:7px; }
+
+/* ── Cards ── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
+.card-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.7px; color:var(--accent); margin-bottom:14px; }
+
+/* ── Fan speed grid ── */
+.fan-speed-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+@media(max-width:700px) { .fan-speed-grid { grid-template-columns:1fr; } }
+.fan-card { border:2px solid var(--border); border-radius:10px; padding:16px 18px; text-align:center; }
+.fan-card.normal { border-color:var(--primary); background:var(--primary-light); }
+.fan-card.warning { border-color:var(--warn); background:var(--warn-bg); }
+.fan-label { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:8px; }
+.fan-card.normal .fan-label { color:var(--primary); }
+.fan-value { font-size:32px; font-weight:900; color:var(--primary); line-height:1; }
+.fan-unit  { font-size:14px; font-weight:600; color:var(--muted); margin-left:3px; }
+.fan-lps   { font-size:13px; color:var(--muted); margin-top:5px; }
+.fan-note  { font-size:12px; color:var(--muted); margin-top:6px; }
+
+/* ── System summary stats ── */
+.summary-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; }
+.sum-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+.sum-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin-bottom:4px; }
+.sum-value { font-size:22px; font-weight:900; color:var(--primary); line-height:1.1; }
+.sum-unit  { font-size:12px; font-weight:600; color:var(--muted); margin-left:2px; }
+.sum-sub   { font-size:12px; color:var(--muted); margin-top:4px; }
+
+/* ── Commissioning table ── */
+.comm-table-wrap { overflow-x:auto; }
+.comm-table { width:100%; border-collapse:collapse; font-size:13px; }
+.comm-table th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); padding:9px 10px; border-bottom:2px solid var(--border); white-space:nowrap; }
+.comm-table td { padding:9px 10px; border-bottom:1px solid #f0f4f8; vertical-align:middle; }
+.comm-table tr:last-child td { border-bottom:none; }
+.comm-table tr:hover td { background:#f8fafc; }
+.comm-table tfoot td { font-weight:800; border-top:2px solid var(--border); padding:11px 10px; background:var(--bg); }
+.val-supply  { font-weight:700; color:var(--supply-text); font-size:14px; }
+.val-extract { font-weight:700; color:var(--extract-text); font-size:14px; }
+.val-boost   { font-weight:700; color:var(--boost-text); font-size:14px; }
+.val-zero    { color:var(--muted); }
+.tag { font-size:11px; background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:10px; display:inline-block; }
+.floor-tag { font-size:11px; color:var(--muted); background:var(--bg); padding:2px 8px; border-radius:10px; }
+.notes-cell { font-size:11px; color:var(--muted); font-style:italic; max-width:180px; }
+/* ── Col input (commissioning field) ── */
+.comm-input { width:80px; padding:4px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; font-family:inherit; text-align:right; }
+.comm-input:focus { outline:none; border-color:var(--accent); }
+
+/* ── Balance pill ── */
+.bal-pill { display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; }
+.bal-pass { background:var(--ok-bg); color:#166534; }
+.bal-warn { background:var(--warn-bg); color:var(--warn); }
+.bal-fail { background:var(--critical-bg); color:var(--critical); }
+
+/* ── Status/warning banner ── */
+.warn-banner { background:var(--warn-bg); border:1px solid #f6ad55; border-radius:8px; padding:10px 14px; font-size:12px; color:var(--warn); margin-bottom:16px; display:flex; gap:8px; align-items:flex-start; }
+
+/* ── Loading / empty ── */
+.state-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:48px; text-align:center; }
+.state-icon { font-size:40px; margin-bottom:16px; }
+.state-title { font-size:18px; font-weight:800; color:var(--primary); margin-bottom:8px; }
+.state-desc { font-size:14px; color:var(--muted); line-height:1.6; }
+.spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+.loading-row { display:flex; align-items:center; justify-content:center; gap:12px; padding:32px; color:var(--muted); }
+
+/* ── Print ── */
+@media print {
+  header, .stage-nav, .page-actions, .btn, .no-print { display:none !important; }
+  body { background:#fff; font-size:12px; }
+  main { max-width:100%; padding:10px; }
+  .card { border:1px solid #ccc; border-radius:0; box-shadow:none; page-break-inside:avoid; margin-bottom:10px; }
+  .comm-table th, .comm-table td { padding:6px 8px; }
+  .comm-input { border:none; background:transparent; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ── -->
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div>
+    <div>Checking session…</div>
+  </div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ── Header ── -->
+<header id="appHeader" style="display:none">
+  <div class="header-left">
+    <span class="header-logo">HiPer Studio</span>
+    <div class="header-sep"></div>
+    <span class="header-project" id="headerProject">Loading…</span>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="headerUser"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- ── Stage nav ── -->
+<nav class="stage-nav" id="stageNav" style="display:none">
+  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done"   id="stageBtn0" href="#"><span class="stage-num">✓</span>Project Details</a>
+  <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>Upload Plans</a>
+  <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
+  <a class="stage-btn done"   id="stageBtn3" href="#"><span class="stage-num">✓</span>Airflow Design</a>
+  <a class="stage-btn done"   id="stageBtn4" href="#"><span class="stage-num">✓</span>Unit Selection</a>
+  <a class="stage-btn done"   id="stageBtn5" href="#"><span class="stage-num">✓</span>System Layout</a>
+  <a class="stage-btn active" id="stageBtn6" href="#"><span class="stage-num">7</span>Commissioning</a>
+  <a class="stage-btn locked" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
+  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" id="settingsLink" href="/studio/settings">⚙ Settings</a>
+</nav>
+
+<!-- ── Main ── -->
+<main id="appMain" style="display:none">
+
+  <div class="page-header">
+    <div>
+      <div class="page-title">Stage 7 — Commissioning</div>
+      <div class="page-subtitle" id="pageSubtitle">Loading project…</div>
+    </div>
+    <div class="page-actions no-print">
+      <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Print</button>
+      <a class="btn btn-secondary btn-sm" id="backToLayoutBtn" href="#">← System Layout</a>
+      <a class="btn btn-primary btn-sm" id="toBomBtn" href="#">Continue to BOM →</a>
+    </div>
+  </div>
+
+  <!-- ── Loading ── -->
+  <div id="loadingState">
+    <div class="loading-row"><div class="spinner"></div><span>Loading commissioning data…</span></div>
+  </div>
+
+  <!-- ── Error ── -->
+  <div id="errorState" style="display:none">
+    <div class="state-card" style="background:var(--critical-bg); border-color:#fecaca;">
+      <div class="state-icon">⚠️</div>
+      <div class="state-title" style="color:var(--critical)">Failed to load commissioning data</div>
+      <div class="state-desc" id="errorStateMsg">An unexpected error occurred.</div>
+      <div style="margin-top:20px">
+        <button class="btn btn-primary" onclick="init()">Try Again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── No design ── -->
+  <div id="noDesignState" style="display:none">
+    <div class="state-card">
+      <div class="state-icon">📐</div>
+      <div class="state-title">No airflow design found</div>
+      <div class="state-desc">Complete Stage 4 (Airflow Design) and Stage 5 (Unit Selection) before commissioning.</div>
+      <div style="margin-top:20px">
+        <a class="btn btn-primary" id="toAirflowBtn" href="#">Go to Airflow Design →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Boost warning banner ── -->
+  <div id="boostWarnBanner" class="warn-banner" style="display:none">
+    <span>⚠</span>
+    <div><strong>Boost capacity warning:</strong> The room peak extract demand exceeds the configured boost target.
+    Commission the unit's boost setting conservatively and verify it can sustain the required airflow.
+    <span id="boostWarnDetail"></span></div>
+  </div>
+
+  <!-- ── System Summary ── -->
+  <div class="card" id="systemSummaryCard" style="display:none">
+    <div class="card-title">System Summary</div>
+    <div class="summary-grid">
+      <div class="sum-stat">
+        <div class="sum-label">Selected Unit</div>
+        <div class="sum-value" id="sumUnit" style="font-size:15px;line-height:1.3">—</div>
+        <div class="sum-sub" id="sumUnitSub"></div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-label">Design Airflow</div>
+        <div><span class="sum-value" id="sumDesign">—</span><span class="sum-unit">m³/h</span></div>
+        <div class="sum-sub" id="sumDesignLps"></div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-label">Boost Airflow</div>
+        <div><span class="sum-value" id="sumBoost">—</span><span class="sum-unit">m³/h</span></div>
+        <div class="sum-sub" id="sumBoostSub"></div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-label">Supply / Extract</div>
+        <div style="margin-top:6px" id="sumBalanceBadge">—</div>
+        <div class="sum-sub" id="sumBalanceSub"></div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-label">ACH at Design</div>
+        <div><span class="sum-value" id="sumAch">—</span></div>
+        <div class="sum-sub" id="sumAchSub"></div>
+      </div>
+      <div class="sum-stat">
+        <div class="sum-label">PH Compliance</div>
+        <div style="margin-top:6px" id="sumPhBadge">—</div>
+        <div class="sum-sub" id="sumPhSub"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Fan Speed Targets ── -->
+  <div class="card" id="fanSpeedCard" style="display:none">
+    <div class="card-title">Fan Speed Targets</div>
+    <div class="fan-speed-grid">
+      <div class="fan-card">
+        <div class="fan-label">Speed 1 — Low</div>
+        <div><span class="fan-value" id="fanLowM3h">—</span><span class="fan-unit">m³/h</span></div>
+        <div class="fan-lps" id="fanLowLps"></div>
+        <div class="fan-note" id="fanLowNote"></div>
+      </div>
+      <div class="fan-card normal">
+        <div class="fan-label">Speed 2 — Normal (Design)</div>
+        <div><span class="fan-value" id="fanNormalM3h">—</span><span class="fan-unit">m³/h</span></div>
+        <div class="fan-lps" id="fanNormalLps"></div>
+        <div class="fan-note">Continuous running — design airflow</div>
+      </div>
+      <div class="fan-card" id="fanBoostCard">
+        <div class="fan-label">Speed 3 — Boost</div>
+        <div><span class="fan-value" id="fanBoostM3h">—</span><span class="fan-unit">m³/h</span></div>
+        <div class="fan-lps" id="fanBoostLps"></div>
+        <div class="fan-note" id="fanBoostNote"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Room Commissioning Schedule ── -->
+  <div class="card" id="scheduleCard" style="display:none">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+      <div class="card-title" style="margin-bottom:0">Room Commissioning Schedule</div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;" class="no-print">
+        <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="showExtractOnly" onchange="renderSchedule()">
+          Extract rooms only
+        </label>
+        <span id="roomCount" style="font-size:12px; color:var(--muted)"></span>
+      </div>
+    </div>
+    <div class="comm-table-wrap">
+      <table class="comm-table">
+        <thead>
+          <tr>
+            <th>Room</th>
+            <th>Floor</th>
+            <th>Terminal</th>
+            <th style="text-align:right">Target Supply</th>
+            <th style="text-align:right">Target Extract</th>
+            <th style="text-align:right">Boost Extract</th>
+            <th style="text-align:right">Actual (m³/h)</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="scheduleBody"></tbody>
+        <tfoot id="scheduleFoot"></tfoot>
+      </table>
+    </div>
+    <div style="font-size:11px; color:var(--muted); margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
+      Target values are from the airflow design. Record actual measured values during on-site commissioning.
+    </div>
+  </div>
+
+  <!-- ── Navigation ── -->
+  <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap;" class="no-print" id="bottomNav">
+    <a class="btn btn-secondary" id="backToLayoutBtn2" href="#">← System Layout</a>
+    <a class="btn btn-primary"   id="toBomBtn2"        href="#">Continue to BOM →</a>
+  </div>
+
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const SUPABASE_URL  = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const API_BASE      = '/api/studio';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── State ─────────────────────────────────────────────────────
+let _projectId = null;
+let _token     = null;
+let _design    = null;
+let _rooms     = [];
+let _unit      = null;
+
+// ── Project ID ────────────────────────────────────────────────
+function getProjectIdFromUrl() {
+  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.classList.remove('visible');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) { errEl.textContent = error.message; errEl.classList.add('visible'); }
+}
+async function doSignOut() { await sb.auth.signOut(); location.reload(); }
+
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (session) {
+    document.getElementById('loginOverlay').classList.add('hidden');
+  } else {
+    document.getElementById('loginOverlay').classList.add('show-login');
+  }
+});
+
+sb.auth.onAuthStateChange((_ev, session) => {
+  if (!session) {
+    document.getElementById('loginOverlay').classList.remove('hidden');
+    document.getElementById('loginOverlay').classList.add('show-login');
+    ['appHeader','stageNav','appMain'].forEach(id => document.getElementById(id).style.display = 'none');
+    return;
+  }
+  _token = session.access_token;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('loginOverlay').classList.remove('show-login');
+  document.getElementById('appHeader').style.display = 'flex';
+  document.getElementById('stageNav').style.display  = 'flex';
+  document.getElementById('appMain').style.display   = 'block';
+  document.getElementById('headerUser').textContent  = session.user.email;
+  init();
+});
+
+// ── Init ─────────────────────────────────────────────────────
+async function init() {
+  _projectId = getProjectIdFromUrl();
+  if (!_projectId) {
+    showError('No project ID found in URL.');
+    return;
+  }
+
+  // Wire nav links
+  document.getElementById('stageBtn0').href = `/studio/projects/${_projectId}/details`;
+  document.getElementById('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
+  document.getElementById('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
+  document.getElementById('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
+  document.getElementById('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
+  document.getElementById('stageBtn5').href = `/studio/projects/${_projectId}/layout`;
+  document.getElementById('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
+  const layoutUrl = `/studio/projects/${_projectId}/layout`;
+  const bomUrl    = `/studio/projects/${_projectId}/bom`;
+  document.getElementById('backToLayoutBtn').href  = layoutUrl;
+  document.getElementById('backToLayoutBtn2').href = layoutUrl;
+  document.getElementById('toBomBtn').href         = bomUrl;
+  document.getElementById('toBomBtn2').href        = bomUrl;
+  document.getElementById('toAirflowBtn').href     = `/studio/projects/${_projectId}/airflow`;
+  document.getElementById('settingsLink').href     = `/studio/settings?projectId=${_projectId}`;
+
+  const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
+  if (proj?.name) {
+    document.getElementById('headerProject').textContent = proj.name;
+    document.getElementById('pageSubtitle').textContent  = `${proj.name} · Commissioning Report`;
+    document.title = `HiPer Studio — ${proj.name} — Commissioning`;
+  }
+
+  await loadData();
+}
+
+async function loadData() {
+  showLoading();
+  try {
+    const res  = await fetch(`${API_BASE}/airflow?projectId=${_projectId}`, {
+      headers: { Authorization: `Bearer ${_token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    if (!data.design) {
+      hideLoading();
+      el('noDesignState').style.display = 'block';
+      return;
+    }
+
+    _design = data.design;
+    _rooms  = data.rooms ?? [];
+
+    // Load selected unit if any
+    _unit = null;
+    if (_design.selected_unit_id) {
+      const { data: unit } = await sb
+        .from('mvhr_units')
+        .select('id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, phi_cert_id')
+        .eq('id', _design.selected_unit_id)
+        .maybeSingle();
+      _unit = unit ?? null;
+    }
+
+    hideLoading();
+    renderPage();
+  } catch (e) {
+    console.error('[commissioning] loadData failed', e);
+    hideLoading();
+    showError(e.message);
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────
+function renderPage() {
+  renderBoostWarning();
+  renderSystemSummary();
+  renderFanSpeeds();
+  renderSchedule();
+
+  el('systemSummaryCard').style.display = 'block';
+  el('fanSpeedCard').style.display      = 'block';
+  el('scheduleCard').style.display      = 'block';
+  el('bottomNav').style.display         = 'flex';
+}
+
+function renderBoostWarning() {
+  const d = _design;
+  const boostWarning    = d.boost_warning ?? false;
+  const roomBoostDemand = d.room_boost_demand_m3h ?? 0;
+  const boostFlow       = d.boost_flow_m3h ?? 0;
+  if (boostWarning) {
+    el('boostWarnDetail').textContent = ` Room peak demand: ${roomBoostDemand} m³/h, configured boost: ${boostFlow} m³/h.`;
+    el('boostWarnBanner').style.display = 'flex';
+  }
+}
+
+function renderSystemSummary() {
+  const d = _design;
+
+  // Selected unit
+  if (_unit) {
+    el('sumUnit').textContent    = `${_unit.manufacturer} ${_unit.model}`;
+    el('sumUnitSub').textContent = `HR ${fmtPct(_unit.hr_eff)} · SFP ${_unit.sfp ?? '—'} Wh/m³ · Max ${_unit.flow_max ?? '—'} m³/h`;
+  } else {
+    el('sumUnit').textContent    = 'No unit selected';
+    el('sumUnitSub').textContent = 'Complete Stage 5 to select a unit';
+    el('sumUnit').style.color    = 'var(--muted)';
+  }
+
+  // Design airflow
+  el('sumDesign').textContent  = fmtNum(d.design_airflow_m3h, 0);
+  el('sumDesignLps').textContent = d.design_airflow_lps != null ? `${fmtNum(d.design_airflow_lps, 1)} l/s` : '';
+
+  // Boost
+  const boostFlow = d.boost_flow_m3h ?? 0;
+  el('sumBoost').textContent  = fmtNum(boostFlow, 0);
+  const boostMethod = d.boost_method ?? 'percentage';
+  const boostPct    = d.boost_airflow_offset_pct ?? 30;
+  el('sumBoostSub').textContent = boostMethod === 'percentage'
+    ? `Design × ${boostPct > 0 ? '+' : ''}${boostPct}%`
+    : 'Room-based demand';
+
+  // Balance
+  const status = d.balance_status;
+  const balMap = {
+    balanced:                   { cls:'bal-pass', icon:'🟢', label:'Balanced' },
+    minor_adjustment:           { cls:'bal-warn', icon:'🟡', label:'Minor Adjustment' },
+    additional_supply_required: { cls:'bal-fail', icon:'🔴', label:'Additional Supply Required' },
+    manual_review:              { cls:'bal-fail', icon:'🔴', label:'Manual Review Required' },
+    major_imbalance:            { cls:'bal-fail', icon:'🔴', label:'Major Imbalance' },
+  };
+  const b = balMap[status] ?? { cls:'', icon:'', label: status ?? '—' };
+  el('sumBalanceBadge').innerHTML = `<span class="bal-pill ${b.cls}">${b.icon} ${b.label}</span>`;
+  const supplyM3h  = r1(_rooms.reduce((s, r) => s + (r.supply_m3h  ?? 0), 0));
+  const extractM3h = r1(_rooms.reduce((s, r) => s + (r.extract_m3h ?? 0), 0));
+  el('sumBalanceSub').textContent = `Supply ${supplyM3h} / Extract ${extractM3h} m³/h`;
+
+  // ACH
+  const ach = d.ach_at_design;
+  if (ach != null) {
+    el('sumAch').textContent  = fmtNum(ach * 1, 2) + '/h';
+    el('sumAchSub').textContent = d.ach_passes
+      ? '✓ Meets PHI 0.30 ACH minimum'
+      : '✗ Below PHI 0.30 ACH minimum';
+    el('sumAch').style.color = d.ach_passes ? 'var(--accent)' : 'var(--critical)';
+  } else {
+    el('sumAch').textContent    = '—';
+    el('sumAchSub').textContent = 'No volume data in room schedule';
+  }
+
+  // PH compliance
+  if (_unit) {
+    const PHI_MIN_HR  = 0.75;
+    const PHI_MAX_SFP = 0.45;
+    const hrOk  = (_unit.hr_eff  ?? 0) >= PHI_MIN_HR;
+    const sfpOk = (_unit.sfp     ?? 999) <= PHI_MAX_SFP;
+    const phOk  = hrOk && sfpOk;
+    el('sumPhBadge').innerHTML = phOk
+      ? `<span class="bal-pill bal-pass">✓ PHI Compliant</span>`
+      : `<span class="bal-pill bal-warn">⚠ Non-Compliant</span>`;
+    if (!phOk) {
+      const issues = [];
+      if (!hrOk)  issues.push(`HR ${fmtPct(_unit.hr_eff)} < 75%`);
+      if (!sfpOk) issues.push(`SFP ${_unit.sfp} > 0.45 Wh/m³`);
+      el('sumPhSub').textContent = issues.join(' · ');
+    } else {
+      el('sumPhSub').textContent = `HR ${fmtPct(_unit.hr_eff)} · SFP ${_unit.sfp} Wh/m³`;
+    }
+  } else {
+    el('sumPhBadge').innerHTML = `<span style="font-size:13px;color:var(--muted)">No unit selected</span>`;
+    el('sumPhSub').textContent = '';
+  }
+}
+
+function renderFanSpeeds() {
+  const d = _design;
+  const lowM3h    = d.low_flow_m3h     ?? null;
+  const normalM3h = d.design_airflow_m3h ?? 0;
+  const boostM3h  = d.boost_flow_m3h   ?? 0;
+  const lowPct    = d.low_airflow_offset_pct  ?? -30;
+  const boostPct  = d.boost_airflow_offset_pct ?? 30;
+  const boostMethod = d.boost_method ?? 'percentage';
+
+  el('fanLowM3h').textContent = lowM3h != null ? fmtNum(lowM3h, 0) : '—';
+  el('fanLowLps').textContent = lowM3h != null ? `${toLps(lowM3h)} l/s` : '';
+  el('fanLowNote').textContent = `Design × ${lowPct > 0 ? '+' : ''}${lowPct}%`;
+
+  el('fanNormalM3h').textContent = fmtNum(normalM3h, 0);
+  el('fanNormalLps').textContent = d.design_airflow_lps != null ? `${fmtNum(d.design_airflow_lps, 1)} l/s` : `${toLps(normalM3h)} l/s`;
+
+  el('fanBoostM3h').textContent = fmtNum(boostM3h, 0);
+  el('fanBoostLps').textContent = `${toLps(boostM3h)} l/s`;
+  el('fanBoostNote').textContent = boostMethod === 'percentage'
+    ? `Design × ${boostPct > 0 ? '+' : ''}${boostPct}%`
+    : 'Room-based peak demand';
+
+  // Highlight boost card if warning
+  if (d.boost_warning) {
+    el('fanBoostCard').classList.add('warning');
+  }
+}
+
+function renderSchedule() {
+  const extractOnly = document.getElementById('showExtractOnly').checked;
+  const tbody = el('scheduleBody');
+  const tfoot = el('scheduleFoot');
+  tbody.innerHTML = '';
+
+  let rooms = _rooms;
+  if (extractOnly) {
+    rooms = rooms.filter(r => (r.extract_m3h ?? 0) > 0 || (r.boost_extract_m3h ?? 0) > 0);
+  }
+
+  let ts = 0, te = 0, tb = 0;
+
+  for (const r of rooms) {
+    const sm  = r.supply_m3h  ?? r1((r.supply_lps  ?? 0) * 3.6);
+    const em  = r.extract_m3h ?? r1((r.extract_lps ?? 0) * 3.6);
+    const bm  = r.boost_extract_m3h ?? 0;
+    ts += sm; te += em; tb += bm;
+
+    const terminalType = inferTerminalType(r);
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>${esc(r.room_name)}</strong></td>
+      <td>${r.floor ? `<span class="floor-tag">${esc(r.floor)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+      <td><span class="tag">${esc(terminalType)}</span></td>
+      <td style="text-align:right">${sm > 0 ? `<span class="val-supply">${fmtNum(sm,0)} m³/h</span><br><span style="font-size:11px;color:var(--muted)">${toLps(sm)} l/s</span>` : '<span class="val-zero">—</span>'}</td>
+      <td style="text-align:right">${em > 0 ? `<span class="val-extract">${fmtNum(em,0)} m³/h</span><br><span style="font-size:11px;color:var(--muted)">${toLps(em)} l/s</span>` : '<span class="val-zero">—</span>'}</td>
+      <td style="text-align:right">${bm > 0 ? `<span class="val-boost">${fmtNum(bm,0)} m³/h</span><br><span style="font-size:11px;color:var(--muted)">${toLps(bm)} l/s</span>` : '<span class="val-zero">—</span>'}</td>
+      <td style="text-align:right"><input class="comm-input no-print" type="number" min="0" step="1" placeholder="—" title="Actual measured value"></td>
+      <td class="notes-cell">${r.notes ? esc(r.notes) : ''}</td>
+    `;
+    tbody.appendChild(row);
+  }
+
+  el('roomCount').textContent = `${rooms.length} rooms`;
+
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="3" style="color:var(--muted);font-size:12px">DESIGN TOTALS</td>
+      <td style="text-align:right"><span class="val-supply">${r1(ts)} m³/h</span></td>
+      <td style="text-align:right"><span class="val-extract">${r1(te)} m³/h</span></td>
+      <td style="text-align:right"><span class="val-boost">${r1(tb)} m³/h</span></td>
+      <td colspan="2"></td>
+    </tr>`;
+}
+
+function inferTerminalType(r) {
+  const t = r.room_type ?? '';
+  const n = (r.room_name ?? '').toLowerCase();
+  if (t === 'kitchen' || t === 'kitchenette') return 'Extract — Kitchen';
+  if (t === 'laundry') return 'Extract — Laundry';
+  if (t === 'wet_area') {
+    if (/ensuite|en-suite/.test(n)) return 'Extract — Ensuite';
+    if (/\bwc\b|toilet|powder/.test(n)) return 'Extract — WC';
+    return 'Extract — Bathroom';
+  }
+  if (r.airflow_driver === 'ignored' || r.airflow_driver === 'transfer') return 'No terminal';
+  if ((r.supply_m3h ?? 0) > 0) {
+    if (t === 'bedroom') return 'Supply — Bedroom';
+    return 'Supply — General';
+  }
+  return 'No terminal';
+}
+
+// ── Show/hide helpers ─────────────────────────────────────────
+function showLoading() {
+  el('loadingState').style.display  = 'block';
+  el('errorState').style.display    = 'none';
+  el('noDesignState').style.display = 'none';
+}
+function hideLoading() {
+  el('loadingState').style.display = 'none';
+}
+function showError(msg) {
+  el('loadingState').style.display  = 'none';
+  el('errorStateMsg').textContent   = msg || 'An unexpected error occurred.';
+  el('errorState').style.display    = 'block';
+}
+
+// ── Utilities ─────────────────────────────────────────────────
+const el   = id => document.getElementById(id);
+const r1   = v  => Math.round(v * 10) / 10;
+const toLps = m3h => r1(Number(m3h) / 3.6);
+const esc  = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function fmtNum(value, decimals = 1, fallback = '—') {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(decimals) : fallback;
+}
+function fmtPct(fraction) {
+  if (fraction == null) return '—';
+  return `${Math.round(Number(fraction) * 100)}%`;
+}
+</script>
+</body>
+</html>

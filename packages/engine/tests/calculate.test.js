@@ -203,3 +203,120 @@ describe('Transfer rooms excluded from extractDemandM3h (Task #34 regression)', 
     }
   });
 });
+
+// ── Task #35: boost methodology and fan-speed settings ────────
+//
+// Base rooms: 5-bed house. extract=kitchen(40)+bath(30)+ensuite(30)+laundry(25)+WC(20)=145
+//             occupancy = (2+2+2+1+1)×30 = 240 m³/h → occupancy governs → designFlow=240
+//             roomBoostDemand = kitchen(60)+bath(40)+ensuite(40)+laundry(40)+WC(20) = 200 m³/h
+const BOOST_ROOMS = [
+  { id: 'Bed1',    name: 'Master',   room_type: 'bedroom',  classification: 'supply',  bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Bed2',    name: 'Bed 2',    room_type: 'bedroom',  classification: 'supply',  bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Bed3',    name: 'Bed 3',    room_type: 'bedroom',  classification: 'supply',  bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Bed4',    name: 'Bed 4',    room_type: 'bedroom',  classification: 'supply',  bed_spaces: 1, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Bed5',    name: 'Bed 5',    room_type: 'bedroom',  classification: 'supply',  bed_spaces: 1, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Kitchen', name: 'Kitchen',  room_type: 'kitchen',  classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Bath',    name: 'Bathroom', room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Ensuite', name: 'Ensuite',  room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'Laundry', name: 'Laundry',  room_type: 'laundry',  classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  { id: 'WC',      name: 'WC',       room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+];
+// designFlow = 240, roomBoostDemand = kitchen(60)+bath(40)+ensuite(40)+laundry(40)+WC(20) = 200
+
+describe('Task #35 — percentage boost method (default)', () => {
+  // Default settings: percentage, +30% boost, -30% low
+  const result = calculateAirflow(BOOST_ROOMS, 'passive_house');
+
+  it('designFlowM3h = 240 (occupancy governs)', () =>
+    assert.equal(result.designFlowM3h, 240));
+  it('boostFlowM3h = 312 (240 × 1.30)', () =>
+    assert.equal(result.boostFlowM3h, 312));
+  it('lowFlowM3h = 168 (240 × 0.70)', () =>
+    assert.equal(result.lowFlowM3h, 168));
+  it('roomBoostDemandM3h = 200 (room-based, always computed)', () =>
+    assert.equal(result.roomBoostDemandM3h, 200));
+  it('boostMethod = percentage', () =>
+    assert.equal(result.boostMethod, 'percentage'));
+  it('boostOffsetPct = 30', () =>
+    assert.equal(result.boostOffsetPct, 30));
+  it('lowOffsetPct = -30', () =>
+    assert.equal(result.lowOffsetPct, -30));
+  it('boostWarning = false (boostFlow 312 ≥ roomBoostDemand 200)', () =>
+    assert.equal(result.boostWarning, false));
+  it('boostDemandM3h (backward-compat alias) equals boostFlowM3h', () =>
+    assert.equal(result.boostDemandM3h, result.boostFlowM3h));
+});
+
+describe('Task #35 — percentage boost method with custom offsets', () => {
+  // Custom: +20% boost, -25% low  → boost=288, low=180
+  const result = calculateAirflow(BOOST_ROOMS, 'passive_house', {}, {
+    boost_method: 'percentage',
+    boost_airflow_offset_pct: 20,
+    low_airflow_offset_pct: -25,
+  });
+
+  it('boostFlowM3h = 288 (240 × 1.20)', () =>
+    assert.equal(result.boostFlowM3h, 288));
+  it('lowFlowM3h = 180 (240 × 0.75)', () =>
+    assert.equal(result.lowFlowM3h, 180));
+  it('boostOffsetPct = 20', () =>
+    assert.equal(result.boostOffsetPct, 20));
+  it('lowOffsetPct = -25', () =>
+    assert.equal(result.lowOffsetPct, -25));
+  it('boostWarning = false (288 ≥ 200)', () =>
+    assert.equal(result.boostWarning, false));
+});
+
+describe('Task #35 — room_based boost method', () => {
+  // room_based: boostFlow = roomBoostDemand = 200
+  const result = calculateAirflow(BOOST_ROOMS, 'passive_house', {}, {
+    boost_method: 'room_based',
+  });
+
+  it('boostMethod = room_based', () =>
+    assert.equal(result.boostMethod, 'room_based'));
+  it('boostFlowM3h = roomBoostDemandM3h (both 200)', () =>
+    assert.equal(result.boostFlowM3h, result.roomBoostDemandM3h));
+  it('boostFlowM3h = 200', () =>
+    assert.equal(result.boostFlowM3h, 200));
+  it('lowFlowM3h still uses percentage on design (default -30%)', () =>
+    assert.equal(result.lowFlowM3h, 168)); // 240 × 0.70 = 168
+  it('boostWarning = false (room_based: boostFlow equals roomBoostDemand exactly)', () =>
+    assert.equal(result.boostWarning, false));
+  it('boostDemandM3h alias = 200', () =>
+    assert.equal(result.boostDemandM3h, 200));
+});
+
+describe('Task #35 — boostWarning fires when percentage boost < room demand', () => {
+  // Force warning: use +5% offset → boostFlow=252, roomBoostDemand=200
+  // With these rooms roomBoostDemand=200 < 252 so no warning.
+  // To trigger: use tiny offset so boostFlow < roomBoostDemand.
+  // e.g. boost_airflow_offset_pct=−20 → boostFlow=192 < roomBoostDemand=200 → warning=true
+  const result = calculateAirflow(BOOST_ROOMS, 'passive_house', {}, {
+    boost_method: 'percentage',
+    boost_airflow_offset_pct: -20, // intentionally under-sized → warning
+  });
+
+  it('boostFlowM3h = 192 (240 × 0.80)', () =>
+    assert.equal(result.boostFlowM3h, 192));
+  it('roomBoostDemandM3h = 200', () =>
+    assert.equal(result.roomBoostDemandM3h, 200));
+  it('boostWarning = true (200 > 192)', () =>
+    assert.equal(result.boostWarning, true));
+});
+
+describe('Task #35 — settings default when settings param omitted', () => {
+  // Calling without 4th param must not throw and must return percentage defaults
+  const result = calculateAirflow(BOOST_ROOMS, 'passive_house');
+
+  it('boostMethod defaults to percentage', () =>
+    assert.equal(result.boostMethod, 'percentage'));
+  it('boostOffsetPct defaults to 30', () =>
+    assert.equal(result.boostOffsetPct, 30));
+  it('lowOffsetPct defaults to -30', () =>
+    assert.equal(result.lowOffsetPct, -30));
+  it('lowFlowM3h present and positive', () =>
+    assert.ok(result.lowFlowM3h > 0, `lowFlowM3h must be positive, got ${result.lowFlowM3h}`));
+  it('roomBoostDemandM3h present and positive', () =>
+    assert.ok(result.roomBoostDemandM3h > 0));
+});
