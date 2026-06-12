@@ -466,10 +466,11 @@ export default async function handler(req, res) {
       floor:             r.floor,
       supply_lps:        r.supply_lps,
       extract_lps:       r.extract_lps,
-      boost_extract_m3h: r.boost_extract_m3h ?? 0,
-      airflow_driver:    r.airflow_driver,
-      notes:             r.notes ?? null,
-      sort_order:        r.sort_order,
+      boost_extract_m3h:           r.boost_extract_m3h ?? 0,
+      recommended_terminal_count:  r.recommended_terminal_count ?? null,
+      airflow_driver:              r.airflow_driver,
+      notes:                       r.notes ?? null,
+      sort_order:                  r.sort_order,
     }));
 
     const { data: savedRooms, error: roomInsErr } = await supabase

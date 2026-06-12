@@ -332,19 +332,20 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
       <div class="card-title">Boost Capacity Check</div>
       <div class="basis-grid">
         <div class="basis-card">
-          <div class="basis-label">Room Peak Demand</div>
+          <div class="basis-label">Room Boost Demand</div>
           <div><span class="basis-flow" id="basisRoomBoostFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
-          <div class="basis-sub">Sum of all extract rooms at boost rate</div>
+          <div class="basis-sub">Sum of all extract rooms at peak boost rate</div>
         </div>
         <div class="basis-card" id="basisBoostCard">
-          <div class="basis-label">Configured Boost Target</div>
+          <div class="basis-label">Configured Boost Airflow</div>
           <div><span class="basis-flow" id="basisBoostFlow">—</span><span style="font-size:14px;color:var(--muted);margin-left:4px">m³/h</span></div>
-          <div class="basis-sub" id="basisBoostSub">Unit must support this at boost setting</div>
+          <div class="basis-sub" id="basisBoostSub"></div>
         </div>
         <div class="basis-card" id="basisBoostStatusCard">
           <div class="basis-label">Boost Status</div>
           <div style="margin-top:6px" id="basisBoostStatus">—</div>
-          <div class="basis-sub" id="basisBoostMethodSub" style="margin-top:6px"></div>
+          <div class="basis-sub" id="basisBoostReserve" style="margin-top:4px;font-weight:700"></div>
+          <div class="basis-sub" id="basisBoostMethodSub" style="margin-top:4px"></div>
         </div>
       </div>
     </div>
@@ -416,6 +417,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
           <th style="text-align:right">Supply</th>
           <th style="text-align:right">Normal Extract</th>
           <th style="text-align:right">Boost Extract</th>
+          <th style="text-align:center">Terminals</th>
           <th>Driver</th>
           <th>Notes</th>
         </tr>
@@ -758,29 +760,45 @@ function renderResults() {
   }
 
   // Boost Capacity Check
-  const roomBoostDemand = d.room_boost_demand_m3h ?? boostFlow;
-  const boostWarning    = d.boost_warning ?? (roomBoostDemand > boostFlow);
+  // roomBoostDemand = sum of per-room boost rates (always room-based, for validation)
+  // boostFlow       = configured boost target (percentage or room_based methodology)
+  // These can differ: e.g. design=230 → boostFlow=299 (+30%), roomBoostDemand=260
+  const roomBoostDemand = d.room_boost_demand_m3h != null ? d.room_boost_demand_m3h : null;
+  const boostWarning    = d.boost_warning ?? (roomBoostDemand != null && roomBoostDemand > boostFlow);
   const boostMethod     = d.boost_method ?? 'percentage';
   const boostOffsetPct  = d.boost_airflow_offset_pct ?? 30;
   const lowFlowM3h      = d.low_flow_m3h ?? null;
   const lowOffsetPct    = d.low_airflow_offset_pct ?? -30;
 
-  el('basisRoomBoostFlow').textContent = roomBoostDemand;
+  el('basisRoomBoostFlow').textContent = roomBoostDemand ?? '—';
   el('basisBoostFlow').textContent     = boostFlow;
   el('basisBoostSub').textContent      = boostMethod === 'percentage'
-    ? `Design × ${boostOffsetPct > 0 ? '+' : ''}${boostOffsetPct}%`
+    ? `Design × ${boostOffsetPct > 0 ? '+' : ''}${boostOffsetPct}% (${designFlow} m³/h)`
     : 'Room-based (sum of boost extract rates)';
 
-  if (boostWarning) {
-    el('basisBoostStatusCard').style.borderColor = 'var(--warn)';
-    el('basisBoostStatusCard').style.background  = 'var(--warn-bg)';
-    el('basisBoostStatus').innerHTML = `<span style="color:var(--warn);font-size:18px;font-weight:900">⚠ WARNING</span>`;
-    el('basisBoostMethodSub').textContent = `Room demand (${roomBoostDemand} m³/h) exceeds configured boost (${boostFlow} m³/h). Increase boost offset or check room schedule.`;
+  if (roomBoostDemand != null) {
+    const reserve    = boostFlow - roomBoostDemand;
+    const reserveAbs = Math.abs(reserve);
+    if (boostWarning) {
+      el('basisBoostStatusCard').style.borderColor = 'var(--warn)';
+      el('basisBoostStatusCard').style.background  = 'var(--warn-bg)';
+      el('basisBoostStatus').innerHTML  = `<span style="color:var(--warn);font-size:18px;font-weight:900">⚠ WARNING</span>`;
+      el('basisBoostReserve').innerHTML = `<span style="color:var(--warn)">−${reserveAbs} m³/h deficit</span>`;
+      el('basisBoostMethodSub').textContent = `Configured boost airflow is ${reserveAbs} m³/h below room boost demand. Increase boost offset or reduce wet room count.`;
+    } else {
+      el('basisBoostStatusCard').style.borderColor = 'var(--ok-border)';
+      el('basisBoostStatusCard').style.background  = 'var(--ok-bg)';
+      el('basisBoostStatus').innerHTML  = `<span style="color:#166534;font-size:18px;font-weight:900">✓ PASS</span>`;
+      el('basisBoostReserve').innerHTML = `<span style="color:#166534">+${reserveAbs} m³/h reserve</span>`;
+      el('basisBoostMethodSub').textContent = `Configured boost airflow exceeds room boost demand by ${reserveAbs} m³/h.`;
+    }
   } else {
-    el('basisBoostStatusCard').style.borderColor = 'var(--ok-border)';
-    el('basisBoostStatusCard').style.background  = 'var(--ok-bg)';
-    el('basisBoostStatus').innerHTML = `<span style="color:#166534;font-size:18px;font-weight:900">✓ PASS</span>`;
-    el('basisBoostMethodSub').textContent = `Configured boost covers room peak demand (${roomBoostDemand} m³/h).`;
+    // Pre-Task #35 design without roomBoostDemandM3h stored — show neutral state
+    el('basisBoostStatusCard').style.borderColor = 'var(--border)';
+    el('basisBoostStatusCard').style.background  = '';
+    el('basisBoostStatus').innerHTML  = '<span style="color:var(--muted)">Recalculate to validate</span>';
+    el('basisBoostReserve').textContent = '';
+    el('basisBoostMethodSub').textContent = 'Room boost demand not available for this design.';
   }
 
   // Fan Speed Targets
@@ -833,7 +851,12 @@ function renderResults() {
       ? `${diff} m³/h imbalance (${which}). Consider increasing extract airflow, reducing supply target, or confirming the design method.`
       : 'Supply and extract cannot be balanced. Review room schedule.';
   } else if (adjM3h !== 0) {
-    el('balanceNote').textContent = `${adjM3h > 0 ? '+' : ''}${adjM3h} m³/h adjustment applied.`;
+    // Describe which direction the redistribution went
+    const adjSign = adjM3h > 0 ? '+' : '';
+    const adjDesc = adjM3h > 0
+      ? 'Supply redistributed across living areas'
+      : 'Extract redistributed across wet rooms';
+    el('balanceNote').textContent = `${adjDesc} (${adjSign}${adjM3h} m³/h).`;
   } else {
     el('balanceNote').textContent = '';
   }
@@ -921,6 +944,11 @@ function renderRoomTable() {
 
     const row = document.createElement('tr');
     if (rowClass) row.className = rowClass;
+    const terminals = r.recommended_terminal_count;
+    const termCell  = sm > 0 && terminals != null
+      ? `<span style="font-weight:700">${terminals}</span>`
+      : '<span class="zero-val">—</span>';
+
     row.innerHTML = `
       <td><strong>${esc(r.room_name)}</strong></td>
       <td>${r.floor ? `<span class="floor-tag">${esc(r.floor)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
@@ -928,6 +956,7 @@ function renderRoomTable() {
       <td style="text-align:right">${fmtFlow(sm, r.supply_lps,  'supply-val')}</td>
       <td style="text-align:right">${fmtFlow(em, r.extract_lps, 'extract-val')}</td>
       <td style="text-align:right">${fmtBoost(bm)}</td>
+      <td style="text-align:center">${termCell}</td>
       <td><span class="driver-badge">${esc(r.airflow_driver || '—')}</span></td>
       <td>${r.notes ? `<span class="note-text">${esc(r.notes)}</span>` : ''}</td>
     `;
@@ -941,7 +970,7 @@ function renderRoomTable() {
       <td style="text-align:right"><span class="supply-val">${r1(ts)} m³/h</span></td>
       <td style="text-align:right"><span class="extract-val">${r1(te)} m³/h</span></td>
       <td style="text-align:right"><span style="font-weight:800;color:#9333ea">${r1(tb)} m³/h</span></td>
-      <td colspan="2"></td>
+      <td colspan="3"></td>
     </tr>`;
 }
 
