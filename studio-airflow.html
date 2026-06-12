@@ -113,9 +113,11 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
 /* ── Balance badge ── */
 .balance-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:700; }
-.balance-badge.balanced         { background:var(--ok-bg);      color:#166534; }
-.balance-badge.minor_adjustment { background:var(--amber-bg);   color:var(--amber); }
-.balance-badge.major_imbalance  { background:var(--critical-bg); color:var(--critical); }
+.balance-badge.balanced                  { background:var(--ok-bg);      color:#166534; }
+.balance-badge.minor_adjustment          { background:var(--amber-bg);   color:var(--amber); }
+.balance-badge.manual_review             { background:var(--critical-bg); color:var(--critical); }
+.balance-badge.major_imbalance           { background:var(--critical-bg); color:var(--critical); }
+.balance-badge.additional_supply_required { background:var(--critical-bg); color:var(--critical); }
 
 /* ── Warnings ── */
 .area-warning { background:var(--amber-bg); border:1px solid #fbbf24; border-radius:8px; padding:10px 14px; font-size:12px; color:var(--amber); margin-top:8px; display:flex; gap:8px; align-items:flex-start; }
@@ -662,6 +664,18 @@ function updateMethodStyles() {
   document.getElementById('methodAS').classList.toggle('selected', v === 'as1668');
 }
 
+// ── Design driver labels ──────────────────────────────────────
+const DESIGN_DRIVER_LABELS = {
+  occupancy:      'Occupancy airflow',
+  area:           'Floor area airflow',
+  extract_demand: 'Continuous extract demand',
+  ach_minimum:    '0.30 ACH minimum',
+  fallback:       'Manual / fallback',
+};
+function designDriverLabel(driver) {
+  return DESIGN_DRIVER_LABELS[driver] ?? driver ?? 'Unknown driver';
+}
+
 // ── Render ────────────────────────────────────────────────────
 function renderResults() {
   hideLoading();
@@ -673,7 +687,7 @@ function renderResults() {
   const hasArea     = d.area_data_available;
   const occFlow     = d.occupancy_flow_m3h  ?? 0;
   const areaFlow    = d.area_flow_m3h       ?? 0;
-  const boostFlow   = d.wet_room_flow_m3h   ?? 0;  // stored in wet_room column
+  const boostFlow   = d.boost_flow_m3h ?? d.wet_room_flow_m3h ?? 0; // capacity check only
   const designFlow  = d.design_airflow_m3h  ?? 0;
 
   // Occupancy card
@@ -697,7 +711,7 @@ function renderResults() {
   // Selected design airflow card (always shown as the result)
   setCard('basisDesignCard', true);
   el('basisDesignFlow').textContent = designFlow;
-  el('basisDesignSub').textContent  = `MAX(${driver === 'area' ? 'area' : 'occupancy'}) — continuous operation target`;
+  el('basisDesignSub').textContent  = `Driver: ${designDriverLabel(driver)}`;
   addDriverTag('basisDesignCard', 'Design Airflow');
 
   // Area warning
@@ -714,12 +728,12 @@ function renderResults() {
     el('areaWarningBanner').style.display = 'none';
   }
 
-  // Boost Capacity Check
-  el('basisWetFlow').textContent  = boostFlow;
+  // Boost Capacity Check — capacity check only, never the continuous design airflow
+  el('basisWetFlow').textContent   = boostFlow;
   el('basisBoostFlow').textContent = boostFlow;
   el('basisBoostSub').textContent  = boostFlow > designFlow
-    ? `${boostFlow - designFlow} m³/h above continuous — unit must support boost mode`
-    : 'Within continuous design airflow';
+    ? `${r1(boostFlow - designFlow)} m³/h above continuous design airflow — selected unit must support boost mode`
+    : 'Capacity check only — not the continuous design airflow';
 
   el('basisArea').style.display = 'block';
 
@@ -739,17 +753,28 @@ function renderResults() {
 
   const status = d.balance_status;
   const icons  = {
-    balanced:          '🟢 Balanced',
-    minor_adjustment:  '🟡 Minor Adjustment',
-    major_imbalance:   '🔴 Manual Review Required',
+    balanced:                   '🟢 Balanced',
+    minor_adjustment:           '🟡 Minor Adjustment',
+    additional_supply_required: '🔴 Additional Supply Required',
+    manual_review:              '🔴 Manual Review Required',
+    major_imbalance:            '🔴 Manual Review Required', // legacy DB value
   };
   el('balanceBadge').innerHTML = `<span class="balance-badge ${status}">${icons[status] ?? status}</span>`;
 
   const adjM3h = d.balance_adjustment_m3h ?? r1((d.balance_adjustment_lps ?? 0) * 3.6);
-  if (adjM3h !== 0) {
-    el('balanceNote').textContent = `${adjM3h > 0 ? '+' : ''}${adjM3h} m³/h applied to living/dining`;
-  } else if (status === 'major_imbalance') {
-    el('balanceNote').textContent = 'Supply and extract cannot be balanced via living/dining alone. Review room schedule.';
+  if (status === 'additional_supply_required') {
+    const deficit = r1(Math.max(0, (d.design_airflow_m3h ?? 0) - supplyM3h));
+    el('balanceNote').textContent = deficit > 0.5
+      ? `Supply rooms are at their maximum — ${deficit} m³/h deficit. Add more supply terminals.`
+      : 'Supply rooms are at their maximum capacity. Additional supply terminals are required.';
+  } else if (status === 'manual_review' || status === 'major_imbalance') {
+    const diff  = r1(Math.abs(supplyM3h - extractM3h));
+    const which = supplyM3h > extractM3h ? 'supply exceeds extract' : 'extract exceeds supply';
+    el('balanceNote').textContent = diff > 0.5
+      ? `${diff} m³/h imbalance (${which}). Consider increasing extract airflow, reducing supply target, or confirming the design method.`
+      : 'Supply and extract cannot be balanced. Review room schedule.';
+  } else if (adjM3h !== 0) {
+    el('balanceNote').textContent = `${adjM3h > 0 ? '+' : ''}${adjM3h} m³/h adjustment applied.`;
   } else {
     el('balanceNote').textContent = '';
   }

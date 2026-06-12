@@ -132,3 +132,37 @@ describe('EXTRACT_HEAVY — many extract rooms, extract demand governs', () => {
   it('design flow > 4× occupancy (shows occupancy-only would have badly undersized this)', () =>
     assert.ok(result.designFlowM3h > result.occupancyFlowM3h * 4));
 });
+
+// ── Boost vs continuous design flow separation ────────────────
+// Regression guard: boostDemandM3h must NEVER become the continuous designFlowM3h.
+// Boost is a capacity check only; continuous design flow = max(occupancy, extract_demand, area, ach).
+describe('Boost vs continuous design flow — boost must not drive designFlowM3h', () => {
+  // Scenario:
+  //   occupancy  = 2 beds × 2 persons × 30 = 120 m³/h
+  //   extract    = kitchen(40)+bath×3(90)+ensuite(30)+laundry(25)+WC(20) = 205 m³/h  → governs
+  //   boost      = kitchen(60)+bath×3(120)+ensuite(40)+laundry(40)+WC(20) = 280 m³/h  → capacity check only
+  const rooms = [
+    { id: 'Bed1',    name: 'Bed 1',   room_type: 'bedroom',  classification: 'supply',  bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Bed2',    name: 'Bed 2',   room_type: 'bedroom',  classification: 'supply',  bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Kitchen', name: 'Kitchen', room_type: 'kitchen',  classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Bath1',   name: 'Bath 1',  room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Bath2',   name: 'Bath 2',  room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Bath3',   name: 'Bath 3',  room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Ensuite', name: 'Ensuite', room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Laundry', name: 'Laundry', room_type: 'laundry',  classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'WC',      name: 'WC',      room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  ];
+  const result = calculateAirflow(rooms, 'passive_house');
+
+  it('designFlowM3h equals extractDemandM3h (extract demand is the governing continuous criterion)', () =>
+    assert.equal(result.designFlowM3h, result.extractDemandM3h));
+  it('designDriver = extract_demand', () =>
+    assert.equal(result.designDriver, 'extract_demand'));
+  it('boostDemandM3h > designFlowM3h — boost exceeds continuous design flow', () =>
+    assert.ok(result.boostDemandM3h > result.designFlowM3h,
+      `boost (${result.boostDemandM3h}) must exceed continuous (${result.designFlowM3h})`));
+  it('designFlowM3h ≠ boostDemandM3h — boost did not become the design flow', () =>
+    assert.notEqual(result.designFlowM3h, result.boostDemandM3h));
+  it('boostDemandM3h is returned as a separate field', () =>
+    assert.ok(result.boostDemandM3h > 0, 'boostDemandM3h must be a positive number'));
+});

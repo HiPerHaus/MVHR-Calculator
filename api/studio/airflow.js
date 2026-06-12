@@ -368,6 +368,7 @@ export default async function handler(req, res) {
         wet_room_flow_m3h:      calc.boostDemandM3h,      // backward-compat alias
         area_data_available:    calc.hasAreaData,
         // Design airflow
+        design_driver:          calc.designDriver,
         design_airflow_m3h:     calc.designFlowM3h,
         design_airflow_lps:     calc.designFlowLps,// ACH compliance (P1.3)
         treated_volume_m3: calc.hasVolumeData ? calc.totalVolumeM3 : null,
