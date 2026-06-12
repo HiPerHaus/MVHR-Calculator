@@ -166,3 +166,40 @@ describe('Boost vs continuous design flow — boost must not drive designFlowM3h
   it('boostDemandM3h is returned as a separate field', () =>
     assert.ok(result.boostDemandM3h > 0, 'boostDemandM3h must be a positive number'));
 });
+
+// ── Task #34: transfer rooms must not inflate extractDemandM3h ──
+// Root cause: calcExtractDemandNominal only skipped classification='ignore'.
+// Transfer-classified service rooms (extractRate=15) were counted in
+// extractDemandM3h but allocated 0 by allocateRooms → demand > total_extract.
+// Fix: derive extractDemandM3h from allocateRooms result in calculate.js.
+describe('Transfer rooms excluded from extractDemandM3h (Task #34 regression)', () => {
+  const rooms = [
+    { id: 'Bed1', name: 'Bedroom 1',  room_type: 'bedroom',  classification: 'supply',   bed_spaces: 2, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Kit',  name: 'Kitchen',    room_type: 'kitchen',  classification: 'extract',  bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Bath', name: 'Bathroom',   room_type: 'wet_area', classification: 'extract',  bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    // Three service rooms classified as transfer (plant room, external space, store).
+    // Old code: 3×15 = 45 m³/h leaked into extractDemandM3h → 70+45=115 (wrong)
+    // New code: excluded by allocateRooms → extractDemandM3h = 70 (correct)
+    { id: 'Svc1', name: 'Plant Room', room_type: 'service',  classification: 'transfer', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Svc2', name: 'Alfresco',   room_type: 'service',  classification: 'transfer', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+    { id: 'Svc3', name: 'Store',      room_type: 'service',  classification: 'transfer', bed_spaces: 0, area: 0, floor: 'G', ceiling_height_m: null },
+  ];
+  const result = calculateAirflow(rooms, 'passive_house');
+
+  it('extractDemandM3h = 70 — transfer service rooms excluded', () =>
+    assert.equal(result.extractDemandM3h, 70,
+      `got ${result.extractDemandM3h}; 3 transfer service rooms (3×15=45) must not leak into extract demand`));
+
+  it('designFlowM3h = 70 — not inflated to 115 by transfer rooms', () =>
+    assert.equal(result.designFlowM3h, 70));
+
+  it('designDriver = extract_demand', () =>
+    assert.equal(result.designDriver, 'extract_demand'));
+
+  it('transfer service rooms have 0 extract in room schedule', () => {
+    const svcRooms = result.roomResults.filter(r => r.room_type === 'service');
+    for (const r of svcRooms) {
+      assert.equal(r.extract_m3h, 0, `${r.room_name} must have 0 extract`);
+    }
+  });
+});

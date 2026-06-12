@@ -18,7 +18,8 @@ import { ENGINE_VERSION, DEFAULT_ROOM_RATES } from './constants.js';
 import { r0, r1, toLps } from './helpers.js';
 import { calcOccupancyFlow } from './occupancy.js';
 import { calcAreaFlow } from './area.js';
-import { calcExtractDemandNominal, calcBoostDemand } from './extract.js';
+// Note: extractDemandM3h and boostDemandM3h are derived from allocateRooms() below
+// (calcExtractDemandNominal / calcBoostDemand retained in extract.js for external use only)
 import { calcAchFloor, calcAchAtDesign } from './ach.js';
 import { allocateRooms } from './allocation.js';
 import { balanceDesign } from './balance.js';
@@ -69,21 +70,34 @@ import { balanceDesign } from './balance.js';
 export function calculateAirflow(rooms, method, userRates = {}) {
   const rates = { ...DEFAULT_ROOM_RATES, ...userRates };
 
-  // ── 1. Whole-house design candidates ─────────────────────────
+  // ── 1. Room allocations ─────────────────────────────────────
+  //    Run first — extractDemandM3h and boostDemandM3h are derived
+  //    from these results, guaranteeing they match the room schedule.
+  //    allocateRooms correctly excludes ignored, transfer, circulation,
+  //    and robe rooms; calcExtractDemandNominal previously missed the
+  //    transfer check, causing the demand to exceed total_extract_m3h.
+  let roomResults = allocateRooms(rooms, rates);
 
-  const { occupancyCount, occupancyFlowM3h }  = calcOccupancyFlow(rooms);
-  const { extractDemandM3h }                   = calcExtractDemandNominal(rooms, rates);
+  // ── 2. Whole-house design candidates ─────────────────────────
+  const { occupancyCount, occupancyFlowM3h } = calcOccupancyFlow(rooms);
+
+  // Continuous extract demand = pre-balancing sum of per-room extract.
+  // Derived from allocateRooms so ignored/transfer/circulation/robe rooms
+  // are correctly excluded — consistent with what the room schedule will show.
+  const extractDemandM3h = Math.round(roomResults.reduce((s, r) => s + r.extract_m3h, 0));
+
+  // Boost demand = peak capacity check only — never a design-flow candidate.
+  const boostDemandM3h = Math.round(roomResults.reduce((s, r) => s + (r.boost_extract_m3h || 0), 0));
+
   const {
     treatedAreaM2, areaFlowM3h, hasAreaData,
     areaWithCount, areaExpectedCount,
   } = calcAreaFlow(rooms, method);
 
-  const { boostDemandM3h } = calcBoostDemand(rooms);
-
   // ACH floor (volume-based minimum) — independent of the other candidates
   const achFloor = calcAchFloor(rooms);
 
-  // Collect all valid candidates and pick the maximum
+  // Collect all valid continuous candidates (boost is never included)
   const candidates = /** @type {{ label: string, value: number }[]} */ ([
     { label: 'occupancy',      value: occupancyFlowM3h },
     { label: 'extract_demand', value: extractDemandM3h },
@@ -99,13 +113,10 @@ export function calculateAirflow(rooms, method, userRates = {}) {
   const designFlowM3h = r0(maxCandidate.value);
   const designDriver  = /** @type {'occupancy'|'extract_demand'|'area'|'ach_minimum'} */ (maxCandidate.label);
 
-  // ── 2. ACH achieved at design flow (reporting only) ──────────
+  // ── 3. ACH achieved at design flow (reporting only) ──────────
   const achReport = achFloor.hasVolumeData
     ? calcAchAtDesign(achFloor.totalVolumeM3, designFlowM3h)
     : { achAtDesign: null, achPasses: null };
-
-  // ── 3. Room allocations (fixed rates, independent of design flow) ──
-  let roomResults = allocateRooms(rooms, rates);
 
   // ── 4. Balance supply and extract to the design flow target ──
   const { roomResults: balanced, adjustmentM3h, balanceStatus, supplyDeficitM3h, recommendedRoomsForAdditionalTerminals } =

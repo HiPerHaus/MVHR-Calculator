@@ -108,7 +108,10 @@ export function boostExtractRate(room, n) {
 export function calcExtractDemandNominal(rooms, rates = DEFAULT_ROOM_RATES) {
   let total = 0;
   for (const r of rooms) {
-    if (r.classification === 'ignore') continue;
+    if (r.classification === 'ignore')   continue;
+    if (r.classification === 'transfer') continue;
+    const t = r.room_type;
+    if (t === 'circulation' || t === 'robe') continue;
     total += extractRate(r, rates);
   }
   return { extractDemandM3h: Math.round(total) };
@@ -125,7 +128,10 @@ export function calcExtractDemandNominal(rooms, rates = DEFAULT_ROOM_RATES) {
 export function calcBoostDemand(rooms) {
   let total = 0;
   for (const r of rooms) {
-    if (r.classification === 'ignore') continue;
+    if (r.classification === 'ignore')   continue;
+    if (r.classification === 'transfer') continue;
+    const t = r.room_type;
+    if (t === 'circulation' || t === 'robe') continue;
     const n = r.name ?? '';
     total += boostExtractRate(r, n);
   }
