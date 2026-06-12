@@ -547,8 +547,8 @@ async function init() {
           ).join('');
 
           hideLoading();
-          qs('#mainContent').style.display = 'block';
-          qs('#recalcBtn').disabled = false;
+          el('mainContent').style.display = 'block';
+          el('recalcBtn').disabled = false;
           modal.style.display = 'flex';
 
           contBtn.addEventListener('click', () => {
@@ -568,8 +568,8 @@ async function init() {
   // Always recalculate on page load to avoid stale DB records from earlier
   // engine versions. The calculation is fast (DB read + math only).
   hideLoading();
-  qs('#mainContent').style.display = 'block';
-  qs('#recalcBtn').disabled = false;
+  el('mainContent').style.display = 'block';
+  el('recalcBtn').disabled = false;
 }
 
 // ── Load / recalculate ────────────────────────────────────────
@@ -588,12 +588,12 @@ async function loadSavedDesign() {
       updateMethodStyles();
       renderResults();
       hideLoading();
-      qs('#mainContent').style.display = 'block';
-      qs('#recalcBtn').disabled = false;
+      el('mainContent').style.display = 'block';
+      el('recalcBtn').disabled = false;
     } else {
       hideLoading();
-      qs('#mainContent').style.display = 'block';
-      qs('#recalcBtn').disabled = false;
+      el('mainContent').style.display = 'block';
+      el('recalcBtn').disabled = false;
       console.warn('No saved airflow design found — waiting for manual recalculation.');
     }
   } catch(e) {
@@ -607,7 +607,7 @@ let _recalculating = false;
 async function recalculate() {
   if (_recalculating) return;
   _recalculating = true;
-  qs('#recalcBtn').disabled = true;
+  el('recalcBtn').disabled = true;
   showLoading();
   document.getElementById('recalcBar').style.display = 'none';
   const method = document.querySelector('input[name=designMethod]:checked')?.value ?? 'passive_house';
@@ -621,8 +621,8 @@ async function recalculate() {
     _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
     renderResults();
     hideLoading();
-    qs('#mainContent').style.display = 'block';
-    qs('#recalcBtn').disabled = false;
+    el('mainContent').style.display = 'block';
+    el('recalcBtn').disabled = false;
   } catch(e) {
     console.error('recalculate', e);
     hideLoading();
