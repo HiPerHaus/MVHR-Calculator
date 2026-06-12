@@ -4,7 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiPer Studio — Airflow Design</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js">
+setTimeout(() => {
+  const loading = document.querySelector('#loading');
+  const main = document.querySelector('#mainContent');
+  const btn = document.querySelector('#recalcBtn');
+  if (loading && loading.style.display !== 'none') {
+    loading.style.display = 'none';
+    if (main) main.style.display = 'block';
+    if (btn) btn.disabled = false;
+    console.warn('[airflow] loading fallback triggered');
+  }
+}, 4000);
+
+</script>
 <style>
 :root {
   --bg: #f0f4f8; --card: #fff; --border: #dde3ec;
@@ -607,6 +620,9 @@ async function recalculate() {
     }
     _design = data.design; _rooms = data.rooms ?? []; _units = data.units ?? [];
     renderResults();
+    hideLoading();
+    qs('#mainContent').style.display = 'block';
+    qs('#recalcBtn').disabled = false;
   } catch(e) {
     console.error('recalculate', e);
     hideLoading();
