@@ -615,6 +615,75 @@ async function loadDesign(supabase, projectId) {
   if (dErr) throw new Error(dErr.message);
   if (!design) return null;
 
+  // ── Sync airflow_design_id when duct design pre-dates airflow calculation ──
+  // This happens when System Layout was auto-generated before Stage 4 was run.
+  // On first load after airflow is complete, link the designs and sync terminal
+  // node airflow_m3h values from airflow_rooms (matched by project_room_id).
+  let airflowSynced = false;
+  if (design.airflow_design_id == null) {
+    const { data: airflowDesign } = await supabase
+      .from('airflow_designs')
+      .select('id, selected_unit_id')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (airflowDesign?.id) {
+      // Update the duct design row to link it
+      const updates = { airflow_design_id: airflowDesign.id };
+      if (!design.selected_unit_id && airflowDesign.selected_unit_id) {
+        updates.selected_unit_id = airflowDesign.selected_unit_id;
+      }
+      await supabase.from('duct_designs').update(updates).eq('id', design.id);
+      design.airflow_design_id = airflowDesign.id;
+      if (updates.selected_unit_id) design.selected_unit_id = updates.selected_unit_id;
+
+      // Sync terminal node airflow_m3h values from airflow_rooms
+      const { data: airflowRooms } = await supabase
+        .from('airflow_rooms')
+        .select('project_room_id, room_name, supply_lps, extract_lps')
+        .eq('airflow_design_id', airflowDesign.id);
+
+      if (airflowRooms?.length) {
+        // Build lookup: project_room_id → { supplyM3h, extractM3h }
+        const toLps2m3h = lps => Math.round((lps ?? 0) * 3.6 * 10) / 10;
+        const flowMap = {};
+        for (const ar of airflowRooms) {
+          flowMap[ar.project_room_id] = {
+            supply:  toLps2m3h(ar.supply_lps),
+            extract: toLps2m3h(ar.extract_lps),
+          };
+        }
+
+        // Load current terminal nodes so we can patch them
+        const { data: termNodes } = await supabase
+          .from('duct_nodes')
+          .select('id, node_type, project_room_id, airflow_m3h')
+          .eq('duct_design_id', design.id)
+          .in('node_type', ['supply_terminal', 'extract_terminal']);
+
+        if (termNodes?.length) {
+          const updates = [];
+          for (const n of termNodes) {
+            if (!n.project_room_id) continue;
+            const flows = flowMap[n.project_room_id];
+            if (!flows) continue;
+            const newM3h = n.node_type === 'supply_terminal' ? flows.supply : flows.extract;
+            if (newM3h !== n.airflow_m3h) {
+              updates.push(supabase.from('duct_nodes').update({ airflow_m3h: newM3h }).eq('id', n.id));
+            }
+          }
+          if (updates.length) {
+            await Promise.all(updates);
+            airflowSynced = true;
+          }
+        }
+      }
+      if (!airflowSynced) airflowSynced = true; // linked even if no node updates needed
+    }
+  }
+
   const unitId = design.selected_unit_id ?? null;
   const [{ data: nodes }, { data: runs }, { data: unitRow }] = await Promise.all([
     supabase.from('duct_nodes').select('*').eq('duct_design_id', design.id).order('created_at', { ascending: true }),
@@ -625,7 +694,7 @@ async function loadDesign(supabase, projectId) {
   ]);
 
   const unit = unitRow ? { manufacturer: unitRow.manufacturer, model: unitRow.model, ext_pressure: unitRow.ext_pressure ?? null } : null;
-  return { design, nodes: nodes ?? [], runs: runs ?? [], unit };
+  return { design, nodes: nodes ?? [], runs: runs ?? [], unit, airflowSynced };
 }
 
 // ── Delete design (full reset) ────────────────────────────────

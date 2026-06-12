@@ -455,6 +455,9 @@ main { padding:0 0 80px; }
     <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
       ⚠ No airflow design found. Complete Stage 4 to populate terminal airflows automatically.
     </div>
+    <div id="airflowSyncedNotice" class="notice notice-warn" style="display:none">
+      ✓ Airflow design linked — terminal airflows updated. <strong>Generate Updated Layout</strong> to recalculate duct routes with correct flows.
+    </div>
 
     <!-- HRV placement banner (shown when HRV not yet placed or after skip) -->
     <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
@@ -927,7 +930,12 @@ async function init() {
 
     _layoutGenerated = _design?.design_json?.phase === 'routes_generated';
     if (_layoutGenerated) el('generatedNotice').style.display = 'block';
-    if (!_design?.airflow_design_id) el('noAirflowNotice').style.display = 'block';
+    if (!_design?.airflow_design_id) {
+      el('noAirflowNotice').style.display = 'block';
+    } else if (data.airflowSynced) {
+      // Duct design just linked to airflow data for the first time — prompt regeneration
+      el('airflowSyncedNotice').style.display = 'block';
+    }
 
     // Detect whether MVHR needs user placement BEFORE ensurePlanPositions()
     // In terminals_only phase no mvhr_unit node exists yet; in later phases it may lack a plan position.
