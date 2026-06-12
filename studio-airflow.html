@@ -852,7 +852,10 @@ function showLoading() {
   el('confirmCard').style.display   = 'none';
   el('emptyState').style.display    = 'none';
 }
-function hideLoading() { el('loadingState').style.display = 'none'; }
+function hideLoading() {
+  el('loadingState').style.display = 'none';
+  el('mainContent').style.display = 'block';
+}
 function showEmpty() {
   el('emptyState').style.display = 'block';
   el('loadingState').style.display = 'none';
