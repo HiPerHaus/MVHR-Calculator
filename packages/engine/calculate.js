@@ -50,8 +50,10 @@ import { balanceDesign } from './balance.js';
  *   totalExtractM3h:      number,
  *   totalSupplyLps:       number,
  *   totalExtractLps:      number,
- *   adjustmentM3h:        number,
- *   balanceStatus:        string,
+ *   adjustmentM3h:                          number,
+ *   balanceStatus:                          string,
+ *   supplyDeficitM3h:                       number,
+ *   recommendedRoomsForAdditionalTerminals: string[],
  *   roomResults:          object[],
  * }} CalculationResult
  */
@@ -106,7 +108,7 @@ export function calculateAirflow(rooms, method, userRates = {}) {
   let roomResults = allocateRooms(rooms, rates);
 
   // ── 4. Balance supply and extract to the design flow target ──
-  const { roomResults: balanced, adjustmentM3h, balanceStatus } =
+  const { roomResults: balanced, adjustmentM3h, balanceStatus, supplyDeficitM3h, recommendedRoomsForAdditionalTerminals } =
     balanceDesign(roomResults, rooms, designFlowM3h);
 
   // ── 5. Final totals ───────────────────────────────────────────
@@ -147,6 +149,8 @@ export function calculateAirflow(rooms, method, userRates = {}) {
 
     // Balancing
     adjustmentM3h,
+    supplyDeficitM3h,
+    recommendedRoomsForAdditionalTerminals,
     balanceStatus,
 
     roomResults: balanced,
