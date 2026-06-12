@@ -6,7 +6,7 @@
 <title>HiPer Studio — Airflow Design</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js">
 setTimeout(() => {
-  const loading = document.querySelector('#loading');
+  const loading = document.querySelector('#loadingState');
   const main = document.querySelector('#mainContent');
   const btn = document.querySelector('#recalcBtn');
   if (loading && loading.style.display !== 'none') {
@@ -567,7 +567,7 @@ async function init() {
 
   // Always recalculate on page load to avoid stale DB records from earlier
   // engine versions. The calculation is fast (DB read + math only).
-  qs('#loading').style.display = 'none';
+  hideLoading();
   qs('#mainContent').style.display = 'block';
   qs('#recalcBtn').disabled = false;
 }
@@ -591,7 +591,7 @@ async function loadSavedDesign() {
       qs('#mainContent').style.display = 'block';
       qs('#recalcBtn').disabled = false;
     } else {
-      qs('#loading').style.display = 'none';
+      hideLoading();
       qs('#mainContent').style.display = 'block';
       qs('#recalcBtn').disabled = false;
       console.warn('No saved airflow design found — waiting for manual recalculation.');
