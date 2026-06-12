@@ -135,7 +135,8 @@ a { color: inherit; text-decoration: none; }
   <a class="stage-btn done"   id="stageBtn3"  href="#"><span class="stage-num">✓</span>Airflow Design</a>
   <a class="stage-btn done"   id="stageBtn4"  href="#"><span class="stage-num">✓</span>Unit Selection</a>
   <a class="stage-btn done"   id="stageBtn5"  href="#"><span class="stage-num">✓</span>System Layout</a>
-  <a class="stage-btn active" id="stageBtn6"  href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn done"   id="stageBtn6"  href="#"><span class="stage-num">✓</span>Commissioning</a>
+  <a class="stage-btn active" id="stageBtn7"  href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
   <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
 </nav>
 
@@ -548,7 +549,8 @@ async function init() {
   el('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
   el('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
   el('stageBtn5').href = `/studio/projects/${_projectId}/duct-design`;
-  el('stageBtn6').href = `/studio/projects/${_projectId}/bom`;
+  el('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
+  el('stageBtn7').href = `/studio/projects/${_projectId}/bom`;
   el('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
   if (el('goDuctDesign')) el('goDuctDesign').href = `/studio/projects/${_projectId}/duct-design`;
 

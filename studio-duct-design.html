@@ -395,7 +395,8 @@ main { padding:0 0 80px; }
   <a class="stage-btn done"   id="stageBtn3" href="#"><span class="stage-num">✓</span>Airflow Design</a>
   <a class="stage-btn done"   id="stageBtn4" href="#"><span class="stage-num">✓</span>Unit Selection</a>
   <a class="stage-btn active" id="stageBtn5" href="#"><span class="stage-num">6</span>System Layout</a>
-  <a class="stage-btn" id="stageBtn6" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
+  <a class="stage-btn locked" id="stageBtn6" href="#"><span class="stage-num">7</span>Commissioning</a>
+  <a class="stage-btn locked" id="stageBtn7" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
   <a class="stage-btn settings-link" href="/studio/settings">⚙ Settings</a>
 </nav>
 
@@ -883,7 +884,8 @@ async function init() {
     el('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
     el('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
     el('stageBtn5').href = `/studio/projects/${_projectId}/duct-design`;
-    el('stageBtn6').href = `/studio/projects/${_projectId}/bom`;
+    el('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
+    el('stageBtn7').href = `/studio/projects/${_projectId}/bom`;
     el('backBtn').href   = `/studio/projects/${_projectId}/unit-selection`;
     if (el('btnBom')) el('btnBom').href = `/studio/projects/${_projectId}/bom`;
     const _sl = document.querySelector('.settings-link');

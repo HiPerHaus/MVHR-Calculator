@@ -387,7 +387,10 @@ tr.review-row:hover td { background: #fef3c7; }
     <span class="stage-num">6</span> System Layout
   </a>
   <a class="stage-btn locked" id="stageBtn6" href="#">
-    <span class="stage-num">7</span> BOM &amp; Export
+    <span class="stage-num">7</span> Commissioning
+  </a>
+  <a class="stage-btn locked" id="stageBtn7" href="#">
+    <span class="stage-num">8</span> BOM &amp; Export
   </a>
   <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
 </nav>
@@ -678,7 +681,8 @@ async function loadPage() {
     document.getElementById('stageBtn3').href  = `/studio/projects/${_projectId}/airflow`;
     document.getElementById('stageBtn4').href  = `/studio/projects/${_projectId}/unit-selection`;
     document.getElementById('stageBtn5').href  = `/studio/projects/${_projectId}/duct-design`;
-    document.getElementById('stageBtn6').href  = `/studio/projects/${_projectId}/bom`;
+    document.getElementById('stageBtn6').href  = `/studio/projects/${_projectId}/commissioning`;
+    document.getElementById('stageBtn7').href  = `/studio/projects/${_projectId}/bom`;
     document.getElementById('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
 
     // Restore downstream stage state for returning visitors
