@@ -101,6 +101,84 @@ main { padding:0 0 80px; }
 .status-pending  { background:var(--amber-bg); color:var(--amber); border:1px solid #fde68a; }
 .status-sep { color:var(--border); font-size:16px; }
 
+/* ── §1 Design-status header ── */
+.ds-header { display:flex; align-items:stretch; gap:0; padding:10px 28px; background:#fff; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.ds-step { display:flex; align-items:center; gap:8px; padding:6px 16px 6px 14px; position:relative; }
+.ds-step:not(:last-child)::after { content:'›'; color:var(--border); font-size:18px; margin-left:14px; }
+.ds-ico { width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0; }
+.ds-body { display:flex; flex-direction:column; line-height:1.25; }
+.ds-name { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; }
+.ds-sub  { font-size:10px; color:var(--muted); white-space:nowrap; }
+/* state variants */
+.ds-done    .ds-ico { background:var(--ok-bg);       color:#166534; border:1px solid var(--ok-border); }
+.ds-current .ds-ico { background:var(--primary);     color:#fff; }
+.ds-pending .ds-ico { background:var(--border);      color:var(--muted); }
+.ds-warn    .ds-ico { background:var(--amber-bg);    color:var(--amber); border:1px solid #fde68a; }
+.ds-fail    .ds-ico { background:var(--critical-bg); color:var(--critical); border:1px solid #fecaca; }
+.ds-pending .ds-name { color:var(--muted); font-weight:600; }
+.ds-fail    .ds-name { color:var(--critical); }
+.ds-current .ds-name { color:var(--primary); }
+
+/* ── §2 Design inputs card ── */
+.io-card { background:#fff; border:1px solid var(--border); border-radius:12px; margin:16px 28px 0; overflow:hidden; }
+.io-head { width:100%; display:flex; align-items:center; justify-content:space-between; padding:12px 18px; background:#f8fafc; border:none; border-bottom:1px solid var(--border); cursor:pointer; }
+.io-head-title { font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+.io-head-chevron { font-size:13px; color:var(--muted); transition:transform .15s; }
+.io-card.collapsed .io-head-chevron { transform:rotate(-90deg); }
+.io-card.collapsed .io-body { display:none; }
+.io-body { padding:16px 18px; }
+.io-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px 20px; }
+.io-item { display:flex; flex-direction:column; gap:2px; }
+.io-label { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+.io-value { font-size:15px; font-weight:700; color:var(--text); }
+.io-value small { font-size:11px; font-weight:600; color:var(--muted); }
+.io-sub  { grid-column:1/-1; border-top:1px solid var(--border); margin-top:4px; padding-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.io-flag { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
+.io-flag.ok   { background:var(--ok-bg); color:#166534; }
+.io-flag.fail { background:var(--critical-bg); color:var(--critical); }
+.io-seg { display:inline-flex; border:1.5px solid var(--border); border-radius:8px; overflow:hidden; }
+.io-seg button { padding:6px 12px; font-size:12px; font-weight:700; background:#fff; border:none; cursor:pointer; color:var(--muted); border-right:1px solid var(--border); }
+.io-seg button:last-child { border-right:none; }
+.io-seg button.active { background:var(--primary); color:#fff; }
+
+/* ── §3 Guided action bar ── */
+.action-bar { display:flex; align-items:center; gap:0; margin:16px 28px 0; padding:12px 16px; background:#fff; border:1px solid var(--border); border-radius:12px; flex-wrap:wrap; }
+.ab-step { display:flex; align-items:center; gap:9px; padding:4px 16px 4px 4px; }
+.ab-step:not(:last-of-type)::after { content:''; }
+.ab-num { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0; background:var(--border); color:var(--muted); }
+.ab-step.done    .ab-num { background:var(--ok-bg); color:#166534; border:1px solid var(--ok-border); }
+.ab-step.current .ab-num { background:var(--primary); color:#fff; }
+.ab-label { display:flex; flex-direction:column; line-height:1.2; }
+.ab-title { font-size:12px; font-weight:700; color:var(--text); white-space:nowrap; }
+.ab-step.current .ab-title { color:var(--primary); }
+.ab-step:not(.current):not(.done) .ab-title { color:var(--muted); }
+.ab-hint { font-size:10px; color:var(--muted); white-space:nowrap; }
+.ab-arrow { color:var(--border); font-size:16px; margin:0 6px; }
+.ab-cta { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.btn-sm { padding:6px 12px; font-size:12px; }
+
+/* ── §4 Calc panel + §5 compliance ── */
+.calc-table { width:100%; border-collapse:collapse; font-size:12px; }
+.calc-table th { text-align:left; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); padding:6px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.calc-table td { padding:7px 10px; border-bottom:1px solid var(--border); }
+.calc-table tfoot td { font-weight:800; border-top:2px solid var(--border); border-bottom:none; }
+.calc-totals { display:flex; gap:22px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.calc-tot { display:flex; flex-direction:column; gap:1px; }
+.calc-tot .v { font-size:16px; font-weight:800; color:var(--text); }
+.calc-tot .l { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+.chk-row { display:flex; align-items:flex-start; gap:12px; padding:11px 0; border-bottom:1px solid var(--border); }
+.chk-row:last-child { border-bottom:none; }
+.chk-ico { width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0; }
+.chk-pass .chk-ico { background:var(--ok-bg); color:#166534; }
+.chk-warn .chk-ico { background:var(--amber-bg); color:var(--amber); }
+.chk-fail .chk-ico { background:var(--critical-bg); color:var(--critical); }
+.chk-na   .chk-ico { background:var(--border); color:var(--muted); }
+.chk-main { flex:1; }
+.chk-title { font-size:13px; font-weight:700; color:var(--text); }
+.chk-detail { font-size:11px; color:var(--muted); margin-top:1px; }
+.chk-manual { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:var(--muted); cursor:pointer; white-space:nowrap; }
+.calc-empty { color:var(--muted); font-size:13px; text-align:center; padding:18px 0; }
+
 /* ── View tab bar ── */
 .view-tabs { display:flex; gap:0; padding:0 28px; background:#fff; border-bottom:2px solid var(--border); }
 .view-tab { padding:10px 22px; font-size:13px; font-weight:700; color:var(--muted); border:none; background:none; cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; transition:.15s; }
@@ -434,16 +512,17 @@ main { padding:0 0 80px; }
   <!-- Content (shown after load) -->
   <div id="mainContent" style="display:none">
 
-    <!-- Workflow status bar -->
-    <div id="workflowStatus" class="workflow-status">
-      <span class="status-pill status-done">✅ Rooms Analysed</span>
-      <span class="status-sep">›</span>
-      <span class="status-pill status-done">✅ Unit Selected</span>
-      <span class="status-sep">›</span>
-      <span class="status-pill status-required" id="statusMvhr">❌ MVHR Location Required</span>
-      <span class="status-sep">›</span>
-      <span class="status-pill status-pending" id="statusLayout">⏳ Layout Not Generated</span>
-    </div>
+    <!-- §1 Design status header (populated by renderStatusHeader) -->
+    <div id="designStatusHeader" class="ds-header"></div>
+
+    <!-- §2 Design inputs (populated by renderInputsPanel) -->
+    <section class="io-card" id="inputsCard">
+      <button class="io-head" type="button" onclick="toggleInputs()" aria-expanded="true">
+        <span class="io-head-title">Design Inputs</span>
+        <span class="io-head-chevron" id="inputsChevron">▾</span>
+      </button>
+      <div class="io-body" id="inputsBody"></div>
+    </section>
 
     <!-- Notices -->
     <div id="generatedNotice" class="notice notice-success" style="display:none">
@@ -465,6 +544,9 @@ main { padding:0 0 80px; }
       <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">📍 Place MVHR Unit</button>
       <button class="btn btn-secondary btn-sm" onclick="suggestMvhrPosition()" style="white-space:nowrap">💡 Suggest</button>
     </div>
+
+    <!-- §3 Guided action bar (populated by renderActionBar) -->
+    <div id="actionBar" class="action-bar"></div>
 
     <!-- View tab bar -->
     <div class="view-tabs">
@@ -746,8 +828,43 @@ main { padding:0 0 80px; }
       </div>
     </div><!-- /tabSchedule -->
 
+    <!-- §4 Calculation panel (populated by renderCalcPanel) -->
+    <section class="io-card" id="calcCard">
+      <button class="io-head" type="button" onclick="this.parentElement.classList.toggle('collapsed')" aria-expanded="true">
+        <span class="io-head-title">Calculation Panel</span>
+        <span class="io-head-chevron">▾</span>
+      </button>
+      <div class="io-body" id="calcBody"></div>
+    </section>
+
+    <!-- §5 Compliance checks (populated by renderCompliancePanel) -->
+    <section class="io-card" id="complianceCard">
+      <button class="io-head" type="button" onclick="this.parentElement.classList.toggle('collapsed')" aria-expanded="true">
+        <span class="io-head-title">Design Compliance</span>
+        <span class="io-head-chevron">▾</span>
+      </button>
+      <div class="io-body" id="complianceBody"></div>
+    </section>
+
   </div><!-- /mainContent -->
 </main>
+
+<!-- ── Calc engine (single source of truth: packages/engine, served at /engine) ── -->
+<script type="module">
+  // Native ESM import of the pure calc engine. Served via the /engine/(.*)
+  // → /packages/engine/$1 rewrite in vercel.json. Exposed on window so the
+  // classic script below (whose functions only run after async auth+load)
+  // can delegate to it. No build step; no inline duplication of the math.
+  try {
+    const Engine = await import('/engine/index.js');
+    window.Engine = Engine;
+    console.info('[duct-design] calc engine loaded, version', Engine.ENGINE_VERSION);
+  } catch (err) {
+    console.error('[duct-design] FAILED to load calc engine from /engine/index.js —',
+      'pressure/velocity/acoustic panels will show “—”.', err);
+  }
+  window.dispatchEvent(new Event('engine-ready'));
+</script>
 
 <script>
 // ── Constants ─────────────────────────────────────────────────
@@ -764,7 +881,9 @@ let _token        = null;
 let _design       = null;
 let _nodes        = [];
 let _runs         = [];
-let _unit         = null; // { manufacturer, model, ext_pressure } — from selected mvhr_units row
+let _unit         = null; // { manufacturer, model, ext_pressure, hr_eff, sfp } — from selected mvhr_units row
+let _airflow      = null; // airflow_designs row (totals + normal/low/boost rates) for §2 inputs
+let _rooms        = [];   // project_rooms (area, ceiling_height_m, volume_m3) for the ACH check
 let _planPages    = [];   // [{floor_index, floor_name, image_url, width_px, height_px}]
 let _selected     = null; // { type: 'node'|'run', id }
 let _dirty        = false;
@@ -795,6 +914,8 @@ let _mvhrNeedsPlacement = false;  // true when MVHR has no user-set plan positio
 let _placingHrv         = false;  // true while user is clicking to place HRV
 let _layoutGenerated    = false;  // true once layout has been generated at least once
 let _layoutStale        = false;  // true when MVHR moved after layout was generated
+let _designState        = 'NEEDS_AIRFLOW'; // guided-workflow state (see computeDesignState)
+let _lastChecks         = null;   // cached output of gatherChecks() for header/compliance panels
 
 // ── Schematic drag state ──────────────────────────────────────
 let _dragging     = null;
@@ -930,6 +1051,22 @@ async function init() {
 
     _layoutGenerated = _design?.design_json?.phase === 'routes_generated';
     if (_layoutGenerated) el('generatedNotice').style.display = 'block';
+
+    // §2 inputs: fetch airflow basis (totals + normal/low/boost rates). RLS-scoped.
+    _airflow = null;
+    if (_design?.airflow_design_id) {
+      const { data: af } = await sb.from('airflow_designs')
+        .select('total_supply_lps, total_extract_lps, design_airflow_m3h, design_airflow_lps, low_flow_m3h, room_boost_demand_m3h, boost_method, boost_airflow_offset_pct, low_airflow_offset_pct, boost_warning')
+        .eq('id', _design.airflow_design_id).maybeSingle();
+      _airflow = af ?? null;
+    }
+
+    // ACH check: room geometry (area + ceiling height → volume). RLS-scoped.
+    const { data: rms } = await sb.from('project_rooms')
+      .select('name, room_type, classification, area, ceiling_height_m, volume_m3')
+      .eq('project_id', _projectId);
+    _rooms = rms ?? [];
+
     if (!_design?.airflow_design_id) {
       el('noAirflowNotice').style.display = 'block';
     } else if (data.airflowSynced) {
@@ -1441,31 +1578,97 @@ function renderPlanPropsPanel() {
   `;
 }
 
-// ── Workflow state ────────────────────────────────────────────
-function updateWorkflowState() {
-  const mvhrPlaced = !_mvhrNeedsPlacement;
-  const layoutDone = _layoutGenerated;
-  const stale      = _layoutStale;
+// ── Guided-workflow state machine ─────────────────────────────
+// Booleans the workflow depends on, derived from loaded data.
+function workflowSignals() {
+  return {
+    hasAirflow:   !!_design?.airflow_design_id,
+    hasUnit:      !!_unit,
+    mvhrPlaced:   !_mvhrNeedsPlacement,
+    hasTerminals: _nodes.some(n => n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal'),
+    routesDone:   _layoutGenerated,
+    stale:        _layoutStale,
+  };
+}
 
-  // Status pills
+// Run all engine-backed compliance checks once; cached on _lastChecks.
+// Pure read of _runs/_nodes/_unit — safe to call on every state update.
+function gatherChecks() {
+  const PRESSURE_TARGET_PA = 100; // Passivhaus Trust domestic guidance
+  const sp      = calcSystemPressureSummary(_runs);
+  const unitExt = _unit?.ext_pressure ?? null;
+  const eng     = ENG();
+
+  let velExceed = 0, velWarn = 0;
+  for (const r of _runs) {
+    if (r.velocity_m_s == null) continue;
+    const cat    = r.metadata?.run_category ?? 'main';
+    const status = eng ? eng.velocityStatus(r.velocity_m_s, cat) : 'ok';
+    if (status === 'exceed') velExceed++; else if (status === 'warning') velWarn++;
+  }
+
+  let noiseExceed = 0, noiseAtten = 0;
+  for (const r of _runs) {
+    const info = runAcousticInfo(r);
+    if (!info) continue;
+    if (info.status === 'exceed') noiseExceed++; else if (info.status === 'attenuator') noiseAtten++;
+  }
+
+  const pressureUnitStatus   = systemPressureStatus(sp.totalSystemPa, unitExt); // ok|warning|exceed|unknown
+  const pressureExceedTarget = sp.hasData && sp.totalSystemPa > PRESSURE_TARGET_PA;
+
+  const checks = {
+    sp, unitExt, PRESSURE_TARGET_PA, hasData: sp.hasData,
+    pressureUnitStatus, pressureExceedTarget,
+    velExceed, velWarn, noiseExceed, noiseAtten,
+  };
+  _lastChecks = checks;
+  return checks;
+}
+
+// True when the generated design passes every hard compliance gate.
+function checksAllPass(c) {
+  if (!c.hasData) return false;
+  return !c.pressureExceedTarget
+      && c.pressureUnitStatus !== 'exceed'
+      && c.velExceed === 0
+      && c.noiseExceed === 0;
+}
+
+// Single source of truth for "where is the user in the workflow".
+function computeDesignState() {
+  const s = workflowSignals();
+  if (s.stale)         return 'STALE';
+  if (!s.hasAirflow)   return 'NEEDS_AIRFLOW';
+  if (!s.hasUnit)      return 'NEEDS_UNIT';
+  if (!s.mvhrPlaced)   return 'NEEDS_MVHR';
+  if (!s.hasTerminals) return 'NEEDS_TERMINALS';
+  if (!s.routesDone)   return 'NEEDS_ROUTES';
+  return checksAllPass(gatherChecks()) ? 'READY' : 'NEEDS_REVIEW';
+}
+
+// ── Workflow state (drives header, action buttons, tabs) ──────
+function updateWorkflowState() {
+  const s     = workflowSignals();
+  const state = computeDesignState();
+  _designState = state;
+
+  const mvhrPlaced = s.mvhrPlaced;
+  const layoutDone = s.routesDone;
+  const stale      = s.stale;
+
+  // Legacy two-pill strip (replaced by the design-status header in §1 —
+  // kept in sync here until that markup lands so nothing breaks mid-build).
   const mvhrPill   = el('statusMvhr');
   const layoutPill = el('statusLayout');
-  if (mvhrPlaced) {
-    mvhrPill.className   = 'status-pill status-done';
-    mvhrPill.textContent = '✅ MVHR Located';
-  } else {
-    mvhrPill.className   = 'status-pill status-required';
-    mvhrPill.textContent = '❌ MVHR Location Required';
+  if (mvhrPill) {
+    mvhrPill.className   = mvhrPlaced ? 'status-pill status-done' : 'status-pill status-required';
+    mvhrPill.textContent = mvhrPlaced ? '✅ MVHR Located' : '❌ MVHR Location Required';
   }
-  if (layoutDone) {
-    layoutPill.className   = 'status-pill status-done';
-    layoutPill.textContent = '✅ Layout Generated';
-  } else if (stale) {
-    layoutPill.className   = 'status-pill status-required';
-    layoutPill.textContent = '⚠️ Layout Outdated';
-  } else {
-    layoutPill.className   = 'status-pill status-pending';
-    layoutPill.textContent = '⏳ Generate Layout';
+  if (layoutPill) {
+    if (layoutDone)   { layoutPill.className = 'status-pill status-done';     layoutPill.textContent = '✅ Layout Generated'; }
+    else if (stale)   { layoutPill.className = 'status-pill status-required'; layoutPill.textContent = '⚠️ Layout Outdated'; }
+    else              { layoutPill.className = 'status-pill status-pending';  layoutPill.textContent = '⏳ Generate Layout'; }
   }
 
   // Generate / Regenerate button
@@ -1482,13 +1685,10 @@ function updateWorkflowState() {
   }
   btnGen.disabled = !mvhrPlaced;
 
-  // BOM button — enabled only after layout generated and not stale
+  // BOM button — enabled only when the design is fully READY.
   const btnBom = el('btnBom');
-  if (layoutDone && !stale) {
-    btnBom.classList.remove('btn-disabled');
-  } else {
-    btnBom.classList.add('btn-disabled');
-  }
+  if (state === 'READY') btnBom.classList.remove('btn-disabled');
+  else                   btnBom.classList.add('btn-disabled');
 
   // Schematic and Schedule tabs — disabled until MVHR placed and layout not stale
   el('tabBtnSchematic').disabled = !mvhrPlaced || stale;
@@ -1501,6 +1701,418 @@ function updateWorkflowState() {
   // Dim existing routes when stale to signal they're approximate
   const overlay = el('planOverlay');
   if (overlay) overlay.style.opacity = stale ? '0.35' : '1';
+
+  // Render the §1 status header, §3 action bar and §4/§5 panels if present
+  // (defined in later build steps; guarded so the page works mid-build).
+  if (typeof renderStatusHeader === 'function') renderStatusHeader(state, s);
+  if (typeof renderInputsPanel  === 'function') renderInputsPanel();
+  if (typeof renderActionBar    === 'function') renderActionBar(state, s);
+  if (typeof renderCompliancePanel === 'function') renderCompliancePanel(_lastChecks ?? gatherChecks(), state);
+  if (typeof renderCalcPanel    === 'function') renderCalcPanel();
+}
+
+// ── §1 Design status header ───────────────────────────────────
+function renderStatusHeader(state, s) {
+  const host = el('designStatusHeader');
+  if (!host) return;
+  const c = _lastChecks ?? gatherChecks();
+
+  // Pressure / noise step status (only meaningful once routes + data exist)
+  let pressureStatus = 'pending', pressureSub = 'Awaiting layout';
+  let noiseStatus    = 'pending', noiseSub    = 'Awaiting layout';
+  if (s.routesDone && c.hasData) {
+    if (c.pressureExceedTarget || c.pressureUnitStatus === 'exceed') { pressureStatus = 'fail'; }
+    else if (c.pressureUnitStatus === 'warning')                     { pressureStatus = 'warn'; }
+    else                                                             { pressureStatus = 'done'; }
+    pressureSub = `${c.sp.totalSystemPa} Pa / ${c.PRESSURE_TARGET_PA} target`;
+
+    if (c.noiseExceed > 0)      { noiseStatus = 'fail'; noiseSub = `${c.noiseExceed} over limit`; }
+    else if (c.noiseAtten > 0)  { noiseStatus = 'warn'; noiseSub = `${c.noiseAtten} need attenuator`; }
+    else                        { noiseStatus = 'done'; noiseSub = 'All terminals OK'; }
+  }
+
+  // Layout step
+  let layoutStatus, layoutSub;
+  if (s.routesDone)        { layoutStatus = s.stale ? 'fail' : 'done'; layoutSub = s.stale ? 'Outdated' : 'Routes generated'; }
+  else if (s.hasTerminals) { layoutStatus = 'current'; layoutSub = 'Terminals placed'; }
+  else if (s.mvhrPlaced)   { layoutStatus = 'current'; layoutSub = 'Ready to generate'; }
+  else                     { layoutStatus = 'pending'; layoutSub = 'Not generated'; }
+
+  const steps = [
+    { name:'Airflow', status: s.hasAirflow ? 'done' : 'fail',
+      sub: s.hasAirflow ? 'Design complete' : 'Needs review' },
+    { name:'Unit',    status: s.hasUnit ? 'done' : (s.hasAirflow ? 'fail' : 'pending'),
+      sub: s.hasUnit ? (_unit?.model ?? 'Selected') : 'Not selected' },
+    { name:'MVHR',    status: s.mvhrPlaced ? 'done' : (s.hasAirflow && s.hasUnit ? 'current' : 'pending'),
+      sub: s.mvhrPlaced ? 'Located on plan' : 'Place on plan' },
+    { name:'Layout',  status: layoutStatus, sub: layoutSub },
+    { name:'Pressure',status: pressureStatus, sub: pressureSub },
+    { name:'Noise',   status: noiseStatus, sub: noiseSub },
+  ];
+
+  const icon = (st, n) => st === 'done' ? '✓' : st === 'fail' ? '✕' : st === 'warn' ? '!' : st === 'current' ? n : n;
+
+  host.innerHTML = steps.map((step, i) => `
+    <div class="ds-step ds-${step.status}">
+      <span class="ds-ico">${icon(step.status, i + 1)}</span>
+      <span class="ds-body">
+        <span class="ds-name">${step.name}</span>
+        <span class="ds-sub">${esc(step.sub)}</span>
+      </span>
+    </div>`).join('');
+}
+
+// ── §2 Design inputs ──────────────────────────────────────────
+const DUCT_SYSTEM_TYPES = [
+  { key:'radial_semi_rigid', label:'Radial semi-rigid' },
+  { key:'rigid',             label:'Rigid' },
+  { key:'mixed',             label:'Mixed' },
+];
+
+function toggleInputs() {
+  const card = el('inputsCard');
+  card.classList.toggle('collapsed');
+  const btn = card.querySelector('.io-head');
+  if (btn) btn.setAttribute('aria-expanded', String(!card.classList.contains('collapsed')));
+}
+
+function setDuctSystemType(key) {
+  if (!_design) return;
+  _design.design_json = { ...(_design.design_json || {}), duct_system_type: key };
+  setDirty(true);
+  renderInputsPanel();
+}
+
+function lpsToM3h(lps) { return lps == null ? null : Math.round(lps * 3.6 * 10) / 10; }
+
+function renderInputsPanel() {
+  const body = el('inputsBody');
+  if (!body) return;
+
+  const fmt = (v, unit = '') => (v == null || Number.isNaN(v)) ? '<span style="color:var(--muted)">—</span>' : `${v}${unit ? ` <small>${unit}</small>` : ''}`;
+  const projName = el('headerProject')?.textContent || 'Project';
+
+  // Totals — prefer airflow basis, fall back to summed terminal flows
+  const sumTerm = (t) => _nodes.filter(n => n.node_type === t).reduce((s, n) => s + (n.airflow_m3h ?? 0), 0);
+  const totalSupply = _airflow ? lpsToM3h(_airflow.total_supply_lps) : Math.round(sumTerm('supply_terminal'));
+  const totalExtract = _airflow ? lpsToM3h(_airflow.total_extract_lps) : Math.round(sumTerm('extract_terminal'));
+
+  // Normal / low / boost
+  const normal = _airflow?.design_airflow_m3h != null ? Math.round(_airflow.design_airflow_m3h) : null;
+  const low    = _airflow?.low_flow_m3h != null ? Math.round(_airflow.low_flow_m3h) : null;
+  let boost = null;
+  if (_airflow) {
+    if (_airflow.boost_method === 'room_based' && _airflow.room_boost_demand_m3h != null) {
+      boost = Math.round(_airflow.room_boost_demand_m3h);
+    } else if (_airflow.design_airflow_m3h != null && _airflow.boost_airflow_offset_pct != null) {
+      boost = Math.round(_airflow.design_airflow_m3h * (1 + _airflow.boost_airflow_offset_pct / 100));
+    }
+  }
+
+  // Unit + PH gate flags
+  const u = _unit;
+  const unitName = u ? `${u.manufacturer ?? ''} ${u.model ?? ''}`.trim() || 'Selected unit' : 'Not selected';
+  const flags = [];
+  if (u) {
+    if (u.hr_eff != null) flags.push(u.hr_eff >= 75 ? `<span class="io-flag ok">✓ HR ${u.hr_eff}%</span>` : `<span class="io-flag fail">✕ HR ${u.hr_eff}% (&lt;75%)</span>`);
+    if (u.sfp != null)    flags.push(u.sfp <= 0.45 ? `<span class="io-flag ok">✓ SFP ${u.sfp}</span>` : `<span class="io-flag fail">✕ SFP ${u.sfp} (&gt;0.45)</span>`);
+  }
+
+  const currentSys = _design?.design_json?.duct_system_type ?? 'radial_semi_rigid';
+  const segHtml = DUCT_SYSTEM_TYPES.map(t =>
+    `<button type="button" class="${t.key === currentSys ? 'active' : ''}" onclick="setDuctSystemType('${t.key}')">${t.label}</button>`
+  ).join('');
+
+  body.innerHTML = `
+    <div class="io-grid">
+      <div class="io-item"><span class="io-label">Project</span><span class="io-value" style="font-size:13px">${esc(projName)}</span></div>
+      <div class="io-item"><span class="io-label">Total supply</span><span class="io-value">${fmt(totalSupply, 'm³/h')}</span></div>
+      <div class="io-item"><span class="io-label">Total extract</span><span class="io-value">${fmt(totalExtract, 'm³/h')}</span></div>
+      <div class="io-item"><span class="io-label">Normal rate</span><span class="io-value">${fmt(normal, 'm³/h')}</span></div>
+      <div class="io-item"><span class="io-label">Low rate</span><span class="io-value">${fmt(low, 'm³/h')}</span></div>
+      <div class="io-item"><span class="io-label">Boost rate</span><span class="io-value">${fmt(boost, 'm³/h')}</span></div>
+      <div class="io-item" style="min-width:200px">
+        <span class="io-label">MVHR unit</span>
+        <span class="io-value" style="font-size:13px">${esc(unitName)}${u?.ext_pressure != null ? ` <small>· ${u.ext_pressure} Pa ext.</small>` : ''}</span>
+      </div>
+      <div class="io-sub">
+        <div class="io-item" style="gap:6px">
+          <span class="io-label">Duct system type</span>
+          <span class="io-seg">${segHtml}</span>
+        </div>
+        ${flags.length ? `<div style="display:flex;gap:8px;align-items:center;margin-left:auto">${flags.join('')}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+// ── §3 Guided action bar ──────────────────────────────────────
+function renderActionBar(state, s) {
+  const bar = el('actionBar');
+  if (!bar) return;
+
+  const stepClass = (done, current) => done ? 'done' : current ? 'current' : '';
+  const steps = [
+    { n:1, title:'Terminals',     hint:'From room schedule',
+      cls: stepClass(s.hasTerminals, !s.hasTerminals) },
+    { n:2, title:'Place MVHR',    hint: s.mvhrPlaced ? 'Located on plan' : 'Click on the floor plan',
+      cls: stepClass(s.mvhrPlaced, s.hasTerminals && !s.mvhrPlaced) },
+    { n:3, title:'Generate routes', hint: s.routesDone ? 'Routes generated' : 'Supply + extract + intake/exhaust',
+      cls: stepClass(s.routesDone && !s.stale, s.mvhrPlaced && (!s.routesDone || s.stale)) },
+  ];
+
+  const stepsHtml = steps.map((st, i) => `
+    <div class="ab-step ${st.cls}">
+      <span class="ab-num">${st.cls === 'done' ? '✓' : st.n}</span>
+      <span class="ab-label"><span class="ab-title">${st.title}</span><span class="ab-hint">${esc(st.hint)}</span></span>
+    </div>${i < steps.length - 1 ? '<span class="ab-arrow">→</span>' : ''}`).join('');
+
+  const rebuildBtn = s.hasTerminals
+    ? `<button class="btn btn-secondary btn-sm" onclick="regenerateLayout(undefined,'full_regenerate')" title="Clear everything and rebuild terminals from the room schedule">↻ Rebuild from rooms</button>`
+    : '';
+
+  let cta = '';
+  switch (state) {
+    case 'NEEDS_AIRFLOW':
+      cta = `<a class="btn btn-primary btn-sm" href="/studio/projects/${_projectId}/airflow">Complete Airflow Design →</a>`;
+      break;
+    case 'NEEDS_UNIT':
+      cta = `<a class="btn btn-primary btn-sm" href="/studio/projects/${_projectId}/unit-selection">Select MVHR Unit →</a>`;
+      break;
+    case 'NEEDS_TERMINALS':
+      cta = `<button class="btn btn-primary btn-sm" onclick="regenerateLayout(undefined,'generate_terminals')">⚡ Generate Terminals</button>`;
+      break;
+    case 'NEEDS_MVHR':
+      cta = `<button class="btn btn-secondary btn-sm" onclick="suggestMvhrPosition()">💡 Suggest</button>
+             <button class="btn btn-primary btn-sm" onclick="startHrvPlacementMode()">📍 Place MVHR Unit</button>`;
+      break;
+    case 'NEEDS_ROUTES':
+      cta = `${rebuildBtn}<button class="btn btn-primary btn-sm" onclick="regenerateLayout()">⚡ Generate Routes</button>`;
+      break;
+    case 'STALE':
+      cta = `<button class="btn btn-primary btn-sm" onclick="regenerateLayout()">⚡ Generate Updated Layout</button>`;
+      break;
+    case 'NEEDS_REVIEW':
+      cta = `<span style="font-size:11px;color:var(--amber);font-weight:700">⚠ Review checks below</span>
+             <button class="btn btn-danger btn-sm" onclick="regenerateLayout()">↺ Regenerate</button>`;
+      break;
+    case 'READY':
+      cta = `<button class="btn btn-secondary btn-sm" onclick="regenerateLayout()">↺ Regenerate</button>
+             <button class="btn btn-primary btn-sm" onclick="navToBom()">Continue → BOM &amp; Export</button>`;
+      break;
+  }
+
+  bar.innerHTML = `${stepsHtml}<div class="ab-cta">${cta}</div>`;
+}
+
+// ── §4 Calculation panel ──────────────────────────────────────
+// Room-by-room rollup + system totals + balance, recomputed live.
+function buildRoomCalcRows() {
+  const nodeMap = {};
+  _nodes.forEach(n => nodeMap[n.id] = n);
+  const rooms = {};
+  for (const n of _nodes) {
+    if (n.node_type !== 'supply_terminal' && n.node_type !== 'extract_terminal') continue;
+    const key = n.room_name || '—';
+    const r = rooms[key] ?? (rooms[key] = { room: key, supply: 0, extract: 0, terminals: 0, length: 0, worstVel: 0, worstCat: 'terminal' });
+    if (n.node_type === 'supply_terminal') r.supply += n.airflow_m3h ?? 0; else r.extract += n.airflow_m3h ?? 0;
+    r.terminals += 1;
+  }
+  for (const run of _runs) {
+    const from = nodeMap[run.from_node_id], to = nodeMap[run.to_node_id];
+    const isT = (x) => x && (x.node_type === 'supply_terminal' || x.node_type === 'extract_terminal');
+    const term = isT(from) ? from : isT(to) ? to : null;
+    if (!term) continue;
+    const r = rooms[term.room_name || '—'];
+    if (!r) continue;
+    r.length += run.length_m ?? calcRunLength(run) ?? 0;
+    if (run.velocity_m_s != null && run.velocity_m_s > r.worstVel) {
+      r.worstVel = run.velocity_m_s;
+      r.worstCat = run.metadata?.run_category ?? 'terminal';
+    }
+  }
+  return Object.values(rooms).sort((a, b) => a.room.localeCompare(b.room));
+}
+
+function renderCalcPanel() {
+  const body = el('calcBody');
+  if (!body) return;
+  if (!_layoutGenerated) {
+    body.innerHTML = `<div class="calc-empty">Generate routes to see room-by-room calculations.</div>`;
+    return;
+  }
+
+  const eng = ENG();
+  const rows = buildRoomCalcRows();
+  const c = _lastChecks ?? gatherChecks();
+
+  const velBadge = (v, cat) => {
+    if (!(v > 0)) return '<span style="color:var(--muted)">—</span>';
+    const st = eng ? eng.velocityStatus(v, cat) : 'ok';
+    const cls = { ok:'vel-ok', warning:'vel-warning', exceed:'vel-exceed' }[st];
+    const icon = { ok:'', warning:'⚠ ', exceed:'✕ ' }[st];
+    return `<span class="vel-badge ${cls}">${icon}${v.toFixed(2)} m/s</span>`;
+  };
+
+  const totSupply = rows.reduce((s, r) => s + r.supply, 0);
+  const totExtract = rows.reduce((s, r) => s + r.extract, 0);
+  const totTerm = rows.reduce((s, r) => s + r.terminals, 0);
+  const totLen = rows.reduce((s, r) => s + r.length, 0);
+  const imbalance = Math.max(totSupply, totExtract) > 0
+    ? Math.round(Math.abs(totSupply - totExtract) / Math.max(totSupply, totExtract) * 1000) / 10 : 0;
+  const balanceOk = imbalance <= 10; // ≤10% supply/extract imbalance
+
+  const rowsHtml = rows.length ? rows.map(r => `
+    <tr>
+      <td style="font-weight:700">${esc(r.room)}</td>
+      <td>${r.supply ? Math.round(r.supply) : '—'}</td>
+      <td>${r.extract ? Math.round(r.extract) : '—'}</td>
+      <td>${r.terminals}</td>
+      <td>${r.length ? r.length.toFixed(1) + ' m' : '—'}</td>
+      <td>${velBadge(r.worstVel, r.worstCat)}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="calc-empty">No terminals.</td></tr>`;
+
+  const spStatus = c.pressureUnitStatus;
+  const presCls = c.pressureExceedTarget || spStatus === 'exceed' ? 'pres-exceed' : spStatus === 'warning' ? 'pres-warning' : 'pres-ok';
+
+  body.innerHTML = `
+    <table class="calc-table">
+      <thead><tr><th>Room</th><th>Supply m³/h</th><th>Extract m³/h</th><th>Terminals</th><th>Duct length</th><th>Worst velocity</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr>
+        <td>Total</td><td>${Math.round(totSupply)}</td><td>${Math.round(totExtract)}</td>
+        <td>${totTerm}</td><td>${totLen.toFixed(1)} m</td><td></td>
+      </tr></tfoot>
+    </table>
+    <div class="calc-totals">
+      <div class="calc-tot"><span class="v">${c.sp.externalPa} Pa</span><span class="l">External (in+ex)</span></div>
+      <div class="calc-tot"><span class="v">${c.sp.supplyIndexPa} Pa</span><span class="l">Supply index</span></div>
+      <div class="calc-tot"><span class="v">${c.sp.extractIndexPa} Pa</span><span class="l">Extract index</span></div>
+      <div class="calc-tot"><span class="v"><span class="pres-badge ${presCls}">${c.sp.totalSystemPa} Pa</span></span><span class="l">Total system</span></div>
+      <div class="calc-tot"><span class="v">${imbalance}% ${balanceOk ? '✓' : '⚠'}</span><span class="l">Supply/extract balance</span></div>
+    </div>`;
+}
+
+// ── §5 Compliance checks ──────────────────────────────────────
+function toggleManualCheck(key) {
+  if (!_design) return;
+  const checks = { ...(_design.design_json?.checks || {}) };
+  checks[key] = !checks[key];
+  _design.design_json = { ...(_design.design_json || {}), checks };
+  setDirty(true);
+  renderCompliancePanel(_lastChecks ?? gatherChecks(), _designState);
+  if (typeof renderStatusHeader === 'function') renderStatusHeader(_designState, workflowSignals());
+}
+
+// Worst acoustic status across terminals in a room class ('bedroom'|'general')
+function worstNoise(roomClass) {
+  let worst = 'none'; const rank = { none:0, ok:1, attenuator:2, exceed:3 };
+  for (const run of _runs) {
+    const info = runAcousticInfo(run);
+    if (!info) continue;
+    const isBed = isBedroomRoom(info.roomName);
+    if ((roomClass === 'bedroom') !== isBed) continue;
+    if (rank[info.status] > rank[worst]) worst = info.status;
+  }
+  return worst;
+}
+
+// ACH (informational) — reuses the engine's treated-volume + ACH math.
+const ACH_EXCL_CLASS = new Set(['ignore', 'transfer']);
+const ACH_EXCL_TYPE  = new Set(['service', 'robe', 'circulation']);
+function achInfo() {
+  const eng = ENG();
+  const designFlow = _airflow?.design_airflow_m3h ?? null;
+  const eligible = _rooms.filter(r => !ACH_EXCL_CLASS.has(r.classification) && !ACH_EXCL_TYPE.has(r.room_type));
+  let missingArea = 0, missingHeight = 0;
+  for (const r of eligible) {
+    if (!(r.area > 0)) missingArea++;
+    if (r.ceiling_height_m == null) missingHeight++;
+  }
+  let hasVolumeData = false, totalVolumeM3 = 0, achAtDesign = null, achPasses = null;
+  if (eng) {
+    const floor = eng.calcAchFloor(_rooms);
+    hasVolumeData = floor.hasVolumeData;
+    totalVolumeM3 = floor.totalVolumeM3;
+    if (hasVolumeData && designFlow != null) {
+      const at = eng.calcAchAtDesign(totalVolumeM3, designFlow);
+      achAtDesign = at.achAtDesign;
+      achPasses = at.achPasses;
+    }
+  }
+  return { designFlow, totalVolumeM3, hasVolumeData, achAtDesign, achPasses, missingArea, missingHeight, eligibleCount: eligible.length };
+}
+
+function renderCompliancePanel(c, state) {
+  const body = el('complianceBody');
+  if (!body) return;
+  if (!_layoutGenerated) {
+    body.innerHTML = `<div class="calc-empty">Generate routes to run compliance checks.</div>`;
+    return;
+  }
+  c = c || gatherChecks();
+  const manual = _design?.design_json?.checks || {};
+
+  const ICO = { pass:'✓', warn:'!', fail:'✕', na:'–' };
+  const row = (status, title, detail, manualKey) => `
+    <div class="chk-row chk-${status}">
+      <span class="chk-ico">${ICO[status]}</span>
+      <span class="chk-main"><span class="chk-title">${title}</span><span class="chk-detail">${detail}</span></span>
+      ${manualKey ? `<label class="chk-manual"><input type="checkbox" ${manual[manualKey] ? 'checked' : ''} onchange="toggleManualCheck('${manualKey}')"> Confirmed</label>` : ''}
+    </div>`;
+
+  // 1. System pressure target
+  const presTargetStatus = !c.hasData ? 'na' : c.pressureExceedTarget ? 'fail' : 'pass';
+  // 2. Unit drivability
+  const drive = { ok:'pass', warning:'warn', exceed:'fail', unknown:'na' }[c.pressureUnitStatus];
+  // 3/4 noise
+  const bedNoise = worstNoise('bedroom');
+  const genNoise = worstNoise('general');
+  const noiseStatus = (w) => w === 'none' ? 'na' : w === 'exceed' ? 'fail' : w === 'attenuator' ? 'warn' : 'pass';
+  // 5. velocity
+  const velStatus = c.velExceed > 0 ? 'fail' : c.velWarn > 0 ? 'warn' : (c.hasData ? 'pass' : 'na');
+  // 6/7 manual
+  const ieStatus = manual.intake_exhaust_ok ? 'pass' : 'warn';
+  const saStatus = manual.service_access_ok ? 'pass' : 'warn';
+  // 8. commissioning readiness (derived)
+  const engineOk = checksAllPass(c);
+  const commissionStatus = (engineOk && manual.intake_exhaust_ok && manual.service_access_ok && !!_unit) ? 'pass' : 'warn';
+
+  const unitExtTxt = c.unitExt != null ? ` (unit rated ${c.unitExt} Pa)` : '';
+
+  // ACH — informational only (never gates READY)
+  const ach = achInfo();
+  const achStatus = (!ach.hasVolumeData || ach.designFlow == null) ? 'na' : ach.achPasses ? 'pass' : 'warn';
+  const achDetail = (!ach.hasVolumeData)
+    ? 'No room areas available — add areas to compute treated volume.'
+    : (ach.designFlow == null)
+      ? `Treated volume ${ach.totalVolumeM3} m³. Complete the airflow design to compute ACH.`
+      : `${ach.achAtDesign} ACH at ${Math.round(ach.designFlow)} m³/h over ${ach.totalVolumeM3} m³ (PHI min 0.30). Informational — not gated.`;
+
+  // Missing area/height warning (only when something is missing)
+  const dataWarn = (ach.missingArea > 0 || ach.missingHeight > 0)
+    ? row('warn', 'Room data completeness',
+        `${ach.missingArea ? `${ach.missingArea} room(s) missing area` : ''}${ach.missingArea && ach.missingHeight ? '; ' : ''}${ach.missingHeight ? `${ach.missingHeight} room(s) missing ceiling height (defaulting 2.4 m)` : ''}. Affects the ACH figure.`)
+    : '';
+
+  body.innerHTML =
+    row(presTargetStatus, `System pressure ≤ ${c.PRESSURE_TARGET_PA} Pa target`,
+        c.hasData ? `Total ${c.sp.totalSystemPa} Pa vs ${c.PRESSURE_TARGET_PA} Pa Passivhaus Trust guidance.` : 'No pressure data yet.') +
+    row(drive, 'Drivable by selected unit',
+        c.pressureUnitStatus === 'unknown' ? 'No unit external-static rating on record.' : `Total ${c.sp.totalSystemPa} Pa${unitExtTxt}.`) +
+    row(noiseStatus(bedNoise), 'Bedroom / living noise target',
+        bedNoise === 'none' ? 'No bedroom/living terminals found.' : bedNoise === 'ok' ? 'All bedroom terminals ≤ 25 dBA.' : bedNoise === 'attenuator' ? 'One or more terminals 25–30 dBA — attenuator recommended.' : 'One or more terminals > 30 dBA — reduce velocity.') +
+    row(noiseStatus(genNoise), 'Wet-room / general noise target',
+        genNoise === 'none' ? 'No general terminals found.' : genNoise === 'ok' ? 'All general terminals ≤ 35 dBA.' : genNoise === 'attenuator' ? 'One or more terminals 35–40 dBA — attenuator recommended.' : 'One or more terminals > 40 dBA — reduce velocity.') +
+    row(velStatus, 'Duct velocity within PH limits',
+        c.velExceed > 0 ? `${c.velExceed} run(s) exceed limit (>10% over).` : c.velWarn > 0 ? `${c.velWarn} run(s) within 10% of limit.` : 'All runs within PH velocity limits (mains ≤3, branch ≤2.5, terminal ≤2 m/s).') +
+    row(achStatus, 'Average ACH ≥ 0.30 <span style="font-weight:600;color:var(--muted)">(informational)</span>', achDetail) +
+    dataWarn +
+    row(ieStatus, 'Intake / exhaust separation',
+        'Verify intake and exhaust terminals are adequately separated (≥1.5 m / no short-circuit) on site.', 'intake_exhaust_ok') +
+    row(saStatus, 'Service & maintenance access',
+        'Confirm clearance around the MVHR unit and filter/condensate access.', 'service_access_ok') +
+    row(commissionStatus, 'Commissioning readiness',
+        commissionStatus === 'pass' ? 'All hard checks pass, unit selected, on-site confirmations recorded.' : 'Resolve failing checks and record the on-site confirmations above.');
 }
 
 function markLayoutStale() {
@@ -2036,9 +2648,9 @@ function renderCanvas() {
     const len = run.length_m ?? calcRunLength(run);
     let labelText = `Ø${diam}`;
     if (run.velocity_m_s != null) {
-      const cat   = run.metadata?.run_category ?? 'main';
-      const limit = PH_VELOCITY_LIMITS[cat] ?? 3.0;
-      const marker = run.velocity_m_s > limit * 1.10 ? ' ✕' : run.velocity_m_s > limit ? ' ⚠' : '';
+      const cat    = run.metadata?.run_category ?? 'main';
+      const status = ENG() ? ENG().velocityStatus(run.velocity_m_s, cat) : 'ok';
+      const marker = status === 'exceed' ? ' ✕' : status === 'warning' ? ' ⚠' : '';
       labelText += ` · ${run.velocity_m_s.toFixed(1)} m/s${marker}`;
     }
     if (showLengths && len !== null) labelText += ` — ${len} m`;
@@ -2300,15 +2912,20 @@ async function saveLayout() {
 }
 
 // ── Regenerate layout ─────────────────────────────────────────
-async function regenerateLayout(mode) {
+async function regenerateLayout(mode, action) {
+  const act = action ?? 'regenerate';
   const modeToUse = mode ?? _manifoldMode;
-  if (!mode && _layoutGenerated && !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
+  // Confirm only on a user-initiated full regenerate of an existing layout.
+  if (act === 'regenerate' && !mode && _layoutGenerated &&
+      !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
+  if (act === 'full_regenerate' &&
+      !confirm('Rebuild terminals from the room schedule? This clears the current layout including MVHR placement. Continue?')) return;
 
   showLoading();
   _selected = null;
 
   try {
-    const res = await apiPost(`${API_BASE}/duct-design`, { projectId:_projectId, action:'regenerate', manifoldMode:modeToUse });
+    const res = await apiPost(`${API_BASE}/duct-design`, { projectId:_projectId, action:act, manifoldMode:modeToUse });
     if (!res.ok) { const e=await res.json().catch(()=>({})); showError(e.error??`HTTP ${res.status}`); return; }
     const data = await res.json();
     _design    = data.design;
@@ -2318,6 +2935,10 @@ async function regenerateLayout(mode) {
     _planPages = data.planPages ?? _planPages;
 
     if (_design?.design_json?.scale_m) { _scaleM=_design.design_json.scale_m; el('scaleInput').value=_scaleM; }
+
+    // Recompute MVHR placement state (a terminals rebuild removes the MVHR node)
+    const mvhrNodeRaw = _nodes.find(n => n.node_type === 'mvhr_unit');
+    _mvhrNeedsPlacement = !!((!mvhrNodeRaw || mvhrNodeRaw.metadata?.plan?.x_pct == null) && _planPages.length > 0);
 
     _layoutGenerated = _design?.design_json?.phase === 'routes_generated';
     _layoutStale     = false;
@@ -2390,14 +3011,19 @@ function formatNodeType(t) {
 
 // ── Velocity badge HTML ───────────────────────────────────────
 // PH limits: main/external ≤ 3.0 m/s, terminal ≤ 2.0 m/s.
-const PH_VELOCITY_LIMITS = { main: 3.0, branch: 2.5, terminal: 2.0 };
+// All pressure / velocity / acoustic math is delegated to the shared calc
+// engine (packages/engine, loaded as window.Engine). No formulas live here.
+const ENG = () => window.Engine ?? null;
+
 function velocityBadgeHtml(run) {
   const v = run.velocity_m_s;
   if (v == null) return '<span style="color:var(--muted)">—</span>';
-  const cat   = run.metadata?.run_category ?? 'main';
-  const limit = PH_VELOCITY_LIMITS[cat] ?? 3.0;
-  const cls   = v <= limit ? 'vel-ok' : v <= limit * 1.10 ? 'vel-warning' : 'vel-exceed';
-  const icon  = v <= limit ? '' : v <= limit * 1.10 ? '⚠ ' : '✕ ';
+  const cat = run.metadata?.run_category ?? 'main';
+  const eng = ENG();
+  // status: 'ok' | 'warning' | 'exceed'  (engine uses PH_VELOCITY_LIMITS_MS)
+  const status = eng ? eng.velocityStatus(v, cat) : 'ok';
+  const cls  = { ok:'vel-ok', warning:'vel-warning', exceed:'vel-exceed' }[status];
+  const icon = { ok:'', warning:'⚠ ', exceed:'✕ ' }[status];
   return `<span class="vel-badge ${cls}">${icon}${v.toFixed(2)} m/s</span>`;
 }
 function formatDuctType(t) {
@@ -2411,65 +3037,38 @@ function pressureBadgeHtml(run) {
   return `<span class="pres-badge pres-ok">${p.toFixed(1)} Pa</span>`;
 }
 
-// ── Inline system pressure analysis ──────────────────────────
-// Uses stored pressure_drop_pa values (stamped by API at layout time).
-// Mirrors calcSystemPressure() in packages/engine/pressure.js.
+// ── System pressure analysis (delegates to engine) ───────────
+// Live recompute from run geometry via Engine.calcSystemPressure(); falls
+// back to stored pressure_drop_pa only if the engine failed to load.
 function calcSystemPressureSummary(runs) {
-  const sum = (arr) => arr.reduce((s, r) => s + (r.pressure_drop_pa ?? 0), 0);
-  const max = (arr) => arr.length === 0 ? 0 : Math.max(...arr.map(r => r.pressure_drop_pa ?? 0));
-
-  const intakePa   = sum(runs.filter(r => r.run_type === 'intake'));
-  const exhaustPa  = sum(runs.filter(r => r.run_type === 'exhaust'));
-  const externalPa = intakePa + exhaustPa;
-
-  const supplyMainPa  = sum(runs.filter(r => r.run_type === 'supply' && r.metadata?.run_category === 'main'));
-  const supplyTermPa  = max(runs.filter(r => r.run_type === 'supply' && r.metadata?.run_category === 'terminal'));
-  const supplyIndexPa = supplyMainPa + supplyTermPa;
-
-  const extractMainPa  = sum(runs.filter(r => r.run_type === 'extract' && r.metadata?.run_category === 'main'));
-  const extractTermPa  = max(runs.filter(r => r.run_type === 'extract' && r.metadata?.run_category === 'terminal'));
-  const extractIndexPa = extractMainPa + extractTermPa;
-
-  const extR   = Math.round(externalPa);
-  const supIR  = Math.round(supplyIndexPa);
-  const extIR  = Math.round(extractIndexPa);
-  const totalSystemPa = extR + supIR + extIR;
-
-  const hasData = runs.some(r => r.pressure_drop_pa != null);
-  return { externalPa: extR, supplyIndexPa: supIR, extractIndexPa: extIR, totalSystemPa, hasData };
+  const hasData = runs.length > 0 && runs.some(r => (r.flow_m3h > 0) || (r.velocity_m_s > 0) || (r.pressure_drop_pa != null));
+  const eng = ENG();
+  if (!eng) {
+    // degraded fallback: sum stored values so the panel isn't blank
+    const sum = (a) => a.reduce((s, r) => s + (r.pressure_drop_pa ?? 0), 0);
+    const mx  = (a) => a.length ? Math.max(...a.map(r => r.pressure_drop_pa ?? 0)) : 0;
+    const ext = Math.round(sum(runs.filter(r => r.run_type==='intake'||r.run_type==='exhaust')));
+    const sup = Math.round(sum(runs.filter(r=>r.run_type==='supply'&&r.metadata?.run_category==='main')) + mx(runs.filter(r=>r.run_type==='supply'&&r.metadata?.run_category==='terminal')));
+    const exh = Math.round(sum(runs.filter(r=>r.run_type==='extract'&&r.metadata?.run_category==='main')) + mx(runs.filter(r=>r.run_type==='extract'&&r.metadata?.run_category==='terminal')));
+    return { externalPa: ext, supplyIndexPa: sup, extractIndexPa: exh, totalSystemPa: ext+sup+exh, hasData };
+  }
+  const r = eng.calcSystemPressure(runs);
+  return { externalPa: r.externalPa, supplyIndexPa: r.supplyIndexPa, extractIndexPa: r.extractIndexPa, totalSystemPa: r.totalSystemPa, hasData };
 }
 
 function systemPressureStatus(totalPa, unitExtPa) {
+  const eng = ENG();
+  if (eng) return eng.systemPressureStatus(totalPa, unitExtPa);
   if (!(unitExtPa > 0)) return 'unknown';
   if (totalPa <= unitExtPa)         return 'ok';
   if (totalPa <= unitExtPa * 1.15)  return 'warning';
   return 'exceed';
 }
 
-// ── Inline acoustic check (mirrors packages/engine/acoustic.js) ──
-// Lw = BASE_dBA + 50·log10(v)
-// BASE: semi-rigid 20 dBA, EPP 15 dBA (all sizes) at v = 1.0 m/s
-const ACOUSTIC_BASE = { semi_rigid_90:20, epp_160:15, epp_180:15, epp_200:15, epp_250:15, epp_315:15, custom:20 };
-
-function terminalDba(velocityMs, ductType) {
-  if (!(velocityMs > 0)) return 0;
-  const base = ACOUSTIC_BASE[ductType] ?? 20;
-  return base + 50 * Math.log10(Math.max(velocityMs, 0.01));
-}
-
+// ── Acoustic check (delegates to engine) ─────────────────────
 function isBedroomRoom(roomName) {
-  return /bed|master|ensuite|sleep/i.test(roomName ?? '');
-}
-
-function terminalAcousticStatus(dba, roomName) {
-  if (isBedroomRoom(roomName)) {
-    if (dba > 30) return 'exceed';
-    if (dba > 25) return 'attenuator';
-  } else {
-    if (dba > 40) return 'exceed';
-    if (dba > 35) return 'attenuator';
-  }
-  return 'ok';
+  const eng = ENG();
+  return eng ? eng.isBedroom(roomName) : /bed|master|ensuite|sleep/i.test(roomName ?? '');
 }
 
 // Return acoustic info for a terminal run (null for non-terminal runs)
@@ -2478,12 +3077,14 @@ function runAcousticInfo(run) {
   if (cat !== 'terminal') return null;
   const v = run.velocity_m_s;
   if (v == null) return null;
-  const dba = terminalDba(v, run.duct_type);
   const fromNode = _nodes.find(n => n.id === run.from_node_id);
   const toNode   = _nodes.find(n => n.id === run.to_node_id);
   const termNode = (fromNode?.node_type === 'supply_terminal' || fromNode?.node_type === 'extract_terminal') ? fromNode : toNode;
   const roomName = termNode?.room_name ?? '';
-  return { dba, status: terminalAcousticStatus(dba, roomName), roomName };
+  const eng = ENG();
+  if (!eng) return null;
+  const dba = eng.terminalDbaEstimate(v, run.duct_type);
+  return { dba, status: eng.acousticStatus(dba, roomName), roomName };
 }
 
 function acousticBadgeHtml(run) {

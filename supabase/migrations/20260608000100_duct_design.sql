@@ -84,38 +84,62 @@ alter table duct_nodes   enable row level security;
 alter table duct_runs    enable row level security;
 
 -- duct_designs policies
+drop policy if exists "duct_designs_select" on duct_designs;
+drop policy if exists "duct_designs_select" on duct_nodes;
+drop policy if exists "duct_designs_select" on duct_runs;
 create policy "duct_designs_select" on duct_designs for select using (
   exists (select 1 from projects where projects.id = duct_designs.project_id and projects.user_id = auth.uid())
 );
+drop policy if exists "duct_designs_insert" on duct_designs;
+drop policy if exists "duct_designs_insert" on duct_nodes;
+drop policy if exists "duct_designs_insert" on duct_runs;
 create policy "duct_designs_insert" on duct_designs for insert with check (
   exists (select 1 from projects where projects.id = duct_designs.project_id and projects.user_id = auth.uid())
 );
+drop policy if exists "duct_designs_update" on duct_designs;
+drop policy if exists "duct_designs_update" on duct_nodes;
+drop policy if exists "duct_designs_update" on duct_runs;
 create policy "duct_designs_update" on duct_designs for update using (
   exists (select 1 from projects where projects.id = duct_designs.project_id and projects.user_id = auth.uid())
 );
+drop policy if exists "duct_designs_delete" on duct_designs;
+drop policy if exists "duct_designs_delete" on duct_nodes;
+drop policy if exists "duct_designs_delete" on duct_runs;
 create policy "duct_designs_delete" on duct_designs for delete using (
   exists (select 1 from projects where projects.id = duct_designs.project_id and projects.user_id = auth.uid())
 );
 
 -- duct_nodes policies
+drop policy if exists "duct_nodes_select" on duct_designs;
+drop policy if exists "duct_nodes_select" on duct_nodes;
+drop policy if exists "duct_nodes_select" on duct_runs;
 create policy "duct_nodes_select" on duct_nodes for select using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_nodes.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_nodes_insert" on duct_designs;
+drop policy if exists "duct_nodes_insert" on duct_nodes;
+drop policy if exists "duct_nodes_insert" on duct_runs;
 create policy "duct_nodes_insert" on duct_nodes for insert with check (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_nodes.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_nodes_update" on duct_designs;
+drop policy if exists "duct_nodes_update" on duct_nodes;
+drop policy if exists "duct_nodes_update" on duct_runs;
 create policy "duct_nodes_update" on duct_nodes for update using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_nodes.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_nodes_delete" on duct_designs;
+drop policy if exists "duct_nodes_delete" on duct_nodes;
+drop policy if exists "duct_nodes_delete" on duct_runs;
 create policy "duct_nodes_delete" on duct_nodes for delete using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
@@ -124,24 +148,36 @@ create policy "duct_nodes_delete" on duct_nodes for delete using (
 );
 
 -- duct_runs policies
+drop policy if exists "duct_runs_select" on duct_designs;
+drop policy if exists "duct_runs_select" on duct_nodes;
+drop policy if exists "duct_runs_select" on duct_runs;
 create policy "duct_runs_select" on duct_runs for select using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_runs.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_runs_insert" on duct_designs;
+drop policy if exists "duct_runs_insert" on duct_nodes;
+drop policy if exists "duct_runs_insert" on duct_runs;
 create policy "duct_runs_insert" on duct_runs for insert with check (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_runs.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_runs_update" on duct_designs;
+drop policy if exists "duct_runs_update" on duct_nodes;
+drop policy if exists "duct_runs_update" on duct_runs;
 create policy "duct_runs_update" on duct_runs for update using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id
     where dd.id = duct_runs.duct_design_id and p.user_id = auth.uid()
   )
 );
+drop policy if exists "duct_runs_delete" on duct_designs;
+drop policy if exists "duct_runs_delete" on duct_nodes;
+drop policy if exists "duct_runs_delete" on duct_runs;
 create policy "duct_runs_delete" on duct_runs for delete using (
   exists (
     select 1 from duct_designs dd join projects p on p.id = dd.project_id

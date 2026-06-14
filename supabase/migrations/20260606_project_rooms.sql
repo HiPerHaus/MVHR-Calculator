@@ -52,6 +52,8 @@ create index if not exists project_rooms_user_id_idx
   on public.project_rooms(user_id);
 
 -- ── 3. updated_at trigger ─────────────────────────────────────
+drop trigger if exists project_rooms_updated_at on public.project_rooms;
+
 create trigger project_rooms_updated_at
   before update on public.project_rooms
   for each row execute function public.set_updated_at();

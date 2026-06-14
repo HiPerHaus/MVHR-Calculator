@@ -17,6 +17,7 @@
     { "source": "/api/studio/duct-design",            "destination": "/api/studio/duct-design" },
     { "source": "/api/studio/bom",                    "destination": "/api/studio/bom" },
     { "source": "/api/(.*)",                          "destination": "/api/$1" },
+    { "source": "/engine/(.*)",                       "destination": "/packages/engine/$1" },
     { "source": "/admin",                             "destination": "/admin.html" },
     { "source": "/admin-ai-test",                     "destination": "/admin-ai-test.html" },
     { "source": "/studio/projects",                      "destination": "/studio-projects.html" },

@@ -159,6 +159,15 @@ COMMENT ON TABLE  public.pdf_pages                  IS 'One row per page of each
 COMMENT ON COLUMN public.pdf_pages.page_type        IS 'AI classification: floor_plan | site_plan | elevation | section | roof_plan | detail | schedule | specification | unknown';
 COMMENT ON COLUMN public.pdf_pages.page_role        IS 'Pipeline role: primary_analysis | secondary_analysis | volume_calculation | reference_only | ignored. Set at confirm-pages time.';
 COMMENT ON COLUMN public.pdf_pages.floor_level      IS '-1=basement, 0=ground, 1=first, 2=second. Drives riser calculations and multi-storey MVHR layouts.';
+
+ALTER TABLE public.pdf_pages
+ADD COLUMN IF NOT EXISTS drawing_scale text,
+ADD COLUMN IF NOT EXISTS page_width_mm numeric,
+ADD COLUMN IF NOT EXISTS page_height_mm numeric,
+ADD COLUMN IF NOT EXISTS storage_path text,
+ADD COLUMN IF NOT EXISTS image_storage_path text,
+ADD COLUMN IF NOT EXISTS thumbnail_path text;
+
 COMMENT ON COLUMN public.pdf_pages.drawing_scale    IS 'e.g. "1:100". Required for bounding-box px → mm conversion and future floor area calculations.';
 COMMENT ON COLUMN public.pdf_pages.has_elevation_data IS 'true when this page is an elevation projection. Used by future house volume module.';
 COMMENT ON COLUMN public.pdf_pages.has_section_data   IS 'true when this page is a cross-section cut. Used by future house volume module.';

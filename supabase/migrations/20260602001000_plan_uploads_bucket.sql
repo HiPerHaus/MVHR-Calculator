@@ -65,24 +65,18 @@ WITH CHECK (bucket_id = 'plan-uploads');
 
 
 -- ── 3. pg_cron: hourly cleanup of temp files older than 24 h ─
--- Requires the pg_cron extension to be enabled.
--- Enable via: Supabase Dashboard → Database → Extensions → pg_cron
--- Or: CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- Skipped safely when pg_cron is not installed.
 
-SELECT cron.schedule(
-  'cleanup-plan-uploads-temp',   -- job name (unique)
-  '0 * * * *',                   -- every hour on the hour
-  $$
-    DELETE FROM storage.objects
-    WHERE
-      bucket_id = 'plan-uploads'
-      AND name LIKE 'temp/%'
-      AND created_at < NOW() - INTERVAL '24 hours';
-  $$
-);
-
--- To verify the job was created:
--- SELECT * FROM cron.job WHERE jobname = 'cleanup-plan-uploads-temp';
-
--- To remove the job if needed:
--- SELECT cron.unschedule('cleanup-plan-uploads-temp');
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'cron') THEN
+    PERFORM cron.schedule(
+      'cleanup-plan-uploads-temp',
+      '0 * * * *',
+      'DELETE FROM public.plan_uploads
+       WHERE is_temporary = true
+       AND created_at < now() - interval ''24 hours'''
+    );
+  END IF;
+END;
+$$;

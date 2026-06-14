@@ -689,11 +689,17 @@ async function loadDesign(supabase, projectId) {
     supabase.from('duct_nodes').select('*').eq('duct_design_id', design.id).order('created_at', { ascending: true }),
     supabase.from('duct_runs').select('*').eq('duct_design_id', design.id).order('created_at', { ascending: true }),
     unitId
-      ? supabase.from('mvhr_units').select('manufacturer, model, ext_pressure').eq('id', unitId).maybeSingle()
+      ? supabase.from('mvhr_units').select('manufacturer, model, ext_pressure, hr_eff, sfp').eq('id', unitId).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
-  const unit = unitRow ? { manufacturer: unitRow.manufacturer, model: unitRow.model, ext_pressure: unitRow.ext_pressure ?? null } : null;
+  const unit = unitRow ? {
+    manufacturer: unitRow.manufacturer,
+    model:        unitRow.model,
+    ext_pressure: unitRow.ext_pressure ?? null,
+    hr_eff:       unitRow.hr_eff ?? null,
+    sfp:          unitRow.sfp ?? null,
+  } : null;
   return { design, nodes: nodes ?? [], runs: runs ?? [], unit, airflowSynced };
 }
 
@@ -767,6 +773,23 @@ export default async function handler(req, res) {
       if (action === 'regenerate' || action === 'generate_routes') {
         const generated = await generateRoutes(supabase, projectId, user.id, manifoldMode);
         return res.status(200).json({ ...generated, generated: true });
+      }
+
+      // ── generate_terminals (Phase 1, idempotent) ────────────────
+      // Guided-workflow step 1. Ensures terminal + manifold nodes exist
+      // WITHOUT touching a placed MVHR or generating routes. If terminals
+      // already exist (the GET auto-generates them), this is a no-op that
+      // returns the current design. To force a rebuild, use full_regenerate.
+      if (action === 'generate_terminals') {
+        const existingId = await getDesignId();
+        if (existingId) {
+          const loaded = await loadDesign(supabase, projectId);
+          const planPages = await loadPlanPages(supabase, projectId);
+          return res.status(200).json({ ...loaded, planPages, generated: false });
+        }
+        const generated = await generateTerminalsOnly(supabase, projectId, user.id);
+        const planPages = await loadPlanPages(supabase, projectId);
+        return res.status(200).json({ ...generated, planPages, generated: true });
       }
 
       // ── full_regenerate ──────────────────────────────────────────

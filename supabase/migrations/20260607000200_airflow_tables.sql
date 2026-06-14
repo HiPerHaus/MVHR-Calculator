@@ -71,6 +71,8 @@ create index if not exists airflow_rooms_design_id_idx
   on public.airflow_rooms(airflow_design_id, sort_order);
 
 -- ── 4. updated_at trigger ─────────────────────────────────────
+drop trigger if exists airflow_designs_updated_at on public.airflow_designs;
+
 create trigger airflow_designs_updated_at
   before update on public.airflow_designs
   for each row execute function public.set_updated_at();
