@@ -425,9 +425,173 @@ main { padding:0 0 80px; }
   animation:pulse 2s infinite;
 }
 .error-card { background:var(--critical-bg); border:1px solid #fecaca; border-radius:10px; padding:20px 24px; color:var(--critical); }
+
+/* ═══════════════ Studio shell (redesign) ═══════════════ */
+:root { --nav:#0e2a1f; --nav-2:#16382a; --nav-line:#1f4a37; --nav-text:#aed4c1; --nav-active:#1c5540; --nav-accent:#5ad29a; }
+body.studio { background:var(--bg); }
+#stageNav { display:none !important; }              /* replaced by side-nav */
+.app-shell { display:flex; min-height:100vh; align-items:stretch; }
+.side-nav { width:248px; flex-shrink:0; background:var(--nav); color:var(--nav-text); display:flex; flex-direction:column; padding:0 0 14px; overflow-y:auto; }
+.nav-brand { padding:18px 20px 14px; }
+.nav-brand .b1 { font-size:18px; font-weight:800; color:#fff; line-height:1.1; }
+.nav-brand .b2 { font-size:12px; color:var(--nav-text); }
+.nav-sec { font-size:10px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:#6f9e88; padding:14px 20px 6px; }
+.nav-project { margin:0 14px 6px; background:var(--nav-2); border:1px solid var(--nav-line); border-radius:9px; padding:9px 12px; color:#fff; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:space-between; }
+.nav-item { display:flex; align-items:center; gap:11px; padding:9px 20px; color:var(--nav-text); text-decoration:none; font-size:13px; font-weight:600; border-left:3px solid transparent; }
+.nav-item:hover { background:var(--nav-2); color:#fff; }
+.nav-item.active { background:var(--nav-active); color:#fff; border-left-color:var(--nav-accent); }
+.nav-item.locked { opacity:.5; pointer-events:none; }
+.nav-ico { width:18px; text-align:center; flex-shrink:0; }
+.nav-sub { font-size:11px; color:#6f9e88; font-weight:500; }
+.nav-item .nav-meta { margin-left:auto; display:flex; flex-direction:column; line-height:1.05; }
+.nav-check { margin-left:auto; color:var(--nav-accent); font-weight:800; }
+.nav-dot { margin-left:auto; width:8px; height:8px; border-radius:50%; background:var(--nav-accent); }
+.nav-status { margin:auto 14px 0; background:var(--nav-2); border:1px solid var(--nav-line); border-radius:10px; padding:13px 14px; }
+.nav-status .l { font-size:10px; font-weight:800; letter-spacing:.6px; color:#6f9e88; text-transform:uppercase; }
+.nav-status .s { font-size:15px; font-weight:800; color:var(--amber); margin:3px 0 6px; }
+.nav-status .d { font-size:11px; color:var(--nav-text); line-height:1.5; }
+.nav-guide { display:block; text-align:center; margin:12px 14px 0; padding:9px; background:transparent; border:1px solid var(--nav-line); border-radius:9px; color:#fff; font-size:12px; font-weight:700; text-decoration:none; }
+
+.app-col { flex:1; min-width:0; display:flex; flex-direction:column; }
+#appHeader.topbar { display:flex; align-items:center; gap:18px; background:var(--nav); border:none; padding:0 22px; height:60px; flex-shrink:0; }
+.tb-title { font-size:17px; font-weight:800; color:#fff; white-space:nowrap; }
+.tb-title span { color:var(--nav-text); font-weight:600; font-size:14px; }
+.tb-center { flex:1; display:flex; justify-content:center; min-width:0; overflow-x:auto; }
+.tb-right { display:flex; align-items:center; gap:10px; }
+.tb-btn { display:inline-flex; align-items:center; gap:6px; background:var(--nav-2); border:1px solid var(--nav-line); color:#fff; border-radius:8px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; text-decoration:none; }
+.tb-btn:hover { background:var(--nav-active); }
+.tb-user { font-size:12px; color:var(--nav-text); }
+.tb-menu-wrap { position:relative; }
+.tb-menu { position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.16); min-width:210px; padding:6px; z-index:50; display:none; }
+.tb-menu.open { display:block; }
+.tb-menu button, .tb-menu a { display:flex; width:100%; align-items:center; gap:8px; padding:9px 11px; background:none; border:none; text-align:left; font-size:13px; font-weight:600; color:var(--text); border-radius:7px; cursor:pointer; text-decoration:none; }
+.tb-menu button:hover, .tb-menu a:hover { background:var(--bg); }
+.tb-menu button:disabled { opacity:.45; cursor:not-allowed; }
+
+/* stepper in top bar */
+.topbar .ds-header { background:transparent; border:none; padding:0; gap:0; flex-wrap:nowrap; }
+.topbar .ds-step { padding:0 6px; }
+.topbar .ds-step:not(:last-child)::after { content:''; width:34px; height:2px; background:var(--nav-line); margin:0 4px; }
+.topbar .ds-step.done:not(:last-child)::after { background:var(--nav-accent); }
+.topbar .ds-ico { background:var(--nav-line); color:var(--nav-text); border:none; width:26px; height:26px; }
+.topbar .ds-step.done .ds-ico { background:transparent; color:var(--nav-accent); border:2px solid var(--nav-accent); }
+.topbar .ds-step.current .ds-ico { background:var(--nav-accent); color:var(--nav); }
+.topbar .ds-step.fail .ds-ico { background:var(--critical); color:#fff; border:none; }
+.topbar .ds-step.warn .ds-ico { background:var(--amber); color:#fff; border:none; }
+.topbar .ds-body { margin-left:7px; }
+.topbar .ds-name { color:#cfe6da; font-size:12px; }
+.topbar .ds-step.current .ds-name { color:#fff; }
+.topbar .ds-step.done .ds-name { color:#cfe6da; }
+.topbar .ds-sub { display:none; }
+
+#appMain { padding:16px 18px 22px; overflow:auto; flex:1; }
+.page-header { display:none; }                      /* title now in top bar */
+
+/* studio grid (ID-based areas so non-adjacent cards place cleanly) */
+#mainContent.studio-grid {
+  display:grid;
+  grid-template-columns: 240px minmax(0,1fr) 312px;
+  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-areas:
+    "notices notices notices"
+    "instr   toolbar summary"
+    "tools   canvas  summary"
+    "tools   canvas  compliance"
+    "bottom  bottom  bottom";
+  gap:14px; align-items:start;
+}
+#studioNotices { grid-area:notices; display:flex; flex-direction:column; gap:8px; }
+#studioNotices:empty { display:none; }
+#instructionsPanel { grid-area:instr; }
+#toolsViewPanel { grid-area:tools; }
+#planToolbarBar { grid-area:toolbar; }
+#mainContent.studio-grid > #tabPlan { grid-area:canvas; margin:0; min-width:0; }
+#mainContent.studio-grid > #inputsCard { grid-area:summary; }
+#mainContent.studio-grid > #complianceCard { grid-area:compliance; }
+#studioBottom { grid-area:bottom; display:grid; grid-template-columns: 1.6fr 1fr 1fr; gap:14px; align-items:start; }
+/* hide legacy controls now relocated */
+.view-tabs, #tabSchematic, #tabSchedule, #actionBar { display:none !important; }
+
+@media (max-width:1280px) {
+  #mainContent.studio-grid {
+    grid-template-columns:1fr;
+    grid-template-rows:auto;
+    grid-template-areas:"notices" "toolbar" "canvas" "instr" "tools" "summary" "compliance" "bottom";
+  }
+}
+
+/* canvas toolbar (center top) */
+.studio-toolbar { display:flex; align-items:center; gap:4px; background:#fff; border:1px solid var(--border); border-top-left-radius:12px; border-top-right-radius:12px; border-bottom:none; padding:8px 10px; flex-wrap:wrap; }
+.tool-grp { display:flex; align-items:center; gap:2px; }
+.studio-tool { display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 12px; border:none; background:none; border-radius:8px; cursor:pointer; color:var(--text); min-width:62px; }
+.studio-tool:hover { background:var(--bg); }
+.studio-tool.active { background:var(--primary-light); color:var(--primary); }
+.studio-tool .ti { font-size:15px; line-height:1; }
+.studio-tool .tt { font-size:11px; font-weight:700; }
+.studio-tool .ts { font-size:9px; color:var(--muted); }
+.studio-toolbar .spacer { margin-left:auto; }
+#tabPlan.in-grid { margin:0; }
+#tabPlan.in-grid .plan-toolbar { border-radius:0; }
+#studioCenter .plan-with-props { border:1px solid var(--border); border-top:none; border-bottom-left-radius:12px; border-bottom-right-radius:12px; overflow:hidden; }
+
+/* side panels / cards */
+.sp-card { background:#fff; border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.sp-title { font-size:11px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+.instr-step { font-size:12px; color:var(--muted); margin-bottom:8px; }
+.instr-h { font-size:16px; font-weight:800; color:var(--text); margin-bottom:6px; }
+.instr-p { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:12px; }
+.instr-li { display:flex; gap:8px; align-items:flex-start; font-size:12px; padding:4px 0; color:var(--text); }
+.instr-li .li-ico { width:18px; height:18px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; background:var(--border); color:var(--muted); }
+.instr-li.done .li-ico { background:var(--ok-bg); color:#166534; }
+.instr-li.current .li-ico { background:var(--primary); color:#fff; }
+.instr-sub { margin:2px 0 6px 26px; font-size:11px; color:var(--muted); line-height:1.7; }
+
+/* design summary */
+.sum-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.sum-row:last-child { border-bottom:none; }
+.sum-row .k { color:var(--muted); }
+.sum-row .v { font-weight:700; color:var(--text); display:flex; align-items:center; gap:6px; }
+.sum-ok { color:#166534; }
+
+/* compliance compact */
+.cc-row { display:flex; align-items:center; gap:9px; padding:7px 0; font-size:12.5px; }
+.cc-ico { width:20px; height:20px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; }
+.cc-pass .cc-ico { background:var(--ok-bg); color:#166534; }
+.cc-warn .cc-ico { background:var(--amber-bg); color:var(--amber); }
+.cc-fail .cc-ico { background:var(--critical-bg); color:var(--critical); }
+.cc-na   .cc-ico { background:var(--border); color:var(--muted); }
+.cc-row .cc-t { flex:1; color:var(--text); }
+.cc-banner { margin-top:10px; padding:11px 14px; border-radius:10px; display:flex; align-items:center; justify-content:space-between; font-weight:800; font-size:14px; }
+.cc-banner.ok   { background:var(--ok-bg); color:#166534; }
+.cc-banner.no   { background:var(--amber-bg); color:var(--amber); }
+
+/* room schedule (bottom) */
+.rs-table { width:100%; border-collapse:collapse; font-size:12px; }
+.rs-table th { text-align:left; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); padding:6px 9px; border-bottom:1px solid var(--border); }
+.rs-table td { padding:6px 9px; border-bottom:1px solid var(--border); }
+.rs-table tfoot td { font-weight:800; border-top:2px solid var(--border); border-bottom:none; }
+.rs-sup { color:var(--supply); font-weight:700; }
+.rs-ext { color:var(--extract); font-weight:700; }
+
+/* donut */
+.donut-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.donut-legend { width:100%; font-size:12px; }
+.donut-legend .dl { display:flex; align-items:center; gap:8px; padding:3px 0; }
+.donut-legend .sw { width:11px; height:11px; border-radius:3px; }
+
+/* legend */
+.lg-row { display:flex; align-items:center; gap:9px; font-size:12px; padding:4px 0; color:var(--text); }
+.lg-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; border:2px solid; background:#fff; }
+.lg-line { width:22px; height:0; border-top:3px solid; flex-shrink:0; }
+.lg-line.dash { border-top-style:dashed; }
+.lg-box { width:20px; height:14px; border-radius:3px; flex-shrink:0; }
+
+@media (max-width:1280px){
+  #studioBottom { grid-template-columns:1fr; }
+}
 </style>
 </head>
-<body>
+<body class="studio">
 
 <!-- ── Login overlay ── -->
 <div id="loginOverlay">
@@ -451,16 +615,55 @@ main { padding:0 0 80px; }
   </div>
 </div>
 
-<!-- ── Header ── -->
-<header id="appHeader" style="display:none">
-  <div class="header-left">
-    <span class="header-logo">HiPer Studio</span>
-    <div class="header-sep"></div>
-    <span class="header-project" id="headerProject">System Layout</span>
+<!-- ── Studio shell ── -->
+<div id="shell" class="app-shell" style="display:none">
+
+<!-- ── Side nav ── -->
+<aside id="sideNav" class="side-nav">
+  <div class="nav-brand"><div class="b1">MVHR</div><div class="b2">Calculator</div></div>
+
+  <div class="nav-sec">Project</div>
+  <a class="nav-project" id="navProject" href="/studio/projects"><span id="headerProject">Project</span><span>⌄</span></a>
+
+  <div class="nav-sec">Design Workflow</div>
+  <a class="nav-item" id="navRooms"   href="#"><span class="nav-ico">🗂</span><span>Room Schedule<br><span class="nav-sub">Manage spaces</span></span><span class="nav-check" id="navRoomsChk"></span></a>
+  <a class="nav-item" id="navAirflow" href="#"><span class="nav-ico">🌬</span><span>Ventilation Design<br><span class="nav-sub">Calculate airflow</span></span><span class="nav-check" id="navAirflowChk"></span></a>
+  <a class="nav-item active" id="navLayout" href="#"><span class="nav-ico">🧭</span><span>System Layout<br><span class="nav-sub">Design &amp; route</span></span></a>
+  <a class="nav-item" id="navResults" href="#"><span class="nav-ico">📊</span><span>Results &amp; Reports<br><span class="nav-sub">View calculations</span></span><span class="nav-check" id="navResultsChk"></span></a>
+
+  <div class="nav-sec">System Design</div>
+  <a class="nav-item" id="navFloors"  href="#"><span class="nav-ico">📐</span><span>Floor Plans<br><span class="nav-sub">Upload &amp; manage</span></span></a>
+  <a class="nav-item active" id="navDuct" href="#"><span class="nav-ico">🔧</span><span>Duct Design<br><span class="nav-sub">Design ventilation</span></span><span class="nav-dot"></span></a>
+  <a class="nav-item" id="navBalance" href="#"><span class="nav-ico">⚖</span><span>Airflow Balance<br><span class="nav-sub">Balance system</span></span><span class="nav-check" id="navBalanceChk"></span></a>
+
+  <div class="nav-status">
+    <div class="l">Design Status</div>
+    <div class="s" id="navStatusState">NEEDS_ROUTES</div>
+    <div class="d" id="navStatusDesc">Route all terminals to the MVHR system to continue.</div>
   </div>
-  <div class="header-right">
-    <span class="header-user" id="headerUser"></span>
-    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  <a class="nav-guide" href="#" onclick="event.preventDefault()">View Guide</a>
+</aside>
+
+<div class="app-col">
+
+<!-- ── Top bar ── -->
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-left"><div class="tb-title">System Layout <span>· Duct Design</span></div></div>
+  <div class="tb-center"><div id="designStatusHeader" class="ds-header"></div></div>
+  <div class="tb-right">
+    <span id="dirtyIndicator" style="display:none;align-items:center;color:#fde68a"><span class="dirty-dot"></span><span style="font-size:12px">Unsaved</span></span>
+    <a class="tb-btn" href="#" onclick="event.preventDefault()">📖 Guide</a>
+    <a class="tb-btn" id="navSettings" href="/studio/settings">⚙ Settings</a>
+    <div class="tb-menu-wrap">
+      <button class="tb-btn" onclick="toggleActionsMenu(event)">Actions ⌄</button>
+      <div class="tb-menu" id="actionsMenu">
+        <button id="btnSave" onclick="saveLayout()" disabled>💾 Save Layout</button>
+        <button id="btnBom" onclick="navToBom()" class="btn-disabled">📤 Continue → BOM &amp; Export</button>
+        <a id="backBtn" href="#">← Unit Selection</a>
+        <button onclick="doSignOut()">⎋ Sign out</button>
+      </div>
+    </div>
+    <span class="tb-user" id="headerUser"></span>
   </div>
 </header>
 
@@ -481,20 +684,8 @@ main { padding:0 0 80px; }
 <!-- ── Main ── -->
 <main id="appMain" style="display:none">
 
-  <div class="page-header">
-    <div>
-      <div class="page-title">System Layout</div>
-      <div class="page-subtitle" id="pageSubtitle">Loading project…</div>
-    </div>
-    <div class="page-actions">
-      <a class="btn btn-secondary" id="backBtn" href="#">← Unit Selection</a>
-      <span id="dirtyIndicator" style="display:none;align-items:center"><span class="dirty-dot"></span><span style="font-size:12px;color:var(--amber)">Unsaved changes</span></span>
-      <button class="btn btn-danger" id="btnClearAll" onclick="clearAllLayouts()" title="Delete all nodes, routes and MVHR placement and start fresh">🗑 Clear All</button>
-      <button class="btn btn-primary" id="btnGenerate" onclick="regenerateLayout()" disabled>⚡ Generate Layout</button>
-      <button class="btn btn-primary" id="btnSave" onclick="saveLayout()" disabled>Save Layout</button>
-      <button class="btn btn-primary btn-disabled" id="btnBom" onclick="navToBom()" style="margin-left:4px">Continue → BOM &amp; Export</button>
-    </div>
-  </div>
+  <!-- Page title now lives in the top bar; subtitle kept (hidden) for JS/document.title -->
+  <div class="page-header"><div class="page-subtitle" id="pageSubtitle">Loading project…</div></div>
 
   <!-- Loading -->
   <div id="loadingState">
@@ -511,92 +702,83 @@ main { padding:0 0 80px; }
   </div>
 
   <!-- Content (shown after load) -->
-  <div id="mainContent" style="display:none">
+  <div id="mainContent" class="studio-grid" style="display:none">
 
-    <!-- §1 Design status header (populated by renderStatusHeader) -->
-    <div id="designStatusHeader" class="ds-header"></div>
+    <!-- Notices (full-width row) -->
+    <div id="studioNotices">
+      <div id="generatedNotice" class="notice notice-success" style="display:none">
+        ✓ Layout generated from airflow data. Drag nodes to reposition. Save to persist.
+      </div>
+      <div id="staleNotice" class="notice notice-warn" style="display:none">
+        ⚠ MVHR unit moved — existing duct routes are now approximate. <strong>Generate Updated Layout</strong> to recalculate.
+      </div>
+      <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
+        ⚠ No airflow design found. Complete the Ventilation Design stage to populate terminal airflows automatically.
+      </div>
+      <div id="airflowSyncedNotice" class="notice notice-warn" style="display:none">
+        ✓ Airflow design linked — terminal airflows updated. <strong>Generate Updated Layout</strong> to recalculate.
+      </div>
+      <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+        📍 <span id="hrvBannerText"><strong>Place the MVHR unit on the floor plan</strong> — required before generating the layout.</span>
+        <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">📍 Place MVHR Unit</button>
+        <button class="btn btn-secondary btn-sm" onclick="suggestMvhrPosition()" style="white-space:nowrap">💡 Suggest</button>
+      </div>
+    </div>
 
-    <!-- §2 Design inputs (populated by renderInputsPanel) -->
-    <section class="io-card" id="inputsCard">
-      <button class="io-head" type="button" onclick="toggleInputs()" aria-expanded="true">
-        <span class="io-head-title">Design Inputs</span>
-        <span class="io-head-chevron" id="inputsChevron">▾</span>
-      </button>
-      <div class="io-body" id="inputsBody"></div>
+    <!-- LEFT: Instructions (populated by renderInstructions) -->
+    <section class="sp-card" id="instructionsPanel"></section>
+
+    <!-- LEFT: Tools & View (controls relocated from the old plan toolbar) -->
+    <section class="sp-card" id="toolsViewPanel">
+      <div class="sp-title">Tools &amp; View</div>
+      <div style="display:flex; gap:6px; margin-bottom:12px">
+        <button class="tool-btn" onclick="setActiveTool('move')" title="Move / pan">✥</button>
+        <button class="tool-btn" onclick="planZoom(1.2)" title="Zoom in">＋</button>
+        <button class="tool-btn" onclick="planZoom(1/1.2)" title="Zoom out">－</button>
+        <button class="tool-btn" onclick="planFitScreen()" title="Fit to screen">⊡</button>
+      </div>
+      <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px">Floor</label>
+      <select class="floor-select" id="planFloorSelect" onchange="onFloorChange()" style="width:100%;margin-bottom:12px">
+        <option value="0">Ground Floor</option>
+      </select>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">Show</div>
+      <label class="toggle-label" style="display:flex;margin-bottom:5px"><input type="checkbox" id="tglSupply"  checked onchange="renderPlanRoutes()"> Supply</label>
+      <label class="toggle-label" style="display:flex;margin-bottom:5px"><input type="checkbox" id="tglExtract" checked onchange="renderPlanRoutes()"> Extract</label>
+      <label class="toggle-label" style="display:flex;margin-bottom:5px"><input type="checkbox" id="tglIntake"  checked onchange="renderPlanRoutes()"> Intake/Exhaust</label>
+      <label class="toggle-label" style="display:flex;margin-bottom:5px"><input type="checkbox" id="tglLabels"  checked onchange="renderPlanNodes()"> Labels</label>
+      <label class="toggle-label" style="display:flex"><input type="checkbox" id="tglRoutes" checked onchange="renderPlanRoutes()"> Ducts</label>
+      <div style="margin-top:10px;font-size:10px;color:var(--muted)" id="planStatus">Drag to pan · Scroll to zoom</div>
     </section>
 
-    <!-- Notices -->
-    <div id="generatedNotice" class="notice notice-success" style="display:none">
-      ✓ Layout generated from airflow data. Drag nodes to reposition in either view. Save to persist.
-    </div>
-    <div id="staleNotice" class="notice notice-warn" style="display:none">
-      ⚠ MVHR unit moved — existing duct routes are now approximate. Click <strong>Generate Updated Layout</strong> to recalculate.
-    </div>
-    <div id="noAirflowNotice" class="notice notice-warn" style="display:none">
-      ⚠ No airflow design found. Complete Stage 4 to populate terminal airflows automatically.
-    </div>
-    <div id="airflowSyncedNotice" class="notice notice-warn" style="display:none">
-      ✓ Airflow design linked — terminal airflows updated. <strong>Generate Updated Layout</strong> to recalculate duct routes with correct flows.
-    </div>
+    <!-- §2 Design summary (right; populated by renderInputsPanel) -->
+    <section class="sp-card" id="inputsCard">
+      <div class="sp-title">Design Summary</div>
+      <div id="inputsBody"></div>
+    </section>
 
-    <!-- HRV placement banner (shown when HRV not yet placed or after skip) -->
-    <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
-      📍 <span id="hrvBannerText"><strong>Place the MVHR unit on the floor plan</strong> — required before generating the layout.</span>
-      <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">📍 Place MVHR Unit</button>
-      <button class="btn btn-secondary btn-sm" onclick="suggestMvhrPosition()" style="white-space:nowrap">💡 Suggest</button>
-    </div>
-
-    <!-- §3 Guided action bar (populated by renderActionBar) -->
-    <div id="actionBar" class="action-bar"></div>
-
-    <!-- View tab bar -->
-    <div class="view-tabs">
-      <button class="view-tab active" id="tabBtnPlan" onclick="switchTab('plan')">📐 Floor Plan Layout</button>
-      <button class="view-tab" id="tabBtnSchematic" onclick="switchTab('schematic')">🔷 Schematic View</button>
-      <button class="view-tab" id="tabBtnSchedule" onclick="switchTab('schedule')">📋 Duct Schedule</button>
-    </div>
-
-    <!-- ═══════════ TAB: Floor Plan Layout ═══════════ -->
-    <div id="tabPlan">
-      <div class="plan-toolbar">
-        <!-- Floor selector -->
-        <div class="plan-toolbar-group">
-          <label style="font-size:12px;font-weight:700;color:var(--muted)">Floor:</label>
-          <select class="floor-select" id="planFloorSelect" onchange="onFloorChange()">
-            <option value="0">Ground Floor</option>
-          </select>
-        </div>
-        <div class="plan-toolbar-sep"></div>
-        <!-- Placement tools -->
-        <div class="plan-toolbar-group">
-          <span style="font-size:11px;font-weight:700;color:var(--muted);margin-right:2px">Tool:</span>
-          <button class="tool-btn active" data-tool="move"    onclick="setActiveTool('move')"    title="Move / pan (M)">✥ Move</button>
-          <button class="tool-btn"        data-tool="supply"  onclick="setActiveTool('supply')"  title="Place supply outlet (S)" style="color:var(--supply)">● Supply</button>
-          <button class="tool-btn"        data-tool="extract" onclick="setActiveTool('extract')" title="Place extract outlet (E)" style="color:var(--extract)">● Extract</button>
-          <button class="tool-btn"        data-tool="mvhr"    onclick="setActiveTool('mvhr')"    title="Place MVHR unit" style="color:#1a4731">▪ MVHR</button>
-          <button class="tool-btn"        data-tool="smfd"    onclick="setActiveTool('smfd')"    title="Place supply manifold" style="color:var(--manifold)">▪ S-Man</button>
-          <button class="tool-btn"        data-tool="emfd"    onclick="setActiveTool('emfd')"    title="Place extract manifold" style="color:var(--manifold)">▪ E-Man</button>
-          <button class="tool-btn"        data-tool="route"   onclick="setActiveTool('route')"   title="Draw duct route (R)">— Route</button>
-        </div>
-        <div class="plan-toolbar-sep"></div>
-        <!-- Zoom -->
-        <div class="plan-toolbar-group">
-          <button class="tool-btn" onclick="planZoom(1.2)" title="Zoom in">＋</button>
-          <button class="tool-btn" onclick="planZoom(1/1.2)" title="Zoom out">－</button>
-          <button class="tool-btn" onclick="planFitScreen()" title="Fit to screen">⊡ Fit</button>
-        </div>
-        <div class="plan-toolbar-sep"></div>
-        <!-- Layer toggles -->
-        <div class="plan-toolbar-group" style="gap:12px">
-          <label class="toggle-label"><input type="checkbox" id="tglSupply"   checked onchange="renderPlanRoutes()"> Supply</label>
-          <label class="toggle-label"><input type="checkbox" id="tglExtract"  checked onchange="renderPlanRoutes()"> Extract</label>
-          <label class="toggle-label"><input type="checkbox" id="tglIntake"   checked onchange="renderPlanRoutes()"> Intake/Exhaust</label>
-          <label class="toggle-label"><input type="checkbox" id="tglLabels"   checked onchange="renderPlanNodes()"> Labels</label>
-          <label class="toggle-label"><input type="checkbox" id="tglRoutes"   checked onchange="renderPlanRoutes()"> Routes</label>
-        </div>
-        <div style="margin-left:auto; font-size:11px; color:var(--muted)" id="planStatus">Drag to pan · Scroll to zoom</div>
+    <!-- CENTER: toolbar -->
+    <div class="studio-toolbar" id="planToolbarBar">
+      <div class="tool-grp">
+        <button class="studio-tool" data-stool="move"    onclick="setActiveTool('move')"><span class="ti">▦</span><span class="tt">Select</span><span class="ts">Components</span></button>
+        <button class="studio-tool" data-stool="route"   onclick="setActiveTool('route')"><span class="ti">⎘</span><span class="tt">Draw Duct</span><span class="ts">Connections</span></button>
+        <button class="studio-tool" data-stool="supply"  onclick="setActiveTool('supply')"><span class="ti">⊕</span><span class="tt">Add Terminal</span><span class="ts">Supply / Extract</span></button>
+        <button class="studio-tool" data-stool="movecmp" onclick="setActiveTool('move')"><span class="ti">✥</span><span class="tt">Move</span><span class="ts">Components</span></button>
+        <button class="studio-tool" data-stool="delete"  onclick="deleteSelectedNode()"><span class="ti">🗑</span><span class="tt">Delete</span><span class="ts">Remove</span></button>
       </div>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="btnGenerate" onclick="regenerateLayout()" disabled>📍 Generate Routes</button>
+      <button class="btn btn-danger" id="btnClearAll" onclick="clearAllLayouts()" style="background:var(--critical);color:#fff;border-color:var(--critical)">🗑 Clear All</button>
+    </div>
 
+    <!-- Hidden legacy view-tab buttons (kept for switchTab references) -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tabBtnPlan" onclick="switchTab('plan')">Plan</button>
+      <button class="view-tab" id="tabBtnSchematic" onclick="switchTab('schematic')">Schematic</button>
+      <button class="view-tab" id="tabBtnSchedule" onclick="switchTab('schedule')">Schedule</button>
+    </div>
+
+    <!-- CENTER: Floor plan canvas -->
+    <div id="tabPlan">
       <div class="plan-with-props">
         <!-- Viewport -->
         <div id="planViewport" class="plan-viewport"
@@ -832,26 +1014,41 @@ main { padding:0 0 80px; }
       </div>
     </div><!-- /tabSchedule -->
 
-    <!-- §4 Calculation panel (populated by renderCalcPanel) -->
-    <section class="io-card" id="calcCard">
-      <button class="io-head" type="button" onclick="this.parentElement.classList.toggle('collapsed')" aria-expanded="true">
-        <span class="io-head-title">Calculation Panel</span>
-        <span class="io-head-chevron">▾</span>
-      </button>
-      <div class="io-body" id="calcBody"></div>
-    </section>
+    <!-- BOTTOM ROW: room schedule, balance donut, legend -->
+    <div id="studioBottom">
+      <section class="sp-card" id="calcCard">
+        <div class="sp-title">Room Schedule &amp; Airflow</div>
+        <div id="calcBody"></div>
+      </section>
+      <section class="sp-card" id="balanceCard">
+        <div class="sp-title">Airflow Balance</div>
+        <div id="balanceBody"></div>
+      </section>
+      <section class="sp-card" id="legendCard">
+        <div class="sp-title">Legend</div>
+        <div id="legendBody">
+          <div class="lg-row"><span class="lg-dot" style="border-color:var(--supply)"></span>Supply terminal</div>
+          <div class="lg-row"><span class="lg-dot" style="border-color:var(--extract)"></span>Extract terminal</div>
+          <div class="lg-row"><span class="lg-line" style="border-color:var(--supply)"></span>Supply duct</div>
+          <div class="lg-row"><span class="lg-line" style="border-color:var(--extract)"></span>Extract duct</div>
+          <div class="lg-row"><span class="lg-line dash" style="border-color:var(--muted)"></span>Riser / floor penetration</div>
+          <div class="lg-row"><span class="lg-box" style="background:#9ca3af"></span>MVHR unit</div>
+          <div class="lg-row"><span class="lg-box" style="background:var(--supply-light)"></span>Supply manifold</div>
+          <div class="lg-row"><span class="lg-box" style="background:var(--extract-light)"></span>Extract manifold</div>
+        </div>
+      </section>
+    </div>
 
-    <!-- §5 Compliance checks (populated by renderCompliancePanel) -->
-    <section class="io-card" id="complianceCard">
-      <button class="io-head" type="button" onclick="this.parentElement.classList.toggle('collapsed')" aria-expanded="true">
-        <span class="io-head-title">Design Compliance</span>
-        <span class="io-head-chevron">▾</span>
-      </button>
-      <div class="io-body" id="complianceBody"></div>
+    <!-- RIGHT: Compliance check (populated by renderCompliancePanel) -->
+    <section class="sp-card" id="complianceCard">
+      <div class="sp-title">Compliance Check</div>
+      <div id="complianceBody"></div>
     </section>
 
   </div><!-- /mainContent -->
 </main>
+</div><!-- /app-col -->
+</div><!-- /shell -->
 
 <!-- ── Calc engine (single source of truth: packages/engine, served at /engine) ── -->
 <script type="module">
@@ -942,6 +1139,16 @@ function setDirty(val) {
   el('btnSave').disabled = !val;
 }
 
+function toggleActionsMenu(e) {
+  if (e) e.stopPropagation();
+  const m = el('actionsMenu');
+  if (m) m.classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  const m = el('actionsMenu');
+  if (m && m.classList.contains('open') && !e.target.closest('.tb-menu-wrap')) m.classList.remove('open');
+});
+
 function showMain()    { el('loadingState').style.display = 'none'; el('mainContent').style.display = 'block'; }
 function showLoading() { el('loadingState').style.display = 'block'; el('mainContent').style.display = 'none'; el('errorState').style.display = 'none'; }
 function showError(msg){ el('loadingState').style.display = 'none'; el('errorState').style.display = 'block'; el('errorMsg').textContent = ' ' + msg; }
@@ -978,14 +1185,14 @@ sb.auth.onAuthStateChange((_ev, session) => {
   if (!session) {
     el('loginOverlay').classList.remove('hidden');
     el('loginOverlay').classList.add('show-login');
-    ['appHeader','stageNav','appMain'].forEach(id => el(id).style.display = 'none');
+    el('shell').style.display = 'none';
     return;
   }
   _token = session.access_token;
   el('loginOverlay').classList.add('hidden');
   el('loginOverlay').classList.remove('show-login');
+  el('shell').style.display    = 'flex';
   el('appHeader').style.display = 'flex';
-  el('stageNav').style.display  = 'flex';
   el('appMain').style.display   = 'block';
   el('headerUser').textContent  = session.user.email;
   init();
@@ -1019,6 +1226,18 @@ async function init() {
     if (el('btnBom')) el('btnBom').href = `/studio/projects/${_projectId}/bom`;
     const _sl = document.querySelector('.settings-link');
     if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
+
+    // Side-nav functional links
+    const navHref = (id, path) => { const n = el(id); if (n) n.href = `/studio/projects/${_projectId}/${path}`; };
+    navHref('navRooms', 'rooms');
+    navHref('navAirflow', 'airflow');
+    navHref('navResults', 'bom');
+    navHref('navFloors', 'upload');
+    navHref('navLayout', 'duct-design');
+    navHref('navDuct', 'duct-design');
+    navHref('navBalance', 'airflow');
+    if (el('navProject')) el('navProject').href = '/studio/projects';
+    if (el('navSettings')) el('navSettings').href = `/studio/settings?projectId=${_projectId}`;
 
     const { data: proj } = await sb.from('projects').select('name, multi_mvhr').eq('id', _projectId).single();
     _multiMvhr = proj?.multi_mvhr ?? false;
@@ -1712,10 +1931,12 @@ function updateWorkflowState() {
   // Render the §1 status header, §3 action bar and §4/§5 panels if present
   // (defined in later build steps; guarded so the page works mid-build).
   if (typeof renderStatusHeader === 'function') renderStatusHeader(state, s);
+  if (typeof renderInstructions === 'function') renderInstructions(state, s);
   if (typeof renderInputsPanel  === 'function') renderInputsPanel();
   if (typeof renderActionBar    === 'function') renderActionBar(state, s);
   if (typeof renderCompliancePanel === 'function') renderCompliancePanel(_lastChecks ?? gatherChecks(), state);
   if (typeof renderCalcPanel    === 'function') renderCalcPanel();
+  if (typeof renderBalanceDonut === 'function') renderBalanceDonut();
 }
 
 // ── §1 Design status header ───────────────────────────────────
@@ -1745,6 +1966,8 @@ function renderStatusHeader(state, s) {
   else if (s.mvhrPlaced)   { layoutStatus = 'current'; layoutSub = 'Ready to generate'; }
   else                     { layoutStatus = 'pending'; layoutSub = 'Not generated'; }
 
+  const reportStatus = state === 'READY' ? 'done' : (s.routesDone ? 'current' : 'pending');
+
   const steps = [
     { name:'Airflow', status: s.hasAirflow ? 'done' : 'fail',
       sub: s.hasAirflow ? 'Design complete' : 'Needs review' },
@@ -1752,12 +1975,13 @@ function renderStatusHeader(state, s) {
       sub: s.hasUnit ? (_unit?.model ?? 'Selected') : 'Not selected' },
     { name:'MVHR',    status: s.mvhrPlaced ? 'done' : (s.hasAirflow && s.hasUnit ? 'current' : 'pending'),
       sub: s.mvhrPlaced ? 'Located on plan' : 'Place on plan' },
-    { name:'Layout',  status: layoutStatus, sub: layoutSub },
+    { name:'Routes',  status: layoutStatus, sub: layoutSub },
     { name:'Pressure',status: pressureStatus, sub: pressureSub },
     { name:'Noise',   status: noiseStatus, sub: noiseSub },
+    { name:'Report',  status: reportStatus, sub: reportStatus === 'done' ? 'Ready' : 'Pending' },
   ];
 
-  const icon = (st, n) => st === 'done' ? '✓' : st === 'fail' ? '✕' : st === 'warn' ? '!' : st === 'current' ? n : n;
+  const icon = (st, n) => st === 'done' ? '✓' : st === 'fail' ? '✕' : st === 'warn' ? '!' : n;
 
   host.innerHTML = steps.map((step, i) => `
     <div class="ds-step ds-${step.status}">
@@ -1767,6 +1991,20 @@ function renderStatusHeader(state, s) {
         <span class="ds-sub">${esc(step.sub)}</span>
       </span>
     </div>`).join('');
+
+  // Mirror the state into the side-nav status box
+  const SD = {
+    NEEDS_AIRFLOW:'Complete the ventilation design to continue.',
+    NEEDS_UNIT:'Select an MVHR unit to continue.',
+    NEEDS_MVHR:'Place the MVHR unit on the floor plan.',
+    NEEDS_TERMINALS:'Generate terminals from the room schedule.',
+    NEEDS_ROUTES:'Route all terminals to the MVHR system to continue.',
+    NEEDS_REVIEW:'Review the pressure, velocity and noise checks.',
+    READY:'Design complete — continue to results & export.',
+    STALE:'Inputs changed — regenerate the layout.',
+  };
+  if (el('navStatusState')) el('navStatusState').textContent = state;
+  if (el('navStatusDesc'))  el('navStatusDesc').textContent  = SD[state] ?? '';
 }
 
 // ── §2 Design inputs ──────────────────────────────────────────
@@ -1830,26 +2068,30 @@ function renderInputsPanel() {
     `<button type="button" class="${t.key === currentSys ? 'active' : ''}" onclick="setDuctSystemType('${t.key}')">${t.label}</button>`
   ).join('');
 
-  body.innerHTML = `
-    <div class="io-grid">
-      <div class="io-item"><span class="io-label">Project</span><span class="io-value" style="font-size:13px">${esc(projName)}</span></div>
-      <div class="io-item"><span class="io-label">Total supply</span><span class="io-value">${fmt(totalSupply, 'm³/h')}</span></div>
-      <div class="io-item"><span class="io-label">Total extract</span><span class="io-value">${fmt(totalExtract, 'm³/h')}</span></div>
-      <div class="io-item"><span class="io-label">Normal rate</span><span class="io-value">${fmt(normal, 'm³/h')}</span></div>
-      <div class="io-item"><span class="io-label">Low rate</span><span class="io-value">${fmt(low, 'm³/h')}</span></div>
-      <div class="io-item"><span class="io-label">Boost rate</span><span class="io-value">${fmt(boost, 'm³/h')}</span></div>
-      <div class="io-item" style="min-width:200px">
-        <span class="io-label">MVHR unit</span>
-        <span class="io-value" style="font-size:13px">${esc(unitName)}${u?.ext_pressure != null ? ` <small>· ${u.ext_pressure} Pa ext.</small>` : ''}</span>
-      </div>
-      <div class="io-sub">
-        <div class="io-item" style="gap:6px">
-          <span class="io-label">Duct system type</span>
-          <span class="io-seg">${segHtml}</span>
-        </div>
-        ${flags.length ? `<div style="display:flex;gap:8px;align-items:center;margin-left:auto">${flags.join('')}</div>` : ''}
-      </div>
-    </div>`;
+  // External (system) pressure vs unit
+  const c = _lastChecks ?? (typeof gatherChecks === 'function' ? gatherChecks() : null);
+  const sysPa = c?.sp?.totalSystemPa;
+  const presOk = c && !c.pressureExceedTarget && c.pressureUnitStatus !== 'exceed';
+  const okMark = '<span class="sum-ok">✓</span>';
+
+  const sfpPass = (u?.sfp != null) ? (u.sfp <= 0.45) : null;
+  const hrPass  = (u?.hr_eff != null) ? (u.hr_eff >= 75) : null;
+
+  const row = (k, v) => `<div class="sum-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+
+  body.innerHTML =
+    row('Design Flow', fmt(normal ?? totalSupply, 'm³/h')) +
+    row('Boost Flow', fmt(boost, 'm³/h')) +
+    row('MVHR Unit', `<span style="font-size:12px">${esc(unitName)}</span>`) +
+    row('SFP (Design)', u?.sfp != null ? `${u.sfp} <small>Wh/m³</small>` : fmt(null)) +
+    row('External Pressure', sysPa != null ? `${sysPa} Pa ${presOk ? okMark : ''}` : fmt(null)) +
+    row('Heat Recovery', u?.hr_eff != null ? `${u.hr_eff} % ${hrPass ? okMark : ''}` : fmt(null)) +
+    row('Specific Fan Power', sfpPass == null ? fmt(null) : (sfpPass ? `Pass ${okMark}` : '<span style="color:var(--critical)">Fail ✕</span>')) +
+    `<div style="margin-top:12px">
+       <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px">Duct system</div>
+       <span class="io-seg" style="display:flex">${segHtml}</span>
+     </div>
+     <a class="btn btn-secondary" href="/studio/projects/${_projectId}/bom" style="display:block;text-align:center;margin-top:12px">View Full Results</a>`;
 }
 
 // ── §3 Guided action bar ──────────────────────────────────────
@@ -1940,63 +2182,152 @@ function buildRoomCalcRows() {
   return Object.values(rooms).sort((a, b) => a.room.localeCompare(b.room));
 }
 
+// Room Schedule & Airflow (bottom-left), styled per the studio mockup.
 function renderCalcPanel() {
   const body = el('calcBody');
   if (!body) return;
-  if (!_layoutGenerated) {
-    body.innerHTML = `<div class="calc-empty">Generate routes to see room-by-room calculations.</div>`;
-    return;
+
+  // Terminal flow sums by room name
+  const calc = buildRoomCalcRows();
+  const flowByRoom = {};
+  for (const r of calc) flowByRoom[r.room] = r;
+
+  // Prefer project_rooms (area + use); fall back to terminal-derived rooms
+  let rows;
+  if (_rooms.length) {
+    rows = _rooms
+      .filter(r => r.classification !== 'ignore')
+      .map(r => {
+        const f = flowByRoom[r.name] || { supply: 0, extract: 0 };
+        const wet = r.classification === 'extract';
+        return {
+          name: r.name, area: r.area, wet,
+          supply: f.supply || 0, extract: f.extract || 0,
+        };
+      });
+  } else {
+    rows = calc.map(r => ({ name: r.room, area: null, wet: r.extract > r.supply, supply: r.supply, extract: r.extract }));
   }
+  rows.sort((a, b) => (b.supply + b.extract) - (a.supply + a.extract));
 
-  const eng = ENG();
-  const rows = buildRoomCalcRows();
-  const c = _lastChecks ?? gatherChecks();
+  if (!rows.length) { body.innerHTML = `<div class="calc-empty">No rooms yet.</div>`; return; }
 
-  const velBadge = (v, cat) => {
-    if (!(v > 0)) return '<span style="color:var(--muted)">—</span>';
-    const st = eng ? eng.velocityStatus(v, cat) : 'ok';
-    const cls = { ok:'vel-ok', warning:'vel-warning', exceed:'vel-exceed' }[st];
-    const icon = { ok:'', warning:'⚠ ', exceed:'✕ ' }[st];
-    return `<span class="vel-badge ${cls}">${icon}${v.toFixed(2)} m/s</span>`;
-  };
+  const totA = rows.reduce((s, r) => s + (r.area || 0), 0);
+  const totS = rows.reduce((s, r) => s + r.supply, 0);
+  const totE = rows.reduce((s, r) => s + r.extract, 0);
 
-  const totSupply = rows.reduce((s, r) => s + r.supply, 0);
-  const totExtract = rows.reduce((s, r) => s + r.extract, 0);
-  const totTerm = rows.reduce((s, r) => s + r.terminals, 0);
-  const totLen = rows.reduce((s, r) => s + r.length, 0);
-  const imbalance = Math.max(totSupply, totExtract) > 0
-    ? Math.round(Math.abs(totSupply - totExtract) / Math.max(totSupply, totExtract) * 1000) / 10 : 0;
-  const balanceOk = imbalance <= 10; // ≤10% supply/extract imbalance
-
-  const rowsHtml = rows.length ? rows.map(r => `
-    <tr>
-      <td style="font-weight:700">${esc(r.room)}</td>
-      <td>${r.supply ? Math.round(r.supply) : '—'}</td>
-      <td>${r.extract ? Math.round(r.extract) : '—'}</td>
-      <td>${r.terminals}</td>
-      <td>${r.length ? r.length.toFixed(1) + ' m' : '—'}</td>
-      <td>${velBadge(r.worstVel, r.worstCat)}</td>
-    </tr>`).join('') : `<tr><td colspan="6" class="calc-empty">No terminals.</td></tr>`;
-
-  const spStatus = c.pressureUnitStatus;
-  const presCls = c.pressureExceedTarget || spStatus === 'exceed' ? 'pres-exceed' : spStatus === 'warning' ? 'pres-warning' : 'pres-ok';
+  const rowsHtml = rows.map(r => {
+    const use = r.wet ? 'Wet Room' : 'Habitable';
+    const term = r.wet ? 'Grille' : 'Diffuser';
+    const noise = r.wet ? '≤ 30' : '≤ 25';
+    return `<tr>
+      <td style="font-weight:700">${esc(r.name)}</td>
+      <td>${r.area != null ? r.area : '—'}</td>
+      <td style="color:var(--muted)">${use}</td>
+      <td>${r.supply ? `<span class="rs-sup">${Math.round(r.supply)}</span>` : '<span style="color:var(--muted)">–</span>'}</td>
+      <td>${r.extract ? `<span class="rs-ext">${Math.round(r.extract)}</span>` : '<span style="color:var(--muted)">–</span>'}</td>
+      <td style="color:var(--muted)">${term}</td>
+      <td style="color:var(--muted)">${noise}</td>
+      <td style="color:#166534">✓</td>
+    </tr>`;
+  }).join('');
 
   body.innerHTML = `
-    <table class="calc-table">
-      <thead><tr><th>Room</th><th>Supply m³/h</th><th>Extract m³/h</th><th>Terminals</th><th>Duct length</th><th>Worst velocity</th></tr></thead>
+    <div style="overflow-x:auto">
+    <table class="rs-table">
+      <thead><tr>
+        <th>Room</th><th>Area (m²)</th><th>Use</th>
+        <th class="rs-sup">Supply ▾</th><th class="rs-ext">Extract ▾</th>
+        <th>Terminal Type</th><th>Noise Limit dB(A)</th><th>Status</th>
+      </tr></thead>
       <tbody>${rowsHtml}</tbody>
       <tfoot><tr>
-        <td>Total</td><td>${Math.round(totSupply)}</td><td>${Math.round(totExtract)}</td>
-        <td>${totTerm}</td><td>${totLen.toFixed(1)} m</td><td></td>
+        <td>Total</td><td>${totA ? Math.round(totA) : '—'}</td><td></td>
+        <td class="rs-sup">${Math.round(totS)}</td><td class="rs-ext">${Math.round(totE)}</td>
+        <td colspan="2">System Total: ${Math.round(totS + totE)} m³/h</td>
+        <td style="color:#166534">✓</td>
       </tr></tfoot>
     </table>
-    <div class="calc-totals">
-      <div class="calc-tot"><span class="v">${c.sp.externalPa} Pa</span><span class="l">External (in+ex)</span></div>
-      <div class="calc-tot"><span class="v">${c.sp.supplyIndexPa} Pa</span><span class="l">Supply index</span></div>
-      <div class="calc-tot"><span class="v">${c.sp.extractIndexPa} Pa</span><span class="l">Extract index</span></div>
-      <div class="calc-tot"><span class="v"><span class="pres-badge ${presCls}">${c.sp.totalSystemPa} Pa</span></span><span class="l">Total system</span></div>
-      <div class="calc-tot"><span class="v">${imbalance}% ${balanceOk ? '✓' : '⚠'}</span><span class="l">Supply/extract balance</span></div>
     </div>`;
+}
+
+// Airflow Balance donut (bottom-middle)
+function renderBalanceDonut() {
+  const body = el('balanceBody');
+  if (!body) return;
+  const sumT = (t) => _nodes.filter(n => n.node_type === t).reduce((s, n) => s + (n.airflow_m3h ?? 0), 0);
+  const sup = Math.round(sumT('supply_terminal'));
+  const ext = Math.round(sumT('extract_terminal'));
+  const tot = sup + ext;
+  if (tot === 0) { body.innerHTML = `<div class="calc-empty">No airflow data yet.</div>`; return; }
+
+  const supPct = Math.round(sup / tot * 100);
+  const extPct = 100 - supPct;
+  const diff = Math.abs(sup - ext);
+  const imbPct = Math.max(sup, ext) > 0 ? Math.round(diff / Math.max(sup, ext) * 100) : 0;
+  const balanced = imbPct <= 10;
+
+  // SVG donut
+  const R = 52, C = 2 * Math.PI * R, supLen = C * (sup / tot);
+  const donut = `
+    <svg viewBox="0 0 140 140" width="150" height="150" style="transform:rotate(-90deg)">
+      <circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--extract)" stroke-width="20"/>
+      <circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--supply)" stroke-width="20"
+        stroke-dasharray="${supLen} ${C - supLen}" stroke-dashoffset="0"/>
+    </svg>`;
+
+  body.innerHTML = `
+    <div class="donut-wrap">
+      <div style="position:relative;display:flex;align-items:center;justify-content:center">
+        ${donut}
+        <div style="position:absolute;text-align:center">
+          <div style="font-size:13px;font-weight:800;color:${balanced ? '#166534' : 'var(--amber)'}">${balanced ? 'Balanced' : 'Check'}</div>
+          <div style="font-size:12px;color:var(--muted)">${tot} m³/h</div>
+        </div>
+      </div>
+      <div class="donut-legend">
+        <div class="dl"><span class="sw" style="background:var(--supply)"></span>Supply<span style="margin-left:auto;font-weight:700">${sup} m³/h (${supPct}%)</span></div>
+        <div class="dl"><span class="sw" style="background:var(--extract)"></span>Extract<span style="margin-left:auto;font-weight:700">${ext} m³/h (${extPct}%)</span></div>
+        <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:12px;color:var(--muted)">
+          Difference: ${diff} m³/h (${imbPct}%) ${balanced ? '<span style="color:#166534">✓</span>' : '<span style="color:var(--amber)">⚠</span>'}
+        </div>
+        <div style="font-size:12px;margin-top:2px">Status: <strong style="color:${balanced ? '#166534' : 'var(--amber)'}">${balanced ? 'Balanced' : 'Imbalanced'}</strong></div>
+      </div>
+    </div>`;
+}
+
+// LEFT: guided instructions panel (driven by _designState)
+function renderInstructions(state, s) {
+  const body = el('instructionsPanel');
+  if (!body) return;
+  const stepNo = { NEEDS_AIRFLOW:1, NEEDS_UNIT:2, NEEDS_MVHR:3, NEEDS_TERMINALS:3, NEEDS_ROUTES:4, NEEDS_REVIEW:5, READY:7, STALE:4 }[state] ?? 3;
+  const HEAD = {
+    NEEDS_AIRFLOW:['Complete Airflow','Finish the ventilation design before laying out ducts.'],
+    NEEDS_UNIT:['Select MVHR Unit','Choose an MVHR unit before placing it on the plan.'],
+    NEEDS_MVHR:['Place the MVHR Unit','Click the location on the floor plan where the MVHR unit will be installed.'],
+    NEEDS_TERMINALS:['Generate Terminals','Create supply and extract terminals from the room schedule.'],
+    NEEDS_ROUTES:['Route the System','Connect all terminals to the MVHR unit via the supply and extract manifolds.'],
+    NEEDS_REVIEW:['Review the Design','Check the pressure, velocity and noise results before continuing.'],
+    READY:['Design Complete','All checks pass — continue to results & export.'],
+    STALE:['Regenerate Layout','An input changed; regenerate to refresh the routes.'],
+  }[state] ?? ['Route the System',''];
+
+  const li = (done, current, label, subs) => `
+    <div class="instr-li ${done ? 'done' : current ? 'current' : ''}">
+      <span class="li-ico">${done ? '✓' : ''}</span><span>${label}</span>
+    </div>${current && subs ? `<div class="instr-sub">${subs.map(x => '• ' + x).join('<br>')}</div>` : ''}`;
+
+  body.innerHTML = `
+    <div class="instr-step">Step ${stepNo} of 7</div>
+    <div class="instr-h">${HEAD[0]}</div>
+    <div class="instr-p">${HEAD[1]}</div>
+    ${li(s.mvhrPlaced, state === 'NEEDS_MVHR', 'Place MVHR unit')}
+    ${li(s.hasTerminals, state === 'NEEDS_TERMINALS', 'Generate terminals')}
+    ${li(s.routesDone, state === 'NEEDS_ROUTES' || state === 'STALE', 'Route connections',
+        ['Click Draw Duct', 'Click terminal → manifold', 'Keep runs tidy and short', 'Avoid sharp bends'])}
+    ${li(s.routesDone && _lastChecks && !_lastChecks.pressureExceedTarget && _lastChecks.pressureUnitStatus !== 'exceed',
+        state === 'NEEDS_REVIEW', 'Check pressure')}
+    ${li(state === 'READY', false, 'Verify noise levels')}`;
 }
 
 // ── §5 Compliance checks ──────────────────────────────────────
@@ -2060,66 +2391,46 @@ function renderCompliancePanel(c, state) {
   const manual = _design?.design_json?.checks || {};
 
   const ICO = { pass:'✓', warn:'!', fail:'✕', na:'–' };
-  const row = (status, title, detail, manualKey) => `
-    <div class="chk-row chk-${status}">
-      <span class="chk-ico">${ICO[status]}</span>
-      <span class="chk-main"><span class="chk-title">${title}</span><span class="chk-detail">${detail}</span></span>
-      ${manualKey ? `<label class="chk-manual"><input type="checkbox" ${manual[manualKey] ? 'checked' : ''} onchange="toggleManualCheck('${manualKey}')"> Confirmed</label>` : ''}
+  const row = (status, title, manualKey, titleAttr) => `
+    <div class="cc-row cc-${status}" ${titleAttr ? `title="${esc(titleAttr)}"` : ''}>
+      <span class="cc-ico">${ICO[status]}</span>
+      <span class="cc-t">${title}</span>
+      ${manualKey ? `<label class="chk-manual"><input type="checkbox" ${manual[manualKey] ? 'checked' : ''} onchange="toggleManualCheck('${manualKey}')"> ✓</label>` : ''}
     </div>`;
 
-  // 1. System pressure target
   const presTargetStatus = !c.hasData ? 'na' : c.pressureExceedTarget ? 'fail' : 'pass';
-  // 2. Unit drivability
-  const drive = { ok:'pass', warning:'warn', exceed:'fail', unknown:'na' }[c.pressureUnitStatus];
-  // 3/4 noise
   const bedNoise = worstNoise('bedroom');
   const genNoise = worstNoise('general');
   const noiseStatus = (w) => w === 'none' ? 'na' : w === 'exceed' ? 'fail' : w === 'attenuator' ? 'warn' : 'pass';
-  // 5. velocity
   const velStatus = c.velExceed > 0 ? 'fail' : c.velWarn > 0 ? 'warn' : (c.hasData ? 'pass' : 'na');
-  // 6/7 manual
+  const sfpStatus = _unit?.sfp == null ? 'na' : (_unit.sfp <= 0.45 ? 'pass' : 'fail');
   const ieStatus = manual.intake_exhaust_ok ? 'pass' : 'warn';
   const saStatus = manual.service_access_ok ? 'pass' : 'warn';
-  // 8. commissioning readiness (derived)
-  const engineOk = checksAllPass(c);
-  const commissionStatus = (engineOk && manual.intake_exhaust_ok && manual.service_access_ok && !!_unit) ? 'pass' : 'warn';
 
-  const unitExtTxt = c.unitExt != null ? ` (unit rated ${c.unitExt} Pa)` : '';
+  // Balanced system (supply vs extract terminal totals)
+  const sumT = (t) => _nodes.filter(n => n.node_type === t).reduce((s, n) => s + (n.airflow_m3h ?? 0), 0);
+  const sup = sumT('supply_terminal'), ext = sumT('extract_terminal');
+  const imb = Math.max(sup, ext) > 0 ? Math.abs(sup - ext) / Math.max(sup, ext) : 0;
+  const balStatus = (sup + ext) === 0 ? 'na' : (imb <= 0.10 ? 'pass' : 'warn');
 
-  // ACH — informational only (never gates READY)
+  // ACH informational
   const ach = achInfo();
   const achStatus = (!ach.hasVolumeData || ach.designFlow == null) ? 'na' : ach.achPasses ? 'pass' : 'warn';
-  const achDetail = (!ach.hasVolumeData)
-    ? 'No room areas available — add areas to compute treated volume.'
-    : (ach.designFlow == null)
-      ? `Treated volume ${ach.totalVolumeM3} m³. Complete the airflow design to compute ACH.`
-      : `${ach.achAtDesign} ACH at ${Math.round(ach.designFlow)} m³/h over ${ach.totalVolumeM3} m³ (PHI min 0.30). Informational — not gated.`;
 
-  // Missing area/height warning (only when something is missing)
-  const dataWarn = (ach.missingArea > 0 || ach.missingHeight > 0)
-    ? row('warn', 'Room data completeness',
-        `${ach.missingArea ? `${ach.missingArea} room(s) missing area` : ''}${ach.missingArea && ach.missingHeight ? '; ' : ''}${ach.missingHeight ? `${ach.missingHeight} room(s) missing ceiling height (defaulting 2.4 m)` : ''}. Affects the ACH figure.`)
-    : '';
+  const engineOk = checksAllPass(c);
+  const phi = engineOk;
 
   body.innerHTML =
-    row(presTargetStatus, `System pressure ≤ ${c.PRESSURE_TARGET_PA} Pa target`,
-        c.hasData ? `Total ${c.sp.totalSystemPa} Pa vs ${c.PRESSURE_TARGET_PA} Pa Passivhaus Trust guidance.` : 'No pressure data yet.') +
-    row(drive, 'Drivable by selected unit',
-        c.pressureUnitStatus === 'unknown' ? 'No unit external-static rating on record.' : `Total ${c.sp.totalSystemPa} Pa${unitExtTxt}.`) +
-    row(noiseStatus(bedNoise), 'Bedroom / living noise target',
-        bedNoise === 'none' ? 'No bedroom/living terminals found.' : bedNoise === 'ok' ? 'All bedroom terminals ≤ 25 dBA.' : bedNoise === 'attenuator' ? 'One or more terminals 25–30 dBA — attenuator recommended.' : 'One or more terminals > 30 dBA — reduce velocity.') +
-    row(noiseStatus(genNoise), 'Wet-room / general noise target',
-        genNoise === 'none' ? 'No general terminals found.' : genNoise === 'ok' ? 'All general terminals ≤ 35 dBA.' : genNoise === 'attenuator' ? 'One or more terminals 35–40 dBA — attenuator recommended.' : 'One or more terminals > 40 dBA — reduce velocity.') +
-    row(velStatus, 'Duct velocity within PH limits',
-        c.velExceed > 0 ? `${c.velExceed} run(s) exceed limit (>10% over).` : c.velWarn > 0 ? `${c.velWarn} run(s) within 10% of limit.` : 'All runs within PH velocity limits (mains ≤3, branch ≤2.5, terminal ≤2 m/s).') +
-    row(achStatus, 'Average ACH ≥ 0.30 <span style="font-weight:600;color:var(--muted)">(informational)</span>', achDetail) +
-    dataWarn +
-    row(ieStatus, 'Intake / exhaust separation',
-        'Verify intake and exhaust terminals are adequately separated (≥1.5 m / no short-circuit) on site.', 'intake_exhaust_ok') +
-    row(saStatus, 'Service & maintenance access',
-        'Confirm clearance around the MVHR unit and filter/condensate access.', 'service_access_ok') +
-    row(commissionStatus, 'Commissioning readiness',
-        commissionStatus === 'pass' ? 'All hard checks pass, unit selected, on-site confirmations recorded.' : 'Resolve failing checks and record the on-site confirmations above.');
+    row(presTargetStatus, `System Pressure &lt;${c.PRESSURE_TARGET_PA} Pa`, null, c.hasData ? `Total ${c.sp.totalSystemPa} Pa` : '') +
+    row(noiseStatus(bedNoise), 'Bedroom Noise &lt;25 dB(A)', null, 'Bedroom/living terminals') +
+    row(noiseStatus(genNoise), 'Wet Room Noise &lt;30 dB(A)', null, 'Wet-room/general terminals') +
+    row(velStatus, 'Velocity within PH limits', null, c.velExceed ? `${c.velExceed} run(s) over` : 'mains ≤3, terminal ≤2 m/s') +
+    row(sfpStatus, 'SFP &lt; 0.45 Wh/m³', null, _unit?.sfp != null ? `Unit SFP ${_unit.sfp}` : '') +
+    row(balStatus, 'Balanced System', null, `Supply ${Math.round(sup)} / Extract ${Math.round(ext)} m³/h`) +
+    row(achStatus, 'Average ACH ≥ 0.30 (info)', null, ach.achAtDesign != null ? `${ach.achAtDesign} ACH` : 'needs room areas') +
+    row(ieStatus, 'Intake / exhaust separation', 'intake_exhaust_ok', 'Confirm on site (≥1.5 m)') +
+    row(saStatus, 'Service & maintenance access', 'service_access_ok', 'Confirm MVHR clearance/access') +
+    `<div class="cc-banner ${phi ? 'ok' : 'no'}"><span>${phi ? 'PHI Compliant' : 'Not yet compliant'}</span><span>${phi ? '✓' : '!'}</span></div>`;
 }
 
 function markLayoutStale() {
@@ -2146,11 +2457,21 @@ const TOOL_STATUS = {
   route:   'Click first node, then click second node to draw a duct run',
 };
 
+function deleteSelectedNode() {
+  if (_selected?.type === 'node' && _selected.id) { deletePlanNode(_selected.id); return; }
+  alert('Select a terminal or node on the plan first, then click Delete.');
+}
+
 function setActiveTool(t) {
   _planTool       = t;
   _planRouteStart = null;
   document.querySelectorAll('.tool-btn[data-tool]').forEach(b => {
     b.classList.toggle('active', b.dataset.tool === t);
+  });
+  // Sync the studio toolbar buttons
+  const stoolMap = { move:'move', route:'route', supply:'supply', movecmp:'move' };
+  document.querySelectorAll('.studio-tool[data-stool]').forEach(b => {
+    b.classList.toggle('active', stoolMap[b.dataset.stool] === t);
   });
   const vp = el('planViewport');
   vp.className = 'plan-viewport' + (t !== 'move' ? ` tool-${t}` : '');
