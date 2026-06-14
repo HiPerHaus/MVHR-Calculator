@@ -368,6 +368,20 @@ async function generateRoutes(supabase, projectId, userId, manifoldMode = 'singl
     throw new Error('MVHR unit has not been placed. Place the MVHR unit on the floor plan first.');
   }
 
+  // 2b. Single-MVHR policy. Per-floor distribution assemblies are only
+  // permitted when the project is explicitly marked multi-unit / multi-MVHR.
+  // Otherwise force a single ComfoWell/manifold set beside the one MVHR, with
+  // every floor routed back to it — regardless of what the client requested.
+  const { data: projRow } = await supabase
+    .from('projects')
+    .select('multi_mvhr')
+    .eq('id', projectId)
+    .maybeSingle();
+  if (!projRow?.multi_mvhr && manifoldMode === 'per_floor') {
+    console.warn(`[duct-design] per_floor requested for non-multi-MVHR project ${projectId}; forcing single.`);
+    manifoldMode = 'single';
+  }
+
   // 3. Clear previous routes and assembly (keep terminals + MVHR)
   await clearRoutesAndAssembly(supabase, did);
 

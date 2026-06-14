@@ -489,6 +489,7 @@ main { padding:0 0 80px; }
     <div class="page-actions">
       <a class="btn btn-secondary" id="backBtn" href="#">← Unit Selection</a>
       <span id="dirtyIndicator" style="display:none;align-items:center"><span class="dirty-dot"></span><span style="font-size:12px;color:var(--amber)">Unsaved changes</span></span>
+      <button class="btn btn-danger" id="btnClearAll" onclick="clearAllLayouts()" title="Delete all nodes, routes and MVHR placement and start fresh">🗑 Clear All</button>
       <button class="btn btn-primary" id="btnGenerate" onclick="regenerateLayout()" disabled>⚡ Generate Layout</button>
       <button class="btn btn-primary" id="btnSave" onclick="saveLayout()" disabled>Save Layout</button>
       <button class="btn btn-primary btn-disabled" id="btnBom" onclick="navToBom()" style="margin-left:4px">Continue → BOM &amp; Export</button>
@@ -700,10 +701,13 @@ main { padding:0 0 80px; }
               <input type="radio" name="manifoldMode" value="single" checked onchange="setManifoldMode('single')">
               Single manifold
             </label>
-            <label class="layer-item">
+            <label class="layer-item" id="perFloorOption">
               <input type="radio" name="manifoldMode" value="per_floor" onchange="setManifoldMode('per_floor')">
               Per-floor manifolds
             </label>
+            <div id="manifoldPolicyNote" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px;display:none">
+              Single MVHR + one ComfoWell/manifold set; every floor routes back to it. Per-floor manifolds require a multi-MVHR project.
+            </div>
           </div>
 
           <div>
@@ -889,6 +893,7 @@ let _selected     = null; // { type: 'node'|'run', id }
 let _dirty        = false;
 let _saving       = false;
 let _manifoldMode = 'single';
+let _multiMvhr    = false; // project flag: allow per-floor / multi-MVHR distribution
 let _snapEnabled  = true;
 let _scaleM       = 12;
 let _layers       = { supply: true, extract: true, intake: true, terminals: true, manifolds: true };
@@ -1015,7 +1020,8 @@ async function init() {
     const _sl = document.querySelector('.settings-link');
     if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
 
-    const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
+    const { data: proj } = await sb.from('projects').select('name, multi_mvhr').eq('id', _projectId).single();
+    _multiMvhr = proj?.multi_mvhr ?? false;
     if (proj?.name) {
       el('headerProject').textContent = proj.name;
       el('pageSubtitle').textContent  = `${proj.name} · System Layout`;
@@ -1042,8 +1048,9 @@ async function init() {
     // Restore design_json state
     if (_design?.design_json?.manifold_mode) {
       _manifoldMode = _design.design_json.manifold_mode;
-      document.querySelectorAll('input[name="manifoldMode"]').forEach(r => { r.checked = r.value === _manifoldMode; });
     }
+    // Enforce single-MVHR policy on the client (server enforces too).
+    applyManifoldModePolicy();
     if (_design?.design_json?.scale_m) {
       _scaleM = _design.design_json.scale_m;
       el('scaleInput').value = _scaleM;
@@ -2501,13 +2508,36 @@ function onLayerChange() {
   renderCanvas();
 }
 
+// Enforce the single-MVHR policy in the UI: per-floor is only selectable on
+// multi-MVHR projects. Forces single + reflects it on the radios + note.
+function applyManifoldModePolicy() {
+  if (!_multiMvhr && _manifoldMode === 'per_floor') _manifoldMode = 'single';
+  const perFloorRadio = document.querySelector('input[name="manifoldMode"][value="per_floor"]');
+  if (perFloorRadio) {
+    perFloorRadio.disabled = !_multiMvhr;
+    const opt = el('perFloorOption');
+    if (opt) opt.style.opacity = _multiMvhr ? '1' : '0.5';
+  }
+  document.querySelectorAll('input[name="manifoldMode"]').forEach(r => { r.checked = r.value === _manifoldMode; });
+  const note = el('manifoldPolicyNote');
+  if (note) note.style.display = _multiMvhr ? 'none' : 'block';
+}
+
 async function setManifoldMode(mode) {
+  // Block per-floor unless the project is explicitly multi-MVHR.
+  if (mode === 'per_floor' && !_multiMvhr) {
+    applyManifoldModePolicy();
+    alert('Per-floor manifolds are only available on multi-MVHR projects. This project uses a single MVHR with one ComfoWell/manifold set; every floor routes back to it.');
+    return;
+  }
   if (mode === _manifoldMode) return;
+  if (!confirm('Switch manifold mode? This will regenerate the entire layout.')) {
+    applyManifoldModePolicy(); // revert radio selection to prev
+    return;
+  }
   _manifoldMode = mode;
   if (_design) _design.design_json = { ...(_design.design_json || {}), manifold_mode: mode };
-  if (confirm('Switch manifold mode? This will regenerate the entire layout.')) {
-    await regenerateLayout(mode);
-  }
+  await regenerateLayout(mode);
 }
 
 function snapToGrid(v, gridSize = 10) { return Math.round(v / gridSize) * gridSize; }
@@ -2911,14 +2941,23 @@ async function saveLayout() {
   }
 }
 
+// ── Clear all layouts (start fresh) ───────────────────────────
+// Deletes the MVHR placement, all duct routes and distribution nodes, then
+// rebuilds a clean set of terminals from the room schedule (the GET/Phase-1
+// state). Uses the full_regenerate action; confirms here so we don't double-prompt.
+async function clearAllLayouts() {
+  if (!confirm('Clear all layouts and start fresh?\n\nThis deletes the MVHR placement, every duct route and all distribution nodes, then rebuilds a fresh set of terminals from the room schedule. This cannot be undone.')) return;
+  await regenerateLayout(undefined, 'full_regenerate', true);
+}
+
 // ── Regenerate layout ─────────────────────────────────────────
-async function regenerateLayout(mode, action) {
+async function regenerateLayout(mode, action, skipConfirm) {
   const act = action ?? 'regenerate';
   const modeToUse = mode ?? _manifoldMode;
   // Confirm only on a user-initiated full regenerate of an existing layout.
-  if (act === 'regenerate' && !mode && _layoutGenerated &&
+  if (!skipConfirm && act === 'regenerate' && !mode && _layoutGenerated &&
       !confirm('Regenerate the layout from airflow data? This will reset all node positions. Continue?')) return;
-  if (act === 'full_regenerate' &&
+  if (!skipConfirm && act === 'full_regenerate' &&
       !confirm('Rebuild terminals from the room schedule? This clears the current layout including MVHR placement. Continue?')) return;
 
   showLoading();
