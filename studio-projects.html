@@ -142,8 +142,9 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
 /* ── Loading spinner (inline) ── */
 .spinner { width:16px; height:16px; border:2px solid rgba(0,0,0,.15); border-top-color:currentColor; border-radius:50%; animation:spin .7s linear infinite; }
 </style>
+<link rel="stylesheet" href="/studio-shell.css">
 </head>
-<body>
+<body class="studio">
 
 <!-- ── Login overlay ── -->
 <div id="loginOverlay">
@@ -168,16 +169,32 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
 </div>
 
 <!-- ── App shell ── -->
-<header id="appHeader" style="display:none">
-  <div class="header-left">
-    <span class="header-logo">HiPer Studio</span>
-    <div class="header-sep"></div>
-    <span class="header-title">Projects</span>
-  </div>
-  <div class="header-right">
-    <span class="header-credits" id="creditBadge">⚡ <strong id="creditBalance">—</strong> credits</span>
-    <span class="header-user" id="headerUser"></span>
-    <button class="btn-signout" id="signOutBtn">Sign out</button>
+<div id="shell" class="app-shell" style="display:none">
+
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">Projects</div></div>
+  <nav class="nav-list">
+    <a class="nav-item active" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
+    <a class="nav-item locked"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item locked"><span class="nav-ico">🌬</span>Airflow Design</a>
+    <a class="nav-item locked"><span class="nav-ico">🎛</span>Unit Selection</a>
+    <a class="nav-item locked"><span class="nav-ico">🧭</span>System Layout</a>
+    <a class="nav-item locked"><span class="nav-ico">📦</span>BOM</a>
+    <a class="nav-item locked"><span class="nav-ico">🧪</span>Commissioning</a>
+    <a class="nav-item locked"><span class="nav-ico">📤</span>Export</a>
+  </nav>
+  <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+
+<div class="app-col">
+
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">Projects</div>
+  <div class="tb-center"></div>
+  <div class="tb-right">
+    <span class="tb-credits">⚡ <strong id="creditBalance">—</strong> credits</span>
+    <span class="tb-user" id="headerUser"></span>
+    <button class="tb-btn" id="signOutBtn">Sign out</button>
   </div>
 </header>
 
@@ -245,6 +262,8 @@ main { max-width: 680px; margin: 0 auto; padding: 48px 28px 80px; }
   </div>
 
 </main>
+</div><!-- /app-col -->
+</div><!-- /shell -->
 
 <!-- ── New Project Modal ── -->
 <div class="modal-backdrop" id="newProjectModal">
@@ -548,8 +567,8 @@ el('renameInput').addEventListener('keydown', e => {
 // ── Auth ──────────────────────────────────────────────────────────────────
 function showApp(user) {
   el('loginOverlay').classList.add('hidden');
+  el('shell').style.display     = 'flex';
   el('appHeader').style.display = 'flex';
-  el('stageNav').style.display  = 'flex';
   el('appMain').style.display   = 'block';
   el('headerUser').textContent  = user.email;
   loadProjects();
@@ -596,9 +615,7 @@ sb.auth.onAuthStateChange((event, session) => {
     _session = null;
     el('loginOverlay').classList.remove('hidden');
     el('loginOverlay').classList.add('show-login');
-    el('appHeader').style.display = 'none';
-    el('stageNav').style.display  = 'none';
-    el('appMain').style.display   = 'none';
+    el('shell').style.display = 'none';
   }
 });
 </script>
