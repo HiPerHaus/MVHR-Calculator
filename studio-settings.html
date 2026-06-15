@@ -155,8 +155,9 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
 .phpp-upload-wrap { display:flex; align-items:center; gap:10px; margin-top:14px; }
 .phpp-hint { font-size:11px; color:var(--muted); line-height:1.4; }
 </style>
+<link rel="stylesheet" href="/studio-shell.css">
 </head>
-<body>
+<body class="studio">
 
 <!-- ── Login overlay ── -->
 <div id="loginOverlay">
@@ -181,15 +182,28 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
 </div>
 
 <!-- ── Header ── -->
-<header id="appHeader" style="display:none">
-  <div class="header-left">
-    <span class="header-logo">HiPer Studio</span>
-    <div class="header-sep"></div>
-    <span class="header-project">Settings</span>
-  </div>
-  <div class="header-right">
-    <span class="header-user" id="headerUser"></span>
-    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+<div id="shell" class="app-shell">
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">MVHR Designer</div></div>
+  <nav class="nav-list">
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">🌬</span>Airflow Design</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">🎛</span>Unit Selection</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">🧭</span>System Layout</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📦</span>BOM</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">🧪</span>Commissioning</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📤</span>Export / Reports</a>
+  </nav>
+  <a class="nav-guide active" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+<div class="app-col">
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">Settings <span id="headerProject"></span></div>
+  <div class="tb-center"></div>
+  <div class="tb-right">
+    <span class="tb-user" id="headerUser"></span>
+    <button class="tb-btn" onclick="doSignOut()">Sign out</button>
   </div>
 </header>
 
@@ -324,6 +338,8 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
   </div>
 
 </main>
+</div><!-- /app-col -->
+</div><!-- /shell -->
 
 <!-- ── Save bar ── -->
 <div class="save-bar" id="saveBar" style="display:none">

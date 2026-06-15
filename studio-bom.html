@@ -117,14 +117,32 @@ a { color: inherit; text-decoration: none; }
 }
 .notes-print { display: none; }
 </style>
+<link rel="stylesheet" href="/studio-shell.css">
 </head>
-<body>
+<body class="studio">
 
 <!-- Top bar -->
-<div class="topbar" id="topBar" style="display:none">
-  <div class="topbar-logo">Hi<span>Per</span> Studio</div>
-  <div class="topbar-project" id="topBarProject"></div>
-</div>
+<div id="shell" class="app-shell">
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">MVHR Designer</div></div>
+  <nav class="nav-list">
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
+    <a class="nav-item" href="upload"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item" href="airflow"><span class="nav-ico">🌬</span>Airflow Design</a>
+    <a class="nav-item" href="unit-selection"><span class="nav-ico">🎛</span>Unit Selection</a>
+    <a class="nav-item" href="duct-design"><span class="nav-ico">🧭</span>System Layout</a>
+    <a class="nav-item active" href="bom"><span class="nav-ico">📦</span>BOM</a>
+    <a class="nav-item" href="commissioning"><span class="nav-ico">🧪</span>Commissioning</a>
+    <a class="nav-item" href="bom"><span class="nav-ico">📤</span>Export / Reports</a>
+  </nav>
+  <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+<div class="app-col">
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">BOM &amp; Export <span id="topBarProject"></span></div>
+  <div class="tb-center"></div>
+  <div class="tb-right"></div>
+</header>
 
 <!-- Stage nav -->
 <nav class="stage-nav" id="stageNav" style="display:none">
@@ -235,6 +253,8 @@ a { color: inherit; text-decoration: none; }
     </div><!-- /bomSections -->
   </div><!-- /mainContent -->
 </div><!-- /page-wrap -->
+</div><!-- /app-col -->
+</div><!-- /shell -->
 
 <script>
 // ── Config ───────────────────────────────────────────────────
@@ -541,7 +561,7 @@ async function init() {
   if (!_projectId) { window.location.href = '/mvhr-designer/projects'; return; }
 
   // Wire nav
-  el('topBar').style.display   = '';
+  el('appHeader').style.display = 'flex';
   el('stageNav').style.display = '';
   el('stageBtn0').href = `/mvhr-designer/projects/${_projectId}/details`;
   el('stageBtn1').href = `/mvhr-designer/projects/${_projectId}/upload`;

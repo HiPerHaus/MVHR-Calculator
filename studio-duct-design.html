@@ -575,6 +575,7 @@ body.studio { background:var(--bg); }
   #studioBottom { grid-template-columns:1fr; }
 }
 </style>
+<link rel="stylesheet" href="/studio-shell.css">
 </head>
 <body class="studio">
 
@@ -611,10 +612,11 @@ body.studio { background:var(--bg); }
     <a class="nav-item" id="navProjects" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
     <a class="nav-item" id="navFloors" href="#"><span class="nav-ico">📐</span>Floor Plans</a>
     <a class="nav-item" id="navAirflow" href="#"><span class="nav-ico">🌬</span>Airflow Design</a>
+    <a class="nav-item" id="navUnit" href="#"><span class="nav-ico">🎛</span>Unit Selection</a>
     <a class="nav-item active" id="navLayout" href="#"><span class="nav-ico">🧭</span>System Layout</a>
     <a class="nav-item" id="navBom" href="#"><span class="nav-ico">📦</span>BOM</a>
     <a class="nav-item" id="navCommissioning" href="#"><span class="nav-ico">🧪</span>Commissioning</a>
-    <a class="nav-item" id="navExport" href="#"><span class="nav-ico">📤</span>Export</a>
+    <a class="nav-item" id="navExport" href="#"><span class="nav-ico">📤</span>Export / Reports</a>
   </nav>
 
   <div class="nav-status">
@@ -622,7 +624,7 @@ body.studio { background:var(--bg); }
     <div class="s" id="navStatusState">NEEDS_ROUTES</div>
     <div class="d" id="navStatusDesc">Route all terminals to the MVHR system to continue.</div>
   </div>
-  <a class="nav-guide" href="#" onclick="event.preventDefault()">View Guide</a>
+  <a class="nav-guide" href="/mvhr-designer/settings" id="navSettingsBottom">⚙ Settings</a>
 </aside>
 
 <div class="app-col">
@@ -1212,6 +1214,7 @@ async function init() {
     const navHref = (id, path) => { const n = el(id); if (n) n.href = `/mvhr-designer/projects/${_projectId}/${path}`; };
     navHref('navFloors', 'upload');
     navHref('navAirflow', 'airflow');
+    navHref('navUnit', 'unit-selection');
     navHref('navLayout', 'duct-design');
     navHref('navBom', 'bom');
     navHref('navCommissioning', 'commissioning');
