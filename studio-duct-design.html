@@ -497,7 +497,7 @@ body.studio { background:var(--bg); }
 /* hide legacy controls now relocated */
 .view-tabs, #tabSchematic, #tabSchedule, #actionBar { display:none !important; }
 
-@media (max-width:1280px) {
+@media (max-width:1080px) {
   #mainContent.studio-grid {
     grid-template-columns:1fr;
     grid-template-rows:auto;
@@ -571,7 +571,7 @@ body.studio { background:var(--bg); }
 .lg-line.dash { border-top-style:dashed; }
 .lg-box { width:20px; height:14px; border-radius:3px; flex-shrink:0; }
 
-@media (max-width:1280px){
+@media (max-width:1080px){
   #studioBottom { grid-template-columns:1fr; }
 }
 </style>
@@ -1132,7 +1132,7 @@ document.addEventListener('click', (e) => {
   if (m && m.classList.contains('open') && !e.target.closest('.tb-menu-wrap')) m.classList.remove('open');
 });
 
-function showMain()    { el('loadingState').style.display = 'none'; el('mainContent').style.display = 'block'; }
+function showMain()    { el('loadingState').style.display = 'none'; el('mainContent').style.display = 'grid'; }
 function showLoading() { el('loadingState').style.display = 'block'; el('mainContent').style.display = 'none'; el('errorState').style.display = 'none'; }
 function showError(msg){ el('loadingState').style.display = 'none'; el('errorState').style.display = 'block'; el('errorMsg').textContent = ' ' + msg; }
 
@@ -2306,7 +2306,7 @@ function renderInstructions(state, s) {
     <div class="instr-h">${HEAD[0]}</div>
     <div class="instr-p">${HEAD[1]}</div>
     ${li(s.mvhrPlaced, state === 'NEEDS_MVHR', 'Place MVHR unit')}
-    ${li(s.hasTerminals, state === 'NEEDS_TERMINALS', 'Generate terminals')}
+    ${li(s.mvhrPlaced && s.hasTerminals, s.mvhrPlaced && state === 'NEEDS_TERMINALS', 'Generate terminals')}
     ${li(s.routesDone, state === 'NEEDS_ROUTES' || state === 'STALE', 'Route connections',
         ['Click Draw Duct', 'Click terminal → manifold', 'Keep runs tidy and short', 'Avoid sharp bends'])}
     ${li(s.routesDone && _lastChecks && !_lastChecks.pressureExceedTarget && _lastChecks.pressureUnitStatus !== 'exceed',
