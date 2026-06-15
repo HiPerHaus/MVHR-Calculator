@@ -437,7 +437,8 @@ body.studio { background:var(--bg); }
 .nav-brand .b2 { font-size:12px; color:var(--nav-text); }
 .nav-sec { font-size:10px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:#6f9e88; padding:14px 20px 6px; }
 .nav-project { margin:0 14px 6px; background:var(--nav-2); border:1px solid var(--nav-line); border-radius:9px; padding:9px 12px; color:#fff; font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:space-between; }
-.nav-item { display:flex; align-items:center; gap:11px; padding:9px 20px; color:var(--nav-text); text-decoration:none; font-size:13px; font-weight:600; border-left:3px solid transparent; }
+.nav-list { margin-top:12px; display:flex; flex-direction:column; }
+.nav-item { display:flex; align-items:center; gap:11px; padding:11px 20px; color:var(--nav-text); text-decoration:none; font-size:14px; font-weight:600; border-left:3px solid transparent; }
 .nav-item:hover { background:var(--nav-2); color:#fff; }
 .nav-item.active { background:var(--nav-active); color:#fff; border-left-color:var(--nav-accent); }
 .nav-item.locked { opacity:.5; pointer-events:none; }
@@ -453,36 +454,20 @@ body.studio { background:var(--bg); }
 .nav-guide { display:block; text-align:center; margin:12px 14px 0; padding:9px; background:transparent; border:1px solid var(--nav-line); border-radius:9px; color:#fff; font-size:12px; font-weight:700; text-decoration:none; }
 
 .app-col { flex:1; min-width:0; display:flex; flex-direction:column; }
-#appHeader.topbar { display:flex; align-items:center; gap:18px; background:var(--nav); border:none; padding:0 22px; height:60px; flex-shrink:0; }
-.tb-title { font-size:17px; font-weight:800; color:#fff; white-space:nowrap; }
-.tb-title span { color:var(--nav-text); font-weight:600; font-size:14px; }
-.tb-center { flex:1; display:flex; justify-content:center; min-width:0; overflow-x:auto; }
+#appHeader.topbar { display:flex; align-items:center; gap:18px; background:#fff; border-bottom:1px solid var(--border); padding:0 22px; height:58px; flex-shrink:0; }
+.tb-title { font-size:17px; font-weight:800; color:var(--text); white-space:nowrap; }
+.tb-title span { color:var(--muted); font-weight:600; font-size:14px; }
+.tb-center { flex:1; min-width:0; }
 .tb-right { display:flex; align-items:center; gap:10px; }
-.tb-btn { display:inline-flex; align-items:center; gap:6px; background:var(--nav-2); border:1px solid var(--nav-line); color:#fff; border-radius:8px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; text-decoration:none; }
-.tb-btn:hover { background:var(--nav-active); }
-.tb-user { font-size:12px; color:var(--nav-text); }
+.tb-btn { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--border); color:var(--text); border-radius:8px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; text-decoration:none; }
+.tb-btn:hover { background:var(--bg); border-color:var(--accent); }
+.tb-user { font-size:12px; color:var(--muted); }
 .tb-menu-wrap { position:relative; }
 .tb-menu { position:absolute; right:0; top:calc(100% + 6px); background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.16); min-width:210px; padding:6px; z-index:50; display:none; }
 .tb-menu.open { display:block; }
 .tb-menu button, .tb-menu a { display:flex; width:100%; align-items:center; gap:8px; padding:9px 11px; background:none; border:none; text-align:left; font-size:13px; font-weight:600; color:var(--text); border-radius:7px; cursor:pointer; text-decoration:none; }
 .tb-menu button:hover, .tb-menu a:hover { background:var(--bg); }
 .tb-menu button:disabled { opacity:.45; cursor:not-allowed; }
-
-/* stepper in top bar */
-.topbar .ds-header { background:transparent; border:none; padding:0; gap:0; flex-wrap:nowrap; }
-.topbar .ds-step { padding:0 6px; }
-.topbar .ds-step:not(:last-child)::after { content:''; width:34px; height:2px; background:var(--nav-line); margin:0 4px; }
-.topbar .ds-step.done:not(:last-child)::after { background:var(--nav-accent); }
-.topbar .ds-ico { background:var(--nav-line); color:var(--nav-text); border:none; width:26px; height:26px; }
-.topbar .ds-step.done .ds-ico { background:transparent; color:var(--nav-accent); border:2px solid var(--nav-accent); }
-.topbar .ds-step.current .ds-ico { background:var(--nav-accent); color:var(--nav); }
-.topbar .ds-step.fail .ds-ico { background:var(--critical); color:#fff; border:none; }
-.topbar .ds-step.warn .ds-ico { background:var(--amber); color:#fff; border:none; }
-.topbar .ds-body { margin-left:7px; }
-.topbar .ds-name { color:#cfe6da; font-size:12px; }
-.topbar .ds-step.current .ds-name { color:#fff; }
-.topbar .ds-step.done .ds-name { color:#cfe6da; }
-.topbar .ds-sub { display:none; }
 
 #appMain { padding:16px 18px 22px; overflow:auto; flex:1; }
 .page-header { display:none; }                      /* title now in top bar */
@@ -620,21 +605,17 @@ body.studio { background:var(--bg); }
 
 <!-- ── Side nav ── -->
 <aside id="sideNav" class="side-nav">
-  <div class="nav-brand"><div class="b1">MVHR</div><div class="b2">Calculator</div></div>
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2" id="headerProject">Project</div></div>
 
-  <div class="nav-sec">Project</div>
-  <a class="nav-project" id="navProject" href="/mvhr-designer/projects"><span id="headerProject">Project</span><span>⌄</span></a>
-
-  <div class="nav-sec">Design Workflow</div>
-  <a class="nav-item" id="navRooms"   href="#"><span class="nav-ico">🗂</span><span>Room Schedule<br><span class="nav-sub">Manage spaces</span></span><span class="nav-check" id="navRoomsChk"></span></a>
-  <a class="nav-item" id="navAirflow" href="#"><span class="nav-ico">🌬</span><span>Ventilation Design<br><span class="nav-sub">Calculate airflow</span></span><span class="nav-check" id="navAirflowChk"></span></a>
-  <a class="nav-item active" id="navLayout" href="#"><span class="nav-ico">🧭</span><span>System Layout<br><span class="nav-sub">Design &amp; route</span></span></a>
-  <a class="nav-item" id="navResults" href="#"><span class="nav-ico">📊</span><span>Results &amp; Reports<br><span class="nav-sub">View calculations</span></span><span class="nav-check" id="navResultsChk"></span></a>
-
-  <div class="nav-sec">System Design</div>
-  <a class="nav-item" id="navFloors"  href="#"><span class="nav-ico">📐</span><span>Floor Plans<br><span class="nav-sub">Upload &amp; manage</span></span></a>
-  <a class="nav-item active" id="navDuct" href="#"><span class="nav-ico">🔧</span><span>Duct Design<br><span class="nav-sub">Design ventilation</span></span><span class="nav-dot"></span></a>
-  <a class="nav-item" id="navBalance" href="#"><span class="nav-ico">⚖</span><span>Airflow Balance<br><span class="nav-sub">Balance system</span></span><span class="nav-check" id="navBalanceChk"></span></a>
+  <nav class="nav-list">
+    <a class="nav-item" id="navProjects" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
+    <a class="nav-item" id="navFloors" href="#"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item" id="navAirflow" href="#"><span class="nav-ico">🌬</span>Airflow Design</a>
+    <a class="nav-item active" id="navLayout" href="#"><span class="nav-ico">🧭</span>System Layout</a>
+    <a class="nav-item" id="navBom" href="#"><span class="nav-ico">📦</span>BOM</a>
+    <a class="nav-item" id="navCommissioning" href="#"><span class="nav-ico">🧪</span>Commissioning</a>
+    <a class="nav-item" id="navExport" href="#"><span class="nav-ico">📤</span>Export</a>
+  </nav>
 
   <div class="nav-status">
     <div class="l">Design Status</div>
@@ -649,9 +630,9 @@ body.studio { background:var(--bg); }
 <!-- ── Top bar ── -->
 <header id="appHeader" class="topbar" style="display:none">
   <div class="tb-left"><div class="tb-title">System Layout <span>· Duct Design</span></div></div>
-  <div class="tb-center"><div id="designStatusHeader" class="ds-header"></div></div>
+  <div class="tb-center"></div>
   <div class="tb-right">
-    <span id="dirtyIndicator" style="display:none;align-items:center;color:#fde68a"><span class="dirty-dot"></span><span style="font-size:12px">Unsaved</span></span>
+    <span id="dirtyIndicator" style="display:none;align-items:center;color:var(--amber)"><span class="dirty-dot"></span><span style="font-size:12px">Unsaved</span></span>
     <a class="tb-btn" href="#" onclick="event.preventDefault()">📖 Guide</a>
     <a class="tb-btn" id="navSettings" href="/mvhr-designer/settings">⚙ Settings</a>
     <div class="tb-menu-wrap">
@@ -1227,16 +1208,15 @@ async function init() {
     const _sl = document.querySelector('.settings-link');
     if (_sl) _sl.href = `/mvhr-designer/settings?projectId=${_projectId}`;
 
-    // Side-nav functional links
+    // Side-nav functional links (stage workflow)
     const navHref = (id, path) => { const n = el(id); if (n) n.href = `/mvhr-designer/projects/${_projectId}/${path}`; };
-    navHref('navRooms', 'rooms');
-    navHref('navAirflow', 'airflow');
-    navHref('navResults', 'bom');
     navHref('navFloors', 'upload');
+    navHref('navAirflow', 'airflow');
     navHref('navLayout', 'duct-design');
-    navHref('navDuct', 'duct-design');
-    navHref('navBalance', 'airflow');
-    if (el('navProject')) el('navProject').href = '/mvhr-designer/projects';
+    navHref('navBom', 'bom');
+    navHref('navCommissioning', 'commissioning');
+    navHref('navExport', 'bom');
+    if (el('navProjects')) el('navProjects').href = '/mvhr-designer/projects';
     if (el('navSettings')) el('navSettings').href = `/mvhr-designer/settings?projectId=${_projectId}`;
 
     const { data: proj } = await sb.from('projects').select('name, multi_mvhr').eq('id', _projectId).single();
@@ -1941,6 +1921,21 @@ function updateWorkflowState() {
 
 // ── §1 Design status header ───────────────────────────────────
 function renderStatusHeader(state, s) {
+  // Mirror state into the side-nav status box (runs even without the stepper).
+  const SD = {
+    NEEDS_AIRFLOW:'Complete the ventilation design to continue.',
+    NEEDS_UNIT:'Select an MVHR unit to continue.',
+    NEEDS_MVHR:'Place the MVHR unit on the floor plan.',
+    NEEDS_TERMINALS:'Generate terminals from the room schedule.',
+    NEEDS_ROUTES:'Route all terminals to the MVHR system to continue.',
+    NEEDS_REVIEW:'Review the pressure, velocity and noise checks.',
+    READY:'Design complete — continue to results & export.',
+    STALE:'Inputs changed — regenerate the layout.',
+  };
+  if (el('navStatusState')) el('navStatusState').textContent = state;
+  if (el('navStatusDesc'))  el('navStatusDesc').textContent  = SD[state] ?? '';
+
+  // The top stepper has been removed; nothing more to render if its host is gone.
   const host = el('designStatusHeader');
   if (!host) return;
   const c = _lastChecks ?? gatherChecks();
@@ -1991,20 +1986,6 @@ function renderStatusHeader(state, s) {
         <span class="ds-sub">${esc(step.sub)}</span>
       </span>
     </div>`).join('');
-
-  // Mirror the state into the side-nav status box
-  const SD = {
-    NEEDS_AIRFLOW:'Complete the ventilation design to continue.',
-    NEEDS_UNIT:'Select an MVHR unit to continue.',
-    NEEDS_MVHR:'Place the MVHR unit on the floor plan.',
-    NEEDS_TERMINALS:'Generate terminals from the room schedule.',
-    NEEDS_ROUTES:'Route all terminals to the MVHR system to continue.',
-    NEEDS_REVIEW:'Review the pressure, velocity and noise checks.',
-    READY:'Design complete — continue to results & export.',
-    STALE:'Inputs changed — regenerate the layout.',
-  };
-  if (el('navStatusState')) el('navStatusState').textContent = state;
-  if (el('navStatusDesc'))  el('navStatusDesc').textContent  = SD[state] ?? '';
 }
 
 // ── §2 Design inputs ──────────────────────────────────────────
