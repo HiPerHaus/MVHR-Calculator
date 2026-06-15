@@ -1281,7 +1281,7 @@ async function init() {
 
     // ACH check: room geometry (area + ceiling height → volume). RLS-scoped.
     const { data: rms } = await sb.from('project_rooms')
-      .select('name, room_type, classification, area, ceiling_height_m, volume_m3')
+      .select('id, name, room_type, classification, area, ceiling_height_m, volume_m3, bbox')
       .eq('project_id', _projectId);
     _rooms = rms ?? [];
 
@@ -1397,10 +1397,28 @@ function ensurePlanPositions() {
       x_pct = (mvhr?.metadata?.plan?.x_pct ?? 8) + 5;
       y_pct = (mvhr?.metadata?.plan?.y_pct ?? 50) + 6;
     } else if (n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal') {
-      // No reliable room geometry exists in the data model, so we must NOT
-      // scatter terminals across the plan (margins, title blocks, wrong rooms).
-      // Queue each terminal for manual placement instead (review queue).
-      n.metadata = { ...meta, plan: { floor_index: fi, needs_placement: true } };
+      // Auto-place inside the room when AI captured its geometry (bbox), else
+      // queue for manual placement (review queue) — never scatter on the plan.
+      const bb = roomBboxForNode(n);
+      if (bb) {
+        const N = n.metadata?.terminal_count ?? 1;
+        const t = n.metadata?.terminal_index ?? 0;
+        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
+        let fx = cx, fy = cy;
+        if (N > 1) {                       // spread multiple terminals along the wider axis
+          const frac = (t - (N - 1) / 2) / N;
+          if (bb.w >= bb.h) fx = cx + frac * bb.w * 0.6; else fy = cy + frac * bb.h * 0.6;
+        }
+        // nudge supply up / extract down a touch so co-located terminals don't overlap
+        fy += (n.node_type === 'extract_terminal' ? 1 : -1) * Math.min(bb.h * 0.15, 0.03);
+        // keep inside the room with 10% padding from walls
+        const pad = 0.10;
+        fx = Math.min(Math.max(fx, bb.x + bb.w * pad), bb.x + bb.w * (1 - pad));
+        fy = Math.min(Math.max(fy, bb.y + bb.h * pad), bb.y + bb.h * (1 - pad));
+        n.metadata = { ...meta, plan: { floor_index: fi, x_pct: Math.round(fx * 1000) / 10, y_pct: Math.round(fy * 1000) / 10, status: 'auto_placed' } };
+      } else {
+        n.metadata = { ...meta, plan: { floor_index: fi, needs_placement: true } };
+      }
       continue;
     } else {
       x_pct = 50; y_pct = 50;
@@ -2301,13 +2319,26 @@ function renderBalanceDonut() {
 function terminalNodes() {
   return _nodes.filter(n => n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal');
 }
-// Containment check: placed, inside image bounds, and floor matches.
+// Normalized room bounding box for a node (by project_room_id, then name), or null.
+function roomBboxForNode(node) {
+  const r = _rooms.find(x => x.id && x.id === node.project_room_id)
+         || _rooms.find(x => (x.name || '') === (node.room_name || ''));
+  const bb = r?.bbox;
+  return (bb && typeof bb.x === 'number' && typeof bb.w === 'number') ? bb : null;
+}
+// Containment check: placed, inside image bounds, floor matches, and (if room
+// geometry exists) the point sits within the room's bounding box.
 function terminalPlacementValid(node) {
   const plan = node.metadata?.plan ?? {};
   if (plan.needs_placement || plan.x_pct == null || plan.y_pct == null) return false;
   if (plan.x_pct < 0 || plan.x_pct > 100 || plan.y_pct < 0 || plan.y_pct > 100) return false;
   const nodeFloor = node.floor_index ?? 0;
   if (plan.floor_index != null && plan.floor_index !== nodeFloor) return false;
+  const bb = roomBboxForNode(node);
+  if (bb) {
+    const px = plan.x_pct / 100, py = plan.y_pct / 100, tol = 0.04;
+    if (px < bb.x - tol || px > bb.x + bb.w + tol || py < bb.y - tol || py > bb.y + bb.h + tol) return false;
+  }
   return true;
 }
 function terminalStatus(node) {

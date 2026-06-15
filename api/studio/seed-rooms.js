@@ -104,6 +104,7 @@ function aiRoomToRow({ room, floor, categoryKey, projectId, userId, sortOrder })
     optional_extract:       room.optionalExtract === true,
     confidence:             typeof room.confidence === 'number' ? room.confidence : null,
     requires_manual_review: room.requiresManualReview === true,
+    bbox:                   (room.boundingBox && typeof room.boundingBox === 'object') ? room.boundingBox : null,
     source:                 'ai_extraction',
     sort_order:             sortOrder,
     is_confirmed:           false,

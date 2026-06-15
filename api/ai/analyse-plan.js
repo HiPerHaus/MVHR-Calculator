@@ -273,6 +273,23 @@ function bedroomFallbackSpaces(name, spaceType) {
 // ── validateRoom ──────────────────────────────────────────────────────────────
 // Accepts AI room object, normalises all fields, applies server-side overrides.
 // Returns null if the room cannot be used.
+// Normalize an AI-provided room bounding box to { x, y, w, h } in 0..1.
+// Accepts {x,y,w,h} or {x,y,width,height}. Returns null if invalid/implausible.
+function sanitizeBoundingBox(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const num = (v) => (typeof v === 'number' && isFinite(v)) ? v : null;
+  let x = num(raw.x), y = num(raw.y);
+  let w = num(raw.w ?? raw.width), h = num(raw.h ?? raw.height);
+  if (x == null || y == null || w == null || h == null) return null;
+  // Clamp to the image and require a non-trivial, in-bounds box.
+  if (w <= 0 || h <= 0) return null;
+  x = Math.min(Math.max(x, 0), 1); y = Math.min(Math.max(y, 0), 1);
+  w = Math.min(w, 1 - x);          h = Math.min(h, 1 - y);
+  if (w <= 0.005 || h <= 0.005 || w > 1 || h > 1) return null; // too small / spurious
+  const r4 = (v) => Math.round(v * 1000) / 1000;
+  return { x: r4(x), y: r4(y), w: r4(w), h: r4(h) };
+}
+
 function validateRoom(raw, floorIndex) {
   if (!raw || typeof raw !== 'object') return null;
 
@@ -415,6 +432,7 @@ function validateRoom(raw, floorIndex) {
     bedSpaces,
     potentialBedSpaces,
     requiresManualReview,
+    boundingBox:               sanitizeBoundingBox(raw.boundingBox),
   };
 }
 
@@ -1486,9 +1504,19 @@ DUPLICATE CHECK — before returning:
 Return ONLY valid JSON. No markdown. No prose.
 
 Top-level fields: floorName · rooms · warnings · assumptions · reviewCandidates
-Room fields: name · spaceType · area · confidence · fixtures · parentRoom · bedSpaces · potentialBedSpaces
+Room fields: name · spaceType · area · confidence · fixtures · parentRoom · bedSpaces · potentialBedSpaces · boundingBox
 Do NOT output: classification · ventilationClassification · containsSecondaryExtractZone · requiresManualReview
 The server derives all classification, priority, and review fields from spaceType and fixtures.
+
+ROOM GEOMETRY — "boundingBox":
+For EACH room, also return "boundingBox": the tightest rectangle that encloses that room's
+floor area on THIS plan image, as fractions of the image (origin = top-left):
+  { "x": <left 0-1>, "y": <top 0-1>, "w": <width 0-1>, "h": <height 0-1> }
+Rules:
+  • Coordinates are 0-1 fractions of the full image width/height (NOT pixels, NOT mm).
+  • The box must cover the room's interior walls — used to drop a ventilation outlet inside the room.
+  • Exclude title blocks, legends, dimension strings and the sheet margins.
+  • If you genuinely cannot locate the room on the image, set "boundingBox": null (do not guess).
 
 {
   "floorName": "First Floor",
@@ -1496,11 +1524,13 @@ The server derives all classification, priority, and review fields from spaceTyp
     { "name": "Master Bedroom",
       "spaceType": "bedroom", "area": 19.2, "confidence": 0.94,
       "fixtures": [], "parentRoom": null,
-      "bedSpaces": 2, "potentialBedSpaces": 0 },
+      "bedSpaces": 2, "potentialBedSpaces": 0,
+      "boundingBox": { "x": 0.08, "y": 0.12, "w": 0.24, "h": 0.20 } },
     { "name": "Bedroom 2",
       "spaceType": "bedroom", "area": 11.4, "confidence": 0.97,
       "fixtures": [], "parentRoom": null,
-      "bedSpaces": 1, "potentialBedSpaces": 0 },
+      "bedSpaces": 1, "potentialBedSpaces": 0,
+      "boundingBox": { "x": 0.34, "y": 0.12, "w": 0.18, "h": 0.18 } },
     { "name": "Kitchen",
       "spaceType": "kitchen", "area": 16.4, "confidence": 0.97,
       "fixtures": ["sink", "dishwasher"], "parentRoom": null,
