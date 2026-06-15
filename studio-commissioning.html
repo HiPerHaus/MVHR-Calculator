@@ -188,7 +188,7 @@ main { max-width:1100px; margin:0 auto; padding:24px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done"   href="/mvhr-designer/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn done"   id="stageBtn0" href="#"><span class="stage-num">✓</span>Project Details</a>
   <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
@@ -197,7 +197,7 @@ main { max-width:1100px; margin:0 auto; padding:24px 28px 80px; }
   <a class="stage-btn done"   id="stageBtn5" href="#"><span class="stage-num">✓</span>System Layout</a>
   <a class="stage-btn active" id="stageBtn6" href="#"><span class="stage-num">7</span>Commissioning</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
-  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" id="settingsLink" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" id="settingsLink" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main ── -->
@@ -374,7 +374,7 @@ let _unit      = null;
 
 // ── Project ID ────────────────────────────────────────────────
 function getProjectIdFromUrl() {
-  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  const m = location.pathname.match(/\/mvhr-designer\/projects\/([^/]+)/);
   return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
 }
 
@@ -423,21 +423,21 @@ async function init() {
   }
 
   // Wire nav links
-  document.getElementById('stageBtn0').href = `/studio/projects/${_projectId}/details`;
-  document.getElementById('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
-  document.getElementById('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
-  document.getElementById('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
-  document.getElementById('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
-  document.getElementById('stageBtn5').href = `/studio/projects/${_projectId}/layout`;
-  document.getElementById('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
-  const layoutUrl = `/studio/projects/${_projectId}/layout`;
-  const bomUrl    = `/studio/projects/${_projectId}/bom`;
+  document.getElementById('stageBtn0').href = `/mvhr-designer/projects/${_projectId}/details`;
+  document.getElementById('stageBtn1').href = `/mvhr-designer/projects/${_projectId}/upload`;
+  document.getElementById('stageBtn2').href = `/mvhr-designer/projects/${_projectId}/rooms`;
+  document.getElementById('stageBtn3').href = `/mvhr-designer/projects/${_projectId}/airflow`;
+  document.getElementById('stageBtn4').href = `/mvhr-designer/projects/${_projectId}/unit-selection`;
+  document.getElementById('stageBtn5').href = `/mvhr-designer/projects/${_projectId}/layout`;
+  document.getElementById('stageBtn6').href = `/mvhr-designer/projects/${_projectId}/commissioning`;
+  const layoutUrl = `/mvhr-designer/projects/${_projectId}/layout`;
+  const bomUrl    = `/mvhr-designer/projects/${_projectId}/bom`;
   document.getElementById('backToLayoutBtn').href  = layoutUrl;
   document.getElementById('backToLayoutBtn2').href = layoutUrl;
   document.getElementById('toBomBtn').href         = bomUrl;
   document.getElementById('toBomBtn2').href        = bomUrl;
-  document.getElementById('toAirflowBtn').href     = `/studio/projects/${_projectId}/airflow`;
-  document.getElementById('settingsLink').href     = `/studio/settings?projectId=${_projectId}`;
+  document.getElementById('toAirflowBtn').href     = `/mvhr-designer/projects/${_projectId}/airflow`;
+  document.getElementById('settingsLink').href     = `/mvhr-designer/settings?projectId=${_projectId}`;
 
   const { data: proj } = await sb.from('projects').select('name').eq('id', _projectId).single();
   if (proj?.name) {

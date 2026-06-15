@@ -365,7 +365,7 @@ tr.review-row:hover td { background: #fef3c7; }
 
 <!-- ── Stage navigation ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done" href="/studio/projects">
+  <a class="stage-btn done" href="/mvhr-designer/projects">
     <span class="stage-num">✓</span> New/Open
   </a>
   <a class="stage-btn done" id="stageBtn0" href="#">
@@ -392,7 +392,7 @@ tr.review-row:hover td { background: #fef3c7; }
   <a class="stage-btn locked" id="stageBtn7" href="#">
     <span class="stage-num">8</span> BOM &amp; Export
   </a>
-  <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn settings-link" id="settingsLink" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main content ── -->
@@ -564,8 +564,8 @@ let _occOverride = null;
 
 // ── URL helpers ───────────────────────────────────────────────
 function getProjectIdFromUrl() {
-  // Matches /studio/projects/{id}/rooms
-  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  // Matches /mvhr-designer/projects/{id}/rooms
+  const m = location.pathname.match(/\/mvhr-designer\/projects\/([^/]+)/);
   if (m) return m[1];
   // Fallback: ?projectId=...
   return new URLSearchParams(location.search).get('projectId');
@@ -676,14 +676,14 @@ async function loadPage() {
     _confirmed = !!project.schedule_confirmed_at;
 
     // Wire up stage nav links
-    document.getElementById('stageBtn0').href  = `/studio/projects/${_projectId}/details`;
-    document.getElementById('stageBtn1').href  = `/studio/projects/${_projectId}/upload`;
-    document.getElementById('stageBtn3').href  = `/studio/projects/${_projectId}/airflow`;
-    document.getElementById('stageBtn4').href  = `/studio/projects/${_projectId}/unit-selection`;
-    document.getElementById('stageBtn5').href  = `/studio/projects/${_projectId}/duct-design`;
-    document.getElementById('stageBtn6').href  = `/studio/projects/${_projectId}/commissioning`;
-    document.getElementById('stageBtn7').href  = `/studio/projects/${_projectId}/bom`;
-    document.getElementById('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
+    document.getElementById('stageBtn0').href  = `/mvhr-designer/projects/${_projectId}/details`;
+    document.getElementById('stageBtn1').href  = `/mvhr-designer/projects/${_projectId}/upload`;
+    document.getElementById('stageBtn3').href  = `/mvhr-designer/projects/${_projectId}/airflow`;
+    document.getElementById('stageBtn4').href  = `/mvhr-designer/projects/${_projectId}/unit-selection`;
+    document.getElementById('stageBtn5').href  = `/mvhr-designer/projects/${_projectId}/duct-design`;
+    document.getElementById('stageBtn6').href  = `/mvhr-designer/projects/${_projectId}/commissioning`;
+    document.getElementById('stageBtn7').href  = `/mvhr-designer/projects/${_projectId}/bom`;
+    document.getElementById('settingsLink').href = `/mvhr-designer/settings?projectId=${_projectId}`;
 
     // Restore downstream stage state for returning visitors
     const { data: design } = await sb
@@ -1141,7 +1141,7 @@ async function confirmSchedule() {
     _confirmed = true;
     showConfirmedState();
     // Navigate to Stage 3
-    window.location.href = `/studio/projects/${_projectId}/airflow`;
+    window.location.href = `/mvhr-designer/projects/${_projectId}/airflow`;
   } catch(e) {
     alert('Failed to confirm: ' + e.message);
     btn.disabled = false;

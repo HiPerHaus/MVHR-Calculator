@@ -128,7 +128,7 @@ a { color: inherit; text-decoration: none; }
 
 <!-- Stage nav -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   id="stageBtn-1" href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done"   id="stageBtn-1" href="/mvhr-designer/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn done"   id="stageBtn0"  href="#"><span class="stage-num">✓</span>Project Details</a>
   <a class="stage-btn done"   id="stageBtn1"  href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2"  href="#"><span class="stage-num">✓</span>Room Schedule</a>
@@ -137,7 +137,7 @@ a { color: inherit; text-decoration: none; }
   <a class="stage-btn done"   id="stageBtn5"  href="#"><span class="stage-num">✓</span>System Layout</a>
   <a class="stage-btn done"   id="stageBtn6"  href="#"><span class="stage-num">✓</span>Commissioning</a>
   <a class="stage-btn active" id="stageBtn7"  href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
-  <a class="stage-btn settings-link" id="settingsLink" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn settings-link" id="settingsLink" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- Page -->
@@ -538,21 +538,21 @@ async function init() {
   if (!_token) { window.location.href = '/'; return; }
 
   _projectId = getProjectIdFromUrl();
-  if (!_projectId) { window.location.href = '/studio/projects'; return; }
+  if (!_projectId) { window.location.href = '/mvhr-designer/projects'; return; }
 
   // Wire nav
   el('topBar').style.display   = '';
   el('stageNav').style.display = '';
-  el('stageBtn0').href = `/studio/projects/${_projectId}/details`;
-  el('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
-  el('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
-  el('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
-  el('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
-  el('stageBtn5').href = `/studio/projects/${_projectId}/duct-design`;
-  el('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
-  el('stageBtn7').href = `/studio/projects/${_projectId}/bom`;
-  el('settingsLink').href = `/studio/settings?projectId=${_projectId}`;
-  if (el('goDuctDesign')) el('goDuctDesign').href = `/studio/projects/${_projectId}/duct-design`;
+  el('stageBtn0').href = `/mvhr-designer/projects/${_projectId}/details`;
+  el('stageBtn1').href = `/mvhr-designer/projects/${_projectId}/upload`;
+  el('stageBtn2').href = `/mvhr-designer/projects/${_projectId}/rooms`;
+  el('stageBtn3').href = `/mvhr-designer/projects/${_projectId}/airflow`;
+  el('stageBtn4').href = `/mvhr-designer/projects/${_projectId}/unit-selection`;
+  el('stageBtn5').href = `/mvhr-designer/projects/${_projectId}/duct-design`;
+  el('stageBtn6').href = `/mvhr-designer/projects/${_projectId}/commissioning`;
+  el('stageBtn7').href = `/mvhr-designer/projects/${_projectId}/bom`;
+  el('settingsLink').href = `/mvhr-designer/settings?projectId=${_projectId}`;
+  if (el('goDuctDesign')) el('goDuctDesign').href = `/mvhr-designer/projects/${_projectId}/duct-design`;
 
   try {
     const data = await apiFetch(`/bom?projectId=${_projectId}`);

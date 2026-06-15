@@ -623,7 +623,7 @@ body.studio { background:var(--bg); }
   <div class="nav-brand"><div class="b1">MVHR</div><div class="b2">Calculator</div></div>
 
   <div class="nav-sec">Project</div>
-  <a class="nav-project" id="navProject" href="/studio/projects"><span id="headerProject">Project</span><span>⌄</span></a>
+  <a class="nav-project" id="navProject" href="/mvhr-designer/projects"><span id="headerProject">Project</span><span>⌄</span></a>
 
   <div class="nav-sec">Design Workflow</div>
   <a class="nav-item" id="navRooms"   href="#"><span class="nav-ico">🗂</span><span>Room Schedule<br><span class="nav-sub">Manage spaces</span></span><span class="nav-check" id="navRoomsChk"></span></a>
@@ -653,7 +653,7 @@ body.studio { background:var(--bg); }
   <div class="tb-right">
     <span id="dirtyIndicator" style="display:none;align-items:center;color:#fde68a"><span class="dirty-dot"></span><span style="font-size:12px">Unsaved</span></span>
     <a class="tb-btn" href="#" onclick="event.preventDefault()">📖 Guide</a>
-    <a class="tb-btn" id="navSettings" href="/studio/settings">⚙ Settings</a>
+    <a class="tb-btn" id="navSettings" href="/mvhr-designer/settings">⚙ Settings</a>
     <div class="tb-menu-wrap">
       <button class="tb-btn" onclick="toggleActionsMenu(event)">Actions ⌄</button>
       <div class="tb-menu" id="actionsMenu">
@@ -669,7 +669,7 @@ body.studio { background:var(--bg); }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done" href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done" href="/mvhr-designer/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn done"   id="stageBtn0" href="#"><span class="stage-num">✓</span>Project Details</a>
   <a class="stage-btn done"   id="stageBtn1" href="#"><span class="stage-num">✓</span>Upload Plans</a>
   <a class="stage-btn done"   id="stageBtn2" href="#"><span class="stage-num">✓</span>Room Schedule</a>
@@ -678,7 +678,7 @@ body.studio { background:var(--bg); }
   <a class="stage-btn active" id="stageBtn5" href="#"><span class="stage-num">6</span>System Layout</a>
   <a class="stage-btn locked" id="stageBtn6" href="#"><span class="stage-num">7</span>Commissioning</a>
   <a class="stage-btn locked" id="stageBtn7" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
-  <a class="stage-btn settings-link" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn settings-link" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main ── -->
@@ -1129,7 +1129,7 @@ const el  = id => document.getElementById(id);
 const esc = s  => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function getProjectIdFromUrl() {
-  const m = location.pathname.match(/\/studio\/projects\/([^/]+)/);
+  const m = location.pathname.match(/\/mvhr-designer\/projects\/([^/]+)/);
   return m ? m[1] : (new URLSearchParams(location.search).get('projectId') || null);
 }
 
@@ -1214,21 +1214,21 @@ async function init() {
   _projectId = getProjectIdFromUrl();
 
   if (_projectId) {
-    el('stageBtn0').href = `/studio/projects/${_projectId}/details`;
-    el('stageBtn1').href = `/studio/projects/${_projectId}/upload`;
-    el('stageBtn2').href = `/studio/projects/${_projectId}/rooms`;
-    el('stageBtn3').href = `/studio/projects/${_projectId}/airflow`;
-    el('stageBtn4').href = `/studio/projects/${_projectId}/unit-selection`;
-    el('stageBtn5').href = `/studio/projects/${_projectId}/duct-design`;
-    el('stageBtn6').href = `/studio/projects/${_projectId}/commissioning`;
-    el('stageBtn7').href = `/studio/projects/${_projectId}/bom`;
-    el('backBtn').href   = `/studio/projects/${_projectId}/unit-selection`;
-    if (el('btnBom')) el('btnBom').href = `/studio/projects/${_projectId}/bom`;
+    el('stageBtn0').href = `/mvhr-designer/projects/${_projectId}/details`;
+    el('stageBtn1').href = `/mvhr-designer/projects/${_projectId}/upload`;
+    el('stageBtn2').href = `/mvhr-designer/projects/${_projectId}/rooms`;
+    el('stageBtn3').href = `/mvhr-designer/projects/${_projectId}/airflow`;
+    el('stageBtn4').href = `/mvhr-designer/projects/${_projectId}/unit-selection`;
+    el('stageBtn5').href = `/mvhr-designer/projects/${_projectId}/duct-design`;
+    el('stageBtn6').href = `/mvhr-designer/projects/${_projectId}/commissioning`;
+    el('stageBtn7').href = `/mvhr-designer/projects/${_projectId}/bom`;
+    el('backBtn').href   = `/mvhr-designer/projects/${_projectId}/unit-selection`;
+    if (el('btnBom')) el('btnBom').href = `/mvhr-designer/projects/${_projectId}/bom`;
     const _sl = document.querySelector('.settings-link');
-    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
+    if (_sl) _sl.href = `/mvhr-designer/settings?projectId=${_projectId}`;
 
     // Side-nav functional links
-    const navHref = (id, path) => { const n = el(id); if (n) n.href = `/studio/projects/${_projectId}/${path}`; };
+    const navHref = (id, path) => { const n = el(id); if (n) n.href = `/mvhr-designer/projects/${_projectId}/${path}`; };
     navHref('navRooms', 'rooms');
     navHref('navAirflow', 'airflow');
     navHref('navResults', 'bom');
@@ -1236,8 +1236,8 @@ async function init() {
     navHref('navLayout', 'duct-design');
     navHref('navDuct', 'duct-design');
     navHref('navBalance', 'airflow');
-    if (el('navProject')) el('navProject').href = '/studio/projects';
-    if (el('navSettings')) el('navSettings').href = `/studio/settings?projectId=${_projectId}`;
+    if (el('navProject')) el('navProject').href = '/mvhr-designer/projects';
+    if (el('navSettings')) el('navSettings').href = `/mvhr-designer/settings?projectId=${_projectId}`;
 
     const { data: proj } = await sb.from('projects').select('name, multi_mvhr').eq('id', _projectId).single();
     _multiMvhr = proj?.multi_mvhr ?? false;
@@ -2091,7 +2091,7 @@ function renderInputsPanel() {
        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px">Duct system</div>
        <span class="io-seg" style="display:flex">${segHtml}</span>
      </div>
-     <a class="btn btn-secondary" href="/studio/projects/${_projectId}/bom" style="display:block;text-align:center;margin-top:12px">View Full Results</a>`;
+     <a class="btn btn-secondary" href="/mvhr-designer/projects/${_projectId}/bom" style="display:block;text-align:center;margin-top:12px">View Full Results</a>`;
 }
 
 // ── §3 Guided action bar ──────────────────────────────────────
@@ -2122,10 +2122,10 @@ function renderActionBar(state, s) {
   let cta = '';
   switch (state) {
     case 'NEEDS_AIRFLOW':
-      cta = `<a class="btn btn-primary btn-sm" href="/studio/projects/${_projectId}/airflow">Complete Airflow Design →</a>`;
+      cta = `<a class="btn btn-primary btn-sm" href="/mvhr-designer/projects/${_projectId}/airflow">Complete Airflow Design →</a>`;
       break;
     case 'NEEDS_UNIT':
-      cta = `<a class="btn btn-primary btn-sm" href="/studio/projects/${_projectId}/unit-selection">Select MVHR Unit →</a>`;
+      cta = `<a class="btn btn-primary btn-sm" href="/mvhr-designer/projects/${_projectId}/unit-selection">Select MVHR Unit →</a>`;
       break;
     case 'NEEDS_TERMINALS':
       cta = `<button class="btn btn-primary btn-sm" onclick="regenerateLayout(undefined,'generate_terminals')">⚡ Generate Terminals</button>`;
@@ -2443,7 +2443,7 @@ function markLayoutStale() {
 function navToBom() {
   if (!_layoutGenerated) return;
   const pid = _projectId;
-  if (pid) location.href = `/studio/projects/${pid}/bom`;
+  if (pid) location.href = `/mvhr-designer/projects/${pid}/bom`;
 }
 
 // ── Plan tool mode ────────────────────────────────────────────

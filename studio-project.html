@@ -154,7 +154,7 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
 
 <!-- ── Stage navigation ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn done"   href="/studio/projects"><span class="stage-num">✓</span>New/Open</a>
+  <a class="stage-btn done"   href="/mvhr-designer/projects"><span class="stage-num">✓</span>New/Open</a>
   <a class="stage-btn active" id="stageBtn1" href="#"><span class="stage-num">1</span>Project Details</a>
   <a class="stage-btn locked" id="stageBtn2" href="#"><span class="stage-num">2</span>Upload Plans</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">3</span>Room Schedule</a>
@@ -163,7 +163,7 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
   <a class="stage-btn locked" href="#"><span class="stage-num">6</span>System Layout</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">7</span>Commissioning</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">8</span>BOM &amp; Export</a>
-  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn" style="margin-left:auto;color:var(--muted)" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main ── -->
@@ -380,11 +380,11 @@ async function init() {
     // Edit mode — load existing project
     el('pageTitle').textContent    = 'Project Details';
     el('pageSubtitle').textContent = 'Update project information.';
-    el('stageBtn1').href = `/studio/projects/${_projectId}/details`;
-    el('stageBtn2').href = `/studio/projects/${_projectId}/upload`;
+    el('stageBtn1').href = `/mvhr-designer/projects/${_projectId}/details`;
+    el('stageBtn2').href = `/mvhr-designer/projects/${_projectId}/upload`;
     el('stageBtn2').classList.remove('locked');
-    const _sl = document.querySelector('a[href="/studio/settings"]');
-    if (_sl) _sl.href = `/studio/settings?projectId=${_projectId}`;
+    const _sl = document.querySelector('a[href="/mvhr-designer/settings"]');
+    if (_sl) _sl.href = `/mvhr-designer/settings?projectId=${_projectId}`;
     await loadProject();
   }
 }
@@ -460,7 +460,7 @@ el('saveBtn').addEventListener('click', async () => {
       return;
     }
 
-    window.location.href = `/studio/projects/${data.project.id}/upload`;
+    window.location.href = `/mvhr-designer/projects/${data.project.id}/upload`;
   } else {
     // Update via API (service-role, bypasses RLS)
     const res = await apiPatch('/api/studio/projects', { projectId: _projectId, ...payload });
@@ -475,7 +475,7 @@ el('saveBtn').addEventListener('click', async () => {
 
     setSaveStatus('Saved. Taking you to upload…', 'ok');
     el('headerProject').textContent = payload.name;
-    window.location.href = `/studio/projects/${_projectId}/upload`;
+    window.location.href = `/mvhr-designer/projects/${_projectId}/upload`;
   }
 });
 </script>

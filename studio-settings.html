@@ -195,7 +195,7 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
 
 <!-- ── Stage nav ── -->
 <nav class="stage-nav" id="stageNav" style="display:none">
-  <a class="stage-btn" href="/studio/projects"><span class="stage-num">0</span>New/Open</a>
+  <a class="stage-btn" href="/mvhr-designer/projects"><span class="stage-num">0</span>New/Open</a>
   <a class="stage-btn locked" id="sNavBtn1" href="#"><span class="stage-num">1</span>Project Details</a>
   <a class="stage-btn locked" id="sNavBtn2" href="#"><span class="stage-num">2</span>Upload Plans</a>
   <a class="stage-btn locked" id="sNavBtn3" href="#"><span class="stage-num">3</span>Room Schedule</a>
@@ -203,7 +203,7 @@ main { max-width:860px; margin:0 auto; padding:28px 28px 80px; }
   <a class="stage-btn locked" id="sNavBtn5" href="#"><span class="stage-num">5</span>Unit Selection</a>
   <a class="stage-btn locked" id="sNavBtn6" href="#"><span class="stage-num">6</span>System Layout</a>
   <a class="stage-btn locked" href="#"><span class="stage-num">7</span>BOM &amp; Export</a>
-  <a class="stage-btn settings-link active" href="/studio/settings">⚙ Settings</a>
+  <a class="stage-btn settings-link active" href="/mvhr-designer/settings">⚙ Settings</a>
 </nav>
 
 <!-- ── Main ── -->
@@ -438,7 +438,7 @@ async function init() {
     for (const [btnId, path] of stageMap) {
       const btn = document.getElementById(btnId);
       if (btn) {
-        btn.href = `/studio/projects/${pid}/${path}`;
+        btn.href = `/mvhr-designer/projects/${pid}/${path}`;
         btn.classList.remove('locked');
       }
     }
