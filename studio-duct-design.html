@@ -475,25 +475,26 @@ body.studio { background:var(--bg); }
 /* studio grid (ID-based areas so non-adjacent cards place cleanly) */
 #mainContent.studio-grid {
   display:grid;
-  grid-template-columns: 240px minmax(0,1fr) 312px;
-  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-columns: 210px minmax(0,1fr) 320px;
+  grid-template-rows: auto auto auto auto auto;
   grid-template-areas:
     "notices notices notices"
-    "instr   toolbar summary"
-    "tools   canvas  summary"
-    "tools   canvas  compliance"
+    "toolbar toolbar toolbar"
+    "tools   canvas  right"
+    "instr   instr   instr"
     "bottom  bottom  bottom";
   gap:14px; align-items:start;
 }
 #studioNotices { grid-area:notices; display:flex; flex-direction:column; gap:8px; }
 #studioNotices:empty { display:none; }
-#instructionsPanel { grid-area:instr; }
-#toolsViewPanel { grid-area:tools; }
 #planToolbarBar { grid-area:toolbar; }
-#mainContent.studio-grid > #tabPlan { grid-area:canvas; margin:0; min-width:0; }
-#mainContent.studio-grid > #inputsCard { grid-area:summary; }
-#mainContent.studio-grid > #complianceCard { grid-area:compliance; }
+#toolsViewPanel { grid-area:tools; }
+#mainContent.studio-grid > #tabPlan { grid-area:canvas; margin:0; min-width:0; min-height:max(620px, calc(100vh - 240px)); }
+#studioRight { grid-area:right; display:flex; flex-direction:column; gap:14px; min-width:0; }
+#instructionsPanel { grid-area:instr; }
 #studioBottom { grid-area:bottom; display:grid; grid-template-columns: 1.6fr 1fr 1fr; gap:14px; align-items:start; }
+/* the canvas fills its hero cell */
+#tabPlan .plan-with-props, #tabPlan #planViewport { height:100%; min-height:inherit; }
 /* hide legacy controls now relocated */
 .view-tabs, #tabSchematic, #tabSchedule, #actionBar { display:none !important; }
 
@@ -501,8 +502,9 @@ body.studio { background:var(--bg); }
   #mainContent.studio-grid {
     grid-template-columns:1fr;
     grid-template-rows:auto;
-    grid-template-areas:"notices" "toolbar" "canvas" "instr" "tools" "summary" "compliance" "bottom";
+    grid-template-areas:"notices" "toolbar" "canvas" "right" "tools" "instr" "bottom";
   }
+  #mainContent.studio-grid > #tabPlan { min-height:560px; }
 }
 
 /* canvas toolbar (center top) */
@@ -570,6 +572,15 @@ body.studio { background:var(--bg); }
 .lg-line { width:22px; height:0; border-top:3px solid; flex-shrink:0; }
 .lg-line.dash { border-top-style:dashed; }
 .lg-box { width:20px; height:14px; border-radius:3px; flex-shrink:0; }
+
+/* terminal placement review */
+.plan-node.invalid .node-body { outline:3px solid var(--critical) !important; outline-offset:2px; }
+.tq-card { background:var(--amber-bg); border:1px solid #fde68a; border-radius:10px; padding:12px 14px; }
+.tq-title { font-size:13px; font-weight:800; color:var(--amber); margin-bottom:6px; }
+.tq-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid #fde68a; font-size:12px; }
+.tq-row .tq-name { flex:1; color:var(--text); font-weight:600; }
+.tq-badge { font-size:10px; font-weight:800; padding:2px 8px; border-radius:20px; background:#fff; color:var(--amber); border:1px solid #fde68a; white-space:nowrap; }
+.placing-banner { background:var(--primary); color:#fff; border-radius:10px; padding:11px 14px; font-size:13px; font-weight:700; }
 
 @media (max-width:1080px){
   #studioBottom { grid-template-columns:1fr; }
@@ -701,6 +712,7 @@ body.studio { background:var(--bg); }
       <div id="airflowSyncedNotice" class="notice notice-warn" style="display:none">
         ✓ Airflow design linked — terminal airflows updated. <strong>Generate Updated Layout</strong> to recalculate.
       </div>
+      <div id="terminalReview"></div>
       <div id="hrvBanner" class="notice notice-warn" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
         📍 <span id="hrvBannerText"><strong>Place the MVHR unit on the floor plan</strong> — required before generating the layout.</span>
         <button class="btn btn-primary btn-sm" id="hrvBannerBtn" onclick="startHrvPlacementMode()" style="margin-left:auto;white-space:nowrap">📍 Place MVHR Unit</button>
@@ -731,12 +743,6 @@ body.studio { background:var(--bg); }
       <label class="toggle-label" style="display:flex;margin-bottom:5px"><input type="checkbox" id="tglLabels"  checked onchange="renderPlanNodes()"> Labels</label>
       <label class="toggle-label" style="display:flex"><input type="checkbox" id="tglRoutes" checked onchange="renderPlanRoutes()"> Ducts</label>
       <div style="margin-top:10px;font-size:10px;color:var(--muted)" id="planStatus">Drag to pan · Scroll to zoom</div>
-    </section>
-
-    <!-- §2 Design summary (right; populated by renderInputsPanel) -->
-    <section class="sp-card" id="inputsCard">
-      <div class="sp-title">Design Summary</div>
-      <div id="inputsBody"></div>
     </section>
 
     <!-- CENTER: toolbar -->
@@ -804,16 +810,24 @@ body.studio { background:var(--bg); }
             <div id="planNodes" class="plan-nodes"></div>
           </div>
         </div>
-
-        <!-- Right: properties panel -->
-        <div class="props-sidebar" id="planPropsPanel">
-          <div class="props-empty" id="planPropsEmpty">
-            Click a node to view and edit its properties.
-          </div>
-          <div id="planPropsContent" style="display:none"></div>
-        </div>
       </div>
     </div><!-- /tabPlan -->
+
+    <!-- RIGHT RAIL: node properties (when a node is selected) OR design summary + compliance -->
+    <div id="studioRight">
+      <div class="sp-card" id="planPropsPanel" style="display:none">
+        <div class="props-empty" id="planPropsEmpty">Click a node to view and edit its properties.</div>
+        <div id="planPropsContent" style="display:none"></div>
+      </div>
+      <section class="sp-card" id="inputsCard">
+        <div class="sp-title">Design Summary</div>
+        <div id="inputsBody"></div>
+      </section>
+      <section class="sp-card" id="complianceCard">
+        <div class="sp-title">Compliance Check</div>
+        <div id="complianceBody"></div>
+      </section>
+    </div>
 
     <!-- ═══════════ TAB: Schematic View ═══════════ -->
     <div id="tabSchematic">
@@ -1022,12 +1036,6 @@ body.studio { background:var(--bg); }
       </section>
     </div>
 
-    <!-- RIGHT: Compliance check (populated by renderCompliancePanel) -->
-    <section class="sp-card" id="complianceCard">
-      <div class="sp-title">Compliance Check</div>
-      <div id="complianceBody"></div>
-    </section>
-
   </div><!-- /mainContent -->
 </main>
 </div><!-- /app-col -->
@@ -1097,6 +1105,7 @@ let _planTool           = 'move'; // 'move' | 'supply' | 'extract' | 'mvhr' | 's
 let _planRouteStart     = null;   // node id of first node selected for route tool
 let _mvhrNeedsPlacement = false;  // true when MVHR has no user-set plan position
 let _placingHrv         = false;  // true while user is clicking to place HRV
+let _placingTerminalId  = null;   // node id of the terminal awaiting manual placement
 let _layoutGenerated    = false;  // true once layout has been generated at least once
 let _layoutStale        = false;  // true when MVHR moved after layout was generated
 let _designState        = 'NEEDS_AIRFLOW'; // guided-workflow state (see computeDesignState)
@@ -1387,30 +1396,12 @@ function ensurePlanPositions() {
       const mvhr = _nodes.find(m => m.node_type === 'mvhr_unit');
       x_pct = (mvhr?.metadata?.plan?.x_pct ?? 8) + 5;
       y_pct = (mvhr?.metadata?.plan?.y_pct ?? 50) + 6;
-    } else if (n.node_type === 'supply_terminal') {
-      const arr      = nodesByFloor[fi]?.supply ?? [];
-      // Group by project_room_id to position rooms first, then spread terminals within each room
-      const roomIds  = [...new Set(arr.map(t => t.project_room_id))];
-      const roomIdx  = roomIds.indexOf(n.project_room_id);
-      const totalRooms = roomIds.length;
-      const baseX    = 35 + (roomIdx / Math.max(totalRooms, 1)) * 50;
-      const baseY    = 20 + (roomIdx % 4) * 18;
-      const N        = n.metadata?.terminal_count ?? 1;
-      const t        = n.metadata?.terminal_index ?? 0;
-      // Spread multi-terminal nodes horizontally ±3% around room base position
-      x_pct = baseX + (N > 1 ? (t - (N - 1) / 2) * 3 : 0);
-      y_pct = baseY;
-    } else if (n.node_type === 'extract_terminal') {
-      const arr      = nodesByFloor[fi]?.extract ?? [];
-      const roomIds  = [...new Set(arr.map(t => t.project_room_id))];
-      const roomIdx  = roomIds.indexOf(n.project_room_id);
-      const totalRooms = roomIds.length;
-      const baseX    = 35 + (roomIdx / Math.max(totalRooms, 1)) * 50;
-      const baseY    = 60 + (roomIdx % 3) * 14;
-      const N        = n.metadata?.terminal_count ?? 1;
-      const t        = n.metadata?.terminal_index ?? 0;
-      x_pct = baseX + (N > 1 ? (t - (N - 1) / 2) * 3 : 0);
-      y_pct = baseY;
+    } else if (n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal') {
+      // No reliable room geometry exists in the data model, so we must NOT
+      // scatter terminals across the plan (margins, title blocks, wrong rooms).
+      // Queue each terminal for manual placement instead (review queue).
+      n.metadata = { ...meta, plan: { floor_index: fi, needs_placement: true } };
+      continue;
     } else {
       x_pct = 50; y_pct = 50;
     }
@@ -1529,11 +1520,15 @@ function renderPlanNodes() {
   for (const node of _nodes) {
     if (!planNodeVisible(node)) continue;
     const plan = node.metadata?.plan ?? {};
+    const isTerm = node.node_type === 'supply_terminal' || node.node_type === 'extract_terminal';
+    // Unplaced terminals are not drawn on the plan — they live in the review queue.
+    if (isTerm && (plan.needs_placement || plan.x_pct == null)) continue;
     const xPct = plan.x_pct ?? 50;
     const yPct = plan.y_pct ?? 50;
 
     const div = document.createElement('div');
     div.className = `plan-node ${planNodeClass(node.node_type)}`;
+    if (isTerm && !terminalPlacementValid(node)) div.classList.add('invalid');
     div.dataset.nodeId = node.id;
     div.style.left = `${xPct}%`;
     div.style.top  = `${yPct}%`;
@@ -1715,6 +1710,13 @@ function onPlanViewportMouseUp(e) {
     if (draggedNode?.node_type === 'mvhr_unit') {
       markLayoutStale();
     }
+    // A dragged terminal counts as manually placed/moved.
+    if (draggedNode && (draggedNode.node_type === 'supply_terminal' || draggedNode.node_type === 'extract_terminal')) {
+      draggedNode.metadata = { ...(draggedNode.metadata ?? {}), plan: { ...(draggedNode.metadata?.plan ?? {}), needs_placement: false, status: 'manually_moved' } };
+      setDirty(true);
+      if (typeof renderTerminalReview === 'function') renderTerminalReview();
+      if (typeof renderCalcPanel === 'function') renderCalcPanel();
+    }
   }
 }
 
@@ -1742,7 +1744,17 @@ function selectPlanItem(type, id) {
   renderPlanPropsPanel();
 }
 
+// Right rail shows node properties when a node is selected, else Design Summary + Compliance.
+function updateRightRail() {
+  const sel = !!(_selected && _selected.type === 'node' && _nodes.some(n => n.id === _selected.id));
+  const pp = el('planPropsPanel'), ic = el('inputsCard'), cc = el('complianceCard');
+  if (pp) pp.style.display = sel ? 'block' : 'none';
+  if (ic) ic.style.display = sel ? 'none' : 'block';
+  if (cc) cc.style.display = sel ? 'none' : 'block';
+}
+
 function renderPlanPropsPanel() {
+  updateRightRail();
   const emptyEl   = el('planPropsEmpty');
   const contentEl = el('planPropsContent');
   if (!_selected || _selected.type !== 'node') {
@@ -1920,6 +1932,8 @@ function updateWorkflowState() {
   if (typeof renderCompliancePanel === 'function') renderCompliancePanel(_lastChecks ?? gatherChecks(), state);
   if (typeof renderCalcPanel    === 'function') renderCalcPanel();
   if (typeof renderBalanceDonut === 'function') renderBalanceDonut();
+  if (typeof renderTerminalReview === 'function') renderTerminalReview();
+  if (typeof updateRightRail    === 'function') updateRightRail();
 }
 
 // ── §1 Design status header ───────────────────────────────────
@@ -2200,10 +2214,13 @@ function renderCalcPanel() {
   const totS = rows.reduce((s, r) => s + r.supply, 0);
   const totE = rows.reduce((s, r) => s + r.extract, 0);
 
+  const STATUS_CELL = { placed:'<span style="color:#166534">Placed ✓</span>', moved:'<span style="color:var(--supply)">Manually moved</span>', review:'<span style="color:var(--amber);font-weight:700">Needs review</span>' };
   const rowsHtml = rows.map(r => {
     const use = r.wet ? 'Wet Room' : 'Habitable';
     const term = r.wet ? 'Grille' : 'Diffuser';
     const noise = r.wet ? '≤ 30' : '≤ 25';
+    const rs = roomTerminalStatus(r.name);
+    const stCell = rs ? STATUS_CELL[rs] : '<span style="color:var(--muted)">—</span>';
     return `<tr>
       <td style="font-weight:700">${esc(r.name)}</td>
       <td>${r.area != null ? r.area : '—'}</td>
@@ -2212,7 +2229,7 @@ function renderCalcPanel() {
       <td>${r.extract ? `<span class="rs-ext">${Math.round(r.extract)}</span>` : '<span style="color:var(--muted)">–</span>'}</td>
       <td style="color:var(--muted)">${term}</td>
       <td style="color:var(--muted)">${noise}</td>
-      <td style="color:#166534">✓</td>
+      <td>${stCell}</td>
     </tr>`;
   }).join('');
 
@@ -2279,6 +2296,94 @@ function renderBalanceDonut() {
       </div>
     </div>`;
 }
+
+// ── Terminal placement reliability ────────────────────────────
+function terminalNodes() {
+  return _nodes.filter(n => n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal');
+}
+// Containment check: placed, inside image bounds, and floor matches.
+function terminalPlacementValid(node) {
+  const plan = node.metadata?.plan ?? {};
+  if (plan.needs_placement || plan.x_pct == null || plan.y_pct == null) return false;
+  if (plan.x_pct < 0 || plan.x_pct > 100 || plan.y_pct < 0 || plan.y_pct > 100) return false;
+  const nodeFloor = node.floor_index ?? 0;
+  if (plan.floor_index != null && plan.floor_index !== nodeFloor) return false;
+  return true;
+}
+function terminalStatus(node) {
+  const plan = node.metadata?.plan ?? {};
+  if (plan.needs_placement || plan.x_pct == null) return 'review';
+  if (!terminalPlacementValid(node)) return 'invalid';
+  return plan.status === 'manually_moved' ? 'moved' : 'placed';
+}
+function validateTerminals() {
+  const review = [], invalid = [], placed = [];
+  for (const n of terminalNodes()) {
+    const st = terminalStatus(n);
+    if (st === 'review') review.push(n);
+    else if (st === 'invalid') invalid.push(n);
+    else placed.push(n);
+  }
+  return { review, invalid, placed };
+}
+function roomTerminalStatus(roomName) {
+  const ts = terminalNodes().filter(n => (n.room_name || '') === roomName);
+  if (!ts.length) return null;
+  const sts = ts.map(terminalStatus);
+  if (sts.some(s => s === 'review' || s === 'invalid')) return 'review';
+  if (sts.some(s => s === 'moved')) return 'moved';
+  return 'placed';
+}
+function renderTerminalReview() {
+  const host = el('terminalReview');
+  if (!host) return;
+  if (_placingTerminalId) {
+    const t = _nodes.find(n => n.id === _placingTerminalId);
+    host.innerHTML = `<div class="placing-banner">📍 Click inside the correct room on the floor plan to place <strong>${esc(t?.room_name ?? 'terminal')}</strong> &nbsp;·&nbsp; <a href="#" style="color:#cfe6da" onclick="event.preventDefault();cancelTerminalPlacement()">Cancel</a></div>`;
+    return;
+  }
+  const { review, invalid } = validateTerminals();
+  const pending = [...invalid, ...review];
+  if (!pending.length) { host.innerHTML = ''; return; }
+  const rows = pending.map(n => {
+    const isInvalid = terminalStatus(n) === 'invalid';
+    const kind = n.node_type === 'supply_terminal' ? 'supply' : 'extract';
+    return `<div class="tq-row">
+      <span class="tq-name">${esc(n.room_name ?? formatNodeType(n.node_type))} <span style="color:var(--muted);font-weight:500">(${kind}${n.airflow_m3h ? `, ${n.airflow_m3h} m³/h` : ''})</span></span>
+      <span class="tq-badge">${isInvalid ? 'Outside plan bounds' : 'Needs placement'}</span>
+      <button class="btn btn-primary btn-sm" onclick="startTerminalPlacement('${n.id}')">Place</button>
+    </div>`;
+  }).join('');
+  host.innerHTML = `<div class="tq-card">
+    <div class="tq-title">⚠ Review terminal placement — ${pending.length} terminal${pending.length !== 1 ? 's' : ''} require manual placement</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Room geometry isn't available from the plan analysis, so terminals are not auto-placed inside rooms. Click “Place”, then click the floor plan inside the correct room.</div>
+    ${rows}
+  </div>`;
+}
+function startTerminalPlacement(id) {
+  _placingTerminalId = id;
+  setActiveTool('move');
+  selectPlanItem('node', id);
+  const ps = el('planStatus'); if (ps) ps.textContent = 'Click the plan to place the terminal · Esc to cancel';
+  renderTerminalReview();
+}
+function finishTerminalPlacement(x_pct, y_pct) {
+  const n = _nodes.find(m => m.id === _placingTerminalId);
+  if (n) {
+    n.floor_index = _planFloor;
+    n.metadata = { ...(n.metadata ?? {}), plan: { floor_index: _planFloor, x_pct, y_pct, needs_placement: false, status: 'manually_moved' } };
+    setDirty(true);
+  }
+  _placingTerminalId = null;
+  const ps = el('planStatus'); if (ps) ps.textContent = 'Drag to pan · Scroll to zoom';
+  renderPlanNodes(); renderPlanRoutes(); renderTerminalReview(); renderCalcPanel();
+}
+function cancelTerminalPlacement() {
+  _placingTerminalId = null;
+  const ps = el('planStatus'); if (ps) ps.textContent = 'Drag to pan · Scroll to zoom';
+  renderTerminalReview();
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && _placingTerminalId) cancelTerminalPlacement(); });
 
 // LEFT: guided instructions panel (driven by _designState)
 function renderInstructions(state, s) {
@@ -2635,6 +2740,13 @@ function skipMvhrPlacement() {
 function onPlanViewportClick(e) {
   if (e.target.closest('.plan-node')) return;
   if (e.target.closest('#hrvOverlay')) return; // modal buttons handle their own clicks
+
+  // Terminal manual-placement mode takes priority
+  if (_placingTerminalId) {
+    const pct = viewportClickToPct(e);
+    if (pct) finishTerminalPlacement(pct.x_pct, pct.y_pct);
+    return;
+  }
 
   // HRV placement mode takes priority over normal tool
   if (_placingHrv) {
