@@ -272,7 +272,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 
   <!-- ── Loading state ── -->
   <div id="loadingState">
-    <div class="loading-row"><div class="spinner"></div><span>Loading airflow design…</span></div>
+    <div class="loading-row"><div class="spinner"></div><span id="loadingMsg">Loading airflow design…</span></div>
   </div>
 
   <!-- ── Empty state (no confirmed rooms) ── -->
@@ -649,9 +649,14 @@ async function loadSavedDesign() {
       }
       hideLoading();
     } else {
-      console.warn('[airflow] no saved design found');
-      hideLoading();
-      showNoDesign();
+      // No saved design yet — auto-generate it on first visit instead of
+      // forcing the user to click Recalculate. Reuses the same POST endpoint
+      // as the Recalculate button (recalculate()), which calculates, saves,
+      // and returns the freshly-loaded design for display. The empty-state
+      // ("No confirmed rooms") and error-state are only shown if that POST
+      // genuinely fails (HTTP 422 / API error), handled inside recalculate().
+      console.warn('[airflow] no saved design found — auto-generating');
+      await recalculate('Preparing airflow design…');
     }
   } catch (e) {
     console.error('[airflow] loadSavedDesign failed', e);
@@ -664,11 +669,11 @@ async function loadSavedDesign() {
 
 let _recalculating = false;
 
-async function recalculate() {
+async function recalculate(loadingMsg) {
   if (_recalculating) return;
   _recalculating = true;
   document.getElementById('recalcBtn').disabled = true;
-  showLoading();
+  showLoading(loadingMsg || 'Recalculating airflow design…');
   document.getElementById('recalcBar').style.display = 'none';
   const method = document.querySelector('input[name=designMethod]:checked')?.value ?? 'passive_house';
   try {
@@ -993,8 +998,10 @@ function renderRoomTable() {
 // ── Show/hide helpers ─────────────────────────────────────────
 const ALL_STATES = ['loadingState','emptyState','noDesignState','errorState','basisArea','statsArea','roomTableCard','confirmCard'];
 
-function showLoading() {
+function showLoading(msg) {
   ALL_STATES.forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
+  const m = el('loadingMsg');
+  if (m) m.textContent = msg || 'Loading airflow design…';
   el('loadingState').style.display = 'block';
 }
 function hideLoading() {
