@@ -49,8 +49,8 @@ async function getSharp() {
 function validateInternalToken(req) {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
-    const host = req.headers.host ?? '';
-    return host.includes('localhost') || host.includes('vercel.internal');
+    console.error('render-pdf: INTERNAL_API_SECRET env var is not set — rejecting request.');
+    return false;
   }
   return req.headers['x-internal-secret'] === secret;
 }
@@ -154,6 +154,20 @@ export default async function handler(req, res) {
   const { uploadId, jobId, storagePath, userId, projectId } = req.body ?? {};
   if (!uploadId || !jobId || !storagePath || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, storagePath, userId required' });
+  }
+
+  const { data: upload, error: uploadErr } = await supabase
+    .from('pdf_uploads')
+    .select('id, job_id, user_id, project_id, storage_path')
+    .eq('id', uploadId)
+    .maybeSingle();
+
+  if (uploadErr) return res.status(500).json({ error: 'Failed to verify upload ownership' });
+  if (!upload || upload.job_id !== jobId || upload.user_id !== userId || upload.storage_path !== storagePath) {
+    return res.status(404).json({ error: 'Upload not found' });
+  }
+  if (projectId && upload.project_id !== projectId) {
+    return res.status(403).json({ error: 'Project does not match upload' });
   }
 
   const renderStartedAt = new Date().toISOString();

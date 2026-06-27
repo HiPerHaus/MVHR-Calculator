@@ -463,18 +463,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'uploadId, jobId, userId required' });
   }
 
+  const { data: verifiedUpload, error: verifyUploadErr } = await supabase
+    .from('pdf_uploads')
+    .select('id, job_id, user_id, project_id')
+    .eq('id', uploadId)
+    .maybeSingle();
+
+  if (verifyUploadErr) return res.status(500).json({ error: 'Failed to verify upload ownership' });
+  if (!verifiedUpload || verifiedUpload.job_id !== jobId || verifiedUpload.user_id !== userId) {
+    return res.status(404).json({ error: 'Upload not found' });
+  }
+  if (projectId && verifiedUpload.project_id !== projectId) {
+    return res.status(403).json({ error: 'Project does not match upload' });
+  }
+
   // ── Recover projectId from pdf_uploads if not in request body ────────────
   // Treat the DB row as the source of truth — the internal-call chain may
   // lose projectId when it is not explicitly forwarded at every hop.
   if (!projectId) {
-    const { data: uploadRow } = await supabase
-      .from('pdf_uploads')
-      .select('project_id')
-      .eq('id', uploadId)
-      .single();
-
-    if (uploadRow?.project_id) {
-      projectId = uploadRow.project_id;
+    if (verifiedUpload.project_id) {
+      projectId = verifiedUpload.project_id;
       console.log(JSON.stringify({
         event:     'auto-analyse:projectId-recovered',
         uploadId,
@@ -897,7 +905,8 @@ export default async function handler(req, res) {
           const { error: projectUpdateErr } = await supabase
             .from('projects')
             .update({ ai_analysis_json: mergedJson })
-            .eq('id', projectId);
+            .eq('id', projectId)
+            .eq('user_id', userId);
 
           if (projectUpdateErr) {
             console.error('auto-analyse: projects.ai_analysis_json update failed:', projectUpdateErr.message);

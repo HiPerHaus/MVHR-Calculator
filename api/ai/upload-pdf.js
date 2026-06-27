@@ -81,6 +81,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'projectId must be a valid UUID' });
   }
 
+  if (projectId) {
+    const { data: project, error: projectErr } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (projectErr) return res.status(500).json({ error: 'Failed to verify project ownership' });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+  }
+
   console.log(JSON.stringify({
     event:       'upload-pdf:received-project-id',
     projectId:   projectId ?? null,
@@ -150,9 +162,12 @@ export default async function handler(req, res) {
     if (insertErr.code === '23505') {
       const { data: existing } = await supabase
         .from('pdf_uploads')
-        .select('job_id, status')
+        .select('job_id, status, user_id')
         .eq('job_id', jobId)
         .single();
+      if (!existing || existing.user_id !== user.id) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
       return res.status(200).json({
         jobId:   existing.job_id,
         status:  existing.status,

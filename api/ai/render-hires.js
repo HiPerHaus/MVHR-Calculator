@@ -22,8 +22,8 @@ const BUCKET    = 'plan-uploads';
 function validateInternalToken(req) {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
-    const host = req.headers.host ?? '';
-    return host.includes('localhost') || host.includes('vercel.internal');
+    console.error('render-hires: INTERNAL_API_SECRET env var is not set — rejecting request.');
+    return false;
   }
   return req.headers['x-internal-secret'] === secret;
 }
@@ -36,6 +36,27 @@ export default async function handler(req, res) {
   if (!uploadId || !jobId || !pageId || !storagePath || !pageNumber || !userId) {
     return res.status(400).json({ error: 'uploadId, jobId, pageId, storagePath, pageNumber, userId required' });
   }
+
+  const { data: upload, error: uploadErr } = await supabase
+    .from('pdf_uploads')
+    .select('id, job_id, user_id, storage_path')
+    .eq('id', uploadId)
+    .maybeSingle();
+
+  if (uploadErr) return res.status(500).json({ error: 'Failed to verify upload ownership' });
+  if (!upload || upload.job_id !== jobId || upload.user_id !== userId || upload.storage_path !== storagePath) {
+    return res.status(404).json({ error: 'Upload not found' });
+  }
+
+  const { data: page, error: pageErr } = await supabase
+    .from('pdf_pages')
+    .select('id, pdf_upload_id')
+    .eq('id', pageId)
+    .eq('pdf_upload_id', uploadId)
+    .maybeSingle();
+
+  if (pageErr) return res.status(500).json({ error: 'Failed to verify page ownership' });
+  if (!page) return res.status(404).json({ error: 'Page not found' });
 
   const t0 = Date.now();
 

@@ -254,6 +254,7 @@ export default async function handler(req, res) {
           .from('mvhr_units')
           .select('id, hr_eff, sfp')
           .eq('id', unitId)
+          .or(`user_id.is.null,user_id.eq.${user.id}`)
           .maybeSingle();
 
         if (!unit) return res.status(404).json({ error: 'Selected MVHR unit not found' });
@@ -430,7 +431,7 @@ export default async function handler(req, res) {
         design_driver:          calc.designDriver,
         design_airflow_m3h:     calc.designFlowM3h,
         design_airflow_lps:     calc.designFlowLps,// ACH compliance (P1.3)
-        treated_volume_m3: calc.hasVolumeData ? calc.totalVolumeM3 : null,
+        total_volume_m3:        calc.hasVolumeData ? calc.totalVolumeM3 : null,
         ach_at_design:          calc.achAtDesign,
         ach_passes:             calc.achPasses,
         // Room totals (after balancing)

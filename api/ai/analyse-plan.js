@@ -1711,28 +1711,58 @@ export default async function handler(req, res) {
   let resolvedStoragePath = storagePath;
 
   if (pdfPageId) {
+    if (!isUuid(pdfPageId)) {
+      return res.status(400).json({ error: 'pdfPageId must be a valid UUID' });
+    }
+
+    const { data: pageRow, error: pageErr } = await supabase
+      .from('pdf_pages')
+      .select('id, image_path, pdf_upload_id')
+      .eq('id', pdfPageId)
+      .single();
+
+    if (pageErr || !pageRow) {
+      return res.status(404).json({ error: 'pdfPageId not found' });
+    }
+
+    const { data: uploadRow, error: uploadErr } = await supabase
+      .from('pdf_uploads')
+      .select('id, user_id, project_id')
+      .eq('id', pageRow.pdf_upload_id)
+      .single();
+
+    if (uploadErr || !uploadRow || (!testMode && uploadRow.user_id !== user.id)) {
+      return res.status(404).json({ error: 'pdfPageId not found' });
+    }
+    if (pdfUploadId && pdfUploadId !== uploadRow.id) {
+      return res.status(400).json({ error: 'pdfUploadId does not match pdfPageId' });
+    }
+    if (isUuid(projectId) && uploadRow.project_id !== projectId) {
+      return res.status(403).json({ error: 'Project does not match upload' });
+    }
+
     // If auto-analyse already rendered hi-res, use it directly without a DB lookup.
     if (hiresImagePath) {
       // Hi-res PNG already rendered by render-hires — use it directly.
       resolvedStoragePath = hiresImagePath;
     } else {
-      // Fall back to the low-res classification JPEG from pdf_pages.image_path.
-      if (!isUuid(pdfPageId)) {
-        return res.status(400).json({ error: 'pdfPageId must be a valid UUID' });
-      }
-      const { data: pageRow, error: pageErr } = await supabase
-        .from('pdf_pages')
-        .select('id, image_path, pdf_upload_id')
-        .eq('id', pdfPageId)
-        .single();
-
-      if (pageErr || !pageRow) {
-        return res.status(404).json({ error: 'pdfPageId not found' });
-      }
       if (!pageRow.image_path) {
         return res.status(409).json({ error: 'Page image not yet rendered — poll job-status first' });
       }
       resolvedStoragePath = pageRow.image_path; // e.g. "plan-uploads/temp/<uid>/<jobId>/page_01.jpg"
+    }
+  } else if (pdfUploadId) {
+    if (!isUuid(pdfUploadId)) return res.status(400).json({ error: 'pdfUploadId must be a valid UUID' });
+    const { data: uploadRow, error: uploadErr } = await supabase
+      .from('pdf_uploads')
+      .select('id, user_id, project_id')
+      .eq('id', pdfUploadId)
+      .single();
+    if (uploadErr || !uploadRow || (!testMode && uploadRow.user_id !== user.id)) {
+      return res.status(404).json({ error: 'pdfUploadId not found' });
+    }
+    if (isUuid(projectId) && uploadRow.project_id !== projectId) {
+      return res.status(403).json({ error: 'Project does not match upload' });
     }
   }
 
@@ -1747,6 +1777,13 @@ export default async function handler(req, res) {
 
   const validMimeTypes = ['image/png','image/jpeg','image/jpg','image/webp','image/gif'];
   const safeMimeType = validMimeTypes.includes(mimeType) ? mimeType : 'image/png';
+
+  if (!testMode && resolvedStoragePath) {
+    const expectedPrefix = `plan-uploads/temp/${user.id}/`;
+    if (!resolvedStoragePath.startsWith(expectedPrefix)) {
+      return res.status(403).json({ error: 'Storage path does not belong to user' });
+    }
+  }
 
   // ── Verify project belongs to caller (skipped in testMode with no projectId) ──
   if (isUuid(projectId)) {
@@ -2439,7 +2476,8 @@ If still uncertain:
     await supabase
       .from('projects')
       .update({ ai_analysis_json: analysisJson })
-      .eq('id', projectId);
+      .eq('id', projectId)
+      .eq('user_id', user.id);
   }
 
   // ── Write audit log ─────────────────────────────────────────
