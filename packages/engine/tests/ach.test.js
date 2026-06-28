@@ -118,4 +118,24 @@ describe('ACH integration — calculateAirflow includes ACH as fourth candidate'
     assert.equal(result.achPasses, true);
     assert.ok(Math.abs(result.totalVolumeM3 - 700) < 1);
   });
+
+  it('uses canonical building geometry when supplied', () => {
+    const rooms = [
+      { id: 'bed', name: 'Bedroom', room_type: 'bedroom', classification: 'supply', bed_spaces: 2, area: 20, ceiling_height_m: 2.4, floor: 'G' },
+      { id: 'liv', name: 'Living',  room_type: 'living',  classification: 'supply', bed_spaces: 0, area: 40, ceiling_height_m: 2.4, floor: 'G' },
+      { id: 'bat', name: 'Bath',    room_type: 'wet_area', classification: 'extract', bed_spaces: 0, area: 8, ceiling_height_m: 2.4, floor: 'G' },
+    ];
+    const result = calculateAirflow(rooms, 'passive_house', {}, {
+      canonicalGeometry: {
+        conditionedFloorAreaM2: 180,
+        buildingVolumeM3: 900,
+      },
+    });
+
+    assert.equal(result.treatedAreaM2, 180);
+    assert.equal(result.areaFlowM3h, 180);
+    assert.equal(result.totalVolumeM3, 900);
+    assert.equal(result.designDriver, 'ach_minimum');
+    assert.equal(result.designFlowM3h, 270);
+  });
 });

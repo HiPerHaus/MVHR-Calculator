@@ -356,6 +356,27 @@ export default async function handler(req, res) {
       }
     }
 
+    // Load the current canonical airtight building volume, when available.
+    // This is the project-level geometry source of truth for ACH/area candidates;
+    // the engine falls back to room-derived area/volume if no saved calculation exists.
+    {
+      const { data: buildingVolume } = await supabase
+        .from('building_volume_calculations')
+        .select('id, conditioned_floor_area_m2, building_volume_m3')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .eq('is_current', true)
+        .maybeSingle();
+
+      if (buildingVolume?.building_volume_m3 > 0) {
+        boostSettings.canonicalGeometry = {
+          calculationId: buildingVolume.id,
+          conditionedFloorAreaM2: Number(buildingVolume.conditioned_floor_area_m2 ?? 0),
+          buildingVolumeM3: Number(buildingVolume.building_volume_m3 ?? 0),
+        };
+      }
+    }
+
     // ── Run the engine (imported from packages/engine) ────────────
     const calc = calculateAirflow(rooms, designMethod, userRates, boostSettings);
 
