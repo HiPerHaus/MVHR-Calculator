@@ -994,6 +994,32 @@ These words MUST appear in rooms[] if visible on the plan:
 
 Rooms labelled with a person's name (PAUL, JANE, TOM etc.) are bedrooms — classify as supply.
 
+════ STEP 1B: FIND UNLABELLED WET ROOMS BY FIXTURES ════
+After reading labels, scan the plan again for every enclosed or semi-enclosed space that contains
+wet-room fixtures even when no room label is printed inside it.
+
+This is mandatory. Bathrooms, ensuites, WCs and powder rooms are often unlabelled on MVHR,
+electrical or services plans. A small tiled room with a toilet, shower, basin/vanity or bath is
+still a room and MUST appear in rooms[].
+
+Create a separate room entry for each unlabelled wet space:
+  • Toilet only                         → name "WC", spaceType "wet_area", fixtures ["toilet"]
+  • Basin/vanity + toilet               → name "WC" or "Powder Room", spaceType "wet_area"
+  • Shower and/or bath + basin/toilet   → name "Bathroom", spaceType "wet_area"
+  • Wet room accessed from a bedroom    → name "<Bedroom Name> Ensuite" when the parent bedroom is clear
+  • Wet room inside/adjacent to Master  → name "Master Ensuite", parentRoom "Master" or "Master Bedroom"
+
+When the exact label is absent:
+  • Use the most likely generic name above.
+  • Set confidence 0.55-0.75 depending on fixture clarity.
+  • Set parentRoom when the wet room is clearly entered from a bedroom/suite.
+  • Include visible fixtures[]; do not leave fixtures[] empty.
+  • Add a warning only if the room boundary or function is genuinely uncertain.
+
+Do NOT skip a wet room because it has no text label.
+Do NOT merge an unlabelled bathroom/WC into the hallway or bedroom.
+Do NOT treat a toilet, shower, basin, vanity or bath symbol as joinery.
+
 ════ STEP 2: ASSIGN SPACE TYPES ════
 The server derives ventilation classification, airflow drivers, and terminal priorities from
 spaceType and fixtures[]. Your job is to assign the correct spaceType and list all visible
@@ -1207,6 +1233,8 @@ Look for these drawn elements against the walls inside each room:
   • Kitchenette — short joinery run with a sink outline
 
 Small fixtures are drawn as simple outlines and easy to miss. Check every wall.
+If these fixtures are inside an unlabelled enclosed room, create that room in rooms[] using the
+generic wet-room naming rules from STEP 1B.
 Inspect these room types carefully even if not labelled as wet rooms:
   Multi-Use Room  Study  Office  Utility  Workshop  Studio  Store  Mudroom
   Retreat  Activity  Rumpus  Gym  Cellar  Bar  Scullery  Pantry
@@ -1570,6 +1598,20 @@ Read every visible room label. Use it as the "name" field (title case).
 Do not return joinery, BIR, CPD, linen or shelf outlines as rooms.
 Estimate area (m²) if visible. Use confidence 0.5 for uncertain rooms.
 Rooms labelled with a person's name (PAUL, JAN, JANE etc.) are bedrooms — spaceType "bedroom".
+
+UNLABELLED WET ROOM RECOVERY:
+  After reading labels, scan the plan again for enclosed or semi-enclosed rooms containing
+  toilet, WC, shower, basin, vanity, bath, laundry tub or sink symbols.
+  These spaces are rooms even when no text label is printed inside them.
+  Include each one in rooms[] as a separate entry:
+    Toilet only                         → name "WC", spaceType "wet_area"
+    Basin/vanity + toilet               → name "WC" or "Powder Room", spaceType "wet_area"
+    Shower and/or bath + basin/toilet   → name "Bathroom", spaceType "wet_area"
+    Wet room entered from a bedroom     → name "<Bedroom Name> Ensuite", spaceType "wet_area",
+                                           parentRoom set to that bedroom when clear
+    Wet room in/near Master suite       → name "Master Ensuite", spaceType "wet_area"
+  Use confidence 0.55-0.75 for inferred unlabelled wet rooms and list all visible fixtures[].
+  Do NOT skip bathrooms, ensuites or WCs because they have no label.
 
 SPACE TYPE ASSIGNMENT:
   "bedroom"     — bedroom, master, guest, nursery, personal room
@@ -2036,18 +2078,18 @@ export default async function handler(req, res) {
   // The AI is no longer asked to output it — any AI-returned value is intentionally ignored.
 
   // ── Collect AI warnings and assumptions ─────────────────────
-  if (Array.isArray(parsed.warnings)) {
+  if (Array.isArray(parsed?.warnings)) {
     for (const w of parsed.warnings) {
       if (typeof w === 'string' && w.trim()) warnings.push(w.trim());
     }
   }
-  const assumptions = Array.isArray(parsed.assumptions)
+  const assumptions = Array.isArray(parsed?.assumptions)
     ? parsed.assumptions.filter(a => typeof a === 'string' && a.trim()).map(a => a.trim())
     : [];
 
   // reviewCandidates: rooms flagged by the AI for further human or crop-analysis review.
   // Validated: each entry must have a non-empty "room" string.
-  const reviewCandidates = Array.isArray(parsed.reviewCandidates)
+  const reviewCandidates = Array.isArray(parsed?.reviewCandidates)
     ? parsed.reviewCandidates
         .filter(c => c && typeof c.room === 'string' && c.room.trim())
         .map(c => ({
