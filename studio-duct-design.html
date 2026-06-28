@@ -1399,23 +1399,9 @@ function ensurePlanPositions() {
     } else if (n.node_type === 'supply_terminal' || n.node_type === 'extract_terminal') {
       // Auto-place inside the room when AI captured its geometry (bbox), else
       // queue for manual placement (review queue) — never scatter on the plan.
-      const bb = roomBboxForNode(n);
-      if (bb) {
-        const N = n.metadata?.terminal_count ?? 1;
-        const t = n.metadata?.terminal_index ?? 0;
-        const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
-        let fx = cx, fy = cy;
-        if (N > 1) {                       // spread multiple terminals along the wider axis
-          const frac = (t - (N - 1) / 2) / N;
-          if (bb.w >= bb.h) fx = cx + frac * bb.w * 0.6; else fy = cy + frac * bb.h * 0.6;
-        }
-        // nudge supply up / extract down a touch so co-located terminals don't overlap
-        fy += (n.node_type === 'extract_terminal' ? 1 : -1) * Math.min(bb.h * 0.15, 0.03);
-        // keep inside the room with 10% padding from walls
-        const pad = 0.10;
-        fx = Math.min(Math.max(fx, bb.x + bb.w * pad), bb.x + bb.w * (1 - pad));
-        fy = Math.min(Math.max(fy, bb.y + bb.h * pad), bb.y + bb.h * (1 - pad));
-        n.metadata = { ...meta, plan: { floor_index: fi, x_pct: Math.round(fx * 1000) / 10, y_pct: Math.round(fy * 1000) / 10, status: 'auto_placed' } };
+      const plan = terminalPlanPositionForNode(n);
+      if (plan) {
+        n.metadata = { ...meta, plan };
       } else {
         n.metadata = { ...meta, plan: { floor_index: fi, needs_placement: true } };
       }
@@ -2325,6 +2311,47 @@ function roomBboxForNode(node) {
          || _rooms.find(x => (x.name || '') === (node.room_name || ''));
   const bb = r?.bbox;
   return (bb && typeof bb.x === 'number' && typeof bb.w === 'number') ? bb : null;
+}
+function terminalPlanPositionForNode(node) {
+  const bb = roomBboxForNode(node);
+  if (!bb) return null;
+  const room = _rooms.find(x => x.id && x.id === node.project_room_id)
+            || _rooms.find(x => (x.name || '') === (node.room_name || ''));
+  const roomText = `${room?.room_type ?? ''} ${room?.name ?? node.room_name ?? ''}`.toLowerCase();
+  const isKitchen = /kitchen|kitchenette|cooktop|hob|stove/.test(roomText);
+  const isShower = /shower|ensuite|bath|bathroom|wet_area|wet area/.test(roomText);
+  let fx = 0.5;
+  let fy = 0.5;
+  let placementHint = 'room_centre';
+  if (node.node_type === 'extract_terminal' && isKitchen) {
+    fx = 0.62;
+    fy = 0.45;
+    placementHint = 'near_cooktop_zone';
+  } else if (node.node_type === 'extract_terminal' && isShower) {
+    fx = 0.55;
+    fy = 0.35;
+    placementHint = 'over_shower_zone';
+  }
+  const N = node.metadata?.terminal_count ?? 1;
+  const t = node.metadata?.terminal_index ?? 0;
+  let px = bb.x + bb.w * fx;
+  let py = bb.y + bb.h * fy;
+  if (N > 1) {
+    const offset = (t - (N - 1) / 2) / N;
+    if (bb.w >= bb.h) px += offset * bb.w * 0.55;
+    else py += offset * bb.h * 0.55;
+  }
+  const pad = 0.10;
+  px = Math.min(Math.max(px, bb.x + bb.w * pad), bb.x + bb.w * (1 - pad));
+  py = Math.min(Math.max(py, bb.y + bb.h * pad), bb.y + bb.h * (1 - pad));
+  return {
+    floor_index: node.floor_index ?? 0,
+    x_pct: Math.round(px * 1000) / 10,
+    y_pct: Math.round(py * 1000) / 10,
+    needs_placement: false,
+    status: 'auto_placed',
+    placement_hint: placementHint,
+  };
 }
 // Containment check: placed, inside image bounds, floor matches, and (if room
 // geometry exists) the point sits within the room's bounding box.

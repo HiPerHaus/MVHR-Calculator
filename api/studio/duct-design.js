@@ -54,6 +54,95 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const CANVAS_W = 1200;
 
+function clamp01(n) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function pct(n) {
+  return Math.round(clamp01(n) * 1000) / 10;
+}
+
+function normaliseRoomBbox(bbox) {
+  if (!bbox || typeof bbox !== 'object') return null;
+  const x = Number(bbox.x);
+  const y = Number(bbox.y);
+  const w = Number(bbox.w);
+  const h = Number(bbox.h);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  const safeX = clamp01(x);
+  const safeY = clamp01(y);
+  const safeW = Math.min(w, 1 - safeX);
+  const safeH = Math.min(h, 1 - safeY);
+  if (safeW <= 0 || safeH <= 0) return null;
+  return {
+    x: safeX,
+    y: safeY,
+    w: safeW,
+    h: safeH,
+  };
+}
+
+function terminalAnchorInRoom(room, nodeType) {
+  const bb = normaliseRoomBbox(room?.bbox);
+  if (!bb) return null;
+
+  const roomType = String(room?.room_type ?? '').toLowerCase();
+  const roomName = String(room?.room_name ?? room?.name ?? '').toLowerCase();
+  const isKitchen = /kitchen|kitchenette|cooktop|hob|stove/.test(`${roomType} ${roomName}`);
+  const isShower = /shower|ensuite|bath|bathroom|wet_area|wet area/.test(`${roomType} ${roomName}`);
+
+  let fx = 0.5;
+  let fy = 0.5;
+  let placementHint = 'room_centre';
+
+  if (nodeType === 'extract_terminal' && isKitchen) {
+    fx = 0.62;
+    fy = 0.45;
+    placementHint = 'near_cooktop_zone';
+  } else if (nodeType === 'extract_terminal' && isShower) {
+    fx = 0.55;
+    fy = 0.35;
+    placementHint = 'over_shower_zone';
+  }
+
+  return {
+    x: bb.x + bb.w * fx,
+    y: bb.y + bb.h * fy,
+    bbox: bb,
+    placementHint,
+  };
+}
+
+function terminalPlanMetadata(room, nodeType, terminalIndex = 0, terminalTotal = 1) {
+  const anchor = terminalAnchorInRoom(room, nodeType);
+  if (!anchor) {
+    return { floor_index: room?.floor_index ?? 0, needs_placement: true };
+  }
+
+  const { bbox, placementHint } = anchor;
+  let x = anchor.x;
+  let y = anchor.y;
+
+  if (terminalTotal > 1) {
+    const offset = (terminalIndex - (terminalTotal - 1) / 2) / terminalTotal;
+    if (bbox.w >= bbox.h) x += offset * bbox.w * 0.55;
+    else y += offset * bbox.h * 0.55;
+  }
+
+  const wallPad = 0.10;
+  x = Math.min(Math.max(x, bbox.x + bbox.w * wallPad), bbox.x + bbox.w * (1 - wallPad));
+  y = Math.min(Math.max(y, bbox.y + bbox.h * wallPad), bbox.y + bbox.h * (1 - wallPad));
+
+  return {
+    floor_index: room?.floor_index ?? 0,
+    x_pct: pct(x),
+    y_pct: pct(y),
+    needs_placement: false,
+    status: 'auto_placed',
+    placement_hint: placementHint,
+  };
+}
+
 // ── Plant room detection ──────────────────────────────────────
 function isPlantRoom(name) {
   return /plant|services|laundry|garage|store|mech|mvhr|utility|plant\s*room/i.test(name ?? '');
@@ -181,7 +270,7 @@ function getUnitAssemblyProfile(manufacturer, model) {
 async function loadAirflowData(supabase, projectId) {
   const { data: allRooms } = await supabase
     .from('project_rooms')
-    .select('id, name, room_type, floor, classification, is_confirmed, sort_order')
+    .select('id, name, room_type, floor, classification, is_confirmed, sort_order, bbox')
     .eq('project_id', projectId)
     .order('sort_order', { ascending: true });
 
@@ -216,17 +305,33 @@ async function loadAirflowData(supabase, projectId) {
       const matched    = sourceRooms.find(r => r.id === ar.project_room_id);
       const floorIdx   = parseFloorIndex(ar.floor ?? matched?.floor);
       const name       = ar.room_name ?? matched?.name ?? 'Room';
-      if (supplyM3h  > 0) supplyRooms.push({ project_room_id: ar.project_room_id, room_name: name, airflow_m3h: supplyM3h,  floor_index: floorIdx });
-      if (extractM3h > 0) extractRooms.push({ project_room_id: ar.project_room_id, room_name: name, airflow_m3h: extractM3h, floor_index: floorIdx });
+      const baseRoom   = {
+        project_room_id: ar.project_room_id,
+        room_name: name,
+        room_type: ar.room_type ?? matched?.room_type ?? null,
+        airflow_m3h: 0,
+        floor_index: floorIdx,
+        bbox: normaliseRoomBbox(matched?.bbox),
+      };
+      if (supplyM3h  > 0) supplyRooms.push({ ...baseRoom, airflow_m3h: supplyM3h });
+      if (extractM3h > 0) extractRooms.push({ ...baseRoom, airflow_m3h: extractM3h });
     }
   } else {
     // No airflow data yet — classify from project_rooms
     for (const r of sourceRooms) {
       const fi = parseFloorIndex(r.floor);
+      const baseRoom = {
+        project_room_id: r.id,
+        room_name: r.name,
+        room_type: r.room_type ?? null,
+        airflow_m3h: 0,
+        floor_index: fi,
+        bbox: normaliseRoomBbox(r.bbox),
+      };
       if (r.classification === 'supply' || ['bedroom','living','dining','office','gym'].includes(r.room_type))
-        supplyRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: fi });
+        supplyRooms.push(baseRoom);
       else if (r.classification === 'extract' || ['wet_area','laundry','kitchen','kitchenette'].includes(r.room_type))
-        extractRooms.push({ project_room_id: r.id, room_name: r.name, airflow_m3h: 0, floor_index: fi });
+        extractRooms.push(baseRoom);
     }
   }
 
@@ -295,6 +400,10 @@ async function generateTerminalsOnly(supabase, projectId, userId) {
       const N             = terminalCount(sr.airflow_m3h);
       const flowPerTerm   = N > 1 ? Math.round(sr.airflow_m3h / N * 10) / 10 : sr.airflow_m3h;
       for (let t = 0; t < N; t++) {
+        const metadata = {
+          plan: terminalPlanMetadata(sr, 'supply_terminal', t, N),
+          ...(N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: sr.airflow_m3h } : {}),
+        };
         nodeInserts.push({
           duct_design_id:   did,
           node_type:        'supply_terminal',
@@ -305,7 +414,7 @@ async function generateTerminalsOnly(supabase, projectId, userId) {
           y:                Math.round(band.y_start + spacing * (slotIdx + 1)),
           airflow_m3h:      flowPerTerm,
           duct_diameter_mm: 90,
-          metadata: N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: sr.airflow_m3h } : null,
+          metadata,
         });
         slotIdx++;
       }
@@ -323,6 +432,10 @@ async function generateTerminalsOnly(supabase, projectId, userId) {
       const N           = terminalCount(er.airflow_m3h);
       const flowPerTerm = N > 1 ? Math.round(er.airflow_m3h / N * 10) / 10 : er.airflow_m3h;
       for (let t = 0; t < N; t++) {
+        const metadata = {
+          plan: terminalPlanMetadata(er, 'extract_terminal', t, N),
+          ...(N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: er.airflow_m3h } : {}),
+        };
         nodeInserts.push({
           duct_design_id:   did,
           node_type:        'extract_terminal',
@@ -333,7 +446,7 @@ async function generateTerminalsOnly(supabase, projectId, userId) {
           y:                Math.round(band.y_start + spacing * (slotIdx + 1)),
           airflow_m3h:      flowPerTerm,
           duct_diameter_mm: 90,
-          metadata: N > 1 ? { terminal_index: t, terminal_count: N, room_total_m3h: er.airflow_m3h } : null,
+          metadata,
         });
         slotIdx++;
       }
