@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Project Overview</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg:#f0f4f8; --card:#fff; --border:#dde3ec;
+  --primary:#1a4731; --accent:#40916c; --primary-light:#d8f3dc;
+  --text:#111827; --muted:#6b7280; --input-bg:#f8fafc;
+  --warn:#c05621; --warn-bg:#fff7ed; --amber:#d97706;
+  --critical:#9b1c1c; --critical-bg:#fef2f2;
+  --ok-bg:#d8f3dc; --ok-border:#74c69d;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary { background:var(--primary); color:#fff; } .btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); } .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.5; cursor:not-allowed; pointer-events:none; }
+
+.grid2 { display:grid; grid-template-columns:1.3fr 1fr; gap:18px; align-items:start; }
+@media (max-width:880px){ .grid2 { grid-template-columns:1fr; } }
+.card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px; margin-bottom:18px; }
+.card-title { font-size:12px; font-weight:800; color:var(--primary); margin-bottom:14px; text-transform:uppercase; letter-spacing:.5px; display:flex; justify-content:space-between; align-items:center; }
+.card-title a { font-size:11px; font-weight:700; color:var(--accent); text-decoration:none; text-transform:none; letter-spacing:0; }
+.proj-name { font-size:24px; font-weight:900; color:var(--text); }
+.kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 22px; margin-top:14px; }
+.kv .k { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+.kv .v { font-size:15px; font-weight:700; color:var(--text); margin-top:2px; }
+.pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:800; padding:3px 10px; border-radius:20px; text-transform:capitalize; }
+.pill.draft { background:#eef1f5; color:#475569; } .pill.needs_review { background:var(--warn-bg); color:var(--warn); }
+.pill.approved { background:var(--ok-bg); color:#166534; } .pill.superseded { background:#f1f5f9; color:#94a3b8; }
+.pill.none { background:#eef1f5; color:#94a3b8; }
+
+.metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.metric { background:var(--input-bg); border:1px solid var(--border); border-radius:11px; padding:14px; }
+.metric .k { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+.metric .v { font-size:22px; font-weight:900; color:var(--text); margin-top:3px; } .metric .v small { font-size:12px; font-weight:700; color:var(--muted); }
+
+.steps { display:flex; flex-direction:column; gap:2px; }
+.step { display:flex; align-items:center; gap:12px; padding:11px 6px; border-bottom:1px solid var(--border); }
+.step:last-child { border-bottom:none; }
+.step .dot { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; flex-shrink:0; }
+.step.done .dot { background:var(--ok-bg); color:#166534; } .step.todo .dot { background:#eef1f5; color:#94a3b8; }
+.step .lbl { font-size:14px; font-weight:600; } .step.todo .lbl { color:var(--muted); }
+.step .sub { font-size:12px; color:var(--muted); margin-left:auto; }
+
+.banner { border-radius:10px; padding:12px 16px; font-size:13px; margin-bottom:18px; display:none; }
+.banner.visible { display:block; }
+.banner-warn { background:var(--warn-bg); border:1px solid #fed7aa; color:var(--warn); }
+.banner-err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+.muted-sm { font-size:12px; color:var(--muted); }
+.empty-model { text-align:center; padding:18px 10px; }
+.empty-model .big { font-size:30px; margin-bottom:8px; }
+.quick { display:flex; gap:10px; flex-wrap:wrap; }
+</style>
+<link rel="stylesheet" href="/studio-shell.css">
+</head>
+<body class="studio">
+
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking"><div class="auth-checking-spinner"></div><div>Checking session…</div></div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div><div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field"><label>Email</label><input type="email" id="loginEmail" autocomplete="email"></div>
+    <div class="login-field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<div id="shell" class="app-shell">
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">Digital Building Platform</div></div>
+  <nav class="nav-list">
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">←</span><span>All Projects</span></a>
+    <a class="nav-item active" href="overview"><span class="nav-ico">▦</span><span>Overview</span></a>
+    <a class="nav-item" href="documents"><span class="nav-ico">📄</span><span>Documents</span></a>
+    <a class="nav-item" href="building-model"><span class="nav-ico">🏠</span><span>Building Model</span></a>
+    <a class="nav-item" href="modules"><span class="nav-ico">🧩</span><span>Modules</span></a>
+  </nav>
+  <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+
+<div class="app-col">
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">Project <span id="headerProject"></span></div>
+  <div class="tb-center"></div>
+  <div class="tb-right"><span class="tb-user" id="headerUser"></span><button class="tb-btn" id="signoutBtn">Sign out</button></div>
+</header>
+
+<main id="appMain" style="display:none">
+<div class="shell-page">
+  <div class="banner banner-err" id="bannerErr"></div>
+  <div id="content"><div class="muted-sm">Loading project…</div></div>
+</div>
+</main>
+</div>
+</div>
+
+<script>
+'use strict';
+const SUPABASE_URL='https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const el=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const n2=v=>(v==null||v==='')?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:1});
+function isUuid(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v||'');}
+function getProjectId(){const p=location.pathname.split('/').filter(Boolean);const i=p.indexOf('projects');const c=i>=0&&p[i+1]?p[i+1]:null;return isUuid(c)?c:(new URLSearchParams(location.search).get('projectId')||null);}
+const _projectId=getProjectId();
+let _token=null;
+const apiGet=u=>fetch(u,{headers:{Authorization:'Bearer '+_token}});
+const apiPost=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_token},body:JSON.stringify(b)});
+
+el('loginBtn').addEventListener('click',async()=>{const{error}=await sb.auth.signInWithPassword({email:el('loginEmail').value.trim(),password:el('loginPassword').value});if(error){el('loginError').textContent=error.message;el('loginError').classList.add('visible');}});
+el('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')el('loginBtn').click();});
+el('signoutBtn').addEventListener('click',()=>sb.auth.signOut());
+sb.auth.getSession().then(({data:{session}})=>{el('loginOverlay').classList.add(session?'hidden':'show-login');});
+sb.auth.onAuthStateChange(async(_e,session)=>{
+  if(!session){el('loginOverlay').classList.remove('hidden');el('loginOverlay').classList.add('show-login');el('appHeader').style.display='none';el('appMain').style.display='none';return;}
+  _token=session.access_token; el('headerUser').textContent=session.user.email;
+  el('loginOverlay').classList.add('hidden');el('loginOverlay').classList.remove('show-login');
+  el('appHeader').style.display='flex';el('appMain').style.display='block';
+  // make sidebar links absolute to this project
+  document.querySelectorAll('.nav-item[href="overview"],.nav-item[href="documents"],.nav-item[href="building-model"],.nav-item[href="modules"]').forEach(a=>{a.href=`/mvhr-designer/projects/${_projectId}/${a.getAttribute('href')}`;});
+  await load();
+});
+
+function pill(status){const s=status||'none';return `<span class="pill ${esc(s)}">${esc((status||'No model').replace('_',' '))}</span>`;}
+
+async function load(){
+  el('bannerErr').classList.remove('visible');
+  let d;
+  try{
+    const res=await apiGet(`/api/studio/project-overview?projectId=${_projectId}`);
+    const body=await res.json().catch(()=>({}));
+    if(!res.ok){ el('bannerErr').textContent=body.error||('Error '+res.status); el('bannerErr').classList.add('visible'); el('content').innerHTML=''; return; }
+    d=body;
+  }catch(e){ el('bannerErr').textContent=e.message; el('bannerErr').classList.add('visible'); return; }
+  render(d);
+}
+
+function render(d){
+  const p=d.project, b=d.building, m=d.modules.mvhr, pr=d.progress;
+  el('headerProject').textContent = p.name || '';
+
+  const addr=[p.siteAddress,p.suburb,p.addressState,p.postcode].filter(Boolean).join(', ');
+
+  const projCard=`
+    <div class="card">
+      <div class="card-title"><span>Project</span><a href="/mvhr-designer/projects/${esc(_projectId)}/details">Edit details →</a></div>
+      <div class="proj-name">${esc(p.name||'Untitled Project')}</div>
+      <div class="kv">
+        <div><div class="k">Client</div><div class="v">${esc(p.clientName||'—')}</div></div>
+        <div><div class="k">Address</div><div class="v" style="font-size:13px">${esc(addr||'—')}</div></div>
+        <div><div class="k">Status</div><div class="v" style="font-size:13px">${esc(p.status||'—')}</div></div>
+        <div><div class="k">Created</div><div class="v" style="font-size:13px">${p.createdAt?new Date(p.createdAt).toLocaleDateString():'—'}</div></div>
+        <div><div class="k">Last updated</div><div class="v" style="font-size:13px">${p.updatedAt?new Date(p.updatedAt).toLocaleDateString():'—'}</div></div>
+        <div><div class="k">Building type</div><div class="v" style="font-size:13px">${esc(p.buildingType||'—')}</div></div>
+      </div>
+    </div>`;
+
+  const warnCount=(b.warnings||[]).length;
+  const buildingCard = b.hasModel ? `
+    <div class="card">
+      <div class="card-title"><span>Building Summary</span><a href="/mvhr-designer/projects/${esc(_projectId)}/building-model">Open Building Model →</a></div>
+      <div style="margin-bottom:12px">Model status: ${pill(b.status)} <span class="muted-sm">v${esc(b.version)}${b.newerDraftAwaiting?` · approved v${esc(b.approvedVersion)} in use`:''}</span></div>
+      <div class="metrics">
+        <div class="metric"><div class="k">Conditioned Floor Area</div><div class="v">${n2(b.conditionedFloorAreaM2)} <small>m²</small></div></div>
+        <div class="metric"><div class="k">Conditioned Volume</div><div class="v">${n2(b.buildingVolumeM3)} <small>m³</small></div></div>
+        <div class="metric"><div class="k">Levels</div><div class="v">${esc(b.levels)}</div></div>
+        <div class="metric"><div class="k">Rooms</div><div class="v">${esc(b.rooms)}</div></div>
+      </div>
+      ${warnCount?`<div class="banner banner-warn visible" style="margin-top:14px"><strong>${warnCount} warning${warnCount>1?'s':''}</strong> on the building model — review before approving.</div>`:''}
+    </div>` : `
+    <div class="card">
+      <div class="card-title"><span>Building Summary</span></div>
+      <div class="empty-model">
+        <div class="big">🏠</div>
+        <div style="font-weight:800;font-size:15px;margin-bottom:4px">No Building Model yet</div>
+        <div class="muted-sm" style="margin-bottom:14px">Generate the Digital Building Model from this project's rooms and approved volume.</div>
+        <button class="btn btn-primary" id="genModelBtn">Generate Building Model</button>
+      </div>
+    </div>`;
+
+  // Workflow progress
+  const step=(done,lbl,sub)=>`<div class="step ${done?'done':'todo'}"><div class="dot">${done?'✓':'○'}</div><div class="lbl">${esc(lbl)}</div>${sub?`<div class="sub">${esc(sub)}</div>`:''}</div>`;
+  const progressCard=`
+    <div class="card">
+      <div class="card-title"><span>Workflow Progress</span></div>
+      <div class="steps">
+        ${step(pr.documentsUploaded,'Documents uploaded')}
+        ${step(pr.aiAnalysisComplete,'AI analysis complete')}
+        ${step(pr.modelGenerated,'Building Model generated')}
+        ${step(pr.modelApproved,'Building Model approved')}
+        ${step(pr.mvhrStarted,'MVHR design started')}
+        ${step(pr.mvhrComplete,'MVHR design complete')}
+      </div>
+    </div>`;
+
+  // MVHR module mini-status
+  const usingTxt = m.source==='dbm'
+    ? `Using Building Model v${esc(m.usingVersion)} (${esc((m.usingStatus||'').replace('_',' '))})`
+    : `Using Project Rooms fallback`;
+  const draftNote = m.newerDraftAwaiting ? `<div class="banner banner-warn visible" style="margin-top:10px">Module is using Building Model v${esc(m.latestApprovedVersion)}. Version ${esc(m.currentVersion)} is awaiting approval.</div>` : '';
+  const moduleCard=`
+    <div class="card">
+      <div class="card-title"><span>Modules</span><a href="/mvhr-designer/projects/${esc(_projectId)}/modules">Open Modules →</a></div>
+      <div class="step ${m.started?'done':'todo'}" style="border:none;padding:6px 0">
+        <div class="dot">${m.complete?'✓':(m.started?'•':'○')}</div>
+        <div class="lbl">MVHR Design</div>
+        <div class="sub">${m.started?(m.complete?'Complete':'In progress'):'Not started'}</div>
+      </div>
+      <div class="muted-sm" style="margin-left:36px">${usingTxt} · ${esc(m.roomCount)} rooms${m.gatingMode==='approved_only'?' · gated to approved':''}</div>
+      ${draftNote}
+    </div>`;
+
+  el('content').innerHTML = projCard + `<div class="grid2"><div>${buildingCard}${moduleCard}</div><div>${progressCard}</div></div>`;
+
+  const gb=el('genModelBtn');
+  if(gb) gb.addEventListener('click', async ()=>{
+    gb.disabled=true; gb.textContent='Generating…';
+    try{
+      const res=await apiPost('/api/studio/building-model',{projectId:_projectId,action:'derive'});
+      const body=await res.json().catch(()=>({}));
+      if(!res.ok){ gb.disabled=false; gb.textContent='Generate Building Model'; el('bannerErr').textContent=body.error||'Failed'; el('bannerErr').classList.add('visible'); return; }
+      window.location.href=`/mvhr-designer/projects/${_projectId}/building-model`;
+    }catch(e){ gb.disabled=false; gb.textContent='Generate Building Model'; el('bannerErr').textContent=e.message; el('bannerErr').classList.add('visible'); }
+  });
+}
+</script>
+</body>
+</html>

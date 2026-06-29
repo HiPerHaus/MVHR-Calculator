@@ -117,12 +117,13 @@ td input[type="checkbox"] { width:18px; height:18px; }
     <section class="card">
       <h2>Plan Reading</h2>
       <div id="status" class="status"></div>
-      <div class="field">
+      <div class="field" id="projectField">
         <label>Project</label>
         <select id="projectSelect" onchange="onProjectChange()">
           <option value="">Select a project...</option>
         </select>
       </div>
+      <div id="projectLocked" class="status info" style="display:none"></div>
       <div id="savedMeta" class="status info" style="display:none"></div>
       <input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,.pdf" style="display:none" onchange="onFile(this.files[0])">
       <div id="drop" class="drop" onclick="fileInput.click()" ondragover="dragOver(event)" ondragleave="dragLeave()" ondrop="dropFile(event)">
@@ -270,9 +271,25 @@ async function loadProjects() {
     if (preferred && projects.some(p => p.id === preferred)) {
       $('projectSelect').value = preferred;
       await onProjectChange();
+      lockToProject(projects.find(p => p.id === preferred));
     }
   } catch (err) {
     showStatus('err', err.message);
+  }
+}
+
+// When launched from a project workspace (?projectId=), bind to that project:
+// auto-loaded above; here we lock the picker and show a back link so saves/reads
+// stay under this project without manual selection.
+function lockToProject(p) {
+  if (!p) return;
+  const field = $('projectField');
+  if (field) field.style.display = 'none';
+  const locked = $('projectLocked');
+  if (locked) {
+    locked.style.display = 'block';
+    locked.innerHTML = `Project workspace · <strong>${escapeHtml(p.name || 'Untitled project')}</strong> · `
+      + `<a href="/mvhr-designer/projects/${encodeURIComponent(p.id)}/overview" style="font-weight:700">← Back to project</a>`;
   }
 }
 async function onProjectChange() {

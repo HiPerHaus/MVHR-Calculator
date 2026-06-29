@@ -4,96 +4,190 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HiPer Studio</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
-  :root {
-    --nav:#0e2a1f; --nav-2:#16382a; --nav-line:#1f4a37; --nav-accent:#5ad29a;
-    --bg:#f0f4f8; --card:#fff; --border:#dde3ec; --text:#111827; --muted:#6b7280;
-    --primary:#1a4731; --accent:#40916c;
-  }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-  header { background:var(--nav); color:#fff; padding:0 32px; height:64px; display:flex; align-items:center; justify-content:space-between; }
-  .brand { display:flex; align-items:baseline; gap:10px; }
-  .brand .b1 { font-size:20px; font-weight:800; }
-  .brand .b2 { font-size:13px; color:#aed4c1; }
-  .header-right { display:flex; align-items:center; gap:14px; font-size:13px; }
-  .header-right a { color:#aed4c1; text-decoration:none; font-weight:600; }
-  .header-right a:hover { color:#fff; }
-  .wrap { max-width:1100px; margin:0 auto; padding:48px 32px; }
-  .hero h1 { font-size:30px; font-weight:800; letter-spacing:-.3px; }
-  .hero p { color:var(--muted); font-size:15px; margin-top:8px; max-width:620px; }
-  .sec-label { font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); margin:40px 0 16px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:18px; }
-  .tool { display:flex; flex-direction:column; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px; text-decoration:none; color:inherit; transition:transform .12s, box-shadow .12s, border-color .12s; }
-  .tool.live:hover { transform:translateY(-2px); box-shadow:0 10px 30px rgba(16,40,30,.10); border-color:var(--accent); }
-  .tool-ico { width:46px; height:46px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:22px; background:var(--primary); color:#fff; margin-bottom:14px; }
-  .tool h3 { font-size:17px; font-weight:800; }
-  .tool p { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5; flex:1; }
-  .tool .cta { margin-top:16px; font-size:13px; font-weight:700; color:var(--accent); display:flex; align-items:center; gap:6px; }
-  .tool.soon { opacity:.62; cursor:default; }
-  .tool.soon .tool-ico { background:var(--border); color:var(--muted); }
-  .badge { align-self:flex-start; font-size:10px; font-weight:800; letter-spacing:.4px; text-transform:uppercase; padding:3px 9px; border-radius:20px; margin-bottom:12px; }
-  .badge.live { background:#d8f3dc; color:#166534; }
-  .badge.soon { background:#eef1f5; color:var(--muted); }
-  footer { text-align:center; color:var(--muted); font-size:12px; padding:30px; }
+:root {
+  --nav:#0e2a1f; --bg:#f0f4f8; --card:#fff; --border:#dde3ec; --text:#111827; --muted:#6b7280;
+  --primary:#1a4731; --accent:#40916c; --ok-bg:#d8f3dc; --ok-border:#74c69d; --warn-bg:#fff7ed; --warn:#c05621; --critical:#9b1c1c; --critical-bg:#fef2f2;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; font-size:14px; }
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); display:none; }
+#loginOverlay.show-login .login-box { display:block; } #loginOverlay.show-login .auth-checking { display:none; }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; } .login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; } .login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+header { background:var(--nav); color:#fff; padding:0 32px; height:64px; display:flex; align-items:center; justify-content:space-between; }
+.brand { display:flex; align-items:baseline; gap:10px; } .brand .b1 { font-size:20px; font-weight:800; } .brand .b2 { font-size:13px; color:#aed4c1; }
+.header-right { display:flex; align-items:center; gap:14px; font-size:13px; }
+.header-right a { color:#aed4c1; text-decoration:none; font-weight:600; } .header-right a:hover { color:#fff; }
+.header-right .who { color:#aed4c1; } .header-right button { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); color:#fff; border-radius:7px; padding:6px 12px; font-weight:700; cursor:pointer; }
+
+.wrap { max-width:1180px; margin:0 auto; padding:40px 32px; }
+.hero { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.hero h1 { font-size:28px; font-weight:900; letter-spacing:-.3px; } .hero p { color:var(--muted); font-size:14px; margin-top:6px; }
+.btn { display:inline-flex; align-items:center; gap:7px; border:none; border-radius:10px; padding:11px 18px; font-size:14px; font-weight:800; cursor:pointer; text-decoration:none; }
+.btn-primary { background:var(--primary); color:#fff; } .btn-primary:hover { background:var(--accent); }
+.sec-label { font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); margin:34px 0 14px; }
+
+.proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; }
+.proj { display:flex; flex-direction:column; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; text-decoration:none; color:inherit; transition:transform .12s, box-shadow .12s, border-color .12s; }
+.proj:hover { transform:translateY(-2px); box-shadow:0 10px 30px rgba(16,40,30,.10); border-color:var(--accent); }
+.proj h3 { font-size:17px; font-weight:800; } .proj .addr { font-size:13px; color:var(--muted); margin-top:3px; min-height:18px; }
+.proj .meta { display:flex; align-items:center; gap:8px; margin-top:14px; flex-wrap:wrap; }
+.chip { font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; background:#eef1f5; color:#475569; }
+.chip.approved { background:var(--ok-bg); color:#166534; } .chip.draft, .chip.needs_review { background:var(--warn-bg); color:var(--warn); }
+.bar { height:6px; border-radius:4px; background:#eef1f5; overflow:hidden; margin-top:14px; } .bar > i { display:block; height:100%; background:var(--accent); transition:width .3s; }
+.proj .upd { font-size:12px; color:var(--muted); margin-top:10px; }
+.proj .frac { font-size:11px; color:var(--muted); margin-top:6px; }
+
+.new-card { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; border:1.5px dashed var(--border); background:#fafcff; color:var(--muted); gap:6px; cursor:pointer; }
+.new-card:hover { border-color:var(--accent); color:var(--accent); }
+.new-card .plus { font-size:30px; font-weight:300; line-height:1; }
+
+.tools { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }
+.tool { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-decoration:none; color:inherit; }
+.tool:hover { border-color:var(--accent); } .tool .ic { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; background:var(--primary); color:#fff; flex-shrink:0; }
+.tool h4 { font-size:14px; font-weight:800; } .tool p { font-size:12px; color:var(--muted); }
+.empty { text-align:center; color:var(--muted); padding:40px; background:var(--card); border:1px solid var(--border); border-radius:14px; }
+.banner { border-radius:10px; padding:12px 16px; font-size:13px; margin:14px 0; display:none; } .banner.visible { display:block; }
+.banner-err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+footer { text-align:center; color:var(--muted); font-size:12px; padding:30px; }
 </style>
 </head>
 <body>
+
+<div id="loginOverlay">
+  <div class="auth-checking"><div class="auth-checking-spinner"></div><div>Checking session…</div></div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div><div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field"><label>Email</label><input type="email" id="loginEmail" autocomplete="email"></div>
+    <div class="login-field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
 <header>
-  <div class="brand"><span class="b1">HiPer Studio</span><span class="b2">Passive House design tools</span></div>
+  <div class="brand"><span class="b1">HiPer Studio</span><span class="b2">Digital Building Platform</span></div>
   <div class="header-right">
+    <span class="who" id="who"></span>
     <a href="/mvhr-designer/settings">Settings</a>
     <a href="/admin">Admin</a>
+    <button id="signoutBtn">Sign out</button>
   </div>
 </header>
 
-<div class="wrap">
+<div class="wrap" id="wrap" style="display:none">
   <div class="hero">
-    <h1>Design tools</h1>
-    <p>Choose a tool to get started. Each tool opens in its own workspace; more tools will appear here as they are released.</p>
+    <div>
+      <h1>Projects</h1>
+      <p>Each project owns its building. Open a project to define the model and run engineering modules.</p>
+    </div>
+    <a class="btn btn-primary" href="/mvhr-designer/projects/new">＋ New Project</a>
   </div>
 
-  <div class="sec-label">Available now</div>
-  <div class="grid">
-    <a class="tool live" href="/mvhr-designer">
-      <span class="badge live">Live</span>
-      <div class="tool-ico">🌀</div>
-      <h3>MVHR Designer</h3>
-      <p>Plan-reading, airflow sizing, unit selection, duct layout, and Passive House compliance — end to end.</p>
-      <span class="cta">Open tool →</span>
-    </a>
-    <a class="tool live" href="/building-volume-calculator">
-      <span class="badge live">Live</span>
-      <div class="tool-ico">📐</div>
-      <h3>Building Volume Calculator</h3>
-      <p>AI-assisted airtight volume calculation for blower-door testing, based on the internal air barrier.</p>
-      <span class="cta">Open tool →</span>
-    </a>
-  </div>
+  <div class="banner banner-err" id="bannerErr"></div>
 
-  <div class="sec-label">Coming soon</div>
-  <div class="grid">
-    <div class="tool soon">
-      <span class="badge soon">Soon</span>
-      <div class="tool-ico">🔥</div>
-      <h3>Heating &amp; Hot Water</h3>
-      <p>Heat-load and hot-water sizing aligned with the Passive House method.</p>
-    </div>
-    <div class="tool soon">
-      <span class="badge soon">Soon</span>
-      <div class="tool-ico">☀️</div>
-      <h3>Overheating Check</h3>
-      <p>Summer comfort and overheating risk assessment.</p>
-    </div>
-    <div class="tool soon">
-      <span class="badge soon">Soon</span>
-      <div class="tool-ico">📋</div>
-      <h3>Compliance Reports</h3>
-      <p>Certification-grade design reports and exports across all tools.</p>
-    </div>
+  <div class="sec-label" id="projLabel">Your projects</div>
+  <div id="projGrid" class="proj-grid"><div class="empty">Loading projects…</div></div>
+
+  <div class="sec-label">Tools</div>
+  <div class="tools">
+    <a class="tool" href="/building-volume-calculator">
+      <div class="ic">📐</div><div><h4>Building Volume Calculator</h4><p>Standalone airtight-volume tool</p></div>
+    </a>
+    <a class="tool" href="/mvhr-designer/projects">
+      <div class="ic">🗂</div><div><h4>All Projects</h4><p>Browse and manage projects</p></div>
+    </a>
   </div>
 </div>
 
 <footer>© HiPer Studio · hiper-studio.au</footer>
+
+<script>
+'use strict';
+const SUPABASE_URL='https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const el=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let _token=null;
+
+el('loginBtn').addEventListener('click',async()=>{const{error}=await sb.auth.signInWithPassword({email:el('loginEmail').value.trim(),password:el('loginPassword').value});if(error){el('loginError').textContent=error.message;el('loginError').classList.add('visible');}});
+el('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')el('loginBtn').click();});
+el('signoutBtn').addEventListener('click',()=>sb.auth.signOut());
+sb.auth.getSession().then(({data:{session}})=>{el('loginOverlay').classList.add(session?'hidden':'show-login');});
+sb.auth.onAuthStateChange(async(_e,session)=>{
+  if(!session){el('loginOverlay').classList.remove('hidden');el('loginOverlay').classList.add('show-login');el('wrap').style.display='none';return;}
+  _token=session.access_token; el('who').textContent=session.user.email;
+  el('loginOverlay').classList.add('hidden');el('loginOverlay').classList.remove('show-login');
+  el('wrap').style.display='block';
+  await loadProjects();
+});
+
+const apiGet=u=>fetch(u,{headers:{Authorization:'Bearer '+_token}});
+
+async function loadProjects(){
+  let projects;
+  try{
+    const res=await apiGet('/api/studio/projects');
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error||('Error '+res.status));
+    projects=data.projects||[];
+  }catch(e){ el('bannerErr').textContent=e.message; el('bannerErr').classList.add('visible'); el('projGrid').innerHTML=''; return; }
+
+  if(!projects.length){
+    el('projGrid').innerHTML=`<div class="empty">No projects yet. <a href="/mvhr-designer/projects/new" style="color:var(--accent);font-weight:700">Create your first project →</a></div>`;
+    return;
+  }
+
+  el('projLabel').textContent=`Your projects · ${projects.length}`;
+  // Base cards immediately; enrich with status/progress after.
+  el('projGrid').innerHTML = projects.map(p=>{
+    const addr=esc(p.site_address||'');
+    const upd=p.updated_at?new Date(p.updated_at).toLocaleDateString():'';
+    return `<a class="proj" id="proj-${esc(p.id)}" href="/mvhr-designer/projects/${esc(p.id)}/overview">
+      <h3>${esc(p.name||'Untitled Project')}</h3>
+      <div class="addr">${addr}</div>
+      <div class="meta" data-meta><span class="chip">Open</span></div>
+      <div class="bar" data-bar><i style="width:0%"></i></div>
+      <div class="frac" data-frac>—</div>
+      <div class="upd">Updated ${esc(upd)}</div>
+    </a>`;
+  }).join('') + `<div class="proj new-card" onclick="location.href='/mvhr-designer/projects/new'"><div class="plus">＋</div><div>New Project</div></div>`;
+
+  // Enrich (parallel, capped) with workflow status + progress.
+  const cap=projects.slice(0,24);
+  await Promise.all(cap.map(async p=>{
+    try{
+      const res=await apiGet(`/api/studio/project-overview?projectId=${encodeURIComponent(p.id)}`);
+      if(!res.ok) return;
+      const d=await res.json();
+      const card=el(`proj-${p.id}`); if(!card) return;
+      const flags=d.progress||{};
+      const done=Object.values(flags).filter(Boolean).length;
+      const total=Object.keys(flags).length||6;
+      const pct=Math.round(done/total*100);
+      const bstatus=d.building?.status;
+      const metaEl=card.querySelector('[data-meta]');
+      const chips=[`<span class="chip">${esc(d.project?.status||'New project')}</span>`];
+      if(bstatus) chips.push(`<span class="chip ${esc(bstatus)}">Model ${esc(bstatus.replace('_',' '))}</span>`);
+      metaEl.innerHTML=chips.join('');
+      card.querySelector('[data-bar] i').style.width=pct+'%';
+      card.querySelector('[data-frac]').textContent=`${done}/${total} steps`;
+    }catch{}
+  }));
+}
+</script>
 </body>
 </html>

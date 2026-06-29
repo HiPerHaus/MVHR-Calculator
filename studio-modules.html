@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Modules</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg:#f0f4f8; --card:#fff; --border:#dde3ec; --primary:#1a4731; --accent:#40916c;
+  --text:#111827; --muted:#6b7280; --input-bg:#f8fafc;
+  --warn:#c05621; --warn-bg:#fff7ed; --critical:#9b1c1c; --critical-bg:#fef2f2;
+  --ok-bg:#d8f3dc; --ok-border:#74c69d;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); display:none; }
+#loginOverlay.show-login .login-box { display:block; } #loginOverlay.show-login .auth-checking { display:none; }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; } .login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; } .login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary { background:var(--primary); color:#fff; } .btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); } .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.5; cursor:not-allowed; pointer-events:none; }
+
+.mods { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:18px; }
+.mod { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px; display:flex; flex-direction:column; }
+.mod.soon { opacity:.7; }
+.mod-top { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.mod-ico { width:44px; height:44px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:21px; background:var(--primary); color:#fff; flex-shrink:0; }
+.mod.soon .mod-ico { background:var(--border); color:var(--muted); }
+.mod h3 { font-size:17px; font-weight:800; } .mod .desc { font-size:13px; color:var(--muted); margin-top:2px; }
+.mod-body { flex:1; margin:6px 0 14px; }
+.row { display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.row:last-child { border-bottom:none; } .row .k { color:var(--muted); } .row .v { font-weight:700; text-align:right; }
+.pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:800; padding:3px 10px; border-radius:20px; text-transform:capitalize; }
+.pill.approved { background:var(--ok-bg); color:#166534; } .pill.draft,.pill.needs_review { background:var(--warn-bg); color:var(--warn); } .pill.none { background:#eef1f5; color:#94a3b8; }
+.note { background:var(--warn-bg); border:1px solid #fed7aa; color:var(--warn); border-radius:9px; padding:9px 12px; font-size:12px; font-weight:600; margin-bottom:12px; }
+.note.ok { background:var(--ok-bg); border-color:var(--ok-border); color:#166534; }
+.banner { border-radius:10px; padding:12px 16px; font-size:13px; margin-bottom:18px; display:none; } .banner.visible { display:block; }
+.banner-err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+.muted-sm { font-size:12px; color:var(--muted); }
+.badge-soon { align-self:flex-start; font-size:10px; font-weight:800; letter-spacing:.4px; text-transform:uppercase; padding:3px 9px; border-radius:20px; background:#eef1f5; color:var(--muted); }
+</style>
+<link rel="stylesheet" href="/studio-shell.css">
+</head>
+<body class="studio">
+
+<div id="loginOverlay">
+  <div class="auth-checking"><div class="auth-checking-spinner"></div><div>Checking session…</div></div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div><div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field"><label>Email</label><input type="email" id="loginEmail" autocomplete="email"></div>
+    <div class="login-field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<div id="shell" class="app-shell">
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">Digital Building Platform</div></div>
+  <nav class="nav-list">
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">←</span><span>All Projects</span></a>
+    <a class="nav-item" href="overview"><span class="nav-ico">▦</span><span>Overview</span></a>
+    <a class="nav-item" href="documents"><span class="nav-ico">📄</span><span>Documents</span></a>
+    <a class="nav-item" href="building-model"><span class="nav-ico">🏠</span><span>Building Model</span></a>
+    <a class="nav-item active" href="modules"><span class="nav-ico">🧩</span><span>Modules</span></a>
+  </nav>
+  <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+
+<div class="app-col">
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">Modules <span id="headerProject"></span></div>
+  <div class="tb-center"></div>
+  <div class="tb-right"><span class="tb-user" id="headerUser"></span><button class="tb-btn" id="signoutBtn">Sign out</button></div>
+</header>
+
+<main id="appMain" style="display:none">
+<div class="shell-page">
+  <div class="page-h">Engineering Modules</div>
+  <div class="page-sub">Every module consumes the approved Digital Building Model — define the building once, reuse it everywhere.</div>
+  <div class="banner banner-err" id="bannerErr"></div>
+  <div id="mods" class="mods"></div>
+</div>
+</main>
+</div>
+</div>
+
+<script>
+'use strict';
+const SUPABASE_URL='https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const el=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function isUuid(v){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v||'');}
+function getProjectId(){const p=location.pathname.split('/').filter(Boolean);const i=p.indexOf('projects');const c=i>=0&&p[i+1]?p[i+1]:null;return isUuid(c)?c:(new URLSearchParams(location.search).get('projectId')||null);}
+const _projectId=getProjectId();
+let _token=null;
+const apiGet=u=>fetch(u,{headers:{Authorization:'Bearer '+_token}});
+
+el('loginBtn').addEventListener('click',async()=>{const{error}=await sb.auth.signInWithPassword({email:el('loginEmail').value.trim(),password:el('loginPassword').value});if(error){el('loginError').textContent=error.message;el('loginError').classList.add('visible');}});
+el('loginPassword').addEventListener('keydown',e=>{if(e.key==='Enter')el('loginBtn').click();});
+el('signoutBtn').addEventListener('click',()=>sb.auth.signOut());
+sb.auth.getSession().then(({data:{session}})=>{el('loginOverlay').classList.add(session?'hidden':'show-login');});
+sb.auth.onAuthStateChange(async(_e,session)=>{
+  if(!session){el('loginOverlay').classList.remove('hidden');el('loginOverlay').classList.add('show-login');el('appHeader').style.display='none';el('appMain').style.display='none';return;}
+  _token=session.access_token; el('headerUser').textContent=session.user.email;
+  el('loginOverlay').classList.add('hidden');el('loginOverlay').classList.remove('show-login');
+  el('appHeader').style.display='flex';el('appMain').style.display='block';
+  document.querySelectorAll('.nav-item[href="overview"],.nav-item[href="documents"],.nav-item[href="building-model"],.nav-item[href="modules"]').forEach(a=>{a.href=`/mvhr-designer/projects/${_projectId}/${a.getAttribute('href')}`;});
+  await load();
+});
+
+async function load(){
+  let d;
+  try{
+    const res=await apiGet(`/api/studio/project-overview?projectId=${_projectId}`);
+    const body=await res.json().catch(()=>({}));
+    if(!res.ok){ el('bannerErr').textContent=body.error||('Error '+res.status); el('bannerErr').classList.add('visible'); return; }
+    d=body;
+  }catch(e){ el('bannerErr').textContent=e.message; el('bannerErr').classList.add('visible'); return; }
+  render(d);
+}
+
+function render(d){
+  el('headerProject').textContent=d.project.name||'';
+  const m=d.modules.mvhr, at=d.modules.airtightness, b=d.building;
+  const P=`/mvhr-designer/projects/${esc(_projectId)}`;
+  const hasApprovedModel = !!b.approvedVersion;
+
+  // — MVHR Design —
+  const mvhrUsing = m.source==='dbm'
+    ? `Building Model v${esc(m.usingVersion)} (${esc((m.usingStatus||'').replace('_',' '))})`
+    : 'Project Rooms (fallback)';
+  const mvhrNote = m.newerDraftAwaiting
+    ? `<div class="note">Module is using Building Model v${esc(m.latestApprovedVersion)}. Version ${esc(m.currentVersion)} is awaiting approval.</div>`
+    : (m.source==='dbm' && m.usingStatus==='approved'
+        ? `<div class="note ok">Consuming the approved Building Model.</div>`
+        : (m.requireApproved && !hasApprovedModel
+            ? `<div class="note">No approved Building Model — MVHR is on the Project Rooms fallback. Approve a model to lock geometry.</div>` : ''));
+  const mvhrStatus = m.complete?'Complete':(m.started?'In progress':'Not started');
+  const mvhrCard=`
+    <div class="mod">
+      <div class="mod-top"><div class="mod-ico">🌬</div><div><h3>MVHR Design</h3><div class="desc">Airflow sizing, unit selection, duct layout & BOM</div></div></div>
+      <div class="mod-body">
+        ${mvhrNote}
+        <div class="row"><span class="k">Status</span><span class="v">${mvhrStatus}</span></div>
+        <div class="row"><span class="k">Geometry source</span><span class="v">${mvhrUsing}</span></div>
+        <div class="row"><span class="k">Rooms used</span><span class="v">${esc(m.roomCount)}</span></div>
+        <div class="row"><span class="k">Last updated</span><span class="v">${m.lastUpdated?new Date(m.lastUpdated).toLocaleDateString():'—'}</span></div>
+        <div class="row"><span class="k">Gating</span><span class="v">${m.gatingMode==='approved_only'?'Approved only':'Current working'}</span></div>
+      </div>
+      <a class="btn btn-primary" href="${P}/airflow">${m.started?'Open MVHR Design →':'Start MVHR Design →'}</a>
+    </div>`;
+
+  // — Airtightness —
+  const atCard=`
+    <div class="mod">
+      <div class="mod-top"><div class="mod-ico">📐</div><div><h3>Airtightness</h3><div class="desc">Airtight envelope & blower-door volume</div></div></div>
+      <div class="mod-body">
+        ${at.hasApprovedVolume?`<div class="note ok">Approved building volume present.</div>`:`<div class="note">No approved building volume yet.</div>`}
+        <div class="row"><span class="k">Envelope source</span><span class="v">Building Volume</span></div>
+        <div class="row"><span class="k">Conditioned volume</span><span class="v">${b.buildingVolumeM3!=null?Number(b.buildingVolumeM3).toLocaleString(undefined,{maximumFractionDigits:1})+' m³':'—'}</span></div>
+      </div>
+      <a class="btn btn-secondary" href="/building-volume-calculator?projectId=${esc(_projectId)}">Open Airtightness →</a>
+    </div>`;
+
+  // — Range Hood (F10 placeholder) —
+  const rhCard=`
+    <div class="mod soon">
+      <span class="badge-soon">Coming soon</span>
+      <div class="mod-top"><div class="mod-ico">🔥</div><div><h3>Range Hood Makeup Air</h3><div class="desc">Makeup-air sizing from kitchen + volume + airtightness</div></div></div>
+      <div class="mod-body"><div class="muted-sm">Will consume the same approved Building Model (kitchen room, conditioned volume, airtightness). No re-entry of geometry.</div></div>
+      <button class="btn btn-secondary" disabled>Not available yet</button>
+    </div>`;
+
+  el('mods').innerHTML = mvhrCard + atCard + rhCard;
+}
+</script>
+</body>
+</html>

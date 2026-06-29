@@ -391,7 +391,7 @@ async function loadProjects() {
 el('openBtn').addEventListener('click', () => {
   const p = getSelectedProject();
   if (!p) return;
-  window.location.href = `/mvhr-designer/projects/${p.id}/details`;
+  window.location.href = `/mvhr-designer/projects/${p.id}/overview`;
 });
 
 el('projectSelect').addEventListener('change', updateActionBar);

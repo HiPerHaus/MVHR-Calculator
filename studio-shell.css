@@ -30,6 +30,9 @@ body.studio { background:var(--bg); }
 .nav-item.active { background:var(--nav-active); color:#fff; border-left-color:var(--nav-accent); }
 .nav-item.locked { opacity:.45; pointer-events:none; }
 .nav-ico { width:18px; text-align:center; flex-shrink:0; }
+/* F4 project-first nav: module sub-step grouping */
+.nav-sub { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:#6f9e88; padding:12px 20px 4px; }
+.nav-item.nav-step { padding-left:34px; font-size:13px; }
 .nav-status { margin:auto 14px 0; background:var(--nav-2); border:1px solid var(--nav-line); border-radius:10px; padding:13px 14px; }
 .nav-status .l { font-size:10px; font-weight:800; letter-spacing:.6px; color:#6f9e88; text-transform:uppercase; }
 .nav-status .s { font-size:15px; font-weight:800; color:var(--amber,#d97706); margin:3px 0 6px; }

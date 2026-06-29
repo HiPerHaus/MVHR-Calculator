@@ -145,15 +145,11 @@ main { max-width: 740px; margin: 0 auto; padding: 36px 28px 80px; }
 <aside class="side-nav">
   <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">MVHR Designer</div></div>
   <nav class="nav-list">
-    <a class="nav-item active" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
-    <a class="nav-item" href="upload"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">←</span>All Projects</a>
+    <a class="nav-item active" href="overview"><span class="nav-ico">▦</span>Overview</a>
+    <a class="nav-item" href="documents"><span class="nav-ico">📄</span>Documents</a>
     <a class="nav-item" href="building-model"><span class="nav-ico">🏠</span>Building Model</a>
-    <a class="nav-item" href="airflow"><span class="nav-ico">🌬</span>Airflow Design</a>
-    <a class="nav-item" href="unit-selection"><span class="nav-ico">🎛</span>Unit Selection</a>
-    <a class="nav-item" href="duct-design"><span class="nav-ico">🧭</span>System Layout</a>
-    <a class="nav-item" href="bom"><span class="nav-ico">📦</span>BOM</a>
-    <a class="nav-item" href="commissioning"><span class="nav-ico">🧪</span>Commissioning</a>
-    <a class="nav-item" href="bom"><span class="nav-ico">📤</span>Export / Reports</a>
+    <a class="nav-item" href="modules"><span class="nav-ico">🧩</span>Modules</a>
   </nav>
   <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
 </aside>
@@ -477,7 +473,7 @@ el('saveBtn').addEventListener('click', async () => {
       return;
     }
 
-    window.location.href = `/mvhr-designer/projects/${data.project.id}/upload`;
+    window.location.href = `/mvhr-designer/projects/${data.project.id}/documents`;
   } else {
     // Update via API (service-role, bypasses RLS)
     const res = await apiPatch('/api/studio/projects', { projectId: _projectId, ...payload });
@@ -490,9 +486,9 @@ el('saveBtn').addEventListener('click', async () => {
       return;
     }
 
-    setSaveStatus('Saved. Taking you to upload…', 'ok');
+    setSaveStatus('Saved. Opening Documents…', 'ok');
     el('headerProject').textContent = payload.name;
-    window.location.href = `/mvhr-designer/projects/${_projectId}/upload`;
+    window.location.href = `/mvhr-designer/projects/${_projectId}/documents`;
   }
 });
 </script>
