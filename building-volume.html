@@ -49,10 +49,10 @@ input:focus, select:focus, textarea:focus { border-color:var(--accent); backgrou
 .status.err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
 .page-picker { display:none; margin-top:16px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
 .page-picker.show { display:block; }
-.page-row { display:grid; grid-template-columns:30px 86px 1fr 72px; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; }
+.page-row { display:grid; grid-template-columns:86px 1fr 72px; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; }
 .page-row:last-child { border-bottom:none; }
-.page-row input { width:18px; height:18px; }
 .page-type { font-weight:800; color:var(--primary); }
+.page-type.excluded { color:var(--muted); }
 .page-reason { color:var(--muted); line-height:1.35; }
 .page-conf { color:var(--muted); text-align:right; font-weight:700; }
 .metric-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
@@ -344,7 +344,7 @@ function onFile(file) {
   classifiedPdfPath = null;
   renderPagePicker();
   $('analyseBtn').disabled = false;
-  $('analyseBtn').textContent = isPdf ? 'Classify PDF Pages' : 'Analyse Plan';
+  $('analyseBtn').textContent = isPdf ? 'Analyse PDF' : 'Analyse Plan';
   $('drop').querySelector('.drop-title').textContent = file.name;
   $('drop').querySelector('.drop-sub').textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB ready for AI reading`;
 }
@@ -379,7 +379,7 @@ async function analyse() {
     const path = await uploadSelectedFile();
 
     if (isPdf && classifiedPdfPath !== path) {
-      showStatus('info', 'Classifying PDF pages for floor plans, ceiling plans, sections, elevations, and schedules…');
+      showStatus('info', 'AI is identifying the floor plans, ceiling plans, sections, elevations, and schedules needed for volume…');
       const classifyRes = await fetch('/api/ai/building-volume', {
         method: 'POST',
         headers: { 'Content-Type':'application/json', Authorization:'Bearer ' + token },
@@ -394,20 +394,20 @@ async function analyse() {
       pdfPageSelections = classifyData.pages || [];
       classifiedPdfPath = path;
       renderPagePicker();
-      $('analyseBtn').textContent = 'Analyse Selected Pages';
-      showStatus('info', 'PDF pages classified. Tick the drawings that should inform volume, then analyse selected pages.');
-      return;
     }
 
     const selectedPdfPages = isPdf
       ? pdfPageSelections.filter(p => p.selected).map(p => p.pageNumber)
       : null;
     if (isPdf && !selectedPdfPages.length) {
-      showStatus('err', 'Select at least one PDF page before analysis.');
-      return;
+      const fallbackPages = pdfPageSelections.map(p => p.pageNumber).filter(Boolean);
+      if (!fallbackPages.length) throw new Error('AI could not identify usable PDF pages for analysis.');
+      selectedPdfPages.push(...fallbackPages);
+      pdfPageSelections = pdfPageSelections.map(p => ({ ...p, selected: true }));
+      renderPagePicker();
     }
 
-    showStatus('info', isPdf ? 'Rendering PDF pages and reading airtight envelope dimensions with AI…' : 'Reading airtight envelope dimensions with AI…');
+    showStatus('info', isPdf ? 'AI selected the relevant PDF pages. Reading airtight envelope dimensions and height evidence…' : 'Reading airtight envelope dimensions with AI…');
     const res = await fetch('/api/ai/building-volume', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', Authorization:'Bearer ' + token },
@@ -496,20 +496,13 @@ function renderPagePicker() {
     return;
   }
   picker.classList.add('show');
-  picker.innerHTML = pdfPageSelections.map((p, i) => `
-    <label class="page-row">
-      <input type="checkbox" ${p.selected ? 'checked' : ''} onchange="togglePdfPage(${i}, this.checked)">
-      <span class="page-type">Page ${p.pageNumber}<br>${escapeHtml(formatPageType(p.pageType))}</span>
+  picker.innerHTML = pdfPageSelections.map(p => `
+    <div class="page-row">
+      <span class="page-type ${p.selected ? '' : 'excluded'}">Page ${p.pageNumber}<br>${escapeHtml(formatPageType(p.pageType))}${p.selected ? '' : '<br>not used'}</span>
       <span class="page-reason">${escapeHtml(p.reason || '')}</span>
       <span class="page-conf">${p.confidence ? Math.round(p.confidence * 100) + '%' : '—'}</span>
-    </label>
+    </div>
   `).join('');
-}
-function togglePdfPage(index, checked) {
-  if (pdfPageSelections[index]) {
-    pdfPageSelections[index].selected = checked;
-    markCalculationEdited();
-  }
 }
 function formatPageType(type) {
   return String(type || 'other').replace(/_/g, ' ');
