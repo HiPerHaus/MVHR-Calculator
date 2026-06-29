@@ -9,17 +9,12 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors } from '../../lib/cors.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  'https://hiper-studio.au');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
 
 async function getUser(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -29,7 +24,7 @@ async function getUser(req) {
 }
 
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,PATCH,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   const user = await getUser(req);

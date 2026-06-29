@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test packages/engine/tests/*.test.js",
-    "test:watch": "node --test --watch packages/engine/tests/*.test.js"
+    "test:watch": "node --test --watch packages/engine/tests/*.test.js",
+    "test:dbm": "node --test tests/*.test.js",
+    "backfill:dbm": "node scripts/backfill-building-models.mjs"
   },
   "repository": {
     "type": "git",

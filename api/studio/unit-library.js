@@ -13,20 +13,15 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors } from '../../lib/cors.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
-
 const UNIT_SELECT = 'id, manufacturer, model, hr_eff, sfp, flow_min, flow_max, phi_cert_id, humidity_winter, humidity_summer, hr_eff_cooling, ext_pressure, fittings_dp, frost_protection, noise_extract, noise_supply, additional_info, user_id';
 
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {

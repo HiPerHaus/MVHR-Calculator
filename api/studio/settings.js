@@ -12,15 +12,10 @@
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
+import { applyCors } from '../../lib/cors.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-}
 
 // ── Default values ────────────────────────────────────────────
 export const DEFAULT_ROOM_RATES = {
@@ -58,7 +53,7 @@ function mergeWithDefaults(row) {
 
 // ── Handler ───────────────────────────────────────────────────
 export default async function handler(req, res) {
-  cors(res);
+  applyCors(req, res, 'GET,POST,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
