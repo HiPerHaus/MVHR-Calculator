@@ -28,6 +28,7 @@
     { "source": "/mvhr-designer/projects/new",                 "destination": "/studio-project.html" },
     { "source": "/mvhr-designer/projects/:projectId/details", "destination": "/studio-project.html" },
     { "source": "/mvhr-designer/projects/:projectId/upload",  "destination": "/studio-upload.html" },
+    { "source": "/mvhr-designer/projects/:projectId/building-model", "destination": "/studio-building-model.html" },
     { "source": "/mvhr-designer/projects/:projectId/rooms",   "destination": "/studio-rooms.html" },
     { "source": "/mvhr-designer/projects/:projectId/airflow",        "destination": "/studio-airflow.html" },
     { "source": "/mvhr-designer/projects/:projectId/unit-selection", "destination": "/studio-unit-selection.html" },

@@ -1,13 +1,15 @@
 // ============================================================
-// HiPer Studio — F1: Digital Building Model read API
-// GET /api/studio/building-model?projectId=...
-//   → current (is_current) model + levels/rooms/zones/walls/openings + recent events
-//   → { model: null } when no model exists yet (e.g. before F2 derivation runs)
+// HiPer Studio — Digital Building Model API (F1 read, F2 derive, F3A lifecycle)
+// GET   /api/studio/building-model?projectId=...
+//   → current (is_current) model + levels/rooms/zones/walls/openings + events
+//   → { model: null } when no model exists yet
+// GET   /api/studio/building-model?projectId=...&history=1  → version history
+// POST  /api/studio/building-model   body { projectId, action:'derive' }
+//   → derive/refresh a new draft model from project_rooms + approved building volume
+// PATCH /api/studio/building-model   body { projectId, action:'review'|'approve'|'supersede', modelId? }
+//   → advance the model status; sets approved_by/at or superseded_by/at + audit event
 //
-// GET /api/studio/building-model?projectId=...&history=1
-//   → { history: [{ id, version, status, source_type, created_at, ... }] }
-//
-// Read-only in F1. Additive: does not touch project_rooms or building_volume_*.
+// Additive: never touches project_rooms or building_volume_*.
 // Ownership enforced via requireProjectOwner (service-role client bypasses RLS).
 // ============================================================
 
@@ -16,6 +18,8 @@ import { applyCors }          from '../../lib/cors.js';
 import { requireProjectOwner } from '../../lib/requireProjectOwner.js';
 import { isUuid }              from '../../lib/validateUuid.js';
 import { deriveAndPersistProject } from '../../lib/persistBuildingModel.js';
+import { nextStatus }         from '../../lib/buildingModelStatus.js';
+import { resolveMvhrRooms, mvhrRequireApproved } from '../../lib/mvhrRoomsSource.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -40,15 +44,17 @@ function modelResponse(row) {
     warnings:               row.warnings ?? [],
     approvedAt:             row.approved_at ?? null,
     approvedBy:             row.approved_by ?? null,
+    supersededAt:           row.superseded_at ?? null,
+    supersededBy:           row.superseded_by ?? null,
     createdAt:              row.created_at,
     updatedAt:              row.updated_at,
   };
 }
 
 export default async function handler(req, res) {
-  applyCors(req, res, 'GET,POST,OPTIONS');
+  applyCors(req, res, 'GET,POST,PATCH,OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET' && req.method !== 'POST') {
+  if (!['GET', 'POST', 'PATCH'].includes(req.method)) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -56,14 +62,14 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Missing Supabase environment variables' });
   }
 
-  const projectId = req.method === 'POST' ? req.body?.projectId : req.query.projectId;
+  const projectId = (req.method === 'GET') ? req.query.projectId : req.body?.projectId;
   const history   = req.query.history;
   if (!projectId) return res.status(400).json({ error: 'projectId required' });
   if (!isUuid(projectId)) return res.status(400).json({ error: 'Invalid projectId: must be a UUID' });
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  const { errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
+  const { user, errorResponse } = await requireProjectOwner(req, res, supabase, projectId);
   if (errorResponse) return;
 
   // ── POST: derive/refresh the DBM from existing project data (F2) ──────────
@@ -74,6 +80,105 @@ export default async function handler(req, res) {
     const result = await deriveAndPersistProject(supabase, projectId);
     if (!result.ok) return res.status(500).json({ error: result.error });
     return res.status(201).json(result);
+  }
+
+  // ── PATCH: status lifecycle action (F3A) ──────────────────────────────────
+  //   body: { projectId, action: 'review'|'approve'|'supersede', modelId? }
+  //   Operates on the current (is_current) model unless modelId is given.
+  if (req.method === 'PATCH') {
+    const action = req.body?.action;
+    const bodyModelId = req.body?.modelId;
+    if (bodyModelId && !isUuid(bodyModelId)) {
+      return res.status(400).json({ error: 'Invalid modelId: must be a UUID' });
+    }
+
+    // Resolve the target model (the working/current one by default).
+    let target;
+    {
+      let q = supabase.from('building_models').select('*').eq('project_id', projectId);
+      q = bodyModelId ? q.eq('id', bodyModelId) : q.eq('is_current', true);
+      const { data, error } = await q.maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      if (!data) return res.status(404).json({ error: 'No building model to update. Generate one first.' });
+      target = data;
+    }
+
+    const t = nextStatus(action, target.status);
+    if (!t.ok) return res.status(409).json({ error: t.error });
+
+    const now = new Date().toISOString();
+    const patch = { status: t.status };
+    if (t.status === 'approved') { patch.approved_by = user.id; patch.approved_at = now; }
+    if (t.status === 'superseded') { patch.superseded_at = now; if (target.is_current) patch.is_current = false; }
+
+    const { data: updated, error: upErr } = await supabase
+      .from('building_models')
+      .update(patch)
+      .eq('id', target.id)
+      .select('*')
+      .single();
+    if (upErr) return res.status(500).json({ error: upErr.message });
+
+    // On approval, retire any OTHER still-approved models for this project so
+    // "latest approved" is unambiguous (this newly approved one supersedes them).
+    if (t.status === 'approved') {
+      await supabase
+        .from('building_models')
+        .update({ status: 'superseded', superseded_at: now, superseded_by: target.id })
+        .eq('project_id', projectId)
+        .eq('status', 'approved')
+        .neq('id', target.id);
+    }
+
+    // Audit event.
+    await supabase.from('building_model_events').insert({
+      model_id:   target.id,
+      user_id:    user.id,
+      event_type: t.status === 'approved' ? 'approved' : (t.status === 'superseded' ? 'superseded' : 'edited'),
+      payload:    { action, from: target.status, to: t.status },
+    });
+
+    return res.status(200).json({ ok: true, model: modelResponse(updated) });
+  }
+
+  // ── "What MVHR will use right now" (read-only; mirrors the engine) ─────────
+  //   GET ?projectId=...&mvhrSource=1
+  //   Resolves rooms exactly as airflow.js does, without running the engine.
+  if (req.query.mvhrSource) {
+    const r = await resolveMvhrRooms(supabase, projectId, user.id);
+    if (r.error) return res.status(500).json({ error: r.error });
+
+    const usingApproved = r.source === 'dbm' && r.modelStatus === 'approved';
+    const sourceLabel =
+      r.source === 'dbm'
+        ? (r.modelStatus === 'approved' ? 'Approved Building Model' : 'Draft Building Model')
+        : 'Project Rooms fallback';
+
+    let warning = null;
+    if (!usingApproved) {
+      warning = r.source === 'dbm'
+        ? `MVHR is using a ${String(r.modelStatus ?? 'draft').replace('_', ' ')} Building Model, not an approved one.`
+        : (r.rooms.length
+            ? 'MVHR is using the confirmed Project Rooms schedule — no approved Building Model is being consumed.'
+            : 'No rooms available: confirm a room schedule or generate and approve a Building Model.');
+    }
+
+    return res.status(200).json({
+      mvhrSource: {
+        source:          r.source,            // 'dbm' | 'project_rooms'
+        sourceLabel,
+        gatingMode:      r.gatingMode,        // 'approved_only' | 'current_working'
+        requireApproved: mvhrRequireApproved(),
+        usingApproved,
+        roomCount:       r.rooms.length,
+        modelId:         r.modelId,
+        modelStatus:     r.modelStatus,
+        modelVersion:    r.modelVersion ?? null,
+        updatedAt:       r.modelUpdatedAt ?? null,
+        approvedAt:      r.modelApprovedAt ?? null,
+        warning,
+      },
+    });
   }
 
   // ── History list ─────────────────────────────────────────

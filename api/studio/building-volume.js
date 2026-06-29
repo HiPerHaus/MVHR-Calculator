@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { applyCors } from '../../lib/cors.js';
 import { requireProjectOwner } from '../../lib/requireProjectOwner.js';
 import { isUuid } from '../../lib/validateUuid.js';
+import { deriveAndPersistProject } from '../../lib/persistBuildingModel.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -246,8 +247,27 @@ export default async function handler(req, res) {
       .from('building_volume_calculation_events')
       .insert(events);
 
+    // F3 step 5 — when a building volume is approved, refresh the Digital
+    // Building Model so its zones reflect the approved geometry. The DBM becomes
+    // the shared source of geometry. Best-effort: a failure here must not fail the
+    // building-volume save (the calc is already persisted).
+    let buildingModel = null;
+    if (status === 'approved') {
+      try {
+        const dbm = await deriveAndPersistProject(supabase, projectId);
+        buildingModel = dbm.ok
+          ? { ok: true, modelId: dbm.modelId, version: dbm.version, summary: dbm.summary }
+          : { ok: false, error: dbm.error };
+        console.log(JSON.stringify({ event: 'building-volume:dbm-refresh', projectId, ...buildingModel }));
+      } catch (e) {
+        buildingModel = { ok: false, error: e.message };
+        console.error(JSON.stringify({ event: 'building-volume:dbm-refresh-error', projectId, error: e.message }));
+      }
+    }
+
     return res.status(201).json({
       calculation: calculationResponse(calculation, savedZones ?? []),
+      buildingModel,
     });
   }
 

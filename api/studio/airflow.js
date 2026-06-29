@@ -20,6 +20,7 @@ import { createClient } from '@supabase/supabase-js';
 import { applyCors }           from '../../lib/cors.js';
 import { requireProjectOwner }  from '../../lib/requireProjectOwner.js';
 import { isUuid }               from '../../lib/validateUuid.js';
+import { resolveMvhrRooms }     from '../../lib/mvhrRoomsSource.js';
 
 // Engine package — pure functions, no I/O
 import { calculateAirflow, scoreMvhrUnits, ENGINE_VERSION, DEFAULT_ROOM_RATES } from '../../packages/engine/index.js';
@@ -308,20 +309,27 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'designMethod must be passive_house or as1668' });
     }
 
-    // Load confirmed rooms (includes ceiling_height_m from Phase 1 migration)
-    const { data: rooms, error: roomsErr } = await supabase
-      .from('project_rooms')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('is_confirmed', true)
-      .order('sort_order', { ascending: true });
-
-    if (roomsErr) return res.status(500).json({ error: roomsErr.message });
+    // Load rooms — DBM-first (F3 step 4), falling back to confirmed project_rooms.
+    // The Digital Building Model becomes the shared geometry source when present;
+    // project_rooms remains the fallback until the DBM is proven. Identical room
+    // set + areas either way (DBM rooms are derived from confirmed project_rooms).
+    const roomSource = await resolveMvhrRooms(supabase, projectId, user.id);
+    if (roomSource.error) return res.status(500).json({ error: roomSource.error });
+    const rooms = roomSource.rooms;
     if (!rooms?.length) {
       return res.status(422).json({
         error: 'No confirmed rooms found. Confirm the room schedule in Stage 2 first.',
       });
     }
+    console.log(JSON.stringify({
+      event: 'airflow:room-source',
+      projectId,
+      source: roomSource.source,           // 'dbm' | 'project_rooms'
+      gatingMode: roomSource.gatingMode,   // 'approved_only' | 'current_working'
+      modelId: roomSource.modelId,
+      modelStatus: roomSource.modelStatus,
+      roomCount: rooms.length,
+    }));
 
     // Load user settings for room rates + preferred unit load + boost/fan-speed defaults
     let userRates        = {};

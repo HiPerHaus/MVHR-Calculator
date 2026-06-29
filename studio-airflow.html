@@ -164,6 +164,16 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
 .confirm-card { background:var(--card); border:1px solid var(--ok-border); border-radius:12px; padding:20px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 .confirm-card h3 { font-size:16px; font-weight:800; color:var(--primary); margin-bottom:4px; }
 .confirm-card p { font-size:13px; color:var(--muted); }
+
+/* F3 — compact "what airflow will use" source bar */
+.mvhr-src { display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap; border-radius:10px; padding:10px 14px; margin-bottom:16px; font-size:13px; border:1px solid #dde3ec; background:#fff; }
+.mvhr-src.ok   { border-color:#74c69d; background:#f4fbf6; }
+.mvhr-src.warn { border-color:#fbbf24; background:#fffaf4; }
+.mvhr-src .ms-lead { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:#6b7280; }
+.mvhr-src .ms-src  { font-weight:800; color:#111827; }
+.mvhr-src .ms-meta { color:#6b7280; }
+.mvhr-src .ms-env  { font-family:ui-monospace,Menlo,monospace; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; background:#0e2a1f; color:#aed4c1; margin-left:auto; }
+.mvhr-src .ms-warn { color:#b45309; font-weight:700; flex-basis:100%; margin-top:2px; }
 </style>
 <link rel="stylesheet" href="/studio-shell.css">
 </head>
@@ -198,6 +208,7 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
   <nav class="nav-list">
     <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📁</span>Projects</a>
     <a class="nav-item" href="upload"><span class="nav-ico">📐</span>Floor Plans</a>
+    <a class="nav-item" href="building-model"><span class="nav-ico">🏠</span>Building Model</a>
     <a class="nav-item active" href="airflow"><span class="nav-ico">🌬</span>Airflow Design</a>
     <a class="nav-item" href="unit-selection"><span class="nav-ico">🎛</span>Unit Selection</a>
     <a class="nav-item" href="duct-design"><span class="nav-ico">🧭</span>System Layout</a>
@@ -243,6 +254,9 @@ main { max-width:1200px; margin:0 auto; padding:24px 28px 80px; }
       <button class="btn btn-secondary btn-sm" onclick="recalculate()" id="recalcBtn" disabled>↻ Recalculate</button>
     </div>
   </div>
+
+  <!-- F3: what geometry this airflow calc will consume -->
+  <div id="mvhrSourceBar"></div>
 
   <div class="recalc-bar" id="recalcBar" style="display:none">
     ⚠️ Design method changed — results below are from the previous calculation.
@@ -621,6 +635,9 @@ async function init() {
     }
   }
 
+  // Show which geometry MVHR will consume before any (re)calculation.
+  renderMvhrSourceBar();
+
   // Load existing saved design (enables recalcBtn inside loadSavedDesign)
   await loadSavedDesign();
 }
@@ -667,6 +684,42 @@ async function loadSavedDesign() {
   }
 }
 
+// ── F3: compact "what airflow will use" indicator ────────────────────────
+// Calls the same resolver airflow uses, so it is real proof — not a guess.
+async function renderMvhrSourceBar() {
+  const box = document.getElementById('mvhrSourceBar');
+  if (!box || !_projectId) return;
+  const escp = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let d;
+  try {
+    const res = await apiGet(`${API_BASE}/building-model?projectId=${_projectId}&mvhrSource=1`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { box.innerHTML = `<div class="mvhr-src warn"><span class="ms-lead">Airflow will use</span><span class="ms-warn">⚠ ${escp(body.error || res.status)}</span></div>`; return; }
+    d = body.mvhrSource;
+  } catch (e) {
+    box.innerHTML = `<div class="mvhr-src warn"><span class="ms-lead">Airflow will use</span><span class="ms-warn">⚠ ${escp(e.message)}</span></div>`;
+    return;
+  }
+  const ts = d.approvedAt || d.updatedAt;
+  const tsLabel = d.approvedAt ? 'approved' : 'updated';
+  const tsStr = ts ? new Date(ts).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) : '—';
+  const metaBits = [
+    d.modelVersion ? 'v' + escp(d.modelVersion) : null,
+    `${escp(d.roomCount)} rooms`,
+    d.modelStatus ? escp(String(d.modelStatus).replace('_',' ')) : null,
+    ts ? `${tsLabel} ${tsStr}` : null,
+  ].filter(Boolean).join(' · ');
+
+  box.innerHTML = `
+    <div class="mvhr-src ${d.usingApproved ? 'ok' : 'warn'}">
+      <span class="ms-lead">Airflow will use</span>
+      <span class="ms-src">${d.usingApproved ? '✓ ' : ''}${escp(d.sourceLabel)}</span>
+      <span class="ms-meta">${metaBits}</span>
+      <span class="ms-env" title="Set DBM_MVHR_REQUIRE_APPROVED=true to gate MVHR to approved models">DBM_MVHR_REQUIRE_APPROVED=${escp(d.requireApproved)}</span>
+      ${d.warning ? `<span class="ms-warn">⚠ ${escp(d.warning)}</span>` : ''}
+    </div>`;
+}
+
 let _recalculating = false;
 
 async function recalculate(loadingMsg) {
@@ -692,6 +745,7 @@ async function recalculate(loadingMsg) {
       showError('Calculation succeeded but rendering failed: ' + renderErr.message);
     }
     hideLoading();
+    renderMvhrSourceBar(); // refresh indicator after recalculation
   } catch (e) {
     console.error('[airflow] recalculate failed', e);
     hideLoading();

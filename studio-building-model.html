@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiPer Studio — Building Model</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root {
+  --bg:#f0f4f8; --card:#fff; --border:#dde3ec;
+  --primary:#1a4731; --accent:#40916c; --primary-light:#d8f3dc;
+  --text:#111827; --muted:#6b7280; --input-bg:#f8fafc;
+  --warn:#c05621; --warn-bg:#fff7ed; --amber:#d97706;
+  --critical:#9b1c1c; --critical-bg:#fef2f2;
+  --ok-bg:#d8f3dc; --ok-border:#74c69d;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+
+/* Login overlay */
+#loginOverlay { position:fixed; inset:0; z-index:9999; background:linear-gradient(135deg,#0d2b1d,#1a4731 60%,#2d6a4f); display:flex; align-items:center; justify-content:center; }
+#loginOverlay.hidden { display:none; }
+.login-box { background:#fff; border-radius:16px; padding:40px 36px; width:360px; box-shadow:0 24px 60px rgba(0,0,0,.35); display:none; }
+#loginOverlay.show-login .login-box { display:block; }
+#loginOverlay.show-login .auth-checking { display:none; }
+.login-logo { font-size:11px; font-weight:800; letter-spacing:2px; color:var(--accent); text-transform:uppercase; margin-bottom:4px; }
+.login-title { font-size:22px; font-weight:900; color:var(--primary); margin-bottom:20px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+.login-field input { width:100%; padding:10px 13px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; outline:none; }
+.btn-login { width:100%; background:var(--primary); color:#fff; border:none; border-radius:9px; padding:12px; font-size:14px; font-weight:800; cursor:pointer; }
+.login-error { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); border-radius:7px; padding:9px 13px; font-size:13px; margin-bottom:12px; display:none; }
+.login-error.visible { display:block; }
+.auth-checking { display:flex; flex-direction:column; align-items:center; gap:14px; color:rgba(255,255,255,.75); font-size:13px; font-weight:600; }
+.auth-checking-spinner { width:36px; height:36px; border:3px solid rgba(255,255,255,.2); border-top-color:rgba(255,255,255,.85); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Buttons */
+.btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; transition:.15s; text-decoration:none; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:var(--accent); }
+.btn-secondary { background:#fff; color:var(--text); border:1.5px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn-approve { background:#166534; color:#fff; }
+.btn-approve:hover { background:#15803d; }
+.btn-warn { background:#fff; color:var(--warn); border:1.5px solid #fed7aa; }
+.btn-warn:hover { background:var(--warn-bg); }
+.btn:disabled { opacity:.5; cursor:not-allowed; pointer-events:none; }
+
+/* Cards + tables */
+.card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:22px; margin-bottom:18px; }
+.card-title { font-size:12px; font-weight:800; color:var(--primary); margin-bottom:14px; text-transform:uppercase; letter-spacing:.5px; }
+.meta-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 22px; }
+.meta .k { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+.meta .v { font-size:16px; font-weight:800; color:var(--text); margin-top:2px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); padding:8px 10px; border-bottom:2px solid var(--border); white-space:nowrap; }
+td { padding:8px 10px; border-bottom:1px solid var(--border); }
+tr:last-child td { border-bottom:none; }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* Pills / badges */
+.pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:800; padding:3px 10px; border-radius:20px; text-transform:capitalize; }
+.pill.draft { background:#eef1f5; color:#475569; }
+.pill.needs_review { background:var(--warn-bg); color:var(--warn); }
+.pill.approved { background:var(--ok-bg); color:#166534; }
+.pill.superseded { background:#f1f5f9; color:#94a3b8; }
+.tag { font-size:10px; font-weight:700; padding:2px 8px; border-radius:6px; background:#eef2f7; color:#475569; text-transform:capitalize; }
+.tag.env { background:#e6f4ea; color:#166534; }
+.tag.exc { background:#fdeceb; color:#9b1c1c; }
+.tag.src-derived { background:#eef2f7; color:#475569; }
+.tag.src-ai_pdf, .tag.src-ai_cad { background:#e7f0fe; color:#1d4ed8; }
+.tag.src-manual { background:#fff7ed; color:#c05621; }
+
+/* Banners */
+.banner { border-radius:10px; padding:12px 16px; font-size:13px; margin-bottom:18px; display:none; }
+.banner.visible { display:block; }
+.banner-warn { background:var(--warn-bg); border:1px solid #fed7aa; color:var(--warn); }
+.banner-err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+.banner-ok { background:var(--ok-bg); border:1px solid var(--ok-border); color:#166534; }
+.banner ul { margin:6px 0 0 18px; }
+
+.empty { text-align:center; padding:46px 20px; color:var(--muted); }
+.empty .big { font-size:34px; margin-bottom:10px; }
+.toolbar { display:flex; align-items:center; gap:14px; margin-bottom:22px; flex-wrap:wrap; }
+.toolbar .status { font-size:12px; color:var(--muted); }
+.toolbar .status.ok { color:#16a34a; } .toolbar .status.fail { color:var(--critical); }
+.muted-sm { font-size:12px; color:var(--muted); }
+.section-empty { color:var(--muted); font-size:13px; padding:6px 2px; }
+
+/* MVHR usage indicator */
+.mvhr-ind { border-radius:12px; padding:16px 18px; margin-bottom:18px; border:1px solid var(--border); background:#fff; }
+.mvhr-ind.ok   { border-color:var(--ok-border); background:linear-gradient(0deg,#fff,#f4fbf6); }
+.mvhr-ind.warn { border-color:#fed7aa; background:linear-gradient(0deg,#fff,#fffaf4); }
+.mvhr-ind-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.mvhr-ind-top .lead { font-size:11px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+.mvhr-ind-top .src { font-size:16px; font-weight:800; color:var(--text); }
+.mvhr-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px 20px; }
+.mvhr-grid .k { font-size:10px; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+.mvhr-grid .v { font-size:14px; font-weight:700; color:var(--text); margin-top:2px; }
+.mvhr-warn { margin-top:12px; font-size:13px; font-weight:600; color:var(--warn); display:flex; gap:8px; align-items:flex-start; }
+.mvhr-ok-line { margin-top:12px; font-size:13px; font-weight:600; color:#166534; }
+.env-chip { font-family:ui-monospace,Menlo,monospace; font-size:11px; font-weight:700; padding:3px 9px; border-radius:6px; background:#0e2a1f; color:#aed4c1; }
+</style>
+<link rel="stylesheet" href="/studio-shell.css">
+</head>
+<body class="studio">
+
+<!-- Login overlay -->
+<div id="loginOverlay">
+  <div class="auth-checking" id="authChecking">
+    <div class="auth-checking-spinner"></div><div>Checking session…</div>
+  </div>
+  <div class="login-box">
+    <div class="login-logo">HiPer Studio</div>
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-field"><label>Email</label><input type="email" id="loginEmail" autocomplete="email"></div>
+    <div class="login-field"><label>Password</label><input type="password" id="loginPassword" autocomplete="current-password"></div>
+    <button class="btn-login" id="loginBtn">Sign in</button>
+  </div>
+</div>
+
+<div id="shell" class="app-shell">
+<aside class="side-nav">
+  <div class="nav-brand"><div class="b1">HiPer Studio</div><div class="b2">MVHR Designer</div></div>
+  <nav class="nav-list">
+    <a class="nav-item" href="/mvhr-designer/projects"><span class="nav-ico">📁</span><span>Projects</span></a>
+    <a class="nav-item" href="upload"><span class="nav-ico">📐</span><span>Floor Plans</span></a>
+    <a class="nav-item active" href="building-model"><span class="nav-ico">🏠</span><span>Building Model</span></a>
+    <a class="nav-item" href="airflow"><span class="nav-ico">🌬</span><span>Airflow Design</span></a>
+    <a class="nav-item" href="unit-selection"><span class="nav-ico">🎛</span><span>Unit Selection</span></a>
+    <a class="nav-item" href="duct-design"><span class="nav-ico">🧭</span><span>System Layout</span></a>
+    <a class="nav-item" href="bom"><span class="nav-ico">📦</span><span>BOM</span></a>
+  </nav>
+  <a class="nav-guide" href="/mvhr-designer/settings">⚙ Settings</a>
+</aside>
+
+<div class="app-col">
+<header id="appHeader" class="topbar" style="display:none">
+  <div class="tb-title">Building Model <span id="headerProject"></span></div>
+  <div class="tb-center"></div>
+  <div class="tb-right">
+    <span class="tb-user" id="headerUser"></span>
+    <button class="tb-btn" id="signoutBtn">Sign out</button>
+  </div>
+</header>
+
+<main id="appMain" style="display:none">
+<div class="shell-page">
+
+  <div class="page-h">Digital Building Model</div>
+  <div class="page-sub">The shared geometry every engineering module reads from — derived from your room schedule and approved building volume.</div>
+
+  <div id="mvhrIndicator"></div>
+
+  <div class="toolbar">
+    <button class="btn btn-primary"   id="genBtn">⟳ Refresh Model</button>
+    <button class="btn btn-secondary" id="reviewBtn"    style="display:none">Send to Review</button>
+    <button class="btn btn-approve"   id="approveBtn"   style="display:none">✓ Approve Model</button>
+    <button class="btn btn-warn"      id="supersedeBtn" style="display:none">⨉ Unlock / Supersede</button>
+    <a class="btn btn-secondary" id="airflowLink" href="airflow">Open Airflow →</a>
+    <span class="status" id="genStatus"></span>
+  </div>
+
+  <div class="banner banner-err"  id="bannerErr"></div>
+  <div class="banner banner-warn" id="bannerReview"></div>
+  <div class="banner banner-warn" id="bannerWarnings"></div>
+
+  <div id="content"></div>
+
+</div>
+</main>
+</div><!-- /app-col -->
+</div><!-- /shell -->
+
+<script>
+'use strict';
+
+const SUPABASE_URL      = 'https://qlmnykpwvkckxcycqhpp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_TT56QeArYiCKeUO79AZtIA_A4TqWp50';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const el = id => document.getElementById(id);
+function isUuid(v){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v||''); }
+function getProjectId(){
+  const p = location.pathname.split('/').filter(Boolean);
+  const i = p.indexOf('projects');
+  const c = i>=0 && p[i+1] ? p[i+1] : null;
+  return isUuid(c) ? c : (new URLSearchParams(location.search).get('projectId') || null);
+}
+const _projectId = getProjectId();
+let _token = null;
+
+const apiGet   = (u)   => fetch(u, { headers:{ Authorization:'Bearer '+_token } });
+const apiPost  = (u,b) => fetch(u, { method:'POST',  headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+_token }, body:JSON.stringify(b) });
+const apiPatch = (u,b) => fetch(u, { method:'PATCH', headers:{ 'Content-Type':'application/json', Authorization:'Bearer '+_token }, body:JSON.stringify(b) });
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const n2  = v => (v==null || v==='') ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:2});
+
+// ── Login / auth ──
+el('loginBtn').addEventListener('click', async () => {
+  const { error } = await sb.auth.signInWithPassword({ email: el('loginEmail').value.trim(), password: el('loginPassword').value });
+  if (error) { el('loginError').textContent = error.message; el('loginError').classList.add('visible'); }
+});
+el('loginPassword').addEventListener('keydown', e => { if (e.key==='Enter') el('loginBtn').click(); });
+el('signoutBtn').addEventListener('click', () => sb.auth.signOut());
+
+sb.auth.getSession().then(({ data:{ session } }) => {
+  el('loginOverlay').classList.add(session ? 'hidden' : 'show-login');
+});
+sb.auth.onAuthStateChange(async (_e, session) => {
+  if (!session) {
+    el('loginOverlay').classList.remove('hidden'); el('loginOverlay').classList.add('show-login');
+    el('appHeader').style.display='none'; el('appMain').style.display='none'; return;
+  }
+  _token = session.access_token;
+  el('headerUser').textContent = session.user.email;
+  el('loginOverlay').classList.add('hidden'); el('loginOverlay').classList.remove('show-login');
+  el('appHeader').style.display='flex'; el('appMain').style.display='block';
+  // wire relative nav links that need projectId query fallback
+  el('airflowLink').href = `/mvhr-designer/projects/${_projectId}/airflow`;
+  await loadModel();
+});
+
+// ── Generate / Refresh ──
+el('genBtn').addEventListener('click', async () => {
+  el('genBtn').disabled = true;
+  setStatus('Deriving building model…');
+  try {
+    const res = await apiPost('/api/studio/building-model', { projectId: _projectId, action: 'derive' });
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { setStatus(data.error || 'Failed', 'fail'); el('genBtn').disabled=false; return; }
+    setStatus(`Done — v${data.version}: ${data.summary?.rooms ?? 0} rooms, ${data.summary?.zones ?? 0} zones.`, 'ok');
+    await loadModel();
+  } catch (e) { setStatus(e.message, 'fail'); }
+  el('genBtn').disabled = false;
+});
+function setStatus(msg, cls=''){ const s=el('genStatus'); s.textContent=msg; s.className='status '+cls; }
+
+// ── Lifecycle actions (Send to Review / Approve / Unlock-Supersede) ──
+async function doAction(action, label, confirmMsg) {
+  if (confirmMsg && !window.confirm(confirmMsg)) return;
+  ['reviewBtn','approveBtn','supersedeBtn','genBtn'].forEach(id => el(id).disabled = true);
+  setStatus(`${label}…`);
+  try {
+    const res = await apiPatch('/api/studio/building-model', { projectId: _projectId, action });
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { setStatus(data.error || 'Failed', 'fail'); }
+    else { setStatus(`${label} done.`, 'ok'); }
+  } catch (e) { setStatus(e.message, 'fail'); }
+  await loadModel();
+}
+el('reviewBtn').addEventListener('click',    () => doAction('review',  'Sent to review'));
+el('approveBtn').addEventListener('click',   () => doAction('approve', 'Approved'));
+el('supersedeBtn').addEventListener('click', () => doAction('supersede','Superseded',
+  'Unlock and supersede the approved model? MVHR (when gated to approved) will fall back to the room schedule until a new model is approved.'));
+
+// ── Load + render ──
+async function loadModel() {
+  el('bannerErr').classList.remove('visible');
+  el('bannerReview').classList.remove('visible');
+  el('bannerWarnings').classList.remove('visible');
+
+  renderMvhrIndicator(); // independent of the model fetch below
+
+  const res = await apiGet(`/api/studio/building-model?projectId=${_projectId}`);
+  if (!res.ok) {
+    const b = await res.json().catch(()=>({}));
+    showErr(`Could not load building model: ${b.error ?? res.status}`);
+    el('content').innerHTML='';
+    return;
+  }
+  const data = await res.json();
+  if (!data.model) { renderEmpty(); return; }
+  render(data);
+}
+
+function showErr(msg){ const b=el('bannerErr'); b.textContent=msg; b.classList.add('visible'); }
+
+// ── "What MVHR will use right now" — proof MVHR pulls the right geometry ──
+async function renderMvhrIndicator() {
+  const box = el('mvhrIndicator');
+  box.innerHTML = `<div class="mvhr-ind"><div class="mvhr-ind-top"><span class="lead">What MVHR will use right now</span><span class="muted-sm">checking…</span></div></div>`;
+  let d;
+  try {
+    const res = await apiGet(`/api/studio/building-model?projectId=${_projectId}&mvhrSource=1`);
+    const body = await res.json().catch(()=>({}));
+    if (!res.ok) { box.innerHTML = `<div class="mvhr-ind warn"><div class="mvhr-ind-top"><span class="lead">What MVHR will use right now</span></div><div class="mvhr-warn">⚠ ${esc(body.error || res.status)}</div></div>`; return; }
+    d = body.mvhrSource;
+  } catch (e) {
+    box.innerHTML = `<div class="mvhr-ind warn"><div class="mvhr-ind-top"><span class="lead">What MVHR will use right now</span></div><div class="mvhr-warn">⚠ ${esc(e.message)}</div></div>`;
+    return;
+  }
+
+  const cls = d.usingApproved ? 'ok' : 'warn';
+  const ts = d.approvedAt || d.updatedAt;
+  const tsLabel = d.approvedAt ? 'Approved' : 'Last updated';
+  const envVal = `DBM_MVHR_REQUIRE_APPROVED=${d.requireApproved}`;
+
+  box.innerHTML = `
+    <div class="mvhr-ind ${cls}">
+      <div class="mvhr-ind-top">
+        <span class="lead">What MVHR will use right now</span>
+        <span class="src">${d.usingApproved ? '✓ ' : ''}${esc(d.sourceLabel)}</span>
+        <span class="env-chip" title="Env mode controls whether MVHR is gated to approved models">${esc(envVal)}</span>
+      </div>
+      <div class="mvhr-grid">
+        <div><div class="k">Source</div><div class="v">${d.source==='dbm' ? 'Building Model' : 'Project Rooms'}</div></div>
+        <div><div class="k">Model status</div><div class="v">${d.modelStatus ? esc(String(d.modelStatus).replace('_',' ')) : '—'}</div></div>
+        <div><div class="k">Version</div><div class="v">${d.modelVersion ? 'v'+esc(d.modelVersion) : '—'}</div></div>
+        <div><div class="k">Rooms used by MVHR</div><div class="v">${esc(d.roomCount)}</div></div>
+        <div><div class="k">${tsLabel}</div><div class="v">${ts ? new Date(ts).toLocaleString() : '—'}</div></div>
+        <div><div class="k">Gating</div><div class="v">${d.gatingMode==='approved_only' ? 'Approved only' : 'Current working'}</div></div>
+      </div>
+      ${d.warning
+        ? `<div class="mvhr-warn">⚠ ${esc(d.warning)}</div>`
+        : `<div class="mvhr-ok-line">MVHR is consuming the approved Building Model geometry.</div>`}
+    </div>`;
+}
+
+// Show only the lifecycle actions valid for the current status.
+function setLifecycleButtons(status) {
+  const show = { reviewBtn:false, approveBtn:false, supersedeBtn:false };
+  if (status === 'draft')         { show.reviewBtn = true;  show.approveBtn = true; }
+  else if (status === 'needs_review') { show.approveBtn = true; }
+  else if (status === 'approved') { show.supersedeBtn = true; }
+  for (const id in show) { el(id).style.display = show[id] ? 'inline-flex' : 'none'; el(id).disabled = false; }
+  el('genBtn').disabled = false;
+}
+
+function renderEmpty() {
+  setLifecycleButtons(null);
+  el('content').innerHTML = `
+    <div class="card"><div class="empty">
+      <div class="big">🏠</div>
+      <div style="font-weight:800;color:var(--text);font-size:16px;margin-bottom:6px">No building model yet</div>
+      <div style="max-width:440px;margin:0 auto 4px">Generate one from your confirmed room schedule and the latest approved building volume. Click <strong>Generate / Refresh Building Model</strong> above.</div>
+    </div></div>`;
+}
+
+function pill(status){ return `<span class="pill ${esc(status)}">${esc(status).replace('_',' ')}</span>`; }
+
+function render(data) {
+  const m = data.model;
+  const levels = data.levels || [], rooms = data.rooms || [], zones = data.zones || [];
+
+  setLifecycleButtons(m.status);
+
+  // Status / MVHR-usage banner
+  if (m.status === 'approved') {
+    const b = el('bannerReview');
+    b.className = 'banner banner-ok visible';
+    b.innerHTML = `✓ <strong>Approved</strong> — this is the locked source of truth. When MVHR is gated to approved models, it reads its rooms from here. Editing rooms or volume creates a new <em>draft</em> that won't affect MVHR until you approve it.`;
+  } else if (m.status === 'needs_review' || m.status === 'draft') {
+    const b = el('bannerReview');
+    b.className = 'banner banner-warn visible';
+    b.innerHTML = `This model is <strong>${esc(m.status.replace('_',' '))}</strong> (auto-derived). Review the rooms and zones below, then <strong>Approve</strong> it so modules consume it as the source of truth. While unapproved it is not used by MVHR when gated to approved.`;
+  }
+  // Warnings banner
+  const warns = m.warnings || [];
+  if (warns.length) {
+    const b = el('bannerWarnings');
+    b.innerHTML = `<strong>${warns.length} warning${warns.length>1?'s':''}:</strong><ul>${warns.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`;
+    b.classList.add('visible');
+  }
+
+  const df = m.derivedFrom || {};
+  const srcLabel = m.sourceType === 'derived'
+    ? `Derived (AI rooms${df.building_volume_calculation_id ? ' + approved building volume' : ', no approved volume'})`
+    : esc(m.sourceType);
+
+  const summaryCard = `
+    <div class="card">
+      <div class="card-title">Current Version</div>
+      <div class="meta-grid">
+        <div class="meta"><div class="k">Status</div><div class="v">${pill(m.status)}</div></div>
+        <div class="meta"><div class="k">Version</div><div class="v">v${esc(m.version)}</div></div>
+        <div class="meta"><div class="k">Source</div><div class="v" style="font-size:13px;font-weight:700">${srcLabel}</div></div>
+        <div class="meta"><div class="k">Conditioned Floor Area</div><div class="v">${n2(m.conditionedFloorAreaM2)} m²</div></div>
+        <div class="meta"><div class="k">Building Volume</div><div class="v">${n2(m.buildingVolumeM3)} m³</div></div>
+        <div class="meta"><div class="k">Storeys</div><div class="v">${esc(m.storeyCount ?? '—')}</div></div>
+        <div class="meta"><div class="k">Airtightness Layer</div><div class="v" style="font-size:13px;font-weight:700">${esc(m.airtightnessLayer ?? '—')}</div></div>
+        <div class="meta"><div class="k">Updated</div><div class="v" style="font-size:13px;font-weight:700">${m.updatedAt ? new Date(m.updatedAt).toLocaleString() : '—'}</div></div>
+        ${m.approvedAt ? `<div class="meta"><div class="k">Approved</div><div class="v" style="font-size:13px;font-weight:700">${new Date(m.approvedAt).toLocaleString()}</div></div>` : ''}
+        ${m.supersededAt ? `<div class="meta"><div class="k">Superseded</div><div class="v" style="font-size:13px;font-weight:700">${new Date(m.supersededAt).toLocaleString()}</div></div>` : ''}
+      </div>
+    </div>`;
+
+  // Levels
+  const levelName = idx => (levels.find(l => l.level_index===idx)?.name) ?? `Level ${idx}`;
+  const levelsCard = `
+    <div class="card">
+      <div class="card-title">Levels (${levels.length})</div>
+      ${levels.length ? `<table><thead><tr><th>#</th><th>Name</th><th class="num">Default ceiling (m)</th><th>Source</th></tr></thead><tbody>
+        ${levels.map(l=>`<tr><td>${esc(l.level_index)}</td><td>${esc(l.name)}</td><td class="num">${n2(l.default_ceiling_height_m)}</td><td><span class="tag">${esc(l.source)}</span></td></tr>`).join('')}
+      </tbody></table>` : `<div class="section-empty">No levels.</div>`}
+    </div>`;
+
+  // Rooms
+  const roomsCard = `
+    <div class="card">
+      <div class="card-title">Rooms (${rooms.length})</div>
+      ${rooms.length ? `<table><thead><tr>
+        <th>Name</th><th>Type</th><th>Level</th><th>Class</th>
+        <th class="num">Area m²</th><th class="num">Ceiling m</th><th class="num">Vol m³</th>
+        <th>Envelope</th><th>Source</th></tr></thead><tbody>
+        ${rooms.map(r=>`<tr>
+          <td>${esc(r.name)}</td>
+          <td>${esc(r.room_type)}</td>
+          <td>${esc(levelName(r.level_index))}</td>
+          <td>${esc(r.classification)}</td>
+          <td class="num">${n2(r.area_m2)}</td>
+          <td class="num">${n2(r.ceiling_height_m)}</td>
+          <td class="num">${n2(r.volume_m3)}</td>
+          <td>${r.included_in_envelope ? '<span class="tag env">included</span>' : `<span class="tag exc">excluded</span>`}</td>
+          <td><span class="tag src-${esc(r.source)}">${esc(r.source)}</span></td>
+        </tr>`).join('')}
+      </tbody></table>` : `<div class="section-empty">No rooms in this model.</div>`}
+    </div>`;
+
+  // Zones
+  const zonesCard = `
+    <div class="card">
+      <div class="card-title">Building-Volume Zones (${zones.length})</div>
+      ${zones.length ? `<table><thead><tr>
+        <th>Name</th><th>Kind</th><th>Category</th><th>Level</th>
+        <th class="num">Area m²</th><th class="num">Height m</th><th class="num">Vol m³</th><th>Source</th></tr></thead><tbody>
+        ${zones.map(z=>`<tr>
+          <td>${esc(z.name)}</td>
+          <td>${z.kind==='envelope' ? '<span class="tag env">envelope</span>' : '<span class="tag exc">excluded</span>'}</td>
+          <td>${esc(z.category ?? '—')}</td>
+          <td>${esc(z.level ?? '—')}</td>
+          <td class="num">${n2(z.area_m2)}</td>
+          <td class="num">${n2(z.height_m)}</td>
+          <td class="num">${n2(z.volume_m3)}</td>
+          <td><span class="tag src-${esc(z.source)}">${esc(z.source)}</span></td>
+        </tr>`).join('')}
+      </tbody></table>` : `<div class="section-empty">No zones — approve a Building Volume calculation to populate the airtight envelope.</div>`}
+    </div>`;
+
+  el('content').innerHTML = summaryCard + levelsCard + roomsCard + zonesCard;
+}
+</script>
+</body>
+</html>
