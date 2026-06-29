@@ -149,11 +149,13 @@ function normalisePageNumbers(pageNumbers, pageCount, maxPages) {
 }
 
 async function renderPdfPagesToImageContent(storagePath, userId, options = {}) {
-  const [pdfjs, canvasApi, sharp] = await Promise.all([
+  const [pdfjs, pdfjsWorker, canvasApi, sharp] = await Promise.all([
     import('pdfjs-dist/legacy/build/pdf.mjs'),
+    import('pdfjs-dist/legacy/build/pdf.worker.mjs'),
     import('@napi-rs/canvas'),
     import('sharp').then(m => m.default),
   ]);
+  globalThis.pdfjsWorker = pdfjsWorker;
   const pdfBuffer = await downloadOwnedStorageObject(storagePath, userId);
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(pdfBuffer),
