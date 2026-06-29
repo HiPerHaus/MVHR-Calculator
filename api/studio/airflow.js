@@ -356,16 +356,18 @@ export default async function handler(req, res) {
       }
     }
 
-    // Load the current canonical airtight building volume, when available.
+    // Load the latest approved canonical airtight building volume, when available.
     // This is the project-level geometry source of truth for ACH/area candidates;
-    // the engine falls back to room-derived area/volume if no saved calculation exists.
+    // the engine falls back to room-derived area/volume if no approved calculation exists.
     {
       const { data: buildingVolume } = await supabase
         .from('building_volume_calculations')
-        .select('id, conditioned_floor_area_m2, building_volume_m3')
+        .select('id, version, conditioned_floor_area_m2, building_volume_m3')
         .eq('project_id', projectId)
         .eq('user_id', user.id)
-        .eq('is_current', true)
+        .eq('status', 'approved')
+        .order('version', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (buildingVolume?.building_volume_m3 > 0) {

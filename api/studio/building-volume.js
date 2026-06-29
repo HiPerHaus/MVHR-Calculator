@@ -9,6 +9,7 @@ import { isUuid } from '../../lib/validateUuid.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const STATUS_VALUES = new Set(['draft', 'needs_review', 'approved', 'superseded']);
 
 function round2(value) {
   const n = Number(value);
@@ -33,6 +34,12 @@ function normaliseZone(zone, index, defaultHeightM) {
     volume_m3: volume,
     included: zone?.include ?? zone?.included ?? true,
     ai_confidence: zone?.confidence == null ? null : Math.max(0, Math.min(1, Number(zone.confidence))),
+    height_source: cleanText(zone?.heightSource ?? zone?.height_source),
+    height_method: cleanText(zone?.heightMethod ?? zone?.height_method),
+    height_assumed: zone?.heightAssumed ?? zone?.height_assumed ?? false,
+    needs_review: zone?.needsReview ?? zone?.needs_review ?? zone?.heightAssumed ?? false,
+    warning: cleanText(zone?.warning),
+    height_zones: Array.isArray(zone?.heightZones) ? zone.heightZones : (zone?.height_zones ?? []),
     evidence: cleanText(zone?.evidence),
     source_json: zone ?? {},
   };
@@ -45,6 +52,7 @@ function calculationResponse(row, zones = []) {
     projectId: row.project_id,
     version: row.version,
     isCurrent: row.is_current,
+    status: row.status ?? 'draft',
     sourceType: row.source_type,
     airtightnessLayer: row.airtightness_layer,
     defaultHeightM: row.default_ceiling_height_m,
@@ -53,6 +61,8 @@ function calculationResponse(row, zones = []) {
     aiConfidence: row.ai_confidence == null ? null : Number(row.ai_confidence),
     assumptions: row.assumptions ?? [],
     warnings: row.warnings ?? [],
+    pageClassifications: row.page_classifications ?? [],
+    selectedPdfPages: row.selected_pdf_pages ?? [],
     originalAiJson: row.original_ai_json ?? null,
     currentJson: row.current_json ?? {},
     createdAt: row.created_at,
@@ -66,6 +76,12 @@ function calculationResponse(row, zones = []) {
       volumeM3: Number(z.volume_m3 ?? 0),
       include: z.included,
       confidence: z.ai_confidence == null ? null : Number(z.ai_confidence),
+      heightSource: z.height_source ?? '',
+      heightMethod: z.height_method ?? '',
+      heightAssumed: z.height_assumed ?? false,
+      needsReview: z.needs_review ?? false,
+      warning: z.warning ?? '',
+      heightZones: z.height_zones ?? [],
       evidence: z.evidence ?? '',
     })),
   };
@@ -110,7 +126,7 @@ export default async function handler(req, res) {
 
     const { data: history, error: historyErr } = await supabase
       .from('building_volume_calculations')
-      .select('id, version, source_type, airtightness_layer, conditioned_floor_area_m2, building_volume_m3, ai_confidence, created_at, is_current')
+      .select('id, version, status, source_type, airtightness_layer, conditioned_floor_area_m2, building_volume_m3, ai_confidence, created_at, is_current')
       .eq('project_id', projectId)
       .order('version', { ascending: false });
     if (historyErr) return res.status(500).json({ error: historyErr.message });
@@ -142,6 +158,11 @@ export default async function handler(req, res) {
     const conditionedFloorAreaM2 = round2(body.conditionedFloorAreaM2 ?? included.reduce((sum, z) => sum + z.area_m2, 0));
     const buildingVolumeM3 = round2(body.buildingVolumeM3 ?? included.reduce((sum, z) => sum + z.volume_m3, 0));
     if (buildingVolumeM3 <= 0) return res.status(400).json({ error: 'Building volume must be greater than 0' });
+    const hasReviewFlags = zones.some(z => z.needs_review || z.height_assumed) || (Array.isArray(body.warnings) && body.warnings.length > 0);
+    const requestedStatus = cleanText(body.status, hasReviewFlags ? 'needs_review' : 'draft');
+    const status = STATUS_VALUES.has(requestedStatus) && requestedStatus !== 'superseded'
+      ? requestedStatus
+      : (hasReviewFlags ? 'needs_review' : 'draft');
 
     const { data: latest } = await supabase
       .from('building_volume_calculations')
@@ -160,7 +181,7 @@ export default async function handler(req, res) {
 
     await supabase
       .from('building_volume_calculations')
-      .update({ is_current: false, updated_at: new Date().toISOString() })
+      .update({ is_current: false, status: 'superseded', updated_at: new Date().toISOString() })
       .eq('project_id', projectId)
       .eq('is_current', true);
 
@@ -168,6 +189,9 @@ export default async function handler(req, res) {
       zones: body.zones ?? [],
       assumptions: body.assumptions ?? [],
       warnings: body.warnings ?? [],
+      pageClassifications: body.pageClassifications ?? [],
+      selectedPdfPages: body.selectedPdfPages ?? [],
+      status,
       editedAt: new Date().toISOString(),
     };
 
@@ -178,6 +202,7 @@ export default async function handler(req, res) {
         user_id: user.id,
         version,
         is_current: true,
+        status,
         source_type: body.sourceType ?? 'manual',
         airtightness_layer: cleanText(body.airtightnessLayer, 'plasterboard'),
         default_ceiling_height_m: defaultHeightM,
@@ -186,6 +211,8 @@ export default async function handler(req, res) {
         ai_confidence: body.aiConfidence == null ? null : Math.max(0, Math.min(1, Number(body.aiConfidence))),
         assumptions: body.assumptions ?? [],
         warnings: body.warnings ?? [],
+        page_classifications: body.pageClassifications ?? [],
+        selected_pdf_pages: body.selectedPdfPages ?? [],
         original_ai_json: body.originalAiJson ?? null,
         current_json: currentJson,
       })
@@ -212,7 +239,7 @@ export default async function handler(req, res) {
         calculation_id: calculation.id,
         user_id: user.id,
         event_type: version === 1 ? 'created' : 'edited',
-        payload: { version, sourceType: body.sourceType ?? 'manual' },
+        payload: { version, status, sourceType: body.sourceType ?? 'manual' },
       },
     ];
     await supabase

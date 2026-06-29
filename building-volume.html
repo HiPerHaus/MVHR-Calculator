@@ -47,6 +47,14 @@ input:focus, select:focus, textarea:focus { border-color:var(--accent); backgrou
 .status.show { display:block; }
 .status.info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
 .status.err { background:var(--critical-bg); border:1px solid #fecaca; color:var(--critical); }
+.page-picker { display:none; margin-top:16px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
+.page-picker.show { display:block; }
+.page-row { display:grid; grid-template-columns:30px 86px 1fr 72px; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; }
+.page-row:last-child { border-bottom:none; }
+.page-row input { width:18px; height:18px; }
+.page-type { font-weight:800; color:var(--primary); }
+.page-reason { color:var(--muted); line-height:1.35; }
+.page-conf { color:var(--muted); text-align:right; font-weight:700; }
 .metric-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
 .metric { background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:15px; }
 .metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.5px; font-weight:900; color:var(--muted); }
@@ -116,12 +124,13 @@ td input[type="checkbox"] { width:18px; height:18px; }
         </select>
       </div>
       <div id="savedMeta" class="status info" style="display:none"></div>
-      <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onFile(this.files[0])">
+      <input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,.pdf" style="display:none" onchange="onFile(this.files[0])">
       <div id="drop" class="drop" onclick="fileInput.click()" ondragover="dragOver(event)" ondragleave="dragLeave()" ondrop="dropFile(event)">
         <div class="drop-ico">📐</div>
-        <div class="drop-title">Upload a floor plan image</div>
-        <div class="drop-sub">PNG, JPG, or WebP. PDF support can reuse the existing plan pipeline next.</div>
+        <div class="drop-title">Upload a floor plan</div>
+        <div class="drop-sub">PDF, PNG, JPG, or WebP. PDFs are analysed directly in this tool.</div>
       </div>
+      <div id="pagePicker" class="page-picker"></div>
 
       <div class="field" style="margin-top:18px">
         <label>Airtightness layer</label>
@@ -136,13 +145,21 @@ td input[type="checkbox"] { width:18px; height:18px; }
         <input id="defaultHeight" type="number" min="1.8" max="8" step="0.01" value="2.70">
       </div>
       <div class="field">
+        <label>Calculation status</label>
+        <select id="calcStatus">
+          <option value="draft">Draft</option>
+          <option value="needs_review">Needs Review</option>
+          <option value="approved">Approved</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Notes for AI</label>
         <textarea id="notes" placeholder="Example: use 2.55 m upstairs, garage is outside the airtight layer, raked ceiling in living area."></textarea>
       </div>
       <div class="actions">
         <button id="analyseBtn" class="btn btn-primary" disabled onclick="analyse()">Analyse Plan</button>
         <button class="btn btn-secondary" onclick="addSpace()">Add Zone</button>
-        <button id="saveBtn" class="btn btn-secondary" disabled onclick="saveCalculation()">Save to Project</button>
+        <button id="saveBtn" class="btn btn-secondary" disabled onclick="saveCalculation()">Save Calculation to Project</button>
       </div>
     </section>
 
@@ -157,7 +174,7 @@ td input[type="checkbox"] { width:18px; height:18px; }
       <div id="results" style="display:none">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>In</th><th>Zone</th><th>Level</th><th>Area m²</th><th>Height m</th><th>Volume m³</th><th>Confidence</th></tr></thead>
+            <thead><tr><th>In</th><th>Zone</th><th>Level</th><th>Area m²</th><th>Height m</th><th>Height source</th><th>Method</th><th>Assumed</th><th>Review</th><th>Volume m³</th><th>Confidence</th></tr></thead>
             <tbody id="spaceRows"></tbody>
           </table>
         </div>
@@ -190,6 +207,9 @@ let warnings = [];
 let aiConfidence = null;
 let originalAiJson = null;
 let sourceType = 'manual';
+let pdfPageSelections = [];
+let classifiedPdfPath = null;
+let currentCalculationStatus = 'draft';
 
 const $ = id => document.getElementById(id);
 
@@ -275,6 +295,8 @@ async function onProjectChange() {
       aiConfidence = null;
       originalAiJson = null;
       sourceType = 'manual';
+      currentCalculationStatus = 'draft';
+      $('calcStatus').value = 'draft';
       render();
     }
   } catch (err) {
@@ -288,11 +310,15 @@ function applySavedCalculation(calculation) {
   aiConfidence = calculation.aiConfidence;
   originalAiJson = calculation.originalAiJson;
   sourceType = calculation.sourceType || 'manual';
+  currentCalculationStatus = calculation.status || 'draft';
+  $('calcStatus').value = currentCalculationStatus === 'superseded' ? 'draft' : currentCalculationStatus;
+  pdfPageSelections = calculation.pageClassifications || [];
   $('layer').value = calculation.airtightnessLayer || 'plasterboard';
   if (calculation.defaultHeightM) $('defaultHeight').value = Number(calculation.defaultHeightM).toFixed(2);
+  renderPagePicker();
   render();
   const when = calculation.createdAt ? new Date(calculation.createdAt).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '';
-  $('savedMeta').textContent = `Loaded saved volume v${calculation.version}: ${Number(calculation.buildingVolumeM3).toFixed(1)} m³${when ? ` · ${when}` : ''}`;
+  $('savedMeta').textContent = `Loaded saved volume v${calculation.version} (${formatPageType(currentCalculationStatus)}): ${Number(calculation.buildingVolumeM3).toFixed(1)} m³${when ? ` · ${when}` : ''}`;
   $('savedMeta').style.display = 'block';
 }
 
@@ -306,13 +332,19 @@ function dropFile(event) {
 function onFile(file) {
   clearStatus();
   if (!file) return;
-  if (!['image/png','image/jpeg','image/webp'].includes(file.type)) {
-    showStatus('err', 'Please upload a PNG, JPG, or WebP plan image.');
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  const isImage = ['image/png','image/jpeg','image/webp'].includes(file.type);
+  if (!isImage && !isPdf) {
+    showStatus('err', 'Please upload a PDF, PNG, JPG, or WebP plan file.');
     return;
   }
   selectedFile = file;
   storagePath = null;
+  pdfPageSelections = [];
+  classifiedPdfPath = null;
+  renderPagePicker();
   $('analyseBtn').disabled = false;
+  $('analyseBtn').textContent = isPdf ? 'Classify PDF Pages' : 'Analyse Plan';
   $('drop').querySelector('.drop-title').textContent = file.name;
   $('drop').querySelector('.drop-sub').textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB ready for AI reading`;
 }
@@ -326,10 +358,11 @@ function uuidv4() {
 
 async function uploadSelectedFile() {
   if (storagePath) return storagePath;
-  const ext = selectedFile.type === 'image/jpeg' ? 'jpg' : selectedFile.type.split('/')[1];
+  const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf');
+  const ext = isPdf ? 'pdf' : (selectedFile.type === 'image/jpeg' ? 'jpg' : selectedFile.type.split('/')[1]);
   const objectPath = `volume/${userId}/${uuidv4()}/plan.${ext}`;
   const { error } = await sb.storage.from(BUCKET).upload(objectPath, selectedFile, {
-    contentType: selectedFile.type,
+    contentType: isPdf ? 'application/pdf' : selectedFile.type,
     upsert: false,
   });
   if (error) throw new Error(error.message);
@@ -340,19 +373,52 @@ async function uploadSelectedFile() {
 async function analyse() {
   if (!selectedFile || !token) return;
   $('analyseBtn').disabled = true;
-  showStatus('info', 'Uploading plan image…');
+  const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf');
+  showStatus('info', isPdf ? 'Uploading PDF…' : 'Uploading plan image…');
   try {
     const path = await uploadSelectedFile();
-    showStatus('info', 'Reading airtight envelope dimensions with AI…');
+
+    if (isPdf && classifiedPdfPath !== path) {
+      showStatus('info', 'Classifying PDF pages for floor plans, ceiling plans, sections, elevations, and schedules…');
+      const classifyRes = await fetch('/api/ai/building-volume', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', Authorization:'Bearer ' + token },
+        body: JSON.stringify({
+          action: 'classify-pages',
+          storagePath: path,
+          mimeType: 'application/pdf',
+        }),
+      });
+      const classifyData = await classifyRes.json().catch(() => ({}));
+      if (!classifyRes.ok) throw new Error(classifyData.error || 'PDF page classification failed');
+      pdfPageSelections = classifyData.pages || [];
+      classifiedPdfPath = path;
+      renderPagePicker();
+      $('analyseBtn').textContent = 'Analyse Selected Pages';
+      showStatus('info', 'PDF pages classified. Tick the drawings that should inform volume, then analyse selected pages.');
+      return;
+    }
+
+    const selectedPdfPages = isPdf
+      ? pdfPageSelections.filter(p => p.selected).map(p => p.pageNumber)
+      : null;
+    if (isPdf && !selectedPdfPages.length) {
+      showStatus('err', 'Select at least one PDF page before analysis.');
+      return;
+    }
+
+    showStatus('info', isPdf ? 'Rendering PDF pages and reading airtight envelope dimensions with AI…' : 'Reading airtight envelope dimensions with AI…');
     const res = await fetch('/api/ai/building-volume', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', Authorization:'Bearer ' + token },
       body: JSON.stringify({
         storagePath: path,
-        mimeType: selectedFile.type,
+        mimeType: isPdf ? 'application/pdf' : selectedFile.type,
         airtightnessLayer: $('layer').value,
         defaultHeightM: Number($('defaultHeight').value || 2.7),
         notes: $('notes').value,
+        selectedPages: selectedPdfPages,
+        pageSelections: isPdf ? pdfPageSelections.filter(p => p.selected) : null,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -362,9 +428,13 @@ async function analyse() {
     warnings = data.warnings || [];
     aiConfidence = data.confidence;
     originalAiJson = data;
-    sourceType = 'ai_image';
+    sourceType = isPdf ? 'pdf' : 'ai_image';
+    setSuggestedStatus();
     render();
-    showStatus('info', 'AI reading complete. Review dimensions before using the volume.');
+    const pdfNote = data.pdfTruncated
+      ? ` Analysed the first ${data.pdfAnalysedPageCount} of ${data.pdfPageCount} PDF pages.`
+      : '';
+    showStatus('info', `AI reading complete.${pdfNote} Review dimensions before using the volume.`);
   } catch (err) {
     showStatus('err', err.message);
   } finally {
@@ -373,17 +443,21 @@ async function analyse() {
 }
 
 function addSpace() {
-  spaces.push({ id: `space-${Date.now()}`, name:'New zone', level:'Ground Floor', areaM2:0, heightM:Number($('defaultHeight').value || 2.7), volumeM3:0, include:true, confidence:0, evidence:'Manual entry' });
+  spaces.push({ id: `space-${Date.now()}`, name:'New zone', level:'Ground Floor', areaM2:0, heightM:Number($('defaultHeight').value || 2.7), heightSource:'manual', heightMethod:'single height', heightAssumed:false, needsReview:false, volumeM3:0, include:true, confidence:0, warning:'', evidence:'Manual entry' });
   if (!originalAiJson) sourceType = 'manual';
+  markCalculationEdited();
   render();
 }
 function updateSpace(index, field, value) {
   const space = spaces[index];
   if (!space) return;
   if (field === 'include') space.include = value;
+  else if (field === 'heightAssumed' || field === 'needsReview') space[field] = value;
   else if (['areaM2','heightM','volumeM3'].includes(field)) space[field] = Number(value) || 0;
   else space[field] = value;
   if (field === 'areaM2' || field === 'heightM') space.volumeM3 = Number((space.areaM2 * space.heightM).toFixed(2));
+  markCalculationEdited();
+  if (field === 'heightAssumed' || field === 'needsReview') setSuggestedStatus();
   render();
 }
 function render() {
@@ -396,6 +470,10 @@ function render() {
       <td><input value="${escapeHtml(s.level)}" onchange="updateSpace(${i}, 'level', this.value)"></td>
       <td><input type="number" step="0.01" value="${s.areaM2}" onchange="updateSpace(${i}, 'areaM2', this.value)"></td>
       <td><input type="number" step="0.01" value="${s.heightM}" onchange="updateSpace(${i}, 'heightM', this.value)"></td>
+      <td><input value="${escapeHtml(s.heightSource || (s.heightAssumed ? 'assumed default' : ''))}" onchange="updateSpace(${i}, 'heightSource', this.value)" title="${escapeHtml(s.warning || s.evidence || '')}"></td>
+      <td><input value="${escapeHtml(s.heightMethod || 'single height')}" onchange="updateSpace(${i}, 'heightMethod', this.value)" title="${escapeHtml(formatHeightZones(s.heightZones))}"></td>
+      <td><input type="checkbox" ${s.heightAssumed ? 'checked' : ''} onchange="updateSpace(${i}, 'heightAssumed', this.checked)"></td>
+      <td><input type="checkbox" ${(s.needsReview || s.heightAssumed) ? 'checked' : ''} onchange="updateSpace(${i}, 'needsReview', this.checked)" title="${escapeHtml(s.warning || '')}"></td>
       <td><input type="number" step="0.01" value="${Number(s.volumeM3).toFixed(2)}" onchange="updateSpace(${i}, 'volumeM3', this.value)"></td>
       <td>${s.confidence ? Math.round(s.confidence * 100) + '%' : 'Manual'}</td>
     </tr>
@@ -409,6 +487,48 @@ function render() {
   $('assumptions').innerHTML = listItems(assumptions.length ? assumptions : ['No assumptions recorded yet.']);
   $('warnings').innerHTML = listItems(warnings.length ? warnings : ['Review included zones and heights before reporting.']);
   $('saveBtn').disabled = !projectId || !spaces.length || volume <= 0;
+}
+function renderPagePicker() {
+  const picker = $('pagePicker');
+  if (!pdfPageSelections.length) {
+    picker.classList.remove('show');
+    picker.innerHTML = '';
+    return;
+  }
+  picker.classList.add('show');
+  picker.innerHTML = pdfPageSelections.map((p, i) => `
+    <label class="page-row">
+      <input type="checkbox" ${p.selected ? 'checked' : ''} onchange="togglePdfPage(${i}, this.checked)">
+      <span class="page-type">Page ${p.pageNumber}<br>${escapeHtml(formatPageType(p.pageType))}</span>
+      <span class="page-reason">${escapeHtml(p.reason || '')}</span>
+      <span class="page-conf">${p.confidence ? Math.round(p.confidence * 100) + '%' : '—'}</span>
+    </label>
+  `).join('');
+}
+function togglePdfPage(index, checked) {
+  if (pdfPageSelections[index]) {
+    pdfPageSelections[index].selected = checked;
+    markCalculationEdited();
+  }
+}
+function formatPageType(type) {
+  return String(type || 'other').replace(/_/g, ' ');
+}
+function formatHeightZones(zones) {
+  if (!Array.isArray(zones) || !zones.length) return '';
+  return zones.map(z => `${Number(z.areaM2 || 0).toFixed(1)} m2 x ${Number(z.heightM || 0).toFixed(2)} m = ${Number(z.volumeM3 || 0).toFixed(1)} m3`).join(' | ');
+}
+function setSuggestedStatus() {
+  if ($('calcStatus').value === 'approved') return;
+  const needsReview = spaces.some(s => s.needsReview || s.heightAssumed) || warnings.length > 0;
+  currentCalculationStatus = needsReview ? 'needs_review' : 'draft';
+  $('calcStatus').value = currentCalculationStatus;
+}
+function markCalculationEdited() {
+  if ($('calcStatus').value === 'approved') {
+    currentCalculationStatus = 'needs_review';
+    $('calcStatus').value = 'needs_review';
+  }
 }
 function listItems(items) { return items.map(item => `<li>${escapeHtml(item)}</li>`).join(''); }
 function escapeHtml(value) {
@@ -459,13 +579,19 @@ async function saveCalculation() {
         assumptions,
         warnings,
         originalAiJson,
+        status: $('calcStatus').value,
+        pageClassifications: pdfPageSelections,
+        selectedPdfPages: pdfPageSelections.filter(p => p.selected),
         zones: spaces,
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Save failed');
     applySavedCalculation(data.calculation);
-    showStatus('info', `Saved building volume v${data.calculation.version}. MVHR airflow will use this volume on the next recalculation.`);
+    const mvhrNote = data.calculation.status === 'approved'
+      ? ' MVHR airflow will use this approved volume on the next recalculation.'
+      : ' MVHR airflow will keep using the latest approved volume until this version is approved.';
+    showStatus('info', `Saved building volume v${data.calculation.version} (${formatPageType(data.calculation.status)}).${mvhrNote}`);
   } catch (err) {
     showStatus('err', err.message);
   } finally {
