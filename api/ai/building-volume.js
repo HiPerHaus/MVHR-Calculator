@@ -27,6 +27,7 @@ const PDF_STANDARD_FONT_DATA_URL = new URL('../../node_modules/pdfjs-dist/standa
 const limiter = rateLimit({ windowMs: 60_000, max: 8 });
 
 const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf']);
+const EXCLUDED_SPACE_RE = /\b(garage|carport|car\s*port|alfresco|verandah|veranda|porch|patio|balcony|deck|courtyard|terrace|shed|workshop|store\s*room|storeroom|external\s*store|roof\s*void|attic|plant\s*room|unconditioned|crawl\s*space)\b/i;
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://hiper-studio.au');
@@ -92,25 +93,37 @@ function cleanText(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 240) : fallback;
 }
 
+function isExcludedSpaceName(...values) {
+  return EXCLUDED_SPACE_RE.test(values.filter(Boolean).join(' '));
+}
+
 function normaliseSpace(space, index) {
   const area = clampNumber(space?.areaM2);
   const height = clampNumber(space?.heightM);
   const volume = clampNumber(space?.volumeM3 || area * height);
+  const name = cleanText(space?.name, `Space ${index + 1}`);
+  const level = cleanText(space?.level, 'Unspecified level');
+  const evidence = cleanText(space?.evidence);
+  const warning = cleanText(space?.warning);
+  const forceExcluded = isExcludedSpaceName(name, level, evidence);
+  const include = forceExcluded ? false : space?.include !== false;
   return {
     id: cleanText(space?.id, `space-${index + 1}`).replace(/[^a-z0-9_-]/gi, '-').toLowerCase(),
-    name: cleanText(space?.name, `Space ${index + 1}`),
-    level: cleanText(space?.level, 'Unspecified level'),
+    name,
+    level,
     areaM2: area,
     heightM: height,
     volumeM3: volume,
-    include: space?.include !== false,
+    include,
     confidence: clampNumber(space?.confidence, 0, 1),
     heightSource: cleanText(space?.heightSource, space?.heightAssumed ? 'assumed default' : ''),
     heightMethod: cleanText(space?.heightMethod, 'single height'),
     heightAssumed: space?.heightAssumed === true,
     needsReview: space?.needsReview === true || space?.heightAssumed === true,
-    warning: cleanText(space?.warning),
-    evidence: cleanText(space?.evidence),
+    warning: forceExcluded && !warning
+      ? 'Excluded by default as non-habitable/unconditioned space'
+      : warning,
+    evidence,
     heightZones: Array.isArray(space?.heightZones)
       ? space.heightZones.slice(0, 12).map(zone => ({
           areaM2: clampNumber(zone?.areaM2),
@@ -258,7 +271,10 @@ Classify each page into exactly one pageType:
 Return only JSON:
 {"pages":[{"pageNumber":1,"pageType":"floor_plan","selected":true,"confidence":0.86,"reason":"ground floor plan with room labels"}]}
 
-Set selected=true for floor_plan, ceiling_plan, section, elevation, and schedule_notes when useful for volume.`;
+Set selected=true only for pages needed to calculate volume:
+- floor_plan pages needed for room areas and airtight envelope boundaries.
+- ceiling_plan, section, elevation, and schedule_notes pages only when they provide ceiling heights, raked/vaulted geometry, bulkheads, schedules, or general notes relevant to height.
+Set selected=false for duplicate, partial, decorative, or unrelated pages.`;
 
 function normaliseClassifiedPages(parsed, renderedPages) {
   const byPage = new Map((Array.isArray(parsed?.pages) ? parsed.pages : []).map(p => [Number(p.pageNumber), p]));
@@ -376,8 +392,9 @@ The airtightness layer is either:
 
 Rules:
 - Use internal dimensions at the airtightness layer, not external wall dimensions.
-- Include all conditioned/interior spaces inside the airtight envelope.
-- Exclude garages, carports, verandahs, balconies, alfresco areas, roof voids outside the air barrier, and unconditioned service voids unless clearly inside the airtight layer.
+- Include habitable/conditioned spaces only: living, dining, kitchen, bedrooms, studies, bathrooms, laundries, halls, stairs, robes, pantries, and other interior zones inside the airtight envelope.
+- Exclude garages, carports, verandahs, balconies, decks, patios, porches, alfresco areas, sheds, workshops, roof voids, plant rooms, external stores, and other non-habitable/unconditioned spaces by default.
+- If a garage/carport/store is drawn inside the same overall outline, still set include=false unless the drawings explicitly state it is habitable/conditioned and inside the airtight layer. Add a warning if uncertain.
 - Split the result into spaces or zones that the user can review.
 - Calculate room volume as room area from floor plans multiplied by room height from ceiling plans, sections, elevations, schedules, or notes.
 - Apply this strict height-source precedence. Do not choose lower-precedence evidence when higher-precedence evidence exists for the same room/zone:
@@ -449,6 +466,7 @@ User notes: ${cleanText(notes, 'None')}
 Selected PDF pages: ${Array.isArray(pageSelections) ? pageSelections.map(p => `page ${p.pageNumber}: ${p.pageType}`).join('; ') : 'not applicable'}
 
 Use floor plans for room areas and airtight-envelope boundary. Use ceiling plans, sections, elevations, schedules, and notes for room heights. If a height cannot be found for a room, use the default height and flag it as assumed.
+Include habitable/conditioned spaces only. Exclude garages, carports, alfresco, verandahs, balconies, decks, patios, porches, sheds, workshops, external stores, roof voids, plant rooms, and other non-habitable/unconditioned zones unless notes explicitly say they are habitable and inside the airtight layer.
 
 Return JSON only.`;
 
