@@ -7,6 +7,8 @@ create table if not exists public.building_volume_calculations (
   user_id uuid not null references auth.users(id) on delete cascade,
   version integer not null default 1,
   is_current boolean not null default true,
+  status text not null default 'draft'
+    check (status in ('draft', 'needs_review', 'approved', 'superseded')),
   source_type text not null default 'manual'
     check (source_type in ('ai_image', 'manual', 'imported', 'pdf')),
   airtightness_layer text not null default 'plasterboard',
@@ -20,6 +22,8 @@ create table if not exists public.building_volume_calculations (
     check (ai_confidence is null or (ai_confidence >= 0 and ai_confidence <= 1)),
   assumptions jsonb not null default '[]'::jsonb,
   warnings jsonb not null default '[]'::jsonb,
+  page_classifications jsonb not null default '[]'::jsonb,
+  selected_pdf_pages jsonb not null default '[]'::jsonb,
   original_ai_json jsonb,
   current_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -37,6 +41,12 @@ create table if not exists public.building_volume_zones (
   volume_m3 numeric(10,2) not null default 0 check (volume_m3 >= 0),
   included boolean not null default true,
   ai_confidence numeric(4,3) check (ai_confidence is null or (ai_confidence >= 0 and ai_confidence <= 1)),
+  height_source text,
+  height_method text,
+  height_assumed boolean not null default false,
+  needs_review boolean not null default false,
+  warning text,
+  height_zones jsonb not null default '[]'::jsonb,
   evidence text,
   source_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
@@ -57,6 +67,9 @@ create unique index if not exists building_volume_one_current_per_project
 
 create index if not exists building_volume_project_created_idx
   on public.building_volume_calculations(project_id, created_at desc);
+
+create index if not exists building_volume_project_status_version_idx
+  on public.building_volume_calculations(project_id, status, version desc);
 
 create index if not exists building_volume_zones_calculation_idx
   on public.building_volume_zones(calculation_id);
@@ -90,6 +103,12 @@ comment on table public.building_volume_calculations is
   'Versioned project-level airtight building geometry used for blower-door volume and downstream design tools.';
 comment on column public.building_volume_calculations.building_volume_m3 is
   'Current edited airtight building volume in cubic metres.';
+comment on column public.building_volume_calculations.status is
+  'Lifecycle state: draft, needs_review, approved, or superseded. MVHR uses the latest approved calculation.';
+comment on column public.building_volume_calculations.page_classifications is
+  'PDF page classification output used to choose floor/ceiling/section/elevation/schedule pages.';
+comment on column public.building_volume_calculations.selected_pdf_pages is
+  'PDF pages selected by the user for the current calculation version.';
 comment on column public.building_volume_calculations.original_ai_json is
   'Unedited AI extraction response, retained for audit.';
 comment on column public.building_volume_calculations.current_json is
