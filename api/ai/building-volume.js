@@ -55,6 +55,33 @@ function extractJson(text) {
   return JSON.parse(raw.slice(first, last + 1));
 }
 
+async function repairAndParseJson(text, context) {
+  const message = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 5000,
+    temperature: 0,
+    system: 'You repair malformed JSON. Return only valid JSON. Do not add markdown, commentary, or new information.',
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'text',
+        text: `Repair this malformed JSON from ${context}. Preserve the same schema and values. Return only valid JSON.\n\n${String(text || '').slice(0, 30000)}`,
+      }],
+    }],
+  });
+  const repaired = message.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
+  return extractJson(repaired);
+}
+
+async function parseModelJson(text, context) {
+  try {
+    return extractJson(text);
+  } catch (err) {
+    console.warn(`building-volume ${context} JSON parse failed; attempting repair:`, err.message);
+    return repairAndParseJson(text, context);
+  }
+}
+
 function clampNumber(value, min = 0, max = 9999) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -250,6 +277,66 @@ function normaliseClassifiedPages(parsed, renderedPages) {
   });
 }
 
+function fallbackClassifiedPages(renderedPages, reason) {
+  return renderedPages.map(({ pageNumber }) => ({
+    pageNumber,
+    pageType: 'other',
+    selected: true,
+    confidence: 0,
+    reason: cleanText(reason, 'AI page classification returned malformed JSON; selected for manual review'),
+  }));
+}
+
+async function classifyRenderedPageBatch(batch, promptPrefix = 'Classify') {
+  const message = await anthropic.messages.create({
+    model: CLASSIFICATION_MODEL,
+    max_tokens: Math.max(1000, batch.length * 420),
+    temperature: 0,
+    system: PAGE_CLASSIFICATION_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: `${promptPrefix} PDF pages ${batch.map(p => p.pageNumber).join(', ')} for building-volume calculation. Return JSON only. The pages array must contain commas between every page object.` },
+        ...batch.flatMap(p => p.content),
+      ],
+    }],
+  });
+
+  const text = message.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
+  const parsed = extractJson(text);
+  return {
+    pages: normaliseClassifiedPages(parsed, batch),
+    inputTokens: message.usage?.input_tokens ?? 0,
+    outputTokens: message.usage?.output_tokens ?? 0,
+  };
+}
+
+async function classifyRenderedPagesSafely(batch) {
+  try {
+    return await classifyRenderedPageBatch(batch);
+  } catch (batchErr) {
+    console.warn(`building-volume PDF page batch classification parse failed for pages ${batch.map(p => p.pageNumber).join(', ')}:`, batchErr.message);
+  }
+
+  const pages = [];
+  let inputTokens = 0;
+  let outputTokens = 0;
+
+  for (const page of batch) {
+    try {
+      const result = await classifyRenderedPageBatch([page], 'Retry classification for');
+      pages.push(...result.pages);
+      inputTokens += result.inputTokens;
+      outputTokens += result.outputTokens;
+    } catch (pageErr) {
+      console.warn(`building-volume PDF page classification fallback used for page ${page.pageNumber}:`, pageErr.message);
+      pages.push(...fallbackClassifiedPages([page], 'AI page classification returned malformed JSON; selected for manual review'));
+    }
+  }
+
+  return { pages, inputTokens, outputTokens };
+}
+
 async function classifyPdfPages(storagePath, userId) {
   const pdfMeta = await renderPdfPagesToImageContent(storagePath, userId, {
     maxPages: MAX_PDF_CLASSIFY_PAGES,
@@ -263,25 +350,10 @@ async function classifyPdfPages(storagePath, userId) {
 
   for (let i = 0; i < pdfMeta.renderedPages.length; i += PAGE_CLASSIFICATION_BATCH_SIZE) {
     const batch = pdfMeta.renderedPages.slice(i, i + PAGE_CLASSIFICATION_BATCH_SIZE);
-    const message = await anthropic.messages.create({
-      model: CLASSIFICATION_MODEL,
-      max_tokens: Math.max(1000, batch.length * 420),
-      temperature: 0,
-      system: PAGE_CLASSIFICATION_SYSTEM,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: `Classify PDF pages ${batch.map(p => p.pageNumber).join(', ')} for building-volume calculation. Return JSON only.` },
-          ...batch.flatMap(p => p.content),
-        ],
-      }],
-    });
-
-    const text = message.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
-    const parsed = extractJson(text);
-    pages.push(...normaliseClassifiedPages(parsed, batch));
-    inputTokens += message.usage?.input_tokens ?? 0;
-    outputTokens += message.usage?.output_tokens ?? 0;
+    const result = await classifyRenderedPagesSafely(batch);
+    pages.push(...result.pages);
+    inputTokens += result.inputTokens;
+    outputTokens += result.outputTokens;
   }
 
   return {
@@ -413,7 +485,7 @@ Return JSON only.`;
     });
 
     const text = message.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? '';
-    const parsed = extractJson(text);
+    const parsed = await parseModelJson(text, 'volume analysis');
     const result = normaliseResult(parsed, airtightnessLayer);
 
     return res.status(200).json({
