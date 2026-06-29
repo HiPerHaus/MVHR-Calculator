@@ -390,7 +390,7 @@ async function analyse() {
         }),
       });
       const classifyData = await classifyRes.json().catch(() => ({}));
-      if (!classifyRes.ok) throw new Error(classifyData.error || 'PDF page classification failed');
+      if (!classifyRes.ok) throw new Error(classifyData.detail || classifyData.error || 'PDF page classification failed');
       pdfPageSelections = classifyData.pages || [];
       classifiedPdfPath = path;
       renderPagePicker();
@@ -422,7 +422,7 @@ async function analyse() {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Analysis failed');
+    if (!res.ok) throw new Error(data.detail || data.error || 'Analysis failed');
     spaces = data.spaces || [];
     assumptions = data.assumptions || [];
     warnings = data.warnings || [];
