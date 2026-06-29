@@ -225,9 +225,10 @@ function textFallbackPlanType(rawText) {
 
 function textFallbackClassification(rawText) {
   const planType = textFallbackPlanType(rawText);
+  const hasStrongTextSignal = planType !== 'unknown' && typeof rawText === 'string' && rawText.trim().length > 0;
   return {
-    planType,
-    confidence: 0.55,
+    planType:    hasStrongTextSignal ? planType : 'unknown',
+    confidence: hasStrongTextSignal ? 0.4 : 0.2,
     reason:     'Fallback classification due to malformed AI JSON',
   };
 }

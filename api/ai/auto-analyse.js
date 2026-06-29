@@ -70,12 +70,7 @@ function selectFloorPlanPages(pages) {
       return a.page_number - b.page_number;
     });
 
-  let selected =
-    floorPlans.filter(p => (p.classification_confidence ?? 0) >= PRIMARY_THRESHOLD)  ||
-    floorPlans.filter(p => (p.classification_confidence ?? 0) >= FALLBACK_THRESHOLD) ||
-    floorPlans;
-
-  // Proper fallback chain — || on arrays is always truthy, use length checks:
+  let selected = [];
   if (!selected.length) selected = floorPlans.filter(p => (p.classification_confidence ?? 0) >= PRIMARY_THRESHOLD);
   if (!selected.length) selected = floorPlans.filter(p => (p.classification_confidence ?? 0) >= FALLBACK_THRESHOLD);
   if (!selected.length) selected = floorPlans;
@@ -714,6 +709,10 @@ export default async function handler(req, res) {
           hiresImagePath,
           baseUrl,
         });
+
+        if (result.analysisStatus !== 'success') {
+          throw new Error(`analyse-plan completed with status ${result.analysisStatus ?? 'unknown'}`);
+        }
 
         analysisResults.push({
           pageId:      pageUpdate.id,

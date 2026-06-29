@@ -188,7 +188,7 @@ export default async function handler(req, res) {
   }));
 
   const candidatePages = responsePages
-    .filter(p => p.pageType === 'floor_plan')
+    .filter(p => p.pageType === 'floor_plan' || p.pageType === 'floor_plan_primary')
     .map(p => p.pageNumber);
 
   // ── When complete, fetch analysis results via pdf_pages.analysis_log_id ───
