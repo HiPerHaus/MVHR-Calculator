@@ -1,3 +1,5 @@
+import { initializeCloudUI } from "./cloud-ui.mjs";
+let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
 import { createCompactProjectStorage, compactExistingProjectStorage } from "../src/persistence/compact-storage.mjs";
 import { findCombinedGrilleAlignment } from "../src/editor/combined-grille-alignment.mjs";
 import { needsCombinedGrilleSpacing } from "../src/domain/combined-grille-drawing-spacing.mjs";
@@ -848,12 +850,12 @@ roomDividerButton.addEventListener("click", () => setTool("room-divider"));
 floorAreaButton.addEventListener("click", () => setTool("floor-area"));
 panToolButton.addEventListener("click", () => setTool("pan"));
 snapToggleButton.addEventListener("click", toggleSnap);
-saveButton.addEventListener("click", () => savePresent("explicit"));
+saveButton.addEventListener("click", () => saveExplicit());
 saveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 reopenButton.addEventListener("click", () => setTask("project"));
 newProjectButton.addEventListener("click", () => openProjectNameDialog("new"));
 renameProjectButton.addEventListener("click", () => openProjectNameDialog("rename"));
-projectSaveButton.addEventListener("click", () => savePresent("explicit"));
+projectSaveButton.addEventListener("click", () => saveExplicit());
 projectSaveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 projectNameForm.addEventListener("submit", applyProjectNameChoice);
 cancelProjectNameButton.addEventListener("click", closeProjectNameDialog);
@@ -962,12 +964,12 @@ for (const button of routeButtons) {
     ductKind: button.dataset.ductKind,
   }));
 }
-openConfirmDialog.addEventListener("close", () => {
+openConfirmDialog.addEventListener("close", async () => {
   const transition = pendingProjectTransition;
   pendingProjectTransition = null;
   if (!transition) return;
   if (openConfirmDialog.returnValue === "save") {
-    if (savePresent("explicit")) transition();
+    if (await saveExplicit()) transition();
     return;
   }
   if (openConfirmDialog.returnValue === "discard") {
@@ -1944,7 +1946,7 @@ function closeProjectNameDialog() {
   projectNameDialog.close();
 }
 
-function applyProjectNameChoice(event) {
+async function applyProjectNameChoice(event) {
   event.preventDefault();
   projectNameError.textContent = "";
   let name;
@@ -1963,7 +1965,7 @@ function applyProjectNameChoice(event) {
   if (mode === "rename") {
     const previousName = currentProjectName;
     currentProjectName = name;
-    if (!savePresent("explicit")) currentProjectName = previousName;
+    if (!await saveExplicit()) currentProjectName = previousName;
     render();
     return;
   }
@@ -1980,11 +1982,17 @@ function createCleanProject(name) {
   savePresent("automatic");
 }
 
-function saveCurrentProjectAs(name) {
+async function saveCurrentProjectAs(name) {
   const copy = deserializeProject(serializeProject({
     ...structuredClone(history.present),
     id: createOpaqueProjectId(),
   }));
+  if(cloudSession?.workspace) {
+    const previousHistory=history,oldName=currentProjectName,oldRecord=currentCloudRecord;
+    history=createCommandHistory(copy);currentProjectName=name;currentCloudRecord=null;cloudBindingVersion++;
+    if(!await saveExplicit()){history=previousHistory;currentProjectName=oldName;currentCloudRecord=oldRecord;cloudBindingVersion++;}
+    render();return;
+  }
   const saved = projectLibrary.saveProject(copy, name);
   if (!saved.ok) {
     storageState = { kind: "failed", label: "Save As failed", detail: "Current project preserved" };
@@ -3655,7 +3663,7 @@ function savePresent(reason) {
   renderStorageState();
   const result = reason === "explicit"
     ? projectLibrary.saveProject(history.present, currentProjectName)
-    : localStore.save(history.present);
+    : currentCloudRecord ? {ok:true,savedAtUtc:new Date().toISOString()} : localStore.save(history.present);
   if (result.ok) {
     if (reason === "explicit") {
       currentProjectName = result.name;
@@ -3688,6 +3696,7 @@ function savePresent(reason) {
     };
     interactionMessage = `Save failed: ${result.message}. Keep this drawing open and use Export project for a file backup before refreshing.`;
   }
+  if(reason!=="explicit" && cloudSession?.workspace)storageState={kind:"unsaved",label:"Unsaved changes · choose Save to cloud",detail:currentCloudRecord?"Cloud drawing is open in memory; choose Save to cloud":result.ok?"Local recovery retained; cloud save not acknowledged":"Local recovery is full; keep this drawing open and choose Save to cloud or Export project"};
   renderStorageState();
   updateStatus();
   if (activeTask === "project") renderProjectWorkspace();
@@ -3699,6 +3708,7 @@ function projectHasUnsavedChanges() {
 }
 
 function applyLocalReopen(result, options = {}) {
+  currentCloudRecord=null;cloudBindingVersion++;
   if (dragState) cancelPointEdit();
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
@@ -7557,3 +7567,45 @@ function isTextInput(target) {
 
 setTask("project");
 render();
+
+
+async function saveExplicit() {
+  if(cloudSession?.loading){interactionMessage="Checking sign-in; please wait before saving.";updateStatus();return false;}
+  if(cloudSavePending)return cloudSavePending;
+  if(!cloudSession?.workspace)return savePresent("explicit");
+  const project=deserializeProject(serializeProject(history.present)),name=currentProjectName;
+  const workspaceId=cloudSession.workspace.id,userId=cloudSession.user.id,binding=cloudBindingVersion;
+  storageState={kind:"pending",label:"Saving to cloud…",detail:"Wait for the cloud save acknowledgement"};renderStorageState();
+  cloudSavePending=(async()=>{
+    try {
+      const result=await cloudSession.store.save({project,name,workspaceId,userId,record:currentCloudRecord});
+      if(cloudSession?.user?.id!==userId || cloudSession?.workspace?.id!==workspaceId || binding!==cloudBindingVersion)return false;
+      currentCloudRecord=result.record;savedProjectJson=result.projectJson;savedProjectName=name;
+      storageState=projectHasUnsavedChanges()?{kind:"unsaved",label:"Cloud saved · newer changes unsaved",detail:"Choose Save to cloud again"}:{kind:"saved",label:`Saved to cloud · ${name}`,detail:`Version ${result.record.save_version} · ${new Date(result.record.updated_at).toLocaleString()}`};
+      interactionMessage=`“${name}” saved to your private cloud workspace`;return true;
+    }catch(error){storageState={kind:"failed",label:"Cloud save failed",detail:error.message};interactionMessage=`Cloud save failed: ${error.message}. Current drawing remains open; Export project makes a file backup.`;return false;}
+    finally{cloudSavePending=null;renderStorageState();updateStatus();if(activeTask==="project")renderProjectWorkspace();}
+  })();
+  return cloudSavePending;
+}
+
+cloudSession=initializeCloudUI({
+  onChange(state){
+    saveButton.textContent=state.workspace?"Save to cloud":"Save locally";
+    projectSaveButton.textContent=state.workspace?"Save to cloud":"Save locally";
+    saveButton.disabled=state.loading || Boolean(cloudSavePending);
+    if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
+  },
+  onOpen(loaded){
+    requestProjectTransition(()=>{
+      applyLocalReopen(loaded,{named:false,message:`Opened “${loaded.name}” from cloud`});
+      currentProjectName=loaded.name;savedProjectName=loaded.name;savedProjectJson=serializeProject(loaded.project);currentCloudRecord=loaded.record;
+      storageState={kind:"saved",label:`Saved to cloud · ${loaded.name}`,detail:`Version ${loaded.record.save_version}`};renderStorageState();render();
+    },`Opening “${loaded.name}” will replace the current drawing.`);
+  },
+  async beforeSignOut(){
+    if(cloudSavePending)throw new Error("Wait for the current cloud save before signing out.");
+    if(currentCloudRecord && projectHasUnsavedChanges())throw new Error("Save your cloud drawing before signing out. Export project is also available as a backup.");
+  },
+  onSignedOut(){if(currentCloudRecord){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}interactionMessage="Signed out. Device-local projects remain on this browser.";updateStatus();}
+});

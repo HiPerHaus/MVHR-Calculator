@@ -19,3 +19,11 @@ This is a design-development workspace. Product drawings and route quantities do
 ## Previous application
 
 The previous application is preserved on `backup/pre-studio-v2-2026-10-23`, at commit `fc344988420b94faa81214d5199243cb65546b7c`. This update keeps the existing repository history.
+
+## Sign-in and cloud drawings
+
+Use **Sign in** with an existing invited MVHR account. **Save to cloud** stores a complete drawing file (including embedded floor-plan references) in a private Supabase Storage bucket in the existing Sydney project. Project names, workspace membership and save versions are stored in Postgres. **Cloud projects** reopens a drawing on another signed-in device. Cloud access is checked by row-level security, not by imported project content or editable user metadata.
+
+Cloud saving is explicit: wait for **Saved to cloud** before closing the tab. Another tab's newer save blocks stale overwrites; use Cloud projects to reopen the latest version or Save As to preserve a separate copy. Export project remains a portable backup. Device-local projects remain separate and are never automatically uploaded. There is no public registration interface.
+
+Workspace memberships are server-managed. The migration bootstraps only existing accounts; an administrator must add membership for any later invited account. Existing accounts without a company receive a private workspace. Cloud files use unique paths; previous uploads remain available for recovery, and no automatic retention/deletion policy is applied in this first rollout.

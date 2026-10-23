@@ -5,3 +5,5 @@ coverage/
 dist/
 .vercel/
 .env*
+app/vendor/
+supabase/.temp/

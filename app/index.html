@@ -29,7 +29,9 @@
             <span class="state-dot"></span>
             <span id="local-state-label">Unsaved project · this browser</span>
           </div>
-          <button id="save-local" type="button">Save</button>
+          <button id="account-button" type="button">Sign in</button>
+          <button id="cloud-projects-button" type="button" disabled>Cloud projects</button>
+          <button id="save-local" type="button">Save locally</button>
           <button id="save-as-local" type="button">Save As</button>
           <button id="reopen-local" type="button">Projects</button>
           <button id="export-portable" type="button">Export project</button>
@@ -887,5 +889,25 @@
       </form>
     </dialog>
     <script type="module" src="./main.mjs"></script>
+    <dialog id="signin-dialog" class="cloud-dialog" aria-labelledby="signin-title">
+      <h2 id="signin-title">Sign in to HiPer Studio</h2>
+      <p>Use your existing invited account. Cloud drawings are private to your workspace.</p>
+      <form id="signin-form">
+        <label>Email<input id="signin-email" type="email" autocomplete="username" required /></label>
+        <label>Password<input id="signin-password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p id="signed-in-account" hidden></p>
+      <p id="signin-error" role="status"></p>
+      <p class="cloud-help">Need an account or a password reset? Contact your workspace administrator.</p>
+      <button id="signout-button" type="button" hidden>Sign out and close cloud drawing</button>
+      <button id="close-signin" type="button">Close</button>
+    </dialog>
+    <dialog id="cloud-projects-dialog" class="cloud-dialog" aria-labelledby="cloud-projects-title">
+      <h2 id="cloud-projects-title">Cloud projects</h2>
+      <p id="cloud-projects-status" role="status"></p>
+      <div id="cloud-projects-list"></div>
+      <button id="close-cloud-projects" type="button">Close</button>
+    </dialog>
   </body>
 </html>

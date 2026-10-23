@@ -1,3 +1,4 @@
+import {buildAuth} from './build-auth.mjs';
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -6,6 +7,7 @@ const output=resolve(root,"dist");
 await rm(output,{recursive:true,force:true});
 await mkdir(output,{recursive:true});
 for(const folder of ["app","src"])await cp(resolve(root,folder),resolve(output,folder),{recursive:true});
+await buildAuth(new URL('../dist/app/vendor/',import.meta.url));
 const pdfRoot=resolve(root,"node_modules/pdfjs-dist");
 for(const folder of ["cmaps","standard_fonts","wasm"])await cp(resolve(pdfRoot,folder),resolve(output,"node_modules/pdfjs-dist",folder),{recursive:true});
 await mkdir(resolve(output,"node_modules/pdfjs-dist/build"),{recursive:true});
