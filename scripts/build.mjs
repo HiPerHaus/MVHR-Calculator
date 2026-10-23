@@ -1,0 +1,15 @@
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+const root=fileURLToPath(new URL("..",import.meta.url));
+const output=resolve(root,"dist");
+await rm(output,{recursive:true,force:true});
+await mkdir(output,{recursive:true});
+for(const folder of ["app","src"])await cp(resolve(root,folder),resolve(output,folder),{recursive:true});
+const pdfRoot=resolve(root,"node_modules/pdfjs-dist");
+for(const folder of ["cmaps","standard_fonts","wasm"])await cp(resolve(pdfRoot,folder),resolve(output,"node_modules/pdfjs-dist",folder),{recursive:true});
+await mkdir(resolve(output,"node_modules/pdfjs-dist/build"),{recursive:true});
+for(const name of ["pdf.mjs","pdf.worker.min.mjs"])await cp(resolve(pdfRoot,"build",name),resolve(output,"node_modules/pdfjs-dist/build",name));
+await cp(resolve(pdfRoot,"LICENSE"),resolve(output,"node_modules/pdfjs-dist/LICENSE"));
+await writeFile(resolve(output,"index.html"),'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/app/"><a href="/app/">Open HiPer Studio</a>');
+console.log("Built HiPer Studio and PDF assets in dist/");

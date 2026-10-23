@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HiPer Studio — Manual plan and mechanical milestone</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">H</span>
+          <div>
+            <strong>HiPer Studio</strong>
+            <span>Manual plan, rooms and mechanical interaction milestone</span>
+          </div>
+        </div>
+        <nav class="task-nav" aria-label="Project tasks">
+          <button id="project-nav" type="button">Project</button>
+          <button id="plan-nav" type="button" class="active">Plan</button>
+          <button id="ventilation-nav" type="button">Ventilation</button>
+          <button id="catalogue-nav" type="button">Catalogue</button>
+          <button id="checks-nav" type="button">Checks</button>
+          <button id="sheets-nav" type="button">Sheets</button>
+        </nav>
+        <div class="local-controls">
+          <div id="local-state" class="draft-state" data-state="unsaved">
+            <span class="state-dot"></span>
+            <span id="local-state-label">Unsaved project · this browser</span>
+          </div>
+          <button id="save-local" type="button">Save</button>
+          <button id="save-as-local" type="button">Save As</button>
+          <button id="reopen-local" type="button">Projects</button>
+          <button id="export-portable" type="button">Export project</button>
+          <button id="open-portable" type="button">Open project</button>
+        </div>
+      </header>
+
+      <div id="plan-workspace" class="workspace">
+        <aside class="left-panel" aria-label="Tools and layers">
+          <section id="primary-tools-section">
+            <h2>Drawing tools</h2>
+            <button id="select-tool" class="tool active" type="button" aria-pressed="true">
+              <kbd>V</kbd><span>Select</span>
+            </button>
+          </section>
+          <section id="draw-tools-section">
+            <h2>Plan drawing</h2>
+            <button id="wall-tool" class="tool" type="button" aria-pressed="false">
+              <kbd>W</kbd><span>Wall chain</span>
+            </button>
+            <button id="room-divider-tool" class="tool" type="button" aria-pressed="false">
+              <kbd>D</kbd><span>Room divider<small>Nonphysical zone boundary</small></span>
+            </button>
+
+          </section>
+          <section id="mechanical-tools-section" hidden>
+            <h2>Parts</h2>
+            <details class="parts-details"><summary>Design demand &amp; floor actions</summary>
+            <p id="ventilation-readiness" class="room-guidance"></p>
+            <button id="clear-ventilation" class="panel-action danger-action" type="button" disabled>Clear ventilation on this floor…</button>
+            <p class="clear-ventilation-note">Removes MVHR parts, outlets and routes on the active floor only. Building and reference work stays unchanged.</p>
+            <div class="workflow-hint">
+              <strong>Suggested sequence</strong>
+              <span>Place outlets and choose Single duct or Twin duct, then review the unit and distribution demand. The HRV can still be placed at any time.</span>
+            </div>
+            <div class="connection-demand" aria-label="Connection demand">
+              <div class="demand-card supply"><strong id="supply-run-demand">0</strong><span>Supply runs</span><small id="supply-run-detail">No supply outlets</small></div>
+              <div class="demand-card extract"><strong id="extract-run-demand">0</strong><span>Extract runs</span><small id="extract-run-detail">No extract outlets</small></div>
+            </div>
+            <p id="cw-suggestion-status" class="evidence-pending">CW suggestion: evidence pending.</p>
+            </details>
+            <div id="catalogue-categories" class="parts-categories" aria-label="Part categories"></div>
+            <label class="catalogue-search">Search manufacturer, product or type
+              <input id="catalogue-search" type="search" autocomplete="off" placeholder="e.g. Q350, terminal, EPP" />
+            </label>
+            <div id="catalogue-groups" class="parts-product-grid"></div>
+            <div id="duct-parts" hidden>
+            <details class="parts-details"><summary>Routing guidance</summary>
+            <p id="route-guidance" class="route-guidance">Use rigid EPP DN160 between the generic HRV and each remote main, then semi-rigid DN90 from each radial branch to an outlet. A handed Q350 profile may use DN160 for drawing topology only; installation fit remains unverified. Click one free labelled port, then a matching free port.</p>
+            <div class="duct-service-legend" aria-label="Duct service colour legend">
+              <span><i class="supply"></i>Supply</span><span><i class="extract"></i>Extract</span>
+              <span><i class="intake"></i>Outdoor intake</span><span><i class="exhaust"></i>Outdoor exhaust</span>
+              <small>Width uses known outside diameter where available; otherwise it is a nominal DN guide. Twin spacing and sweep shape are schematic, not clearance or fitting geometry.</small>
+            </div>
+            </details>
+            <div class="parts-product-grid">
+<button class="parts-product-tile route-tool" type="button" data-duct-kind="semi-rigid-radial">
+              <span class="product-thumbnail" aria-hidden="true">⌁</span><strong>Semi-rigid radial DN90</strong><small>Remote branch ↔ outlet · unengineered</small>
+            </button>
+            <button class="parts-product-tile route-tool" type="button" data-duct-kind="epp-rigid-dn125">
+              <span class="product-thumbnail" aria-hidden="true">⌁</span><strong>Rigid EPP DN125</strong><small>Generic class · exact fit unverified</small>
+            </button>
+            <button class="parts-product-tile route-tool" type="button" data-duct-kind="epp-rigid-dn160">
+              <span class="product-thumbnail" aria-hidden="true">⌁</span><strong>Rigid EPP DN160</strong><small>Drawing route · installation fit unverified</small>
+            </button>
+            <button class="parts-product-tile route-tool" type="button" data-duct-kind="flexible-round-dn150">
+              <span class="product-thumbnail" aria-hidden="true">⌁</span><strong>Flexible round DN150</strong><small>Generic class · losses unverified</small>
+            </button>
+            </div>
+</div>
+            <details class="parts-details"><summary>Product evidence</summary><p class="synthetic-warning">Unhanded Q350/Q450 setouts remain non-routable. Explicit Q350 left/right drawing profiles have source-backed centres and roles; their DN160 paths are drawing-only and do not approve physical mating, adapters, seals, supports or clearance. CW320 candidates remain non-placeable until local crosswalks and installation interfaces are evidenced. No private price, performance, pressure loss or product-fit claim is included.</p></details>
+          </section>
+          <section id="floor-area-tools-section">
+            <h2>Building outline</h2>
+            <button id="floor-area-tool" class="tool" type="button" aria-pressed="false">
+              <kbd>A</kbd><span>Floor area outline<small>Preliminary quoting · independent of rooms</small></span>
+            </button>
+            <p id="floor-area-summary" class="room-summary"></p>
+            <p id="floor-area-scale" class="floor-area-scale"></p>
+            <p class="room-guidance">Draw one closed outline per floor. It does not create walls, rooms, zones or airflow values, and is not certified TFA.</p>
+          </section>
+          <section id="room-tools-section">
+            <h2>Rooms &amp; zones</h2>
+            <p id="room-summary" class="room-summary"></p>
+            <p class="room-guidance">Close physical walls to confirm an enclosure. Select a room, then draw a dashed divider to create named zones such as Kitchen and Dining.</p>
+            <div id="room-issues" class="room-issues"></div>
+          </section>
+          <section>
+            <h2>History</h2>
+            <div class="history-controls">
+              <button id="undo" type="button" disabled>Undo</button>
+              <button id="redo" type="button" disabled>Redo</button>
+            </div>
+          </section>
+          <section id="reference-tools-section">
+            <h2>Reference plan</h2>
+            <button id="add-pdf-reference" class="panel-action" type="button">Add PDF reference</button>
+            <button id="add-reference" class="panel-action" type="button">Add PNG reference</button>
+            <button id="add-dxf-reference" class="panel-action" type="button">Add synthetic DXF reference</button>
+            <button id="crop-reference" class="panel-action" type="button" disabled>Crop PDF floor plan</button>
+            <button id="reset-reference-crop" class="panel-action" type="button" disabled>Reset PDF crop</button>
+            <button id="cancel-reference-crop" class="panel-action" type="button" hidden>Cancel crop</button>
+            <button id="calibrate-reference" class="panel-action" type="button" disabled>Calibrate two points</button>
+            <div id="reference-list" class="reference-list"><span>No reference</span></div>
+            <div id="cad-reference-list" class="reference-list"><span>No DXF reference</span></div>
+          </section>
+
+          <section>
+            <h2>Layers</h2>
+            <label class="check-row"><input type="checkbox" checked disabled /> Walls</label>
+            <label class="check-row"><input type="checkbox" checked disabled /> Building outline</label>
+            <label class="check-row"><input type="checkbox" checked disabled /> Rooms &amp; zones</label>
+            <label class="check-row"><input type="checkbox" checked disabled /> Grid</label>
+          </section>
+          <p class="scope-note">Local planning shell. Dashed room dividers are nonphysical and never count as wall quantities or thermal boundaries. DXF review accepts only the bounded synthetic AC1015 fixture dialect. PDF, real DWG and general DXF remain open.</p>
+        </aside>
+
+        <main class="canvas-panel">
+          <div class="canvas-heading">
+            <div>
+              <strong>Ground Floor</strong>
+              <span>1 grid square = 1,000 mm</span>
+            </div>
+            <div id="mode-prompt" role="status">Select a tool</div>
+          </div>
+          <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas">
+            <defs>
+              <pattern id="minor-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e4e9ed" stroke-width="0.5" />
+              </pattern>
+              <pattern id="major-grid" width="100" height="100" patternUnits="userSpaceOnUse">
+                <rect width="100" height="100" fill="url(#minor-grid)" />
+                <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#cbd4da" stroke-width="1" />
+              </pattern>
+            </defs>
+            <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#major-grid)" />
+            <g id="reference-layer"></g>
+            <g id="floor-area-layer"></g>
+            <g id="room-layer"></g>
+            <g id="model-layer"></g>
+            <g id="draft-layer"></g>
+          </svg>
+<div class="drawing-view-toolbar" role="toolbar" aria-label="Drawing view and snapping">
+
+            <button id="pan-tool" class="tool view-pan-tool" type="button" aria-pressed="false" aria-label="Pan drawing view" title="Pan drawing view">
+              <span class="tool-glyph" aria-hidden="true">P</span><span>Pan</span>
+            </button>
+            <div class="view-controls">
+              <button id="zoom-in" type="button" title="Zoom in">+</button>
+              <button id="zoom-out" type="button" title="Zoom out">−</button>
+              <button id="fit-view" type="button" title="Fit model and reference">Fit</button>
+            </div>
+            <div class="pan-controls" aria-label="Pan view">
+              <button id="pan-left" type="button" aria-label="Pan left">←</button>
+              <button id="pan-up" type="button" aria-label="Pan up">↑</button>
+              <button id="pan-down" type="button" aria-label="Pan down">↓</button>
+              <button id="pan-right" type="button" aria-label="Pan right">→</button>
+            </div>
+            <button id="snap-toggle" class="tool snap-toggle active" type="button" aria-pressed="true">
+              <kbd>S</kbd><span><span id="snap-toggle-label">Snap on</span><small id="snap-toggle-detail">Endpoints · walls · grid · DXF</small></span>
+            </button>
+          </div>
+          <div class="statusbar">
+            <span id="tool-status">Tool: Select</span>
+            <span id="cursor-status">X 0 mm · Y 0 mm</span>
+            <span id="draft-status">No active draft</span>
+            <span id="snap-status">Snap on · 12 px beyond visible wall edge · Grid 100 mm</span>
+          </div>
+        </main>
+
+        <aside class="right-panel" aria-label="Inspector">
+          <h2>Inspector</h2>
+          <div id="inspector-empty" class="empty-state">
+            <strong>No selection</strong>
+            <p>Select a wall to inspect its model identity and dimensions.</p>
+          </div>
+          <dl id="wall-inspector" hidden>
+            <dt>Kind</dt><dd id="wall-kind"></dd>
+            <dt>ID</dt><dd id="wall-id"></dd>
+            <dt>Length</dt><dd id="wall-length"></dd>
+            <dt>Thickness</dt><dd id="wall-thickness"></dd>
+            <dt>Reference</dt><dd id="wall-reference"></dd>
+            <dt>Height</dt><dd id="wall-height"></dd>
+          </dl>
+          <div id="wall-actions" class="inspector-actions" hidden>
+            <button id="delete-wall" type="button" class="danger-action">Delete…</button>
+            <small>Delete or Backspace also opens the guarded choice.</small>
+          </div>
+          <dl id="node-inspector" hidden>
+            <dt>Endpoint</dt><dd id="node-id"></dd>
+            <dt>XY</dt><dd id="node-position"></dd>
+            <dt>Elevation</dt><dd id="node-elevation"></dd>
+            <dt>Connected</dt><dd id="node-incidence"></dd>
+          </dl>
+          <dl id="component-inspector" hidden>
+            <dt>Part</dt><dd id="component-name"></dd>
+            <dt>ID</dt><dd id="component-id"></dd>
+            <dt>XY</dt><dd id="component-position"></dd>
+            <dt>Elevation</dt><dd class="component-elevation-field">
+              <span id="component-elevation"></span>
+              <input id="component-elevation-input" type="number" step="1" inputmode="decimal" aria-label="Selected equipment elevation in millimetres" placeholder="mm" />
+              <button id="apply-component-elevation" type="button">Set</button>
+              <button id="clear-component-elevation" type="button">Unknown</button>
+              <small id="component-elevation-detail">Unknown remains explicit until a height is set.</small>
+            </dd>
+            <dt>Assembly</dt><dd id="component-assembly"></dd>
+            <dt>Ports</dt><dd id="component-ports"></dd>
+            <dt>Room / zone</dt><dd class="component-room-field">
+              <select id="component-room-assignment" aria-label="Assigned room or zone"></select>
+              <small id="component-room-detail"></small>
+            </dd>
+            <dt>Duct arrangement</dt><dd class="component-run-field">
+              <button id="single-component-duct-run" type="button">Single duct</button>
+              <button id="twin-component-duct-run" type="button">Twin duct</button>
+              <button id="clear-component-duct-runs" type="button">Clear</button>
+              <small id="component-duct-run-detail">Choose a single or twin duct arrangement; no airflow is inferred.</small>
+            </dd>
+            <dt>Evidence</dt><dd id="component-evidence"></dd>
+          </dl>
+          <div id="component-actions" class="inspector-actions" hidden>
+            <label id="external-grille-handing-label" hidden>Outdoor intake side<select id="external-grille-handing"><option value="left">Left</option><option value="right">Right</option></select></label>
+            <button id="rotate-component" type="button">Rotate 90°</button>
+            <button id="delete-component" type="button" class="danger-action">Delete…</button>
+            <small>Rotation and moves are domain commands; attached route endpoints follow. Delete or Backspace opens a scoped confirmation.</small>
+          </div>
+          <dl id="route-inspector" hidden>
+            <dt>Duct route</dt><dd id="route-kind-value"></dd>
+            <dt>ID</dt><dd id="route-id-value"></dd>
+            <dt>Service</dt><dd id="route-service-value"></dd>
+            <dt>Endpoints</dt><dd id="route-endpoints-value"></dd>
+            <dt>Geometry</dt><dd id="route-geometry-value"></dd>
+            <dt>Body display</dt><dd id="route-body-value"></dd>
+            <dt>Drawn runs</dt><dd class="component-run-field">
+              <button id="single-route-run" type="button">Single duct</button>
+              <button id="twin-route-run" type="button">Twin duct</button>
+              <button id="clear-route-run" type="button">Not set</button>
+              <small id="route-run-detail">This setting belongs to the selected drawn route. Outlet demand is stored separately on the terminal.</small>
+            </dd>
+            <dt>Boundary</dt><dd>Drafting arrangement only · no airflow, pressure-loss, fitting or installation verification.</dd>
+          </dl>
+          <div id="route-actions" class="inspector-actions" hidden>
+            <button id="realign-epp-connections" type="button">Realign connections</button>
+            <button id="delete-duct-run" type="button" class="danger-action">Delete duct run</button>
+            <button id="remove-route-point" type="button" class="danger-action" disabled>Remove selected point</button>
+            <small id="route-edit-detail">Use the + Add point controls on route segments, then drag round handles to reshape the centreline. Attached endpoints stay locked.</small>
+          </div>
+          <dl id="floor-area-inspector" hidden>
+            <dt>Type</dt><dd>Preliminary floor area outline</dd>
+            <dt>Name</dt><dd id="floor-area-name-value"></dd>
+            <dt>Area</dt><dd id="floor-area-value"></dd>
+            <dt>Perimeter</dt><dd id="floor-area-perimeter-value"></dd>
+            <dt>Basis</dt><dd id="floor-area-basis-value"></dd>
+            <dt>Vertices</dt><dd id="floor-area-vertices-value"></dd>
+            <dt>ID</dt><dd id="floor-area-id-value"></dd>
+          </dl>
+          <div id="floor-area-actions" class="inspector-actions" hidden>
+            <button id="edit-floor-area" type="button">Edit name</button>
+            <button id="remove-floor-area" type="button" class="danger-action">Remove outline…</button>
+            <small>Area is calculated from this closed plan outline only. It is not a room total or certified TFA.</small>
+          </div>
+          <dl id="room-inspector" hidden>
+            <dt>Type</dt><dd id="room-type-value"></dd>
+            <dt>Name</dt><dd id="room-name-value"></dd>
+            <dt>Use</dt><dd id="room-use-value"></dd>
+            <dt>MVHR role</dt><dd id="room-role-value"></dd>
+            <dt>Area</dt><dd id="room-area-value"></dd>
+            <dt>Boundary</dt><dd id="room-boundary-value"></dd>
+            <dt>Terminals</dt><dd id="room-terminals-value"></dd>
+            <dt>Normal airflow</dt><dd id="room-airflow-value"></dd>
+            <dt>ID</dt><dd id="room-id-value"></dd>
+          </dl>
+          <div id="room-actions" class="inspector-actions" hidden>
+            <button id="edit-room" type="button">Edit room</button>
+            <button id="reassign-room" type="button">Reassign boundary</button>
+            <button id="remove-room" type="button" class="danger-action">Remove room…</button>
+            <small>Boundary reassignment preserves the room identity and metadata.</small>
+          </div>
+          <div class="evidence-callout">
+            <strong>Evidence boundary</strong>
+            <p>Physical walls, rooms, nonphysical room dividers and the independent building outline are authoritative domain objects. SVG geometry is rebuilt from model state.</p>
+          </div>
+        </aside>
+      </div>
+
+      <section id="project-workspace" class="project-workspace" aria-labelledby="project-workspace-heading" hidden>
+        <header class="project-workspace-heading">
+          <div>
+            <strong id="project-workspace-heading">Project workflow</strong>
+            <span>Quick quote → preliminary ventilation layout → converted project → detailed room design</span>
+          </div>
+          <span id="workflow-stage-pill" class="workflow-stage-pill">Quick quote</span>
+        </header>
+        <div class="project-workflow-layout">
+          <article class="workflow-card workflow-card-wide project-library-card">
+            <div class="project-library-heading">
+              <div>
+                <h2>Projects on this device</h2>
+                <strong id="current-project-name">Untitled project</strong>
+                <small id="current-project-id"></small>
+              </div>
+              <div class="project-library-actions">
+                <button id="new-project" type="button">New project</button>
+                <button id="rename-project" type="button">Rename</button>
+                <button id="project-save" type="button" class="primary-action">Save</button>
+                <button id="project-save-as" type="button">Save As</button>
+              </div>
+            </div>
+            <p class="workflow-boundary">These projects are saved only in this browser on this device. Export a portable project file for backup or transfer; this is not cloud storage.</p>
+            <div id="project-library-list" class="project-library-list"></div>
+          </article>
+          <article class="workflow-card workflow-card-wide">
+            <h2>Stage and readiness</h2>
+            <p id="workflow-readiness" class="workflow-summary"></p>
+            <div class="workflow-stage-actions">
+              <button id="workflow-open-plan" type="button">Open plan &amp; serviced area</button>
+              <button id="workflow-start-preliminary" type="button">Start preliminary layout</button>
+              <button id="workflow-open-ventilation" type="button">Open ventilation layout</button>
+              <button id="workflow-convert" type="button" class="primary-action">Convert to project…</button>
+              <button id="workflow-start-detailed" type="button">Start detailed design</button>
+            </div>
+            <p class="workflow-boundary">Preliminary equipment and routes are drafting allowances only. Conversion preserves the same objects and creates one immutable local quote baseline; it does not issue, send or approve a quote.</p>
+          </article>
+          <article class="workflow-card">
+            <h2>Prepare the plan</h2>
+            <div class="workflow-step-list">
+              <button id="workflow-upload-plan" type="button"><strong>1 · Upload floor plan</strong><small>Choose a page from a PDF floor plan. PNG remains available in Plan.</small></button>
+              <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Use two points and enter the known dimension.</small></button>
+              <button id="workflow-draw-perimeter" type="button"><strong>3 · Draw external perimeter</strong><small>Close the serviced outline to calculate floor area in m².</small></button>
+              <button id="workflow-markup-mvhr" type="button"><strong>4 · Mark up MVHR system</strong><small>Place equipment, boxes, outlets and duct routes without rooms.</small></button>
+            </div>
+            <p class="workflow-boundary">Floor area is geometry, not a price-per-m² calculation. Room boundaries can be added later for detailed design.</p>
+          </article>
+          <article class="workflow-card">
+            <h2>Scope notes</h2>
+            <form id="quote-input-form" class="quote-input-form">
+              <label class="quote-wide">Explicit scope exclusions
+                <textarea id="quote-exclusions" rows="4" maxlength="4000" placeholder="One per line, e.g. Garage&#10;Alfresco"></textarea>
+              </label>
+              <label class="scope-choice quote-wide">
+                <input id="quote-scope-reviewed" type="checkbox" />
+                <span><strong>Scope reviewed</strong><small>Confirm the serviced perimeter excludes garages, alfresco and other out-of-scope areas, or that there are no exclusions.</small></span>
+              </label>
+              <p id="quote-input-error" class="dialog-error quote-wide" role="alert"></p>
+              <button class="quote-wide" type="submit">Save scope notes</button>
+            </form>
+          </article>
+          <article class="workflow-card">
+            <h2>Serviced-area summary</h2>
+            <div id="quote-summary" class="workflow-data-list"></div>
+            <p id="quote-missing" class="workflow-warning"></p>
+          </article>
+          <article class="workflow-card">
+            <h2>Converted baseline</h2>
+            <div id="quote-snapshot-summary" class="workflow-data-list"></div>
+            <p class="workflow-boundary">The baseline is immutable. Later room or system changes do not rewrite the original perimeter or preliminary layout counts.</p>
+          </article>
+          <article class="workflow-card">
+            <h2>Detailed-design review</h2>
+            <div id="detailed-design-summary" class="workflow-data-list"></div>
+            <button id="workflow-link-outlets" type="button">Link unassigned outlets by room position</button>
+            <p id="detailed-design-unresolved" class="workflow-warning"></p>
+          </article>
+        </div>
+      </section>
+
+      <section id="catalogue-workspace" class="catalogue-workspace" aria-labelledby="catalogue-workspace-heading" hidden>
+        <header class="catalogue-workspace-heading">
+          <div>
+            <strong id="catalogue-workspace-heading">Catalogue</strong>
+            <span>Browse source status and drawing availability. Editing and hosted administration are not enabled.</span>
+          </div>
+          <label>Search catalogue
+            <input id="catalogue-library-search" type="search" autocomplete="off" placeholder="Manufacturer, product code, type or evidence status" />
+          </label>
+        </header>
+        <div id="catalogue-library-records" class="catalogue-library-records"></div>
+      </section>
+
+      <section id="checks-workspace" class="checks-workspace" aria-labelledby="checks-workspace-heading" hidden>
+        <header class="checks-workspace-heading">
+          <div>
+            <strong id="checks-workspace-heading">Parts &amp; connection checks</strong>
+            <span>Live read-only summary of the active floor’s committed ventilation model.</span>
+          </div>
+          <div class="checks-heading-actions">
+            <span id="checks-status-pill" class="checks-status-pill">No issues</span>
+            <button id="checks-return-ventilation" type="button">Return to ventilation</button>
+          </div>
+        </header>
+        <div class="checks-layout">
+          <article class="checks-card">
+            <h2>Placed parts</h2>
+            <p id="checks-parts-summary" class="checks-summary"></p>
+            <div id="checks-assembly-groups" class="checks-list"></div>
+            <div id="checks-parts-list" class="checks-list"></div>
+            <p class="checks-boundary">Drafting quantities only. Equipment groups organise their constituent part records and are not additional quantities or a procurement BOM.</p>
+          </article>
+          <article class="checks-card">
+            <h2>Routes</h2>
+            <p id="checks-routes-summary" class="checks-summary"></p>
+            <div id="checks-routes-list" class="checks-list"></div>
+            <p class="checks-boundary">Drawing lengths follow the modelled route centreline. Developed length stays unknown until route elevations are known.</p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Evidence-aware parts schedule</h2>
+            <p id="checks-schedule-summary" class="checks-summary"></p>
+            <h3>Placed component records</h3>
+            <div id="checks-schedule-parts" class="checks-list"></div>
+            <h3>Measured duct routes</h3>
+            <div id="checks-schedule-routes" class="checks-list"></div>
+            <h3>Unresolved matches and quantities</h3>
+            <div id="checks-schedule-unresolved" class="checks-list"></div>
+            <p id="checks-schedule-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Room airflow &amp; supply/extract totals</h2>
+            <p id="checks-airflow-summary" class="checks-summary"></p>
+            <div id="checks-airflow-spaces" class="checks-list"></div>
+            <div id="checks-airflow-issues" class="checks-diagnostics"></div>
+            <p id="checks-airflow-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Manufacturer duty &amp; pressure evidence</h2>
+            <form id="checks-engineering-form" class="checks-engineering-form">
+              <label>Selected MVHR unit
+                <select id="checks-engineering-unit">
+                  <option value="">Not selected</option>
+                </select>
+              </label>
+              <label>External static pressure
+                <span class="engineering-pressure-input"><input id="checks-engineering-pressure" type="number" min="0" step="any" inputmode="decimal" placeholder="Unresolved" /><span>Pa</span></span>
+              </label>
+              <label>Basis
+                <input id="checks-engineering-basis" maxlength="500" placeholder="Required with pressure" />
+              </label>
+              <label>Source
+                <input id="checks-engineering-source" maxlength="500" placeholder="Required with pressure" />
+              </label>
+              <label>Filter condition
+                <input id="checks-engineering-filter" maxlength="240" placeholder="Required with pressure" />
+              </label>
+              <div class="checks-engineering-actions">
+                <button type="submit">Apply duty input</button>
+                <button id="checks-engineering-clear" type="button">Clear</button>
+              </div>
+            </form>
+            <p id="checks-engineering-input-status" class="checks-summary"></p>
+            <p id="checks-engineering-summary" class="checks-summary"></p>
+            <div id="checks-engineering-issues" class="checks-diagnostics"></div>
+            <p id="checks-engineering-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Product costing readiness</h2>
+            <p id="checks-costing-summary" class="checks-summary"></p>
+            <div id="checks-costing-lines" class="checks-list"></div>
+            <div id="checks-costing-issues" class="checks-diagnostics"></div>
+            <p id="checks-costing-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Installer document foundation</h2>
+            <p id="checks-installer-summary" class="checks-summary"></p>
+            <div id="checks-installer-sections" class="checks-list"></div>
+            <div id="checks-installer-issues" class="checks-diagnostics"></div>
+            <p id="checks-installer-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Connection &amp; accessory evidence</h2>
+            <p id="checks-connection-evidence-summary" class="checks-summary"></p>
+            <div id="checks-connection-evidence" class="checks-diagnostics"></div>
+            <p id="checks-connection-evidence-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Connection checks</h2>
+            <p id="checks-diagnostic-summary" class="checks-summary"></p>
+            <div id="checks-spare-branches" class="checks-spare-branches"></div>
+            <div id="checks-diagnostics" class="checks-diagnostics"></div>
+            <p id="checks-evidence-boundary" class="checks-boundary"></p>
+          </article>
+        </div>
+      </section>
+
+      <section id="sheet-preview-panel" class="sheet-preview-panel" aria-labelledby="sheet-preview-heading" hidden>
+        <header class="sheet-preview-heading">
+          <div>
+            <strong id="sheet-preview-heading">A3 working-draft sheet preview</strong>
+            <span id="sheet-preview-status">Committed project geometry only</span>
+          </div>
+          <div class="sheet-preview-actions">
+            <button id="print-sheet-preview" type="button">Print A3 sheet</button>
+            <button id="close-sheet-preview" type="button">Return to plan</button>
+          </div>
+        </header>
+        <div class="sheet-preview-stage">
+          <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
+        </div>
+        <footer class="sheet-preview-note">
+          Working draft only · not an issued revision · not for construction · print at 100% and verify physical scale
+        </footer>
+      </section>
+    </div>
+    <input id="portable-file" type="file" accept=".hiperstudio.json,application/json" hidden />
+    <input id="reference-file" type="file" accept="image/png,.png" hidden />
+    <input id="pdf-reference-file" type="file" accept="application/pdf,.pdf" hidden />
+    <input id="dxf-reference-file" type="file" accept=".dxf,application/dxf,text/plain" hidden />
+    <dialog id="open-confirm-dialog" aria-labelledby="open-confirm-title">
+      <form method="dialog">
+        <h2 id="open-confirm-title">Save changes first?</h2>
+        <p id="open-confirm-message">The current project has unsaved changes.</p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="discard">Discard changes</button>
+          <button id="confirm-open" value="save" class="primary-action">Save and continue</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="project-name-dialog" aria-labelledby="project-name-title">
+      <form id="project-name-form">
+        <h2 id="project-name-title">Name project</h2>
+        <p id="project-name-summary"></p>
+        <label>Project name
+          <input id="project-name-input" type="text" maxlength="120" autocomplete="off" required />
+        </label>
+        <p id="project-name-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-project-name" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Continue</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="convert-project-dialog" aria-labelledby="convert-project-title">
+      <form method="dialog">
+        <h2 id="convert-project-title">Convert quote to project</h2>
+        <p id="convert-project-summary"></p>
+        <p>The current plan, calibration, serviced-area outline, preliminary equipment and routes stay in place. One immutable local quote baseline is added. This does not issue or send anything.</p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button id="confirm-project-conversion" value="convert" class="primary-action">Convert without redrawing</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="dxf-import-dialog" class="wide-dialog" aria-labelledby="dxf-import-title">
+      <form id="dxf-import-form">
+        <h2 id="dxf-import-title">Review synthetic DXF reference</h2>
+        <p id="dxf-import-summary"></p>
+        <p class="synthetic-warning">Bounded 7-bit ASCII AC1015 fixture support only. This does not validate a real customer DXF or DWG.</p>
+        <label>Confirm source units
+          <select id="dxf-unit-choice" required>
+            <option value="">Choose explicitly…</option>
+            <option value="mm">millimetres</option>
+            <option value="cm">centimetres</option>
+            <option value="m">metres</option>
+            <option value="in">inches</option>
+            <option value="ft">feet</option>
+          </select>
+          <small id="dxf-declared-units"></small>
+        </label>
+        <fieldset>
+          <legend>Include layers explicitly</legend>
+          <div id="dxf-layer-choices" class="dxf-layer-choices"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Inspection diagnostics</legend>
+          <div id="dxf-diagnostics" class="dxf-diagnostics"></div>
+        </fieldset>
+        <label id="dxf-partial-choice" class="scope-choice" hidden>
+          <input id="dxf-accept-partial" type="checkbox" />
+          <span><strong>Accept diagnosed omissions</strong><small>Only supported geometry will be placed. Unsupported content remains visible in diagnostics and the working-draft sheet warning.</small></span>
+        </label>
+        <p>Placement: locked reference layer, rotation 0°, centred on the current view. Reference-only snapping may be added later; this import never creates authoritative walls.</p>
+        <p id="dxf-import-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-dxf-import" type="button">Cancel</button>
+          <button id="accept-dxf-import" type="submit" class="primary-action" disabled>Place locked reference</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="pdf-import-dialog" class="wide-dialog" aria-labelledby="pdf-import-title">
+      <form id="pdf-import-form">
+        <h2 id="pdf-import-title">Choose PDF floor-plan page</h2>
+        <p id="pdf-import-summary"></p>
+        <label>Page
+          <select id="pdf-page-choice" required></select>
+        </label>
+        <div class="pdf-preview-stage" aria-label="Selected PDF page preview">
+          <canvas id="pdf-page-preview"></canvas>
+        </div>
+        <p id="pdf-page-detail">Choose a page to prepare a bounded PNG reference.</p>
+        <p>The original PDF and selected-page provenance are preserved in the project. The rendered page is placed as a locked, uncalibrated reference and never becomes authoritative geometry.</p>
+        <p id="pdf-import-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-pdf-import" type="button">Cancel</button>
+          <button id="accept-pdf-import" type="submit" class="primary-action" disabled>Place selected page</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="delete-wall-dialog" aria-labelledby="delete-wall-title">
+      <form method="dialog">
+        <h2 id="delete-wall-title">Delete selected wall</h2>
+        <p id="delete-wall-message"></p>
+        <div class="dialog-actions split-actions">
+          <button value="cancel">Cancel</button>
+          <button value="delete-wall" class="danger-action">Delete wall only</button>
+          <button value="delete-connected" class="danger-action">Delete connected chain</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="delete-component-dialog" aria-labelledby="delete-component-title">
+      <form method="dialog">
+        <h2 id="delete-component-title">Delete selected component</h2>
+        <p id="delete-component-message"></p>
+        <p id="delete-component-scope" class="dialog-error"></p>
+        <p>Floors, walls, rooms, zones, building outlines and reference plans remain unchanged. This is one undoable command.</p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="delete" class="danger-action">Delete confirmed scope</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="clear-ventilation-dialog" aria-labelledby="clear-ventilation-title">
+      <form method="dialog">
+        <h2 id="clear-ventilation-title">Clear ventilation on this floor</h2>
+        <p id="clear-ventilation-message"></p>
+        <p id="clear-ventilation-warning" class="dialog-error" role="alert"></p>
+        <p>Walls, rooms, zones, the building outline, references, scale and other floors are preserved. This is one undoable command.</p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button id="confirm-clear-ventilation" value="clear" class="danger-action">Clear ventilation</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="room-dialog" class="wide-dialog" aria-labelledby="room-dialog-title">
+      <form id="room-form">
+        <h2 id="room-dialog-title">Confirm room</h2>
+        <p id="room-boundary-summary"></p>
+        <label id="room-name-label">Room name
+          <input id="room-name" maxlength="120" autocomplete="off" placeholder="e.g. Kitchen / Dining" required />
+        </label>
+        <label id="room-use-label">Room use
+          <select id="room-use" required>
+            <option value="unspecified">Unspecified</option>
+            <option value="living">Living</option>
+            <option value="kitchen">Kitchen</option>
+            <option value="dining">Dining</option>
+            <option value="kitchen-dining">Kitchen / Dining</option>
+            <option value="bedroom">Bedroom</option>
+            <option value="bathroom">Bathroom</option>
+            <option value="ensuite">Ensuite</option>
+            <option value="wc">WC</option>
+            <option value="laundry">Laundry</option>
+            <option value="hallway">Hallway</option>
+            <option value="storage">Storage</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label id="room-role-label">MVHR room role
+          <select id="room-ventilation-role" required>
+            <option value="unassigned">Unassigned</option>
+            <option value="supply">Supply</option>
+            <option value="extract">Extract</option>
+            <option value="transfer">Transfer</option>
+            <option value="none">None</option>
+          </select>
+          <small>This is explicit design metadata only; no airflow rate is inferred.</small>
+        </label>
+        <fieldset class="airflow-targets-fieldset">
+          <legend>Normal airflow targets</legend>
+          <p>Required and assigned airflow remain separate. Blank values stay unresolved.</p>
+          <div class="airflow-target-grid">
+            <strong>Required flow</strong>
+            <label>Value
+              <input id="room-required-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
+            </label>
+            <label>Unit
+              <select id="room-required-airflow-unit">
+                <option value="l/s">L/s</option>
+                <option value="m3/h">m³/h</option>
+              </select>
+            </label>
+            <label>Basis
+              <input id="room-required-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
+            </label>
+            <label>Source
+              <input id="room-required-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
+            </label>
+          </div>
+          <button id="adopt-required-airflow" type="button">Use required as assigned</button>
+          <div class="airflow-target-grid">
+            <strong>Assigned designer target</strong>
+            <label>Value
+              <input id="room-assigned-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
+            </label>
+            <label>Unit
+              <select id="room-assigned-airflow-unit">
+                <option value="l/s">L/s</option>
+                <option value="m3/h">m³/h</option>
+              </select>
+            </label>
+            <label>Basis
+              <input id="room-assigned-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
+            </label>
+            <label>Source
+              <input id="room-assigned-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
+            </label>
+          </div>
+          <small>Supply/extract totals are arithmetic only. No rate, tolerance, compliance result or terminal split is inferred.</small>
+        </fieldset>
+        <p id="room-dialog-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-room" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Apply</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="remove-room-dialog" aria-labelledby="remove-room-title">
+      <form method="dialog">
+        <h2 id="remove-room-title">Remove room</h2>
+        <p id="remove-room-message"></p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="remove" class="danger-action">Remove room</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="floor-area-dialog" aria-labelledby="floor-area-dialog-title">
+      <form id="floor-area-form">
+        <h2 id="floor-area-dialog-title">Confirm preliminary floor area</h2>
+        <p id="floor-area-dialog-summary"></p>
+        <label>Outline name
+          <input id="floor-area-name" maxlength="120" autocomplete="off" required />
+        </label>
+        <p class="synthetic-warning">For preliminary quoting only. This outline is independent of rooms and is not a certified TFA measurement.</p>
+        <p id="floor-area-dialog-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-floor-area" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Apply</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="remove-floor-area-dialog" aria-labelledby="remove-floor-area-title">
+      <form method="dialog">
+        <h2 id="remove-floor-area-title">Remove floor area outline</h2>
+        <p id="remove-floor-area-message"></p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="remove" class="danger-action">Remove outline</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="calibration-dialog" aria-labelledby="calibration-title">
+      <form id="calibration-form">
+        <h2 id="calibration-title">Set known distance</h2>
+        <p>Enter the real distance between the two selected image points.</p>
+        <label>Distance <input id="calibration-distance" inputmode="decimal" autocomplete="off" required /></label>
+        <label>Unit
+          <select id="calibration-unit"><option value="m">m</option><option value="mm">mm</option></select>
+        </label>
+        <fieldset id="calibration-scope" hidden>
+          <legend>Apply the corrected scale to</legend>
+          <p id="calibration-scope-summary"></p>
+          <label class="scope-choice">
+            <input type="radio" name="calibration-scope" value="reference-only" />
+            <span><strong>Reference only</strong><small>Keep authored walls and other drawing geometry at their exact dimensions.</small></span>
+          </label>
+          <label class="scope-choice">
+            <input id="calibration-rescale-choice" type="radio" name="calibration-scope" value="reference-and-floor-walls" />
+            <span><strong>Reference and this floor’s authored XY</strong><small id="calibration-rescale-detail">Scale wall-node and building-outline XY positions uniformly about the first calibration point. Heights, Z values, wall thicknesses, other floors and independent references stay unchanged.</small></span>
+          </label>
+        </fieldset>
+        <p id="calibration-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-calibration" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Apply calibration</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="reference-crop-dialog" aria-labelledby="reference-crop-title">
+      <form id="reference-crop-form">
+        <h2 id="reference-crop-title">Apply PDF crop</h2>
+        <p id="reference-crop-summary"></p>
+        <p>This hides content outside the rectangle. It does not stretch the page, change calibration, move authored walls, or alter the original PDF.</p>
+        <p id="reference-crop-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-reference-crop-dialog" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Apply crop</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="mvhr-placement-dialog" aria-labelledby="mvhr-placement-title">
+      <form id="mvhr-placement-form">
+        <h2 id="mvhr-placement-title">Configure MVHR</h2>
+        <label>Unit model
+          <select id="mvhr-model">
+            <option value="ca200">CA200 · manual version · DN125</option>
+            <option value="q350-hrv">Q350 · sensible heat recovery</option>
+            <option value="q350-erv">Q350 · enthalpy recovery</option>
+            <option value="aerofresh-450-hrv">Aerofresh 450 · HRV</option>
+            <option value="aerofresh-450-erv">Aerofresh 450 · ERV</option>
+            <option value="generic">Generic planning unit</option>
+          </select>
+        </label>
+        <label>Unit orientation
+          <select id="mvhr-handing"><option value="left">Left</option><option value="right">Right</option></select>
+        </label>
+        <label>Intended arrangement
+          <select id="mvhr-layout">
+            <option value="unit-only">Unit only</option>
+            <option value="unit-mounted-cw">CW mounted on unit</option>
+            <option value="remote-attenuators">Remote attenuators · place separately</option>
+          </select>
+        </label>
+        <label id="mvhr-cw-size-label" hidden>CW size
+          <select id="mvhr-cw-size"><option value="320">CW320 · 6 ports per stream</option><option value="420">CW420 · 8 ports per stream</option><option value="520">CW520 · 10 ports per stream</option><option value="625">CW625 · 12 ports per stream</option></select>
+        </label>
+        <p id="mvhr-preview-summary" aria-live="polite"></p>
+        <p id="mvhr-placement-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-mvhr-placement" type="button">Cancel</button>
+          <button type="submit" class="primary-action">Place unit</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="component-context-menu" role="menu" aria-label="Component actions" hidden></div>
+    <dialog id="cw-dialog" aria-labelledby="cw-title">
+      <form id="cw-form">
+        <h2 id="cw-title">Configure standalone CW</h2>
+        <label>CW size<select id="cw-size"><option value="220">CW220 · 4 branches</option><option value="320">CW320 · 6 branches</option><option value="420">CW420 · 8 branches</option><option value="520">CW520 · 10 branches</option><option value="625">CW625 · 12 branches</option></select></label>
+        <label>Air service<select id="cw-stream"><option value="supply">Supply</option><option value="extract">Extract</option></select></label>
+        <label>Installation orientation<select id="cw-orientation"><option value="horizontal">Horizontal · lying flat</option><option value="vertical">Vertical · branch plate above</option></select></label>
+        <label>Main duct connection<select id="cw-main"><option value="125">DN125 · CW220 / CW320</option><option value="160" selected>DN160</option></select></label>
+        <p id="cw-summary" aria-live="polite"></p>
+        <p id="cw-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button id="cancel-cw" type="button">Cancel</button><button id="cw-submit" type="submit" class="primary-action">Place CW</button></div>
+      </form>
+    </dialog>
+    <dialog id="terminal-placement-dialog" aria-labelledby="terminal-placement-title">
+      <form id="terminal-placement-form">
+        <h2 id="terminal-placement-title">Configure terminal</h2>
+        <p id="terminal-product-name"></p>
+        <label>Air service
+          <select id="terminal-service"><option value="" disabled>Choose Supply or Extract</option><option value="supply">Supply</option><option value="extract">Extract</option></select>
+        </label>
+        <p id="terminal-space-note" aria-live="polite"></p>
+        <p id="terminal-placement-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button id="cancel-terminal-placement" type="button">Cancel</button><button type="submit" class="primary-action">Place terminal</button></div>
+      </form>
+    </dialog>
+    <dialog id="external-grille-dialog" aria-labelledby="external-grille-title">
+      <form id="external-grille-form"><h2 id="external-grille-title">Configure external grille</h2>
+        <label id="external-grille-type-label">Air service<select id="external-grille-type"><option value="intake">Outdoor intake</option><option value="exhaust">Outdoor exhaust</option><option value="combined">Combined · separate intake and exhaust</option></select></label>
+        <label>Duct size<select id="external-grille-size"><option value="160">160 mm EPP</option><option value="125">125 mm EPP</option></select></label>
+        <p id="external-grille-product-summary">Choose a grille configuration.</p>
+        <p id="external-grille-spacing" aria-live="polite"></p>
+        <p id="external-grille-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button id="cancel-external-grille" type="button">Cancel</button><button type="submit" class="primary-action">Place grille</button></div>
+      </form>
+    </dialog>
+    <script type="module" src="./main.mjs"></script>
+  </body>
+</html>

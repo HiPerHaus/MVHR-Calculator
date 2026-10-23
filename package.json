@@ -1,40 +1,13 @@
 {
-  "name": "mvhr-sizing-tool",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "node --test packages/engine/tests/*.test.js",
-    "test:watch": "node --test --watch packages/engine/tests/*.test.js",
-    "test:dbm": "node --test tests/*.test.js",
-    "backfill:dbm": "node scripts/backfill-building-models.mjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/HiPerHaus/MVHR-Calculator.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "name": "hiper-studio-local-shell",
+  "private": true,
   "type": "module",
-  "bugs": {
-    "url": "https://github.com/HiPerHaus/MVHR-Calculator/issues"
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "dev": "node scripts/dev-server.mjs",
+    "build": "node scripts/build.mjs"
   },
-  "homepage": "https://github.com/HiPerHaus/MVHR-Calculator#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.36.3",
-    "@vercel/functions": "^2.0.0",
-    "@supabase/supabase-js": "^2.106.2",
-    "@napi-rs/canvas": "^0.1.53",
-    "pdfjs-dist": "^4.4.168",
-    "stripe": "^16.0.0",
-    "mupdf": "^1.3.0",
-    "sharp": "^0.33.4",
-    "resend": "^4.0.0",
-    "xlsx": "^0.18.5",
-    "formidable": "^3.5.2"
-  },
-  "engines": {
-    "node": "22.x"
+    "pdfjs-dist": "6.4.299"
   }
 }

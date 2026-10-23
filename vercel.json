@@ -1,97 +1,32 @@
 {
-  "functions": {
-    "api/ai/render-pdf.js":    { "maxDuration": 300 },
-    "api/ai/classify-pages.js":{ "maxDuration": 300 },
-    "api/ai/auto-analyse.js":  { "maxDuration": 300 },
-    "api/ai/render-hires.js":  { "maxDuration": 60 }
-  },
-  "rewrites": [
-    { "source": "/api/ai/job-status/:jobId",          "destination": "/api/ai/job-status/[jobId]" },
-    { "source": "/api/studio/rooms",                  "destination": "/api/studio/rooms" },
-    { "source": "/api/studio/seed-rooms",             "destination": "/api/studio/seed-rooms" },
-    { "source": "/api/studio/airflow",                "destination": "/api/studio/airflow" },
-    { "source": "/api/studio/settings",               "destination": "/api/studio/settings" },
-    { "source": "/api/studio/projects",               "destination": "/api/studio/projects" },
-    { "source": "/api/studio/unit-library",           "destination": "/api/studio/unit-library" },
-    { "source": "/api/studio/phpp-import",            "destination": "/api/studio/phpp-import" },
-    { "source": "/api/studio/duct-design",            "destination": "/api/studio/duct-design" },
-    { "source": "/api/studio/bom",                    "destination": "/api/studio/bom" },
-    { "source": "/api/studio/building-volume",        "destination": "/api/studio/building-volume" },
-    { "source": "/api/studio/building-model",         "destination": "/api/studio/building-model" },
-    { "source": "/api/studio/project-overview",       "destination": "/api/studio/project-overview" },
-    { "source": "/api/(.*)",                          "destination": "/api/$1" },
-    { "source": "/engine/(.*)",                       "destination": "/packages/engine/$1" },
-    { "source": "/admin",                             "destination": "/admin.html" },
-    { "source": "/admin-ai-test",                     "destination": "/admin-ai-test.html" },
-    { "source": "/building-volume-calculator",        "destination": "/building-volume.html" },
-    { "source": "/mvhr-designer",                              "destination": "/studio-projects.html" },
-    { "source": "/mvhr-designer/projects",                     "destination": "/studio-projects.html" },
-    { "source": "/mvhr-designer/projects/new",                 "destination": "/studio-project.html" },
-    { "source": "/mvhr-designer/projects/:projectId/overview", "destination": "/studio-overview.html" },
-    { "source": "/mvhr-designer/projects/:projectId/details", "destination": "/studio-project.html" },
-    { "source": "/mvhr-designer/projects/:projectId/documents", "destination": "/studio-upload.html" },
-    { "source": "/mvhr-designer/projects/:projectId/upload",  "destination": "/studio-upload.html" },
-    { "source": "/mvhr-designer/projects/:projectId/modules", "destination": "/studio-modules.html" },
-    { "source": "/mvhr-designer/projects/:projectId/building-model", "destination": "/studio-building-model.html" },
-    { "source": "/mvhr-designer/projects/:projectId/rooms",   "destination": "/studio-rooms.html" },
-    { "source": "/mvhr-designer/projects/:projectId/airflow",        "destination": "/studio-airflow.html" },
-    { "source": "/mvhr-designer/projects/:projectId/unit-selection", "destination": "/studio-unit-selection.html" },
-    { "source": "/mvhr-designer/projects/:projectId/duct-design",    "destination": "/studio-duct-design.html" },
-    { "source": "/mvhr-designer/projects/:projectId/bom",           "destination": "/studio-bom.html" },
-    { "source": "/mvhr-designer/settings",                          "destination": "/studio-settings.html" },
-    { "source": "/mvhr-designer/projects/:projectId",         "destination": "/studio-overview.html" },
-    { "source": "/mvhr-designer/(.*)",                        "destination": "/studio-project.html" },
-    { "source": "/",                                  "destination": "/dashboard.html" },
-    { "source": "/(.*)",                              "destination": "/dashboard.html" }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/app/",
+      "permanent": false
+    }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/app/(.*)",
       "headers": [
         {
-          "key": "Access-Control-Allow-Origin",
-          "value": "https://hiper-studio.au"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,PATCH,DELETE,OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type,Authorization"
-        },
-        {
-          "key": "Access-Control-Max-Age",
-          "value": "86400"
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     },
     {
-      "source": "/(.*)",
+      "source": "/src/(.*)",
       "headers": [
         {
-          "key": "Strict-Transport-Security",
-          "value": "max-age=63072000; includeSubDomains; preload"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com; object-src 'none'; base-uri 'self';"
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }

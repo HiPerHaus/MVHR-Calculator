@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 14,
+  "id": "project-spatial-fixture",
+  "coordinateSystem": {
+    "lengthUnit": "mm",
+    "angleUnit": "rad",
+    "handedness": "right",
+    "upAxis": "z"
+  },
+  "floors": [
+    {
+      "id": "floor-ground",
+      "name": "Ground Floor",
+      "transform": {
+        "translationMm": {
+          "x": 10000,
+          "y": 20000,
+          "z": { "state": "known", "valueMm": 3000, "provenance": "synthetic-fixture" }
+        },
+        "orientation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.7071067811865475,
+          "w": 0.7071067811865476
+        }
+      }
+    }
+  ],
+  "components": [
+    {
+      "id": "component-unit",
+      "floorId": "floor-ground",
+      "positionMm": {
+        "x": 1000,
+        "y": 2000,
+        "z": { "state": "known", "valueMm": 300, "provenance": "synthetic-fixture" }
+      },
+      "orientation": {
+        "x": 0,
+        "y": 0,
+        "z": 0.7071067811865475,
+        "w": 0.7071067811865476
+      },
+      "ports": [
+        {
+          "id": "port-supply",
+          "definitionId": "port-def-supply",
+          "positionMm": { "x": 100, "y": 0, "z": 50 },
+          "direction": { "x": 1, "y": 0, "z": 0 },
+          "system": "mvhr",
+          "stream": "supply",
+          "role": "Dwelling supply"
+        }
+      ]
+    }
+  ],
+  "equipmentAssemblies": [],
+  "routes": [
+    {
+      "id": "route-rise",
+      "floorId": "floor-ground",
+      "system": "mvhr",
+      "stream": "supply",
+      "ductKind": "generic-duct",
+      "parallelRunCount": null,
+      "role": null,
+      "startAttachment": null,
+      "endAttachment": null,
+      "points": [
+        { "x": 0, "y": 0, "z": { "state": "known", "valueMm": 0, "provenance": "synthetic-fixture" } },
+        { "x": 3000, "y": 0, "z": { "state": "known", "valueMm": 0, "provenance": "synthetic-fixture" } },
+        { "x": 3000, "y": 0, "z": { "state": "known", "valueMm": 2000, "provenance": "synthetic-fixture" } }
+      ]
+    }
+  ],
+  "connections": [],
+  "wallNodes": [],
+  "walls": [],
+  "floorAreaOutlines": [],
+  "rooms": [],
+  "zones": [],
+  "referenceAssets": [],
+  "floorReferences": [],
+  "cadReferenceAssets": [],
+  "floorCadReferences": []
+}
+
