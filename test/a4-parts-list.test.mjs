@@ -20,7 +20,7 @@ test('standalone CW capacity counts physical branches in either installation ori
  for(const orientation of ['vertical','horizontal']){let p=fixture();p={...p,components:[]};const c=createCatalogueComponent(`standalone-cw-220-supply-${orientation}-dn125`,{id:'cw220-test',floorId:'ground',xMm:1000,yMm:1000,allowAssemblyOnly:true});p=applyCommand(p,{type:'component.add',component:c});const a=deriveRadialAccessories(p,{floorId:'ground'});assert.equal(a.oRingQuantity,4);assert.equal(a.capQuantity,4);}
 });
 test('A4 page 2 prints equipment, route lengths and connection accessories without a shortened tail',()=>{
- const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=renderA4PartsListSvg(sheet,pages[0]);assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.match(svg,/100 mm each/);assert.match(svg,/Total 90 mm duct/);assert.match(svg,/50 m per coil, rounded up/);assert.match(svg,/Example project/);
+ const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=pages.map(page=>renderA4PartsListSvg(sheet,page)).join('');assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.ok(partsListRows(sheet.partsSchedule).some(row=>row.description.includes("100 mm each")));assert.match(svg,/Total 90 mm duct/);assert.match(svg,/50 m per coil, rounded up/);assert.match(svg,/Example project/);
  const many={...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:Array.from({length:70},(_,i)=>({...sheet.partsSchedule.componentLines[0],ref:`P${i}`,description:`Equipment ${i} `+'long description '.repeat(14)}))}};
  const longPages=createA4PartsListPages(many);assert.ok(longPages.length>1);assert.equal(longPages.flatMap(page=>page.rows).length,partsListRows(many.partsSchedule).length);assert.ok(longPages.every(page=>65+page.rows.reduce((sum,row)=>sum+row.height,0)<=263));assert.equal(longPages.at(-1).pageNumber,longPages.at(-1).totalPageCount);
 });
@@ -44,4 +44,17 @@ test('parts list separates MVHR and terminals and counts combined grille handing
  schedule=createPartsSchedule(p,{floorId:'ground'});
  assert.equal(schedule.componentLines.filter(line=>line.handing).length,1);
  assert.equal(schedule.componentLines.find(line=>line.handing==='right').quantity,2);
+});
+
+test('A4 part numbers have their own column and stay out of names',()=>{
+ const sheet=createA3SheetModel(fixture(),metadata),rows=partsListRows(sheet.partsSchedule),pages=createA4PartsListPages(sheet);
+ const drain=rows.find(row=>row.partNumber==='HRV-DRAIN');
+ assert.equal(drain.description,'40 mm waterless drain trap');
+ const cw=rows.find(row=>row.partNumber==='ZEN-MPCWM-320-6X90');assert.ok(cw);assert.ok(!cw.description.includes('ZEN-'));
+ const unit=rows.find(row=>row.ref==='P01');assert.equal(unit.partNumber,'ZEN-Q350HRV');assert.ok(!unit.description.includes('Code:'));
+ const svg=pages.map(page=>renderA4PartsListSvg(sheet,page)).join('');
+ assert.match(svg,/>PART NUMBER<\/text>/);assert.match(svg,/>NAME<\/text>/);
+ assert.match(svg,/<text x="30"[^>]*>HRV-DRAIN<\/text>/);
+ assert.match(svg,/<text x="70"[^>]*>40 mm waterless drain trap<\/text>/);
+ assert.ok(pages.every(page=>65+page.rows.reduce((sum,row)=>sum+row.height,0)<=263));
 });
