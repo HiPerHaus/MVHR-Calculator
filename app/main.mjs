@@ -3079,7 +3079,7 @@ function mechanicalHitFromPointerEvent(event) {
     camera,
     canvas.getBoundingClientRect(),
     { x: event.clientX, y: event.clientY },
-    { millimetresPerViewUnit: MILLIMETRES_PER_VIEW_UNIT, approachPoint:mechanicalState.routeDraft?.points.at(-1) },
+    { millimetresPerViewUnit: MILLIMETRES_PER_VIEW_UNIT, approachPoint:mechanicalState.routeDraft?.points.at(-1), ductKind:mechanicalState.ductKind, routeDraft:mechanicalState.routeDraft },
   );
   if (!picked) return directHit;
   const component = history.present.components.find((candidate) => candidate.id === picked.componentId);
