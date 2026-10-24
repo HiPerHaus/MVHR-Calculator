@@ -75,6 +75,12 @@ function componentScheduleLines(components, assemblyByComponentId) {
   const byKey = new Map();
   for (const component of components) {
     const snapshot = component.catalogueSnapshot ?? null;
+    const catalogueItem = COMPONENT_CATALOGUE.find(item => item.id === (snapshot?.recordId ?? component.catalogueItemId));
+    const category = catalogueItem?.category;
+    const section = category?.startsWith("mvhr-unit") ? "mvhr"
+      : ["terminal", "external-grille"].includes(category) ? "terminals" : "equipment";
+    const combinedGrille = category === "external-grille" && component.ports.some(port => port.stream === "intake") && component.ports.some(port => port.stream === "exhaust");
+    const handing = combinedGrille ? (component.externalGrilleHanding ?? "left") : null;
     const key = [
       snapshot?.catalogueId ?? "no-catalogue",
       snapshot?.catalogueVersion ?? "no-catalogue-version",
@@ -82,6 +88,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
       snapshot?.recordVersionId ?? component.catalogueRecordVersionId ?? "no-record-version",
       component.productId ?? "no-product-id",
       component.catalogueStatus ?? "unclassified",
+      handing ?? "no-handing",
     ].join("\u0000");
     let line = byKey.get(key);
     if (!line) {
@@ -89,7 +96,9 @@ function componentScheduleLines(components, assemblyByComponentId) {
       line = {
         key,
         ref: null,
-        description: component.displayName ?? component.id,
+        section,
+        handing,
+        description: `${component.displayName ?? component.id}${handing ? ` · ${handing === "left" ? "Left" : "Right"}` : ""}`,
         manufacturer: component.manufacturer ?? null,
         productId: component.productId ?? null,
         manufacturerArticle: referenceManufacturerArticle(component),

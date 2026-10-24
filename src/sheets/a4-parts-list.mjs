@@ -3,9 +3,13 @@ import {escapeXml,wrapSheetText} from './a3-sheet.mjs';
 export function partsListRows(schedule){
  const rows=[],section=description=>rows.push({section:true,description,height:7});
  const add=(ref,description,quantity,unit='ea')=>{const lines=wrapSheetText(description,82,3);rows.push({ref,description,lines,quantity:String(quantity),unit,height:Math.max(8,lines.length*3.6+3)});};
- section('Equipment and terminals');
- for(const line of schedule.componentLines)add(line.ref,[line.description,line.productId?`Code: ${line.productId}`:line.manufacturerArticle?`Article: ${line.manufacturerArticle}`:''].filter(Boolean).join(' · '),line.quantity);
- if(!schedule.componentLines.length)add('—','No equipment placed',0);
+ for(const [key,title] of [['mvhr','MVHR units'],['equipment','CW units and other equipment'],['terminals','Terminals']]){
+  const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key);
+  if(!lines.length)continue;
+  section(title);
+  for(const line of lines)add(line.ref,[line.description,line.productId?`Code: ${line.productId}`:line.manufacturerArticle?`Article: ${line.manufacturerArticle}`:''].filter(Boolean).join(' · '),line.quantity);
+ }
+ if(!schedule.componentLines.length){section('MVHR units and terminals');add('—','No equipment placed',0);}
  const accessories=schedule.projectAccessories;
  if(accessories.cwLines.length){section('Unit-mounted CW components');for(const line of accessories.cwLines)add('CW',[line.code,line.description].filter(Boolean).join(' · '),line.quantity,line.unit);}
  if(accessories.unitLines.length){section('HRV accessories');for(const line of accessories.unitLines)add('HRV',`${line.code} · ${line.description}`,line.quantity,line.unit);}

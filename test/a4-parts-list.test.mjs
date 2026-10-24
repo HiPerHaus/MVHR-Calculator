@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createProject,applyCommand,identityQuaternion,knownMm,floorPortTransform} from '../src/domain/spatial.mjs';
+import {createProject,applyCommand,serializeProject,deserializeProject,identityQuaternion,knownMm,floorPortTransform} from '../src/domain/spatial.mjs';
 import {createConfiguredMvhrComponent} from '../src/editor/mvhr-placement.mjs';
 import {createCatalogueComponent,routeFamilyForKind} from '../src/editor/component-catalogue.mjs';
 import {createPartsSchedule} from '../src/editor/parts-schedule.mjs';
@@ -23,4 +23,25 @@ test('A4 page 2 prints equipment, route lengths and connection accessories witho
  const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=renderA4PartsListSvg(sheet,pages[0]);assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.match(svg,/100 mm each/);assert.match(svg,/Total 90 mm duct/);assert.match(svg,/50 m per coil, rounded up/);assert.match(svg,/Example project/);
  const many={...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:Array.from({length:70},(_,i)=>({...sheet.partsSchedule.componentLines[0],ref:`P${i}`,description:`Equipment ${i} `+'long description '.repeat(14)}))}};
  const longPages=createA4PartsListPages(many);assert.ok(longPages.length>1);assert.equal(longPages.flatMap(page=>page.rows).length,partsListRows(many.partsSchedule).length);assert.ok(longPages.every(page=>65+page.rows.reduce((sum,row)=>sum+row.height,0)<=263));assert.equal(longPages.at(-1).pageNumber,longPages.at(-1).totalPageCount);
+});
+test('parts list separates MVHR and terminals and counts combined grille handing independently',()=>{
+ let p=fixture();
+ for(const id of ['grille-left','grille-right'])p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('generic-external-grille-combined-dn160',{id,floorId:'ground',xMm:4000,yMm:4000})});
+ p=applyCommand(p,{type:'component.setExternalGrilleHanding',componentId:'grille-right',handing:'right'});
+ p=deserializeProject(serializeProject(p));
+ let schedule=createPartsSchedule(p,{floorId:'ground'}),rows=partsListRows(schedule);
+ assert.equal(schedule.componentLines.find(line=>line.componentIds.includes('unit-test')).section,'mvhr');
+ assert.ok(rows.some(row=>row.section&&row.description==='MVHR units'));
+ assert.ok(rows.some(row=>row.section&&row.description==='Terminals'));
+ const grilles=schedule.componentLines.filter(line=>line.handing);
+ assert.equal(grilles.length,2);assert.deepEqual(grilles.map(line=>line.quantity),[1,1]);
+ assert.match(grilles.find(line=>line.handing==='left').description,/ · Left$/);
+ assert.match(grilles.find(line=>line.handing==='right').description,/ · Right$/);
+ // Plan rotation does not change the product handing.
+ p={...p,components:p.components.map(c=>c.id==='grille-right'?{...c,orientation:{x:0,y:0,z:1,w:0}}:c)};
+ assert.equal(createPartsSchedule(p,{floorId:'ground'}).componentLines.find(line=>line.componentIds.includes('grille-right')).handing,'right');
+ p=applyCommand(p,{type:'component.setExternalGrilleHanding',componentId:'grille-left',handing:'right'});
+ schedule=createPartsSchedule(p,{floorId:'ground'});
+ assert.equal(schedule.componentLines.filter(line=>line.handing).length,1);
+ assert.equal(schedule.componentLines.find(line=>line.handing==='right').quantity,2);
 });
