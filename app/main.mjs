@@ -1,3 +1,4 @@
+import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
 import { createCompactProjectStorage, compactExistingProjectStorage } from "../src/persistence/compact-storage.mjs";
@@ -2125,10 +2126,18 @@ function openSheetPreview() {
       checkedBy: "",
     });
     const parser = new DOMParser();
-    const documentSvg = parser.parseFromString(renderA3SheetSvg(sheet), "image/svg+xml");
-    if (documentSvg.querySelector("parsererror")) throw new TypeError("Generated sheet SVG could not be parsed");
-    sheetPreviewHost.replaceChildren(document.importNode(documentSvg.documentElement, true));
-    sheetPreviewStatus.textContent = `${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    const partsPages=createA4PartsListPages(sheet);
+    const drawingSvg=renderA3SheetSvg(sheet).replace('</svg>',`<text x="12" y="293" font-size="2.3" fill="#687880">Page 1 of ${partsPages.length+1} · A3</text></svg>`);
+    const pages=[{svg:drawingSvg,className:"sheet-a3",label:"Page 1 · A3 drawing"},...partsPages.map(page=>({svg:renderA4PartsListSvg(sheet,page),className:"sheet-a4",label:`Page ${page.pageNumber} · A4 parts list`}))];
+    const elements=pages.map(page=>{
+      const documentSvg=parser.parseFromString(page.svg,"image/svg+xml");
+      if(documentSvg.querySelector("parsererror"))throw new TypeError("Generated sheet SVG could not be parsed");
+      const element=document.createElement("section");element.className=`sheet-page ${page.className}`;
+      const label=document.createElement("div");label.className="sheet-page-label";label.textContent=page.label;
+      element.append(label,document.importNode(documentSvg.documentElement,true));return element;
+    });
+    sheetPreviewHost.replaceChildren(...elements);
+    sheetPreviewStatus.textContent = `${partsPages.length+1} pages · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
