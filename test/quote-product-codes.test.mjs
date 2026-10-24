@@ -45,7 +45,7 @@ test('CW breakdown uses exact quote spelling and model-specific mounting codes w
  assert.equal(cwMountQuoteCode({mvhrDesignIntent:{model:'aerofresh-450-hrv'}},'520'),'HRV-MSCW-A450-520');
  assert.equal(cwMountQuoteCode({mvhrDesignIntent:{model:'q600-hrv'}},'520'),'ZEN-MSCW6-520');
  assert.equal(cwMountQuoteCode({mvhrDesignIntent:{model:'aerofresh-450-hrv'}},'625'),null);
- const cap=partsListRows(schedule).find(row=>row.partNumber==='ZEN-ECAP90');assert.equal(cap.quantity,'3');assert.match(cap.description,/28 required, 10 per pack/);
+ assert.equal(schedule.projectAccessories.capQuantity,28);assert.equal(partsListRows(schedule).some(row=>row.partNumber==='ZEN-ECAP90'),false);
 });
 test('Aerofresh cool-white covers count per point and housing codes follow saved drawing entry',()=>{
  let p=base();
@@ -71,11 +71,13 @@ test('TVA housing codes follow explicit Single or Twin, and unset stays unselect
  assert.equal(lines.find(l=>l.code==='ZEN-H-TVA90-300TW').quantity,1);
  assert.ok(lines.some(l=>l.code===''&&l.description.includes('to select')));
 });
-test('end-cap packs round once for the whole project across floors',()=>{
+test('caps supplied with pipe remain design quantities and never become a separate order across floors',()=>{
  let p=applyCommand(base(),{type:'floor.add',floor:{id:'upper',name:'Upper',transform:{translationMm:{x:0,y:0,z:knownMm(3000,'test')},orientation:identityQuaternion()}}});
  for(const floorId of ['ground','upper'])p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('standalone-cw-220-supply-horizontal-dn125',{id:`cw-${floorId}`,floorId,xMm:1000,yMm:0,allowAssemblyOnly:true})});
  const ground=createPartsSchedule(p,{floorId:'ground'}),upper=createPartsSchedule(p,{floorId:'upper'});
- assert.equal(ground.projectAccessories.capQuantity,8);assert.equal(ground.projectAccessories.capPackQuantity,1);
- assert.equal(partsListRows(ground).find(row=>row.partNumber==='ZEN-ECAP90').quantity,'1');
+ assert.equal(ground.projectAccessories.capQuantity,8);assert.equal(ground.radialAccessories.capQuantity,4);assert.equal(upper.radialAccessories.capQuantity,4);
+ assert.equal(partsListRows(ground).some(row=>row.partNumber==='ZEN-ECAP90'),false);
+ assert.equal(ground.projectAccessories.jobLines.some(line=>line.code==='ZEN-ECAP90'),false);
+ assert.equal(ground.radialAccessories.stubQuantity,4);
  assert.equal(partsListRows(upper).some(row=>row.partNumber==='ZEN-ECAP90'),false);
 });
