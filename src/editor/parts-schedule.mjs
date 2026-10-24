@@ -56,7 +56,7 @@ export function createPartsSchedule(project, options = {}) {
     floorName: floor.name,
     componentLines,
     routeLines,
-    radialAccessories:deriveRadialAccessories(project,{floorId,stubLengthMm:options.cwStubLengthMm??null}),
+    radialAccessories:deriveRadialAccessories(project,{floorId,stubLengthMm:options.cwStubLengthMm}),
     eppTakeoff,
     eppUnitConnectionAllowances,
     eppUnitConnectionAllowancePolicy: HRV_EPP_CONNECTION_ALLOWANCE_POLICY,

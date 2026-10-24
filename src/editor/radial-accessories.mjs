@@ -1,7 +1,9 @@
 import {mountedCwDrawingLayout,mountedCwDrawingParts} from '../domain/mounted-cw-drawing-connections.mjs';
 
+export const CW_UNUSED_PORT_STUB_LENGTH_MM=100;
+
 // Material allowances from saved endpoints; these do not create duct geometry.
-export function deriveRadialAccessories(project,{floorId,stubLengthMm=null}={}){
+export function deriveRadialAccessories(project,{floorId,stubLengthMm=CW_UNUSED_PORT_STUB_LENGTH_MM}={}){
  if(stubLengthMm!==null&&(!Number.isFinite(stubLengthMm)||stubLengthMm<=0))throw new TypeError('CW stub length must be positive or unknown');
  const usage=new Map(),terminalUsage=new Map();
  const key=e=>`${e.componentId}\u0000${e.portId}`;
