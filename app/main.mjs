@@ -1,6 +1,10 @@
+import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
+const workingSessions=createWorkingSessionStore(window.indexedDB,{tabId:workingTabId(window.sessionStorage)});
+let workingReady=false,workingRestoring=false,workingRestoreStarted=false,workingActivity=0,workingQueued=false,workingOwnerKey=null;
+let workingModel=null,workingJson=null,workingRecoveryError="",workingWrites=0;
 import { createCompactProjectStorage, compactExistingProjectStorage } from "../src/persistence/compact-storage.mjs";
 import { findCombinedGrilleAlignment } from "../src/editor/combined-grille-alignment.mjs";
 import { needsCombinedGrilleSpacing } from "../src/domain/combined-grille-drawing-spacing.mjs";
@@ -872,7 +876,8 @@ projectLibraryList.addEventListener("click", openProjectFromLibraryClick);
 undoButton.addEventListener("click", () => applyHistoryChange(undoCommand(history), "Undo saved locally"));
 redoButton.addEventListener("click", () => applyHistoryChange(redoCommand(history), "Redo saved locally"));
 exportButton.addEventListener("click", exportProject);
-openButton.addEventListener("click", () => portableFileInput.click());
+openButton.addEventListener("click", () => {document.querySelector("#cloud-projects-dialog").close();portableFileInput.click();});
+document.querySelector("#cloud-projects-button").addEventListener("click",renderProjectLibrary);
 portableFileInput.addEventListener("change", stagePortableOpen);
 addReferenceButton.addEventListener("click", () => referenceFileInput.click());
 referenceFileInput.addEventListener("change", addReferenceImage);
@@ -1698,6 +1703,7 @@ function setTask(task) {
     sheetsNavigationButton.classList.remove("active");
   }
   activeTask = task;
+  queueWorkingSession();
   document.querySelector("#account-workspace").hidden=task!=="account";
   document.querySelector("#account-nav").classList.toggle("active",task==="account");
   if(task==="ventilation" && history.present.components.some(c=>!c.ports.length&&["luna-grille","wall-grille"].includes(c.displaySymbol?.shape))) {
@@ -1906,6 +1912,7 @@ function renderProjectLibrary() {
   currentProjectNameElement.textContent = currentProjectName;
   currentProjectIdElement.textContent = `${history.present.id} · ${projectHasUnsavedChanges() ? "unsaved changes" : "saved checkpoint"}`;
   const listed = projectLibrary.listProjects();
+  document.querySelector("#legacy-device-projects").hidden=!listed.ok||listed.projects.length===0;
   if (!listed.ok) {
     const failure = document.createElement("p");
     failure.className = "project-library-empty";
@@ -1945,10 +1952,10 @@ function openProjectNameDialog(mode) {
   projectNameMode = mode;
   projectNameTitle.textContent = mode === "new" ? "New project" : mode === "rename" ? "Rename project" : "Save project as";
   projectNameSummary.textContent = mode === "new"
-    ? "Create a clean independent project in this browser."
+    ? "Start a new drawing. Choose Save to add it to your projects."
     : mode === "rename"
-      ? "The stable project ID and all project content will stay unchanged."
-      : "Create an independent copy with a new stable project ID.";
+      ? "Change the project name."
+      : "Save a separate copy of this drawing.";
   projectNameInput.value = mode === "new" ? "Untitled project" : mode === "save-as" ? `${currentProjectName} copy` : currentProjectName;
   projectNameError.textContent = "";
   projectNameDialog.showModal();
@@ -2007,7 +2014,7 @@ async function saveCurrentProjectAs(name) {
     const previousHistory=history,oldName=currentProjectName,oldRecord=currentCloudRecord;
     history=createCommandHistory(copy);currentProjectName=name;currentCloudRecord=null;cloudBindingVersion++;
     if(!await saveExplicit()){history=previousHistory;currentProjectName=oldName;currentCloudRecord=oldRecord;cloudBindingVersion++;}
-    render();return;
+    queueWorkingSession();render();return;
   }
   const saved = projectLibrary.saveProject(copy, name);
   if (!saved.ok) {
@@ -2038,6 +2045,7 @@ function openProjectFromLibraryClick(event) {
   }
   requestProjectTransition(() => {
     portableDirty = true;
+    document.querySelector("#cloud-projects-dialog").close();
     applyLocalReopen(loaded, { named: true });
   }, `Opening “${loaded.name}” will replace the current workspace and cancel incomplete drawing operations.`);
 }
@@ -2145,6 +2153,7 @@ function openSheetPreview() {
     catalogueWorkspace.hidden = true;
     checksWorkspace.hidden = true;
     sheetPreviewPanel.hidden = false;
+    queueWorkingSession();
     projectNavigationButton.classList.remove("active");
     planNavigationButton.classList.remove("active");
     ventilationNavigationButton.classList.remove("active");
@@ -3688,11 +3697,12 @@ function applyHistoryChange(nextHistory, message) {
 }
 
 function savePresent(reason) {
+  queueWorkingSession(true);
   storageState = { kind: "pending", label: reason === "explicit" ? "Saving project…" : "Storing recovery…", detail: "This browser only · not cloud" };
   renderStorageState();
   const result = reason === "explicit"
     ? projectLibrary.saveProject(history.present, currentProjectName)
-    : currentCloudRecord ? {ok:true,savedAtUtc:new Date().toISOString()} : localStore.save(history.present);
+    : {ok:true,recoveryPending:true,savedAtUtc:new Date().toISOString()};
   if (result.ok) {
     if (reason === "explicit") {
       currentProjectName = result.name;
@@ -3709,7 +3719,7 @@ function savePresent(reason) {
       : projectHasUnsavedChanges()
         ? {
             kind: "unsaved",
-            label: "Unsaved changes · recovery stored",
+            label: result.recoveryPending?"Unsaved changes · storing recovery…":"Unsaved changes · recovery stored",
             detail: "This browser only · choose Save to update the named project",
           }
       : {
@@ -3725,7 +3735,7 @@ function savePresent(reason) {
     };
     interactionMessage = `Save failed: ${result.message}. Keep this drawing open and use Export project for a file backup before refreshing.`;
   }
-  if(reason!=="explicit" && cloudSession?.workspace)storageState={kind:"unsaved",label:"Unsaved changes · choose Save to cloud",detail:currentCloudRecord?"Cloud drawing is open in memory; choose Save to cloud":result.ok?"Local recovery retained; cloud save not acknowledged":"Local recovery is full; keep this drawing open and choose Save to cloud or Export project"};
+  if(reason!=="explicit" && cloudSession?.workspace)storageState={kind:"unsaved",label:"Unsaved changes · choose Save",detail:currentCloudRecord?"Device recovery is separate from Save":result.ok?"Local recovery retained; cloud save not acknowledged":"Local recovery is full; keep this drawing open and choose Save or Export project"};
   renderStorageState();
   updateStatus();
   if (activeTask === "project") renderProjectWorkspace();
@@ -3737,6 +3747,8 @@ function projectHasUnsavedChanges() {
 }
 
 function applyLocalReopen(result, options = {}) {
+  if(!workingRestoring)workingActivity++;
+  queueWorkingSession();
   currentCloudRecord=null;cloudBindingVersion++;
   if (dragState) cancelPointEdit();
   if (floorAreaDragState) cancelFloorAreaPointEdit();
@@ -3842,6 +3854,7 @@ async function stagePortableOpen() {
 }
 
 function applyPortableOpen(imported) {
+  currentCloudRecord=null;cloudBindingVersion++;
   history = createCommandHistory(imported.project);
   identityCounter = nextIdentityCounter(imported.project);
   referenceIdentityCounter = nextReferenceIdentityCounter(imported.project);
@@ -3871,7 +3884,7 @@ function applyPortableOpen(imported) {
   componentDragState = null;
   calibrationState = null;
   portableDirty = imported.portableBudget.portable === false;
-  currentProjectName = "Imported project";
+  currentProjectName = imported.project.projectDetails.name || "Imported project";
   savedProjectName = null;
   savedProjectJson = null;
   setTool("select");
@@ -6064,6 +6077,7 @@ function renderCataloguePalette() {
     );
     button.addEventListener("click", () => {
       selectedCatalogueGroup = groupName;
+      queueWorkingSession();
       catalogueSearchInput.value = "";
       renderCataloguePalette();
     });
@@ -7602,7 +7616,7 @@ render();
 async function saveExplicit() {
   if(cloudSession?.loading){interactionMessage="Checking sign-in; please wait before saving.";updateStatus();return false;}
   if(cloudSavePending)return cloudSavePending;
-  if(!cloudSession?.workspace)return savePresent("explicit");
+  if(!cloudSession?.workspace){document.querySelector("#account-button").click();return false;}
   const project=deserializeProject(serializeProject(history.present)),name=currentProjectName;
   const workspaceId=cloudSession.workspace.id,userId=cloudSession.user.id,binding=cloudBindingVersion;
   storageState={kind:"pending",label:"Saving to cloud…",detail:"Wait for the cloud save acknowledgement"};renderStorageState();
@@ -7611,10 +7625,10 @@ async function saveExplicit() {
       const result=await cloudSession.store.save({project,name,workspaceId,userId,record:currentCloudRecord});
       if(cloudSession?.user?.id!==userId || cloudSession?.workspace?.id!==workspaceId || binding!==cloudBindingVersion)return false;
       currentCloudRecord=result.record;savedProjectJson=result.projectJson;savedProjectName=name;
-      storageState=projectHasUnsavedChanges()?{kind:"unsaved",label:"Cloud saved · newer changes unsaved",detail:"Choose Save to cloud again"}:{kind:"saved",label:`Saved to cloud · ${name}`,detail:`Version ${result.record.save_version} · ${new Date(result.record.updated_at).toLocaleString()}`};
+      storageState=projectHasUnsavedChanges()?{kind:"unsaved",label:"Cloud saved · newer changes unsaved",detail:"Choose Save again"}:{kind:"saved",label:`Saved to cloud · ${name}`,detail:`Version ${result.record.save_version} · ${new Date(result.record.updated_at).toLocaleString()}`};
       interactionMessage=`“${name}” saved to your private cloud workspace`;return true;
     }catch(error){storageState={kind:"failed",label:"Cloud save failed",detail:error.message};interactionMessage=`Cloud save failed: ${error.message}. Current drawing remains open; Export project makes a file backup.`;return false;}
-    finally{cloudSavePending=null;renderStorageState();updateStatus();if(activeTask==="project")renderProjectWorkspace();}
+    finally{cloudSavePending=null;queueWorkingSession();renderStorageState();updateStatus();if(activeTask==="project")renderProjectWorkspace();}
   })();
   return cloudSavePending;
 }
@@ -7622,11 +7636,13 @@ async function saveExplicit() {
 cloudSession=initializeCloudUI({
   onAccount(){setTask("account");},
   onChange(state){
-    saveButton.textContent=state.workspace?"Save to cloud":"Save locally";
-    projectSaveButton.textContent=state.workspace?"Save to cloud":"Save locally";
-    document.querySelector("#project-cloud-open").disabled=!state.workspace;
+    handleWorkingSessionState(state);
+    saveButton.textContent=state.workspace?"Save":"Sign in to save";
+    projectSaveButton.textContent=state.workspace?"Save":"Sign in to save";
+    saveAsButton.hidden=!state.workspace;document.querySelector("#project-save-as").hidden=!state.workspace;
+    document.querySelector("#project-cloud-open").disabled=false;
     document.querySelector("#project-signin").hidden=Boolean(state.workspace);
-    document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to cloud to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
+    document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
     saveButton.disabled=state.loading || Boolean(cloudSavePending);
     if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
   },
@@ -7638,8 +7654,91 @@ cloudSession=initializeCloudUI({
     },`Opening “${loaded.name}” will replace the current drawing.`);
   },
   async beforeSignOut(){
+    await workingSessions.flush().catch(()=>{});
     if(cloudSavePending)throw new Error("Wait for the current cloud save before signing out.");
-    if(currentCloudRecord && projectHasUnsavedChanges())throw new Error("Save your cloud drawing before signing out. Export project is also available as a backup.");
+    if(cloudSession?.workspace && projectHasUnsavedChanges())throw new Error("Save your drawing before signing out. Export backup is also available.");
   },
   onSignedOut(){if(currentCloudRecord){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}interactionMessage="Signed out. Device-local projects remain on this browser.";updateStatus();}
+});
+
+
+function workingContext(state=cloudSession){
+ if(!state||state.loading||(state.user&&!state.workspace))return null;
+ return {userId:state.user?.id??null,workspaceId:state.workspace?.id??null};
+}
+function queueWorkingSession(modelChanged=false){
+ if(workingRestoring)return;
+ if(modelChanged)workingActivity++;
+ if(!workingReady||workingQueued||!workingContext())return;
+ workingQueued=true;
+ queueMicrotask(()=>{
+  workingQueued=false;const context=workingContext();if(!context||workingRestoring)return;
+  if(currentCloudRecord&&currentCloudRecord.workspace_id!==context.workspaceId)return;
+  try{
+   if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
+   const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
+    cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
+    task:sheetPreviewPanel.hidden?activeTask:"sheets",camera:{...camera},catalogueGroup:selectedCatalogueGroup};
+   const model=history.present;workingWrites++;
+   workingSessions.write(context,snapshot).then(()=>{
+    workingRecoveryError="";
+    if(history.present===model&&currentProjectName===snapshot.name&&workingContext()&&workingContextKey(workingContext())===workingContextKey(context)&&storageState.kind==="unsaved"&&projectHasUnsavedChanges()){
+     storageState={kind:"unsaved",label:cloudSession?.workspace?"Unsaved changes · choose Save":"Unsaved changes · recovery stored",detail:"Current drawing recovered on this device; Save keeps the cloud copy updated"};renderStorageState();
+    }
+   }).catch(workingSessionFailed).finally(()=>workingWrites--);
+  }catch(error){workingSessionFailed(error);}
+ });
+}
+function workingSessionFailed(error){
+ workingRecoveryError=error.message;interactionMessage=`Browser recovery unavailable: ${error.message}. Save or export before refreshing.`;updateStatus();
+}
+function handleWorkingSessionState(state){
+ const context=workingContext(state);if(!context)return;
+ const key=workingContextKey(context);
+ if(workingOwnerKey&&workingOwnerKey!==key&&workingOwnerKey.startsWith("account:")){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}
+ workingOwnerKey=key;
+ if(!workingRestoreStarted){workingRestoreStarted=true;restoreWorkingSession(context);}
+ else if(workingReady)queueWorkingSession();
+}
+async function restoreWorkingSession(context){
+ try{
+  let recovered=await workingSessions.read(context);
+  if(!recovered&&context.userId&&workingActivity===0){
+   const records=await cloudSession.store.list(context.workspaceId);
+   const recent=records.find(record=>record.updated_by===context.userId);
+   if(recent){const loaded=await cloudSession.store.open(recent);recovered={project:loaded.project,projectJson:serializeProject(loaded.project),name:loaded.name,dirty:false,cloudRecord:loaded.record,task:"project",camera:{...camera}};}
+  }
+  const current=workingContext();
+  if(!current||workingContextKey(current)!==workingContextKey(context))return;
+  if(recovered&&workingActivity===0){
+   workingRestoring=true;
+   applyLocalReopen({project:recovered.project},{named:false});
+   currentProjectName=recovered.name;savedProjectName=recovered.dirty?null:recovered.name;
+   savedProjectJson=recovered.dirty?null:serializeProject(recovered.project);
+   currentCloudRecord=recovered.cloudRecord??null;cloudBindingVersion++;
+   camera={...recovered.camera};
+   if(typeof recovered.catalogueGroup==="string")selectedCatalogueGroup=recovered.catalogueGroup;
+   if(recovered.task==="sheets")openSheetPreview();else setTask(recovered.task);
+   const dirty=projectHasUnsavedChanges();storageState={kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:currentCloudRecord?`Cloud version ${currentCloudRecord.save_version} · device recovery is separate from Save`:"Current drawing restored from this browser"};
+   interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · changes still need saving":""}`;
+   render();renderStorageState();updateStatus();
+  }
+ }catch(error){workingSessionFailed(error);}
+ finally{
+  workingRestoring=false;
+  const current=workingContext();
+  if(!current||workingContextKey(current)!==workingContextKey(context)){
+   workingRestoreStarted=false;workingReady=false;
+   if(current)queueMicrotask(()=>handleWorkingSessionState(cloudSession));
+  }else{workingReady=true;queueWorkingSession();}
+ }
+}
+window.addEventListener("pagehide",()=>queueWorkingSession());
+document.addEventListener("visibilitychange",()=>{if(document.hidden)queueWorkingSession();});
+canvas.addEventListener("pointerup",()=>queueWorkingSession());
+canvas.addEventListener("wheel",()=>queueWorkingSession(),{passive:true});
+document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>queueWorkingSession());
+
+window.addEventListener("beforeunload",event=>{
+ if(cloudSavePending||workingQueued||workingWrites||(!workingReady&&workingActivity>0)||(workingRecoveryError&&projectHasUnsavedChanges())){event.preventDefault();event.returnValue="";}
 });

@@ -31,12 +31,11 @@
             <span id="local-state-label">Unsaved project · this browser</span>
           </div>
           <button id="account-button" type="button">Sign in</button>
-          <button id="cloud-projects-button" type="button" disabled>Cloud projects</button>
-          <button id="save-local" type="button">Save locally</button>
-          <button id="save-as-local" type="button">Save As</button>
-          <button id="reopen-local" type="button">Projects</button>
-          <button id="export-portable" type="button">Export project</button>
-          <button id="open-portable" type="button">Open project</button>
+          <button id="cloud-projects-button" type="button">Projects</button>
+          <button id="save-local" type="button">Sign in to save</button>
+          <button id="save-as-local" type="button" hidden>Save As</button>
+          <button id="reopen-local" type="button" hidden>Older device drawings</button>
+          <button id="export-portable" type="button">Export backup</button>
         </div>
       </header>
 
@@ -332,8 +331,8 @@
             <div class="project-home-actions">
               <button id="workflow-open-ventilation" type="button" class="primary-action">Continue drawing</button>
               <button id="workflow-open-plan" type="button">Edit floor plan</button>
-              <button id="project-save" type="button">Save locally</button>
-              <button id="project-cloud-open" type="button" disabled>Cloud projects</button>
+              <button id="project-save" type="button">Sign in to save</button>
+              <button id="project-cloud-open" type="button">Projects</button>
               <button id="project-signin" type="button">Sign in</button>
             </div>
             <details class="project-home-options project-info-options"><summary>Project details</summary>
@@ -345,7 +344,7 @@
                 <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
               </form><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
             </details>
-            <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button">Save As</button></div></details>
+            <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button" hidden>Save As</button></div></details>
           </article>
           <article class="workflow-card workflow-card-wide">
             <h2>Set up a drawing</h2>
@@ -356,11 +355,7 @@
               <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units, outlets and ducts.</small></button>
             </div>
           </article>
-          <details class="workflow-card workflow-card-wide project-home-detail">
-            <summary>Drawings on this device</summary>
-            <p class="project-home-note">Local copies in this browser. Use Cloud projects for drawings saved to your account.</p>
-            <div id="project-library-list" class="project-library-list"></div>
-          </details>
+
           <details class="workflow-card workflow-card-wide project-home-detail">
             <summary>Scope notes &amp; area</summary>
             <div class="project-home-detail-grid"><section><h3>Scope notes</h3>
@@ -904,10 +899,11 @@
       <button id="close-signin" type="button">Close</button>
     </dialog>
     <dialog id="cloud-projects-dialog" class="cloud-dialog" aria-labelledby="cloud-projects-title">
-      <h2 id="cloud-projects-title">Cloud projects</h2>
+      <h2 id="cloud-projects-title">Projects</h2>
       <p id="cloud-projects-status" role="status"></p>
       <div id="cloud-projects-list"></div>
-      <button id="close-cloud-projects" type="button">Close</button>
+      <details id="legacy-device-projects" hidden><summary>Older drawings on this device</summary><p>Previous browser-only drawings. Open one and choose Save to keep it with your account.</p><div id="project-library-list" class="project-library-list"></div></details>
+      <div class="dialog-actions"><button id="projects-signin" type="button">Sign in</button><button id="open-portable" type="button">Import</button><button id="close-cloud-projects" type="button">Close</button></div>
     </dialog>
   </body>
 </html>
