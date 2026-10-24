@@ -225,6 +225,11 @@ export function wrapSheetText(value, maxCharacters, maxLines) {
   return lines.length ? lines : [""];
 }
 
+function rasterDataUrl(value) {
+  if(typeof value!=="string" || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) throw new TypeError("Sheet image must be an embedded PNG or JPEG");
+  return value;
+}
+
 function buildPrintScene(project, floorId, partsSchedule) {
   const floor = project.floors.find((candidate) => candidate.id === floorId);
   if (!floor) throw new TypeError(`Sheet floor not found: ${floorId}`);
@@ -241,6 +246,10 @@ function buildPrintScene(project, floorId, partsSchedule) {
     end: planPoint(nodesById.get(wall.endNodeId)?.positionMm, `Wall ${wall.id} end`),
     thicknessMm: wall.thicknessMm,
     classification: wall.classification,
+  }));
+  const floorAreas=project.floorAreaOutlines.filter(outline=>outline.floorId===floorId).map(outline=>({
+    id:outline.id,name:sanitizeXmlText(outline.name,"Building area name"),
+    vertices:outline.vertices.map(vertex=>planPoint(vertex.positionMm,"Building area vertex")),
   }));
   const routes = project.routes.filter((route) => route.floorId === floorId).map((route) => {
     const family = routeFamilyForKind(route.ductKind);
@@ -313,6 +322,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
   });
   const allBounds = [
     ...walls.map(wallBounds),
+    ...floorAreas.map(outline=>pointsBounds(outline.vertices)),
     ...routes.map(routeBounds),
     ...components.map(componentBounds),
     ...references.map(referenceBounds),
@@ -322,12 +332,13 @@ function buildPrintScene(project, floorId, partsSchedule) {
     floorId,
     floorName: sanitizeXmlText(floor.name, "Floor name"),
     walls,
+    floorAreas,
     routes,
     components,
     hrvCeilingElbows: deriveHrvCeilingElbows(project.routes.filter(route=>route.floorId===floorId),project.components.filter(component=>component.floorId===floorId)),
     references,
     cadReferences,
-    legend: buildLegend({ walls, routes, components, references, cadReferences }),
+    legend: buildLegend({ walls, floorAreas, routes, components, references, cadReferences }),
     hasUncalibratedReference,
     hasPartialCadReference: cadReferences.some((reference) => reference.partialImportAccepted),
     modelBoundsMm: mergeBounds(allBounds),
@@ -336,6 +347,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
 
 function buildLegend(scene) {
   const legend = [];
+  if(scene.floorAreas.length)legend.push({key:"building-area",label:"Building area — preliminary outline"});
   if (scene.walls.some((wall) => wall.classification === "physical")) {
     legend.push({ key: "wall", label: "Wall — authoritative model geometry" });
   }
@@ -385,6 +397,10 @@ function renderPrintScene(sheet) {
   const out = [];
   for (const reference of scene.references) out.push(renderReference(reference, transform));
   for (const reference of scene.cadReferences) out.push(renderCadReference(reference, transform));
+  for(const outline of scene.floorAreas){
+    const path=[outline.vertices].map(vertices=>`M ${vertices.map(point=>`${mapX(point.x,transform)} ${mapY(point.y,transform)}`).join(" L ")} Z`).join(" ");
+    out.push(`<path data-kind="building-area" data-id="${escapeXml(outline.id)}" d="${path}" fill="#e7b459" fill-opacity="0.05" fill-rule="evenodd" stroke="#a77927" stroke-width="0.4" stroke-dasharray="2 1"><title>${escapeXml(outline.name)} — preliminary building area</title></path>`);
+  }
   for (const wall of scene.walls) {
     const dash = wall.classification === "virtual" ? ' stroke-dasharray="2 1.2"' : "";
     out.push(`<line data-kind="wall" data-wall-classification="${escapeXml(wall.classification)}" data-id="${escapeXml(wall.id)}" x1="${mapX(wall.start.x, transform)}" y1="${mapY(wall.start.y, transform)}" x2="${mapX(wall.end.x, transform)}" y2="${mapY(wall.end.y, transform)}" stroke="#26373f" stroke-width="${formatNumber(Math.max(0.35, wall.thicknessMm * transform.scale))}" stroke-linecap="square"${dash}/>`);
@@ -457,7 +473,7 @@ function renderReference(reference, transform) {
   const f = transform.offsetY + reference.translationMm.y * transform.scale;
   const calibration = reference.calibrated ? "calibrated" : "uncalibrated-display-only";
   const matrix = [a, b, c, d, e, f].map(formatNumber).join(" ");
-  const image = `<image data-kind="reference" data-calibration="${calibration}" data-id="${escapeXml(reference.id)}" href="${escapeXml(reference.dataUrl)}" width="${reference.widthPx}" height="${reference.heightPx}" opacity="${formatNumber(reference.opacity)}" preserveAspectRatio="none"`;
+  const image = `<image data-kind="reference" data-calibration="${calibration}" data-id="${escapeXml(reference.id)}" href="${rasterDataUrl(reference.dataUrl)}" width="${reference.widthPx}" height="${reference.heightPx}" opacity="${formatNumber(reference.opacity)}" preserveAspectRatio="none"`;
   if (!reference.cropSourceRectPx) return `${image} transform="matrix(${matrix})"/>`;
   const crop = reference.cropSourceRectPx;
   const clipId = `sheet-reference-crop-${reference.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
@@ -772,7 +788,7 @@ function renderTitleBlock(sheet,bounds){
  const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds,c=sheet.metadata.company;
  const out=[`<g id="title-block"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/>`];
  let cy=y+4;
- if(sheet.metadata.companyLogoDataUrl){out.push(`<image data-kind="company-logo" href="${escapeXml(sheet.metadata.companyLogoDataUrl)}" x="${x+4}" y="${cy}" width="${w-8}" height="17" preserveAspectRatio="xMidYMid meet"/>`);cy+=20;}
+ if(sheet.metadata.companyLogoDataUrl){out.push(`<image data-kind="company-logo" href="${rasterDataUrl(sheet.metadata.companyLogoDataUrl)}" x="${x+4}" y="${cy}" width="${w-8}" height="17" preserveAspectRatio="xMidYMid meet"/>`);cy+=20;}
  else {out.push(renderTextLines(wrapSheetText(c.companyName||'Company details not set',32,2),x+4,cy+5,4.8,5.3));cy+=16;}
  const contact=[sheet.metadata.companyLogoDataUrl?c.companyName:'',c.address,[c.phone,c.email].filter(Boolean).join(' · '),c.website,[c.contactName,c.contactPhone||c.contactEmail].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
  out.push(renderTextLines(wrapSheetText(contact,49,4),x+4,cy,2.3,3.1));cy=y+36;
@@ -800,6 +816,7 @@ function legendSwatch(key, x, y,item={}) {
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key==='external-grille')return `<path d="M ${x-2} ${y-2} h12 v4 h-12 Z M ${x+5} ${y+2} v3 h3 v-3" fill="#e7e9e9" stroke="#29434d" stroke-width=".4"/>`;
 
+  if(key==="building-area")return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#a77927" stroke-width=".4" stroke-dasharray="2 1"/>`;
   if (key === "wall") return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="#26373f" stroke-width="1.2"/>`;
   if (key === "wall-virtual") return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="#26373f" stroke-width="0.7" stroke-dasharray="1.4 0.8"/>`;
   if (key.startsWith("service-")) return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="${routeServiceColor(key.slice("service-".length))}" stroke-width="1.2" stroke-linecap="round"/>`;

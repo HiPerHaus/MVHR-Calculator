@@ -496,3 +496,20 @@ function metadata(overrides = {}) {
     ...overrides,
   };
 }
+
+test("sheet preserves full raster payloads for PDF page underlays and logos, and prints building area",async()=>{
+ const bytes=await readFile(new URL('./fixtures/sheet-plan.png',import.meta.url));
+ const dataUrl=`data:image/png;base64,${bytes.toString('base64')}`;
+ assert.ok(dataUrl.length>500,'exercise a real image exceeding the text-label limit');
+ let project=addReference(projectWithFloor(),{calibrated:true});
+ project.referenceAssets[0].dataUrl=dataUrl;project.referenceAssets[0].byteLength=bytes.length;
+ project=applyCommand(project,{type:'floorArea.create',outline:{id:'sheet-building-area',floorId:'floor-ground',name:'Serviced building area',geometrySource:'manual-floor-area-outline',purpose:'preliminary-quoting',areaConvention:'closed-plan-outline',measurementBasis:'floor-local-plan-mm',vertices:[[400,400],[4600,400],[4600,3100],[400,3100]].map(([x,y],i)=>({id:`area-vertex-${i}`,positionMm:{x,y,z:unknownMm('not set')}})),holes:[]}});
+ const sheet=createA3SheetModel(project,{...metadata(),includeSchedule:false,companyLogoDataUrl:dataUrl});
+ const svg=renderA3SheetSvg(sheet);
+ assert.equal((svg.match(/href="([^"]+)"/g)||[]).filter(href=>href===`href="${dataUrl}"`).length,2,'both image and company logo retain their complete payload');
+ assert.match(svg,/data-kind="building-area"/);assert.ok(sheet.printScene.legend.some(item=>item.key==='building-area'));
+ assert.ok(svg.indexOf('data-kind="reference"')<svg.indexOf('data-kind="building-area"'),'area overlays the plan');
+ assert.equal(sheet.printScene.floorAreas[0].vertices.length,4);
+ project.floorReferences[0].visible=false;
+ const areaOnly=createA3SheetModel(project,metadata());assert.notEqual(areaOnly.fit.transform,null,'building area alone determines sheet extent');
+});
