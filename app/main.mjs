@@ -853,6 +853,8 @@ snapToggleButton.addEventListener("click", toggleSnap);
 saveButton.addEventListener("click", () => saveExplicit());
 saveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 reopenButton.addEventListener("click", () => setTask("project"));
+document.querySelector("#project-cloud-open").addEventListener("click",()=>document.querySelector("#cloud-projects-button").click());
+document.querySelector("#project-signin").addEventListener("click",()=>document.querySelector("#account-button").click());
 newProjectButton.addEventListener("click", () => openProjectNameDialog("new"));
 renameProjectButton.addEventListener("click", () => openProjectNameDialog("rename"));
 projectSaveButton.addEventListener("click", () => saveExplicit());
@@ -7593,6 +7595,9 @@ cloudSession=initializeCloudUI({
   onChange(state){
     saveButton.textContent=state.workspace?"Save to cloud":"Save locally";
     projectSaveButton.textContent=state.workspace?"Save to cloud":"Save locally";
+    document.querySelector("#project-cloud-open").disabled=!state.workspace;
+    document.querySelector("#project-signin").hidden=Boolean(state.workspace);
+    document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to cloud to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
     saveButton.disabled=state.loading || Boolean(cloudSavePending);
     if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
   },

@@ -317,55 +317,43 @@
       </div>
 
       <section id="project-workspace" class="project-workspace" aria-labelledby="project-workspace-heading" hidden>
-        <header class="project-workspace-heading">
-          <div>
-            <strong id="project-workspace-heading">Project workflow</strong>
-            <span>Quick quote → preliminary ventilation layout → converted project → detailed room design</span>
-          </div>
-          <span id="workflow-stage-pill" class="workflow-stage-pill">Quick quote</span>
+        <header class="project-workspace-heading project-home-heading">
+          <div><strong id="project-workspace-heading">Projects</strong><span>Open a drawing or continue designing.</span></div>
+          <button id="new-project" type="button">New project</button>
         </header>
-        <div class="project-workflow-layout">
-          <article class="workflow-card workflow-card-wide project-library-card">
+        <div class="project-workflow-layout project-home-layout">
+          <article class="workflow-card workflow-card-wide project-home-current">
             <div class="project-library-heading">
-              <div>
-                <h2>Projects on this device</h2>
-                <strong id="current-project-name">Untitled project</strong>
-                <small id="current-project-id"></small>
-              </div>
-              <div class="project-library-actions">
-                <button id="new-project" type="button">New project</button>
-                <button id="rename-project" type="button">Rename</button>
-                <button id="project-save" type="button" class="primary-action">Save</button>
-                <button id="project-save-as" type="button">Save As</button>
-              </div>
+              <div><h2>Current drawing</h2><strong id="current-project-name">Untitled project</strong><small id="current-project-id" hidden></small></div>
+              <span id="workflow-stage-pill" class="workflow-stage-pill">Quick quote</span>
             </div>
-            <p class="workflow-boundary">These projects are saved only in this browser on this device. Export a portable project file for backup or transfer; this is not cloud storage.</p>
-            <div id="project-library-list" class="project-library-list"></div>
+            <p id="project-storage-note" class="project-home-note">Sign in to save and reopen drawings across devices.</p>
+            <div class="project-home-actions">
+              <button id="workflow-open-ventilation" type="button" class="primary-action">Continue drawing</button>
+              <button id="workflow-open-plan" type="button">Edit floor plan</button>
+              <button id="project-save" type="button">Save locally</button>
+              <button id="project-cloud-open" type="button" disabled>Cloud projects</button>
+              <button id="project-signin" type="button">Sign in</button>
+            </div>
+            <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button">Save As</button></div></details>
           </article>
           <article class="workflow-card workflow-card-wide">
-            <h2>Stage and readiness</h2>
-            <p id="workflow-readiness" class="workflow-summary"></p>
-            <div class="workflow-stage-actions">
-              <button id="workflow-open-plan" type="button">Open plan &amp; serviced area</button>
-              <button id="workflow-start-preliminary" type="button">Start preliminary layout</button>
-              <button id="workflow-open-ventilation" type="button">Open ventilation layout</button>
-              <button id="workflow-convert" type="button" class="primary-action">Convert to project…</button>
-              <button id="workflow-start-detailed" type="button">Start detailed design</button>
+            <h2>Set up a drawing</h2>
+            <div class="workflow-step-list project-home-steps">
+              <button id="workflow-upload-plan" type="button"><strong>1 · Add floor plan</strong><small>Upload your PDF.</small></button>
+              <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Choose two points and enter the distance.</small></button>
+              <button id="workflow-draw-perimeter" type="button"><strong>3 · Mark serviced area</strong><small>Trace the area the system serves.</small></button>
+              <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units, outlets and ducts.</small></button>
             </div>
-            <p class="workflow-boundary">Preliminary equipment and routes are drafting allowances only. Conversion preserves the same objects and creates one immutable local quote baseline; it does not issue, send or approve a quote.</p>
           </article>
-          <article class="workflow-card">
-            <h2>Prepare the plan</h2>
-            <div class="workflow-step-list">
-              <button id="workflow-upload-plan" type="button"><strong>1 · Upload floor plan</strong><small>Choose a page from a PDF floor plan. PNG remains available in Plan.</small></button>
-              <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Use two points and enter the known dimension.</small></button>
-              <button id="workflow-draw-perimeter" type="button"><strong>3 · Draw external perimeter</strong><small>Close the serviced outline to calculate floor area in m².</small></button>
-              <button id="workflow-markup-mvhr" type="button"><strong>4 · Mark up MVHR system</strong><small>Place equipment, boxes, outlets and duct routes without rooms.</small></button>
-            </div>
-            <p class="workflow-boundary">Floor area is geometry, not a price-per-m² calculation. Room boundaries can be added later for detailed design.</p>
-          </article>
-          <article class="workflow-card">
-            <h2>Scope notes</h2>
+          <details class="workflow-card workflow-card-wide project-home-detail">
+            <summary>Drawings on this device</summary>
+            <p class="project-home-note">Local copies in this browser. Use Cloud projects for drawings saved to your account.</p>
+            <div id="project-library-list" class="project-library-list"></div>
+          </details>
+          <details class="workflow-card workflow-card-wide project-home-detail">
+            <summary>Scope notes &amp; area</summary>
+            <div class="project-home-detail-grid"><section><h3>Scope notes</h3>
             <form id="quote-input-form" class="quote-input-form">
               <label class="quote-wide">Explicit scope exclusions
                 <textarea id="quote-exclusions" rows="4" maxlength="4000" placeholder="One per line, e.g. Garage&#10;Alfresco"></textarea>
@@ -377,23 +365,19 @@
               <p id="quote-input-error" class="dialog-error quote-wide" role="alert"></p>
               <button class="quote-wide" type="submit">Save scope notes</button>
             </form>
-          </article>
-          <article class="workflow-card">
-            <h2>Serviced-area summary</h2>
-            <div id="quote-summary" class="workflow-data-list"></div>
-            <p id="quote-missing" class="workflow-warning"></p>
-          </article>
-          <article class="workflow-card">
-            <h2>Converted baseline</h2>
-            <div id="quote-snapshot-summary" class="workflow-data-list"></div>
-            <p class="workflow-boundary">The baseline is immutable. Later room or system changes do not rewrite the original perimeter or preliminary layout counts.</p>
-          </article>
-          <article class="workflow-card">
-            <h2>Detailed-design review</h2>
-            <div id="detailed-design-summary" class="workflow-data-list"></div>
-            <button id="workflow-link-outlets" type="button">Link unassigned outlets by room position</button>
-            <p id="detailed-design-unresolved" class="workflow-warning"></p>
-          </article>
+            </section><section><h3>Serviced area</h3><div id="quote-summary" class="workflow-data-list"></div><p id="quote-missing" class="workflow-warning"></p></section></div>
+          </details>
+          <details class="workflow-card workflow-card-wide project-home-detail">
+            <summary>Design stages &amp; review</summary>
+            <p id="workflow-readiness" class="workflow-summary"></p>
+            <div class="workflow-stage-actions">
+              <button id="workflow-start-preliminary" type="button">Start preliminary layout</button>
+              <button id="workflow-convert" type="button">Convert to project…</button>
+              <button id="workflow-start-detailed" type="button">Start detailed design</button>
+            </div>
+            <div class="project-home-detail-grid"><section><h3>Converted baseline</h3><div id="quote-snapshot-summary" class="workflow-data-list"></div><p class="project-home-note">Conversion freezes a quote baseline. It does not issue or approve a drawing.</p></section>
+            <section><h3>Detailed design</h3><div id="detailed-design-summary" class="workflow-data-list"></div><button id="workflow-link-outlets" type="button">Link unassigned outlets by room position</button><p id="detailed-design-unresolved" class="workflow-warning"></p></section></div>
+          </details>
         </div>
       </section>
 
