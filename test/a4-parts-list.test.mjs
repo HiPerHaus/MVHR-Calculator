@@ -58,3 +58,22 @@ test('A4 part numbers have their own column and stay out of names',()=>{
  assert.match(svg,/<text x="70"[^>]*>40 mm waterless drain trap<\/text>/);
  assert.ok(pages.every(page=>65+page.rows.reduce((sum,row)=>sum+row.height,0)<=263));
 });
+test('unlisted purchasable parts move to the final Local supply section without duplicating totals or listed choices',()=>{
+ let p=fixture();
+ const replacement=createConfiguredMvhrComponent({model:'q350-hrv',mounting:'vertical',handing:'left',layout:'unit-mounted-cw',cwSize:'420'},{id:'unit-test',floorId:'ground',xMm:1000,yMm:1000});
+ p=applyCommand(p,{type:'component.replaceDrawingConfiguration',componentId:'unit-test',component:replacement});
+ p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('luna-supply',{id:'luna-pending',floorId:'ground',xMm:3000,yMm:1000})});
+ const schedule=createPartsSchedule(p,{floorId:'ground'}),before=structuredClone(schedule),rows=partsListRows(schedule),start=rows.findIndex(row=>row.section&&row.description==='Local supply'),local=rows.slice(start+1);
+ assert.ok(start>0);assert.equal(local.length,3);assert.ok(local.every(row=>row.localSupply&&row.kind==='part'));
+ assert.equal(local.find(row=>row.description.includes('attenuator module')).quantity,'2');
+ assert.equal(local.find(row=>row.description.includes('branch plate')).quantity,'2');
+ assert.equal(local.find(row=>row.description.includes('mounting set')).quantity,'1');
+ assert.ok(rows.slice(0,start).some(row=>row.description.startsWith('Total 90 mm duct')));
+ assert.ok(rows.slice(0,start).some(row=>row.kind==='selection'&&row.description.includes('TVA-P')));
+ assert.ok(rows.slice(0,start).some(row=>row.kind==='cut-piece'));
+ assert.ok(rows.slice(0,start).some(row=>row.partNumber==='ZEN-Q350HRV'));
+ assert.equal(rows.some(row=>row.section&&row.description==='CW components'),false);
+ assert.ok(rows.every((row,index)=>!row.section||(rows[index+1]&&!rows[index+1].section)));
+ assert.deepEqual(schedule,before);
+ const sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet);assert.match(pages.map(page=>renderA4PartsListSvg(sheet,page)).join(''),/Local supply/);
+});

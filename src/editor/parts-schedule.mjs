@@ -98,6 +98,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
         key,
         ref: null,
         section,
+        isAssemblySummary: Boolean((component.displaySymbol ?? snapshot?.symbol)?.cwProfile || (component.displaySymbol ?? snapshot?.symbol)?.shape === "wall-grille"),
         handing,
         description: `${component.displayName ?? component.id}${handing ? ` · ${handing === "left" ? "Left" : "Right"}` : ""}`,
         manufacturer: component.manufacturer ?? null,
