@@ -20,6 +20,7 @@
           <button id="project-nav" type="button">Project</button>
           <button id="plan-nav" type="button" class="active">Plan</button>
           <button id="ventilation-nav" type="button">Ventilation</button>
+          <button id="three-d-nav" type="button">3D</button>
           <button id="catalogue-nav" type="button">Catalogue</button>
           <button id="checks-nav" type="button">Checks</button>
           <button id="sheets-nav" type="button">Sheets</button>
@@ -72,6 +73,8 @@
               <div class="demand-card extract"><strong id="extract-run-demand">0</strong><span>Extract runs</span><small id="extract-run-detail">No extract outlets</small></div>
             </div>
             <p id="cw-suggestion-status" class="evidence-pending">CW suggestion: evidence pending.</p>
+            <button id="auto-route-dn90" class="panel-action" type="button">Preview automatic DN90 routes…</button>
+            <p class="clear-ventilation-note">Uses free compatible CW/distribution ports and keeps the full 90 mm drawing width inside the scaled building outline.</p>
             </details>
             <div id="catalogue-categories" class="parts-categories" aria-label="Part categories"></div>
             <label class="catalogue-search">Search manufacturer, product or type
@@ -508,6 +511,32 @@
         </div>
       </section>
 
+      <section id="three-d-workspace" class="three-d-workspace" aria-labelledby="three-d-heading" hidden>
+        <header class="checks-workspace-heading">
+          <div><strong id="three-d-heading">3D coordination drawing</strong><span>Same saved MVHR components and routes, viewed from an isometric angle.</span></div>
+          <div class="checks-heading-actions"><button id="export-three-d" type="button">Export SVG</button><button id="three-d-return" type="button">Return to ventilation</button></div>
+        </header>
+        <div class="three-d-layout">
+          <aside class="three-d-settings">
+            <h2>Height setup</h2>
+            <p id="three-d-datum" class="checks-summary"></p>
+            <form id="three-d-height-form">
+              <label>Unit / CW elevation above floor datum (mm)<input id="three-d-equipment-height" type="number" step="1" value="2200" required /></label>
+              <label>Outlet elevation above floor datum (mm)<input id="three-d-outlet-height" type="number" step="1" value="2400" required /></label>
+              <label>Duct routing elevation above floor datum (mm)<input id="three-d-duct-height" type="number" step="1" value="2600" required /></label>
+              <label>Height basis<select id="three-d-height-basis"><option value="assumed" selected>Assumed for coordination</option><option value="known">Confirmed measurement</option></select></label>
+              <button type="submit" class="primary-action">Apply heights to this floor</button>
+            </form>
+            <p id="three-d-height-status" class="checks-summary">Unknown heights stay unresolved until applied.</p>
+            <h3>Unresolved</h3>
+            <div id="three-d-diagnostics" class="checks-diagnostics"></div>
+            <p class="checks-boundary">Floor-local Z datum. Route height creates explicit vertical transitions at its saved endpoints. Component and product heights are never invented.</p>
+          </aside>
+          <main class="three-d-stage"><div id="three-d-host" class="three-d-host"></div></main>
+        </div>
+        <footer class="sheet-preview-note">Schematic coordination output only · not BIM · no clash, airflow, pressure-loss, fabrication or installation certification</footer>
+      </section>
+
       <section id="sheet-preview-panel" class="sheet-preview-panel" aria-labelledby="sheet-preview-heading" hidden>
         <header class="sheet-preview-heading">
           <div>
@@ -811,6 +840,18 @@
         <div class="dialog-actions">
           <button id="cancel-reference-crop-dialog" type="button">Cancel</button>
           <button type="submit" class="primary-action">Apply crop</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="automatic-radial-dialog" class="wide-dialog" aria-labelledby="automatic-radial-title">
+      <form method="dialog">
+        <h2 id="automatic-radial-title">Automatic DN90 routes</h2>
+        <p id="automatic-radial-summary"></p>
+        <div id="automatic-radial-results" class="automatic-radial-results"></div>
+        <p class="scope-note">Preview geometry only. This does not calculate airflow, pressure loss, supports, clashes or installation compliance.</p>
+        <div class="dialog-actions">
+          <button id="cancel-automatic-radial" type="button">Cancel</button>
+          <button id="apply-automatic-radial" type="button" class="primary-action">Apply routes</button>
         </div>
       </form>
     </dialog>

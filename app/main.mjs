@@ -119,6 +119,7 @@ import {
   deriveSweptCentreline,
   ductBodyDisplayLabel,
 } from "../src/editor/duct-body-geometry.mjs";
+import { inspectAutomaticRadialRouting } from "../src/editor/automatic-radial-routing.mjs";
 import { createDxfImportReviewController } from "../src/editor/dxf-import-controller.mjs";
 import {
   dxfReferenceSnapPoints,
@@ -129,6 +130,7 @@ import {
   createA3SheetModel,
   renderA3SheetSvg,
 } from "../src/sheets/a3-sheet.mjs";
+import { createThreeDDrawingScene, renderThreeDDrawingSvg } from "../src/sheets/three-d-drawing.mjs";
 import {
   deriveRoomBoundaries,
   deriveZoneBoundaries,
@@ -316,11 +318,18 @@ const supplyRunDetail = document.querySelector("#supply-run-detail");
 const extractRunDemand = document.querySelector("#extract-run-demand");
 const extractRunDetail = document.querySelector("#extract-run-detail");
 const cwSuggestionStatus = document.querySelector("#cw-suggestion-status");
+const automaticRadialButton = document.querySelector("#auto-route-dn90");
+const automaticRadialDialog = document.querySelector("#automatic-radial-dialog");
+const automaticRadialSummary = document.querySelector("#automatic-radial-summary");
+const automaticRadialResults = document.querySelector("#automatic-radial-results");
+const cancelAutomaticRadialButton = document.querySelector("#cancel-automatic-radial");
+const applyAutomaticRadialButton = document.querySelector("#apply-automatic-radial");
 let catalogueButtons = [];
 const routeButtons = [...document.querySelectorAll(".route-tool")];
 const planNavigationButton = document.querySelector("#plan-nav");
 const projectNavigationButton = document.querySelector("#project-nav");
 const ventilationNavigationButton = document.querySelector("#ventilation-nav");
+const threeDNavigationButton = document.querySelector("#three-d-nav");
 const catalogueNavigationButton = document.querySelector("#catalogue-nav");
 const checksNavigationButton = document.querySelector("#checks-nav");
 const sheetsNavigationButton = document.querySelector("#sheets-nav");
@@ -328,6 +337,18 @@ const planWorkspace = document.querySelector("#plan-workspace");
 const projectWorkspace = document.querySelector("#project-workspace");
 const catalogueWorkspace = document.querySelector("#catalogue-workspace");
 const checksWorkspace = document.querySelector("#checks-workspace");
+const threeDWorkspace = document.querySelector("#three-d-workspace");
+const threeDReturnButton = document.querySelector("#three-d-return");
+const exportThreeDButton = document.querySelector("#export-three-d");
+const threeDHeightForm = document.querySelector("#three-d-height-form");
+const threeDEquipmentHeight = document.querySelector("#three-d-equipment-height");
+const threeDOutletHeight = document.querySelector("#three-d-outlet-height");
+const threeDDuctHeight = document.querySelector("#three-d-duct-height");
+const threeDHeightBasis = document.querySelector("#three-d-height-basis");
+const threeDDatum = document.querySelector("#three-d-datum");
+const threeDHeightStatus = document.querySelector("#three-d-height-status");
+const threeDDiagnostics = document.querySelector("#three-d-diagnostics");
+const threeDHost = document.querySelector("#three-d-host");
 const checksStatusPill = document.querySelector("#checks-status-pill");
 const checksReturnVentilationButton = document.querySelector("#checks-return-ventilation");
 const checksPartsSummary = document.querySelector("#checks-parts-summary");
@@ -509,6 +530,7 @@ let pendingComponentDeletion = null;
 let pendingClearVentilationFloorId = null;
 let calibrationState = null;
 let referenceCropState = null;
+let automaticRadialPreview = null;
 let camera = createCamera();
 let mechanicalState = createMechanicalInteractionState();
 let mvhrPlacementMounting = null;
@@ -923,18 +945,29 @@ clearComponentDuctRunsButton.addEventListener("click", clearSelectedTerminalDuct
 singleRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(1));
 twinRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(2));
 clearRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(null));
+automaticRadialButton.addEventListener("click", openAutomaticRadialPreview);
+cancelAutomaticRadialButton.addEventListener("click", cancelAutomaticRadialPreview);
+applyAutomaticRadialButton.addEventListener("click", applyAutomaticRadialPreview);
+automaticRadialDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelAutomaticRadialPreview();
+});
 removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
 planNavigationButton.addEventListener("click", () => setTask("plan"));
 ventilationNavigationButton.addEventListener("click", openVentilationTask);
+threeDNavigationButton.addEventListener("click", () => setTask("three-d"));
 catalogueNavigationButton.addEventListener("click", () => setTask("catalogue"));
 checksNavigationButton.addEventListener("click", () => setTask("checks"));
 checksReturnVentilationButton.addEventListener("click", () => setTask("ventilation"));
 checksEngineeringForm.addEventListener("submit", applyEngineeringDutyInput);
 checksEngineeringClear.addEventListener("click", clearEngineeringDutyInput);
 sheetsNavigationButton.addEventListener("click", openSheetPreview);
+threeDReturnButton.addEventListener("click", () => setTask("ventilation"));
+threeDHeightForm.addEventListener("submit", applyThreeDHeights);
+exportThreeDButton.addEventListener("click", exportThreeDDrawing);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 workflowOpenPlanButton.addEventListener("click", () => setTask("plan"));
@@ -1697,7 +1730,7 @@ function createInitialProject(projectId = PROJECT_ID) {
 }
 
 function setTask(task) {
-  if (!["project", "plan", "ventilation", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
     sheetsNavigationButton.classList.remove("active");
@@ -1718,12 +1751,14 @@ function setTask(task) {
   projectNavigationButton.classList.toggle("active", task === "project");
   planNavigationButton.classList.toggle("active", task === "plan");
   ventilationNavigationButton.classList.toggle("active", task === "ventilation");
+  threeDNavigationButton.classList.toggle("active", task === "three-d");
   catalogueNavigationButton.classList.toggle("active", task === "catalogue");
   checksNavigationButton.classList.toggle("active", task === "checks");
   projectWorkspace.hidden = task !== "project";
-  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "account";
+  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
+  threeDWorkspace.hidden = task !== "three-d";
   if (task === "account") {cancelActivePointer();return;}
   if (task === "project") {
     cancelActivePointer();
@@ -1765,6 +1800,20 @@ function setTask(task) {
     selectedRoutePointIndex = null;
     renderChecksWorkspace();
     checksReturnVentilationButton.focus();
+    return;
+  }
+  if (task === "three-d") {
+    cancelActivePointer();
+    mechanicalState = clearMechanicalSelection(mechanicalState);
+    selectedWallId = null;
+    selectedNodeId = null;
+    selectedFloorAreaId = null;
+    selectedRoomId = null;
+    selectedZoneId = null;
+    selectedRouteId = null;
+    selectedRoutePointIndex = null;
+    renderThreeDWorkspace();
+    threeDReturnButton.focus();
     return;
   }
   drawToolsSection.hidden = task !== "plan";
@@ -2700,6 +2749,84 @@ function commitCommand(command, message) {
     render();
     return false;
   }
+}
+
+function openAutomaticRadialPreview() {
+  const floorId = currentFloorId();
+  automaticRadialPreview = inspectAutomaticRadialRouting(history.present, floorId);
+  automaticRadialResults.replaceChildren();
+  const preview = automaticRadialPreview;
+  const routed = preview.proposals.length;
+  automaticRadialSummary.textContent = preview.status === "blocked"
+    ? preview.notes[0]
+    : `${routed} route${routed === 1 ? "" : "s"} ready to preview${preview.unresolved.length ? ` · ${preview.unresolved.length} unresolved` : ""}.`;
+  for (const proposal of preview.proposals) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    const title = document.createElement("strong");
+    title.textContent = `${proposal.stream === "supply" ? "Supply" : "Extract"} · ${proposal.source.displayName} → ${proposal.destination.displayName}`;
+    const detail = document.createElement("span");
+    detail.textContent = `${Math.round(proposal.lengthMm)} mm centreline · full 90 mm drawing width checked inside outline`;
+    row.append(title, detail);
+    automaticRadialResults.append(row);
+  }
+  for (const item of preview.unresolved) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    const title = document.createElement("strong");
+    title.textContent = `Unresolved · ${item.displayName}`;
+    const detail = document.createElement("span");
+    detail.textContent = item.reason;
+    row.append(title, detail);
+    automaticRadialResults.append(row);
+  }
+  if (!preview.proposals.length && !preview.unresolved.length) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    row.textContent = preview.notes[0];
+    automaticRadialResults.append(row);
+  }
+  applyAutomaticRadialButton.disabled = preview.proposals.length === 0;
+  automaticRadialDialog.showModal();
+  interactionMessage = preview.proposals.length ? "Automatic DN90 route preview shown; project unchanged" : preview.notes[0];
+  render();
+}
+
+function cancelAutomaticRadialPreview() {
+  automaticRadialPreview = null;
+  if (automaticRadialDialog.open) automaticRadialDialog.close();
+  interactionMessage = "Automatic routing cancelled; project unchanged";
+  render();
+}
+
+function applyAutomaticRadialPreview() {
+  if (!automaticRadialPreview?.proposals.length) return;
+  const family = routeFamilyForKind("semi-rigid-radial");
+  const routes = automaticRadialPreview.proposals.map((proposal, index) => ({
+    id: `route-synthetic-${routeIdentityCounter + index}`,
+    floorId: currentFloorId(),
+    system: proposal.system,
+    stream: proposal.stream,
+    role: proposal.role,
+    ductKind: family.id,
+    connectionInterface: family.connectionInterface,
+    parallelRunCount: 1,
+    startAttachment: { componentId: proposal.source.componentId, portId: proposal.source.portId },
+    endAttachment: { componentId: proposal.destination.componentId, portId: proposal.destination.portId },
+    points: proposal.points.map((point) => ({ ...point, z: unknownMm("automatic DN90 route elevation not set") })),
+  }));
+  const committed = commitCommand({ type: "route.addBatch", routes }, `${routes.length} automatic DN90 route${routes.length === 1 ? "" : "s"} applied in one undoable action`);
+  if (!committed) return;
+  routeIdentityCounter += routes.length;
+  automaticRadialPreview = null;
+  automaticRadialDialog.close();
+  selectedRouteId = routes.at(-1).id;
+  selectedRoutePointIndex = null;
+  render();
+}
+
+function currentFloorId() {
+  return history.present.floors.find((floor) => floor.id === "floor-ground")?.id ?? history.present.floors[0]?.id;
 }
 
 function handleMechanicalClick(event, selectedHit = null) {
@@ -4617,8 +4744,79 @@ function cancelActivePointer() {
   panState = null;
 }
 
+function applyThreeDHeights(event) {
+  event.preventDefault();
+  const equipment = Number(threeDEquipmentHeight.value);
+  const outlet = Number(threeDOutletHeight.value);
+  const duct = Number(threeDDuctHeight.value);
+  if (![equipment, outlet, duct].every(Number.isFinite)) {
+    threeDHeightStatus.textContent = "Enter finite millimetre elevations for equipment, outlets and duct routing.";
+    return;
+  }
+  const basis = threeDHeightBasis.value;
+  const measurement = basis === "known"
+    ? (value, label) => knownMm(value, `${label} confirmed by designer in 3D setup`)
+    : (value, label) => assumedMm(value, `${label} coordination assumption entered by designer`);
+  commitCommand({
+    type: "threeD.applyFloorHeights",
+    floorId: currentFloorId(),
+    equipmentElevationMm: measurement(equipment, "unit/CW elevation"),
+    outletElevationMm: measurement(outlet, "outlet elevation"),
+    ductElevationMm: measurement(duct, "duct routing elevation"),
+  }, `3D heights applied as ${basis === "known" ? "confirmed measurements" : "explicit assumptions"} in one undoable action`);
+}
+
+function renderThreeDWorkspace() {
+  const floorId = currentFloorId();
+  if (!floorId) {
+    threeDDatum.textContent = "No floor is available.";
+    threeDHost.replaceChildren();
+    exportThreeDButton.disabled = true;
+    return;
+  }
+  const scene = createThreeDDrawingScene(history.present, floorId);
+  const svg = renderThreeDDrawingSvg(scene);
+  threeDHost.innerHTML = svg;
+  exportThreeDButton.disabled = scene.components.length === 0 && scene.routes.length === 0;
+  threeDDatum.textContent = scene.floorDatumMm === null
+    ? `${scene.floorName} · building datum unknown · inputs are relative to floor-local 0 mm`
+    : `${scene.floorName} · floor-local 0 mm = building Z ${Math.round(scene.floorDatumMm)} mm (${scene.floorDatumState})`;
+  threeDHeightStatus.textContent = `${scene.components.length} component${scene.components.length === 1 ? "" : "s"} and ${scene.routes.length} route${scene.routes.length === 1 ? "" : "s"} shown · ${scene.diagnostics.length} unresolved item${scene.diagnostics.length === 1 ? "" : "s"}.`;
+  threeDDiagnostics.replaceChildren();
+  if (!scene.diagnostics.length) {
+    const item = document.createElement("p");
+    item.textContent = "No unresolved height inputs for visible 3D objects.";
+    threeDDiagnostics.append(item);
+  } else {
+    for (const diagnostic of scene.diagnostics) {
+      const item = document.createElement("p");
+      item.textContent = `${diagnostic.objectId}: ${diagnostic.issue}`;
+      threeDDiagnostics.append(item);
+    }
+  }
+}
+
+function exportThreeDDrawing() {
+  const floorId = currentFloorId();
+  if (!floorId) return;
+  const scene = createThreeDDrawingScene(history.present, floorId);
+  const svg = renderThreeDDrawingSvg(scene);
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${history.present.id}-${floorId}-3d-coordination.svg`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  interactionMessage = "Schematic 3D SVG exported from the current saved design state";
+}
+
 function render() {
   if(activeTask==="account"){renderStorageState();updateStatus();return;}
+  if (activeTask === "three-d") {
+    renderThreeDWorkspace();
+    renderStorageState();
+    return;
+  }
   if (activeTask === "project") {
     renderProjectWorkspace();
     renderStorageState();
@@ -5809,6 +6007,22 @@ function positiveAngleDelta(start, end) {
 
 function renderDraft() {
   draftLayer.replaceChildren();
+  if (activeTask === "ventilation" && automaticRadialPreview?.proposals.length) {
+    for (const proposal of automaticRadialPreview.proposals) {
+      const swept = deriveSweptCentreline(proposal.points).points;
+      draftLayer.append(svgElement("polyline", {
+        points: routePointString(swept),
+        class: `automatic-route-preview ${proposal.stream}`,
+        "stroke-width": toView(proposal.diameterMm),
+        "data-automatic-route-preview": proposal.destination.componentId,
+      }));
+      draftLayer.append(svgElement("polyline", {
+        points: routePointString(swept),
+        class: "automatic-route-preview-centre",
+        "data-automatic-route-preview-centre": proposal.destination.componentId,
+      }));
+    }
+  }
   if (activeTool === "crop-reference" && referenceCropState) {
     const reference = selectedReference();
     const crop = referenceCropState.stagedSourceRectPx ?? (

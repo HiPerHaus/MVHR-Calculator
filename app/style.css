@@ -348,6 +348,24 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .route-point-handle.intermediate:hover, .route-point-handle.intermediate.selected { fill: #fff3ef; stroke: var(--accent); stroke-width: 3; }
 .route-point-handle.endpoint { fill: #dce5e8; stroke: #6a7d84; pointer-events: none; }
 .draft-route { fill: none; stroke: #207987; stroke-width: 3; stroke-dasharray: 7 5; pointer-events: none; }
+.automatic-route-preview { fill: none; stroke: #207987; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; opacity: .42; pointer-events: none; }
+.automatic-route-preview.extract { stroke: #b45353; }
+.automatic-route-preview-centre { fill: none; stroke: #174b55; stroke-width: 1.5; stroke-dasharray: 6 4; pointer-events: none; }
+.automatic-radial-results { display: grid; gap: 8px; margin: 12px 0; max-height: 280px; overflow: auto; }
+.automatic-radial-result { padding: 8px 10px; border: 1px solid #d5dfe2; border-radius: 7px; background: #f7fafb; }
+.automatic-radial-result strong, .automatic-radial-result span { display: block; }
+.automatic-radial-result span { margin-top: 3px; color: #53666d; font-size: 12px; }
+.three-d-workspace { min-height: 0; display: grid; grid-template-rows: auto 1fr auto; background: #edf2f3; }
+.three-d-layout { min-height: 0; display: grid; grid-template-columns: minmax(250px, 320px) 1fr; gap: 14px; padding: 14px; }
+.three-d-settings { overflow: auto; padding: 16px; border: 1px solid #d4dee1; border-radius: 9px; background: #fff; }
+.three-d-settings h2, .three-d-settings h3 { margin: 0 0 10px; }
+.three-d-settings form { display: grid; gap: 10px; }
+.three-d-settings label { display: grid; gap: 4px; color: #40565e; font-size: 12px; }
+.three-d-settings input, .three-d-settings select { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #bdc9cd; border-radius: 6px; background: white; }
+.three-d-stage { min-width: 0; overflow: auto; display: grid; place-items: center; border: 1px solid #d4dee1; border-radius: 9px; background: #dfe7e9; padding: 18px; }
+.three-d-host { width: min(100%, 1100px); box-shadow: 0 10px 30px rgba(32,55,64,.15); background: white; }
+.three-d-host svg { display: block; width: 100%; height: auto; }
+@media (max-width: 850px) { .three-d-layout { grid-template-columns: 1fr; } }
 .component-group { color: #173944; }
 .component-symbol { fill: #f7fbfc; stroke: #2f5966; stroke-width: 2; cursor: move; }
 .component-group.selected .component-symbol { fill: #fff3ef; stroke: var(--accent); stroke-width: 3; }

@@ -459,6 +459,22 @@ export function applyCommand(project, command, options = {}) {
       next.routes.push(route);
       break;
     }
+    case "route.addBatch": {
+      if (!Array.isArray(command.routes) || command.routes.length === 0) {
+        throw new TypeError("Route batch requires at least one route");
+      }
+      const incomingIds = new Set();
+      for (const routeValue of command.routes) {
+        const route = normalizeRoute(routeValue);
+        if (incomingIds.has(route.id)) throw new TypeError(`Route ID already exists in batch: ${route.id}`);
+        incomingIds.add(route.id);
+        requireUniqueId(next.routes, route.id, "Route");
+        requireEntity(next.floors, route.floorId, "Floor");
+        synchronizeRouteEndpoints(next, route);
+        next.routes.push(route);
+      }
+      break;
+    }
     case "route.delete": {
       requireEntity(next.routes, command.routeId, "Route");
       next.routes = next.routes.filter(route => route.id !== command.routeId);
@@ -467,6 +483,40 @@ export function applyCommand(project, command, options = {}) {
     case "route.setParallelRunCount": {
       const route = requireEntity(next.routes, command.routeId, "Route");
       route.parallelRunCount = normalizeParallelRunCount(command.parallelRunCount);
+      break;
+    }
+    case "route.setRoutingElevation": {
+      const route = requireEntity(next.routes, command.routeId, "Route");
+      route.routingElevationMm = normalizeMeasurement(command.elevationMm);
+      break;
+    }
+    case "threeD.applyFloorHeights": {
+      const floorId = command.floorId;
+      requireEntity(next.floors, floorId, "3D height floor");
+      const equipmentElevation = normalizeMeasurement(command.equipmentElevationMm);
+      const outletElevation = normalizeMeasurement(command.outletElevationMm);
+      const ductElevation = normalizeMeasurement(command.ductElevationMm);
+      const equipmentComponentIds = new Set(next.components
+        .filter((component) => component.floorId === floorId && (
+          isMvhrUnitComponent(component) || component.ports.some((port) => port.system === "mvhr" && port.interface?.family === "semi-rigid-pe")
+        ))
+        .map((component) => component.id));
+      for (const assembly of next.equipmentAssemblies.filter((candidate) => candidate.floorId === floorId)) {
+        if (assembly.componentIds.some((componentId) => equipmentComponentIds.has(componentId))) {
+          assembly.componentIds.forEach((componentId) => equipmentComponentIds.add(componentId));
+        }
+      }
+      const changedComponentIds = [];
+      for (const component of next.components.filter((candidate) => candidate.floorId === floorId)) {
+        const terminal = assignableRoomTerminalPort(component);
+        if (!terminal && !equipmentComponentIds.has(component.id)) continue;
+        component.positionMm.z = structuredClone(terminal ? outletElevation : equipmentElevation);
+        changedComponentIds.push(component.id);
+      }
+      for (const componentId of changedComponentIds) synchronizeAttachedRouteEndpoints(next, componentId);
+      for (const route of next.routes.filter((candidate) => candidate.floorId === floorId)) {
+        route.routingElevationMm = structuredClone(ductElevation);
+      }
       break;
     }
     case "route.insertPoint": {
@@ -3153,6 +3203,9 @@ function normalizeRoute(route) {
       route.connectionInterface,
       "Route connection interface",
     );
+  }
+  if (Object.hasOwn(route, "routingElevationMm")) {
+    normalized.routingElevationMm = normalizeMeasurement(route.routingElevationMm);
   }
   return normalized;
 }
