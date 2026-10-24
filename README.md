@@ -27,3 +27,9 @@ Use **Sign in** with an existing invited MVHR account. **Save to cloud** stores 
 Cloud saving is explicit: wait for **Saved to cloud** before closing the tab. Another tab's newer save blocks stale overwrites; use Cloud projects to reopen the latest version or Save As to preserve a separate copy. Export project remains a portable backup. Device-local projects remain separate and are never automatically uploaded. There is no public registration interface.
 
 Workspace memberships are server-managed. The migration bootstraps only existing accounts; an administrator must add membership for any later invited account. Existing accounts without a company receive a private workspace. Cloud files use unique paths; previous uploads remain available for recovery, and no automatic retention/deletion policy is applied in this first rollout.
+
+## Drawing sheets and company branding
+
+The A3 sheet uses a full-height marked-up plan with a right-hand symbol key above the title block. Project → Project details supplies the project name, reference, client and site address; apply changes and save the drawing. These details travel with exported and cloud-saved drawings. Older drawings open with blank details until entered.
+
+Account contains workspace company details, primary contact and a PNG/JPEG logo (up to 2 MB). Workspace owners can save branding; members can view it. Branding is private to the workspace and fills new sheet previews. Refresh the sheet preview after changing details. The sheet remains a preliminary working draft, not an issued construction drawing.

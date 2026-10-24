@@ -228,6 +228,7 @@ async function completeCurrentProject() {
 function toSchemaVersion(current, schemaVersion) {
   const legacy = structuredClone(current);
   legacy.schemaVersion = schemaVersion;
+  if (schemaVersion < 20) delete legacy.projectDetails;
   if (schemaVersion < 19) {
     for (const reference of legacy.floorReferences) delete reference.cropSourceRectPx;
   }

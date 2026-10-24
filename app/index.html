@@ -23,6 +23,7 @@
           <button id="catalogue-nav" type="button">Catalogue</button>
           <button id="checks-nav" type="button">Checks</button>
           <button id="sheets-nav" type="button">Sheets</button>
+          <button id="account-nav" type="button">Account</button>
         </nav>
         <div class="local-controls">
           <div id="local-state" class="draft-state" data-state="unsaved">
@@ -335,6 +336,15 @@
               <button id="project-cloud-open" type="button" disabled>Cloud projects</button>
               <button id="project-signin" type="button">Sign in</button>
             </div>
+            <details class="project-home-options project-info-options"><summary>Project details</summary>
+              <form id="project-details-form" class="company-fields-grid">
+                <label>Project name<input name="name" maxlength="120" required /></label>
+                <label>Project reference<input name="projectReference" maxlength="80" /></label>
+                <label>Client name<input name="clientName" maxlength="160" /></label>
+                <label>Site address<textarea name="address" maxlength="500" rows="2"></textarea></label>
+                <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
+              </form><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
+            </details>
             <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button">Save As</button></div></details>
           </article>
           <article class="workflow-card workflow-card-wide">
@@ -379,6 +389,12 @@
             <section><h3>Detailed design</h3><div id="detailed-design-summary" class="workflow-data-list"></div><button id="workflow-link-outlets" type="button">Link unassigned outlets by room position</button><p id="detailed-design-unresolved" class="workflow-warning"></p></section></div>
           </details>
         </div>
+      </section>
+
+      <section id="account-workspace" class="account-workspace" hidden>
+        <header class="project-workspace-heading"><div><strong>Account &amp; company</strong><span id="account-workspace-name"></span></div><button id="account-page-signout" type="button" hidden>Sign out</button><button id="account-page-signin" type="button">Sign in</button></header>
+        <p id="account-email"></p>
+        <article class="workflow-card"><h2>Company details</h2><form id="company-form"><fieldset id="company-fields" disabled><div class="company-fields-grid"><label>Company name<input name="companyName" type="text" maxlength="160" /></label><label>Company address<input name="address" type="text" maxlength="500" /></label><label>Company email<input name="email" type="email" maxlength="160" /></label><label>Company phone<input name="phone" type="tel" maxlength="60" /></label><label>Website<input name="website" type="text" maxlength="200" /></label><label>Primary contact<input name="contactName" type="text" maxlength="160" /></label><label>Contact email<input name="contactEmail" type="email" maxlength="160" /></label><label>Contact phone<input name="contactPhone" type="tel" maxlength="60" /></label></div><div class="company-logo-settings"><label>Company logo · PNG or JPEG, up to 2 MB<input id="company-logo" type="file" accept="image/png,image/jpeg" /></label><img id="company-logo-preview" alt="Company logo preview" hidden /><button id="remove-company-logo" type="button">Remove logo</button></div><button type="submit" class="primary-action">Save company details</button></fieldset></form><p id="company-status" role="status"></p></article>
       </section>
 
       <section id="catalogue-workspace" class="catalogue-workspace" aria-labelledby="catalogue-workspace-heading" hidden>

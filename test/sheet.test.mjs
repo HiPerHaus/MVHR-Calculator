@@ -479,6 +479,7 @@ function formatNumber(value) {
 
 function metadata(overrides = {}) {
   return {
+    includeSchedule:true,
     floorId: "floor-ground",
     orientation: "landscape",
     projectName: "Synthetic sheet fixture",

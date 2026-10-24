@@ -1,3 +1,4 @@
+import {normalizeCompanyProfile,validateLogoDataUrl} from "../persistence/company-profile.mjs";
 import { CA200_GRAPHIC_ID, ca200Shapes } from "../editor/ca200-profile.mjs";
 import { deriveHrvCeilingElbows, hrvCeilingElbowShapes } from "../editor/hrv-ceiling-elbows.mjs";
 import { STANDALONE_CW_GRAPHIC_ID, standaloneCwShapes } from "../editor/standalone-cw.mjs";
@@ -25,7 +26,7 @@ import {
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
 
 export const A3_DIMENSIONS_MM = Object.freeze({ short: 297, long: 420 });
-export const SHEET_TEMPLATE_ID = "hiper-a3-manual-plan-v2";
+export const SHEET_TEMPLATE_ID = "hiper-a3-plan-sidebar-v3";
 export const ISSUE_STATUSES = Object.freeze([
   "Preliminary — not for construction",
   "Issued for review — not for construction",
@@ -33,12 +34,12 @@ export const ISSUE_STATUSES = Object.freeze([
 
 const XML_NAMESPACE = "http://www.w3.org/2000/svg";
 const PAGE_MARGIN_MM = 10;
-const TITLE_BLOCK_WIDTH_MM = 95;
+const TITLE_BLOCK_WIDTH_MM = 75;
 const DRAWING_GAP_MM = 5;
 const SCHEDULE_GAP_MM = 4;
 const SCHEDULE_HEIGHT_MM = 82;
 const DRAWING_PADDING_MM = 6;
-const MAX_LEGEND_ITEMS = 12;
+const MAX_LEGEND_ITEMS = 20;
 const MAX_SHEET_SCHEDULE_LINES = 14;
 const STANDARD_SCALE_DENOMINATORS = Object.freeze([
   1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000,
@@ -63,24 +64,11 @@ export function createA3SheetModel(project, metadata) {
     widthMm: page.widthMm - PAGE_MARGIN_MM * 2,
     heightMm: page.heightMm - PAGE_MARGIN_MM * 2,
   });
-  const titleBlockBounds = Object.freeze({
-    xMm: printableBounds.xMm + printableBounds.widthMm - TITLE_BLOCK_WIDTH_MM,
-    yMm: printableBounds.yMm,
-    widthMm: TITLE_BLOCK_WIDTH_MM,
-    heightMm: printableBounds.heightMm,
-  });
-  const scheduleBounds = Object.freeze({
-    xMm: printableBounds.xMm,
-    yMm: printableBounds.yMm + printableBounds.heightMm - SCHEDULE_HEIGHT_MM,
-    widthMm: printableBounds.widthMm - TITLE_BLOCK_WIDTH_MM - DRAWING_GAP_MM,
-    heightMm: SCHEDULE_HEIGHT_MM,
-  });
-  const drawingBounds = Object.freeze({
-    xMm: printableBounds.xMm,
-    yMm: printableBounds.yMm,
-    widthMm: printableBounds.widthMm - TITLE_BLOCK_WIDTH_MM - DRAWING_GAP_MM,
-    heightMm: printableBounds.heightMm - SCHEDULE_HEIGHT_MM - SCHEDULE_GAP_MM,
-  });
+  const sidebarX=printableBounds.xMm+printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM;
+  const titleBlockBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm+printableBounds.heightMm-128,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:128});
+  const legendBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:printableBounds.heightMm-128});
+  const scheduleBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm+printableBounds.heightMm-SCHEDULE_HEIGHT_MM,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-DRAWING_GAP_MM,heightMm:SCHEDULE_HEIGHT_MM});
+  const drawingBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId });
   const printScene = buildPrintScene(sourceProject, normalized.floorId, partsSchedule);
   const fit = calculateSheetFit(printScene.modelBoundsMm, drawingBounds, {
@@ -97,6 +85,7 @@ export function createA3SheetModel(project, metadata) {
     drawingBounds,
     scheduleBounds,
     titleBlockBounds,
+    legendBounds,
     printScene,
     partsSchedule,
     fit,
@@ -114,6 +103,7 @@ export function createA3SheetModel(project, metadata) {
     drawingBounds,
     scheduleBounds,
     titleBlockBounds,
+    legendBounds,
     printScene,
     partsSchedule,
     fit,
@@ -188,7 +178,8 @@ export function renderA3SheetSvg(sheet) {
   body.push(renderPrintScene(sheet));
   body.push("</g>");
   body.push(renderWatermark(sheet));
-  body.push(renderPartsSchedule(sheet));
+  if(sheet.metadata.includeSchedule)body.push(renderPartsSchedule(sheet));
+  body.push(renderSheetLegend(sheet,sheet.legendBounds));
   body.push(renderTitleBlock(sheet, title));
   body.push("</svg>");
   return body.join("");
@@ -361,8 +352,13 @@ function buildLegend(scene) {
       legend.push({ key: `service-${stream}`, label });
     }
   }
-  if (scene.components.length > 0) {
-    legend.push({ key: "component", label: "Placed component — P reference links to parts schedule" });
+  const seen=new Set();
+  for(const component of scene.components){
+    const g=component.planGraphic;
+    const key=g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?'external-grille':'component';
+    if(seen.has(key))continue;seen.add(key);
+    const label=key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key==='external-grille'?'External grille':"Placed component — P reference links to parts schedule";
+    legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => reference.calibrated)) {
     legend.push({ key: "reference-calibrated", label: "Calibrated PNG reference — locked underlay" });
@@ -763,63 +759,47 @@ function renderPartsSchedule(sheet) {
   return out.join("");
 }
 
-function renderTitleBlock(sheet, bounds) {
-  const x = bounds.xMm;
-  const y = bounds.yMm;
-  const w = bounds.widthMm;
-  const rows = [
-    ["PROJECT", sheet.metadata.projectName],
-    ["PROJECT ID", sheet.sourceProjectId],
-    ["SITE", sheet.metadata.siteName],
-    ["CLIENT", sheet.metadata.clientName],
-    ["DRAWING", sheet.metadata.drawingTitle],
-    ["DRAWING ID", sheet.metadata.drawingId],
-    ["FLOOR", sheet.printScene.floorName],
-    ["DATE", sheet.metadata.issueDate],
-    ["STATUS", sheet.metadata.status],
-    ["REVISION", sheet.metadata.revision],
-    ["REVISION TEXT", sheet.metadata.revisionText],
-    ["SCALE", sheet.fit.label],
-    ["DRAWN BY", sheet.metadata.drawnBy || "—"],
-    ["CHECKED BY", sheet.metadata.checkedBy || ""],
-  ];
-  const out = [`<g id="title-block">`, `<rect x="${x}" y="${y}" width="${w}" height="${bounds.heightMm}" fill="white" stroke="#17242b" stroke-width="0.5"/>`];
-  let cursorY = y + 2.5;
-  out.push(`<text x="${x + 3}" y="${cursorY + 4}" font-size="5" font-weight="700" fill="#17242b">HiPer Studio</text>`);
-  out.push(`<text x="${x + 3}" y="${cursorY + 8}" font-size="2.6" fill="#6a7478">WORKING-DRAFT SHEET PREVIEW</text>`);
-  cursorY += 12;
-  for (const [label, value] of rows) {
-    const lines = wrapSheetText(value, 48, label === "STATUS" || label === "REVISION TEXT" ? 2 : 1);
-    const rowHeight = lines.length === 2 ? 13 : 9;
-    out.push(`<line x1="${x}" y1="${formatNumber(cursorY)}" x2="${x + w}" y2="${formatNumber(cursorY)}" stroke="#687880" stroke-width="0.2"/>`);
-    out.push(`<text x="${x + 3}" y="${formatNumber(cursorY + 3)}" font-size="2.1" fill="#6a7478">${escapeXml(label)}</text>`);
-    out.push(renderTextLines(lines, x + 3, cursorY + 6.5, 3.05, 3.2));
-    cursorY += rowHeight;
-  }
-  out.push(`<line x1="${x}" y1="${formatNumber(cursorY)}" x2="${x + w}" y2="${formatNumber(cursorY)}" stroke="#687880" stroke-width="0.2"/>`);
-  out.push(`<text x="${x + 3}" y="${formatNumber(cursorY + 4)}" font-size="2.4" font-weight="700" fill="#17242b">LEGEND · USED SYMBOLS</text>`);
-  cursorY += 7;
-  const legend = sheet.printScene.legend.length
-    ? sheet.printScene.legend
-    : [{ key: "empty", label: "No printable symbols in this draft" }];
-  for (const item of legend) {
-    if (cursorY > y + bounds.heightMm - 13) break;
-    const lines = wrapSheetText(item.label, 52, 2);
-    out.push(legendSwatch(item.key, x + 4, cursorY + 1.8));
-    out.push(renderTextLines(lines, x + 11, cursorY + 2.7, 2.5, 2.9));
-    cursorY += lines.length === 2 ? 8 : 5.5;
-  }
-  out.push(`<text x="${x + 3}" y="${y + bounds.heightMm - 7}" font-size="2.2" fill="#6a7478">Scene ${escapeXml(sheet.printSceneFingerprint)}</text>`);
-  out.push(`<text x="${x + 3}" y="${y + bounds.heightMm - 3}" font-size="2.2" fill="#6a7478">Template ${escapeXml(sheet.templateId)} · print 100% · verify physical scale</text>`);
-  out.push("</g>");
-  return out.join("");
+function renderSheetLegend(sheet,bounds){
+ const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds;
+ const out=[`<g id="sheet-key"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/><text x="${x+w/2}" y="${y+8}" text-anchor="middle" font-size="4" font-weight="700">SYMBOL KEY</text>`];
+ let cy=y+15;
+ const items=sheet.printScene.legend.length?sheet.printScene.legend:[{key:"empty",label:"No symbols placed"}];
+ const rowHeight=Math.min(10,(h-20)/items.length),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
+ for(const item of items){out.push(`<title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,35,2),glyphScale=Math.min(1,rowHeight/9),gx=x+w-15,gy=cy+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,x+4,cy+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));cy+=rowHeight;}
+ out.push('</g>');return out.join('');
+}
+function renderTitleBlock(sheet,bounds){
+ const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds,c=sheet.metadata.company;
+ const out=[`<g id="title-block"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/>`];
+ let cy=y+4;
+ if(sheet.metadata.companyLogoDataUrl){out.push(`<image data-kind="company-logo" href="${escapeXml(sheet.metadata.companyLogoDataUrl)}" x="${x+4}" y="${cy}" width="${w-8}" height="17" preserveAspectRatio="xMidYMid meet"/>`);cy+=20;}
+ else {out.push(renderTextLines(wrapSheetText(c.companyName||'Company details not set',32,2),x+4,cy+5,4.8,5.3));cy+=16;}
+ const contact=[sheet.metadata.companyLogoDataUrl?c.companyName:'',c.address,[c.phone,c.email].filter(Boolean).join(' · '),c.website,[c.contactName,c.contactPhone||c.contactEmail].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
+ out.push(renderTextLines(wrapSheetText(contact,49,4),x+4,cy,2.3,3.1));cy=y+36;
+ const rows=[['PROJECT',sheet.metadata.projectName],['CLIENT',sheet.metadata.clientName],['ADDRESS',sheet.metadata.siteName],['DRAWING',sheet.metadata.drawingTitle]];
+ for(const [label,value] of rows){out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/><text x="${x+3}" y="${cy+3}" font-size="1.9" fill="#687880">${label}</text>`);const lines=wrapSheetText(value||'—',38,label==='ADDRESS'?3:2);out.push(renderTextLines(lines,x+3,cy+6.5,2.8,3.3));cy+=label==='ADDRESS'?17:13;}
+ out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/>`);
+ out.push(renderTextLines(wrapSheetText(`${sheet.metadata.drawingId} · Rev ${sheet.metadata.revision}`,43,1),x+3,cy+5,2.8,3.2));
+ out.push(renderTextLines(wrapSheetText(`${sheet.metadata.issueDate} · ${sheet.fit.label} · ${sheet.printScene.floorName}`,47,1),x+3,cy+10,2.5,3.1));
+ out.push(renderTextLines(wrapSheetText(`DRAWN BY ${sheet.metadata.drawnBy||'—'} · CHECKED BY ${sheet.metadata.checkedBy||'—'}`,48,1),x+3,cy+15,2.4,3));
+ out.push(renderTextLines(wrapSheetText(sheet.metadata.status,43,2),x+3,y+h-10,2.6,3.3));
+ out.push(`<text x="${x+3}" y="${y+h-2}" font-size="1.8" fill="#687880">A3 · Print at 100% · Verify scale before use</text></g>`);return out.join('');
 }
 
 function renderTextLines(lines, x, y, fontSize, lineHeight) {
   return `<text x="${formatNumber(x)}" y="${formatNumber(y)}" font-size="${formatNumber(fontSize)}" fill="#17242b">${lines.map((line, index) => `<tspan x="${formatNumber(x)}" dy="${index === 0 ? 0 : formatNumber(lineHeight)}">${escapeXml(line)}</tspan>`).join("")}</text>`;
 }
 
-function legendSwatch(key, x, y) {
+function legendSwatch(key, x, y,item={}) {
+  const g=item.graphic;
+  if(key.startsWith('luna-')||key.startsWith('wall-grille-')){
+    const scale=Math.min(11/g.widthMm,8/g.depthMm);
+    return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${g.paths.map(d=>`<path d="${d}"/>`).join('')}</g>`;
+  }
+  if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
+  if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
+  if(key==='external-grille')return `<path d="M ${x-2} ${y-2} h12 v4 h-12 Z M ${x+5} ${y+2} v3 h3 v-3" fill="#e7e9e9" stroke="#29434d" stroke-width=".4"/>`;
+
   if (key === "wall") return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="#26373f" stroke-width="1.2"/>`;
   if (key === "wall-virtual") return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="#26373f" stroke-width="0.7" stroke-dasharray="1.4 0.8"/>`;
   if (key.startsWith("service-")) return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="${routeServiceColor(key.slice("service-".length))}" stroke-width="1.2" stroke-linecap="round"/>`;
@@ -856,10 +836,13 @@ function normalizeMetadata(project, metadata) {
   }
   return {
     orientation: metadata.orientation ?? "landscape",
+    includeSchedule:metadata.includeSchedule===true,
+    company:normalizeCompanyProfile(metadata.company),
+    companyLogoDataUrl:validateLogoDataUrl(metadata.companyLogoDataUrl),
     floorId,
-    projectName: sanitizeXmlText(metadata.projectName, "Project name", true),
-    siteName: sanitizeXmlText(metadata.siteName ?? "Not set", "Site name", true),
-    clientName: sanitizeXmlText(metadata.clientName ?? "Not set", "Client name", true),
+    projectName: sanitizeXmlText(metadata.projectName ?? project.projectDetails?.name, "Project name", true),
+    siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
+    clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),
     drawingTitle: sanitizeXmlText(metadata.drawingTitle, "Drawing title", true),
     drawingId: sanitizeXmlText(metadata.drawingId, "Drawing ID", true),
     issueDate,

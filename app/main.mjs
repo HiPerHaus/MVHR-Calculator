@@ -860,6 +860,12 @@ renameProjectButton.addEventListener("click", () => openProjectNameDialog("renam
 projectSaveButton.addEventListener("click", () => saveExplicit());
 projectSaveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 projectNameForm.addEventListener("submit", applyProjectNameChoice);
+document.querySelector("#account-nav").addEventListener("click",()=>cloudSession?.openAccount());
+document.querySelector("#project-details-form").addEventListener("submit",event=>{
+ event.preventDefault();const form=event.currentTarget;
+ try{const details=Object.fromEntries(new FormData(form));commitCommand({type:"project.updateDetails",details},"Project details applied · save the drawing to keep changes");currentProjectName=details.name.trim();document.querySelector("#project-details-status").textContent="Applied. Save the drawing to keep these details.";renderProjectWorkspace();}
+ catch(error){document.querySelector("#project-details-status").textContent=error.message;}
+});
 cancelProjectNameButton.addEventListener("click", closeProjectNameDialog);
 projectLibraryList.addEventListener("click", openProjectFromLibraryClick);
 undoButton.addEventListener("click", () => applyHistoryChange(undoCommand(history), "Undo saved locally"));
@@ -1685,12 +1691,14 @@ function createInitialProject(projectId = PROJECT_ID) {
 }
 
 function setTask(task) {
-  if (!["project", "plan", "ventilation", "catalogue", "checks"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  if (!["project", "plan", "ventilation", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
     sheetsNavigationButton.classList.remove("active");
   }
   activeTask = task;
+  document.querySelector("#account-workspace").hidden=task!=="account";
+  document.querySelector("#account-nav").classList.toggle("active",task==="account");
   if(task==="ventilation" && history.present.components.some(c=>!c.ports.length&&["luna-grille","wall-grille"].includes(c.displaySymbol?.shape))) {
     commitCommand({type:"terminal.enableDrawingConnections"},"90 mm terminal drawing connections enabled · Undo restores prior symbols");
   }
@@ -1706,9 +1714,10 @@ function setTask(task) {
   catalogueNavigationButton.classList.toggle("active", task === "catalogue");
   checksNavigationButton.classList.toggle("active", task === "checks");
   projectWorkspace.hidden = task !== "project";
-  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks";
+  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "account";
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
+  if (task === "account") {cancelActivePointer();return;}
   if (task === "project") {
     cancelActivePointer();
     mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -1846,6 +1855,8 @@ function linkExistingOutletsByPosition() {
 
 function renderProjectWorkspace() {
   renderProjectLibrary();
+  const details=history.present.projectDetails,form=document.querySelector("#project-details-form");
+  for(const key of ["name","address","clientName","projectReference"])form.elements.namedItem(key).value=details[key] || (key==="name"?currentProjectName:"");
   const project = history.present;
   const quote = inspectQuickQuote(project);
   const detailed = inspectDetailedDesign(project);
@@ -1965,9 +1976,9 @@ async function applyProjectNameChoice(event) {
     return;
   }
   if (mode === "rename") {
-    const previousName = currentProjectName;
     currentProjectName = name;
-    if (!await saveExplicit()) currentProjectName = previousName;
+    commitCommand({type:"project.updateDetails",details:{...history.present.projectDetails,name}},"Project renamed");
+    await saveExplicit();
     render();
     return;
   }
@@ -1976,6 +1987,7 @@ async function applyProjectNameChoice(event) {
 
 function createCleanProject(name) {
   const project = createInitialProject(createOpaqueProjectId());
+  project.projectDetails.name=name;
   currentProjectName = name;
   savedProjectName = null;
   savedProjectJson = null;
@@ -1988,6 +2000,7 @@ async function saveCurrentProjectAs(name) {
   const copy = deserializeProject(serializeProject({
     ...structuredClone(history.present),
     id: createOpaqueProjectId(),
+    projectDetails:{...history.present.projectDetails,name},
   }));
   if(cloudSession?.workspace) {
     const previousHistory=history,oldName=currentProjectName,oldRecord=currentCloudRecord;
@@ -2096,11 +2109,14 @@ function openSheetPreview() {
     const sheet = createA3SheetModel(history.present, {
       floorId: floor.id,
       orientation: "landscape",
-      projectName: "HiPer Studio local project",
-      siteName: "Not set",
-      clientName: "Not set",
+      projectName: history.present.projectDetails.name || currentProjectName,
+      siteName: history.present.projectDetails.address || "Not set",
+      clientName: history.present.projectDetails.clientName || "Not set",
+      company:cloudSession?.companyProfile?.details,
+      companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,
+      includeSchedule:false,
       drawingTitle: `${floor.name} Manual MVHR Plan`,
-      drawingId: `${history.present.id}-DRAFT-001`,
+      drawingId: `${history.present.projectDetails.projectReference || "V"}-01`,
       issueDate: new Date().toISOString().slice(0, 10),
       status: "Preliminary — not for construction",
       revision: "DRAFT",
@@ -2114,6 +2130,8 @@ function openSheetPreview() {
     sheetPreviewHost.replaceChildren(document.importNode(documentSvg.documentElement, true));
     sheetPreviewStatus.textContent = `${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
+    document.querySelector("#account-workspace").hidden=true;
+    document.querySelector("#account-nav").classList.remove("active");
     planWorkspace.hidden = true;
     catalogueWorkspace.hidden = true;
     checksWorkspace.hidden = true;
@@ -4578,6 +4596,7 @@ function cancelActivePointer() {
 }
 
 function render() {
+  if(activeTask==="account"){renderStorageState();updateStatus();return;}
   if (activeTask === "project") {
     renderProjectWorkspace();
     renderStorageState();
@@ -7592,6 +7611,7 @@ async function saveExplicit() {
 }
 
 cloudSession=initializeCloudUI({
+  onAccount(){setTask("account");},
   onChange(state){
     saveButton.textContent=state.workspace?"Save to cloud":"Save locally";
     projectSaveButton.textContent=state.workspace?"Save to cloud":"Save locally";
