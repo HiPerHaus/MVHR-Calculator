@@ -6360,7 +6360,7 @@ function renderChecksWorkspace() {
         ? "source-backed · review required"
         : "generic/unmatched · provisional";
     const identifiers = [
-      line.productId ? `local ID ${line.productId}` : "no verified product ID",
+      line.partNumber ? `part number ${line.partNumber}` : line.productId ? `local ID ${line.productId}` : "no verified product ID",
       line.manufacturerArticle ? `manufacturer article ${line.manufacturerArticle} · crosswalk unverified` : null,
       line.groupedQuantity > 0 ? `${line.groupedQuantity} grouped` : null,
       line.independentQuantity > 0 ? `${line.independentQuantity} independent` : null,

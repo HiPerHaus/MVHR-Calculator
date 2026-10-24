@@ -1,3 +1,4 @@
+import {cwQuoteCodes,cwMountQuoteCode,quoteCodeEvidence,quotedCode} from "./quote-product-codes.mjs";
 import {mountedCwDrawingLayout} from "../domain/mounted-cw-drawing-connections.mjs";
 import {routeLengthSummary} from "../domain/spatial.mjs";
 import {deriveEppProjectTotals} from './epp-takeoff.mjs';
@@ -10,15 +11,42 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const qSeries=localUnits.filter(c=>/(?:^|[-\s])q(?:350|450|600)|ZEN-Q(?:350|450|600)/i.test(identity(c)));
  const surge=localUnits.filter(c=>!/(?:^|[-\s])q(?:450|600)|ZEN-Q(?:450|600)/i.test(identity(c)));
  const cwGroups=new Map();
- const cwAdd=(code,description,quantity)=>{const key=code||description;const existing=cwGroups.get(key);if(existing)existing.quantity+=quantity;else cwGroups.set(key,{code,description,quantity,unit:'ea'});};
+ const cwAdd=(code,description,quantity)=>{const key=code||description;const existing=cwGroups.get(key);if(existing)existing.quantity+=quantity;else cwGroups.set(key,{code,description,quantity,unit:'ea',codeSource:quoteCodeEvidence(code)});};
  for(const component of localUnits){
   const layout=mountedCwDrawingLayout(component);if(!layout)continue;
-  const {size,branchCount}=layout.mountedCw,known=['320','520'].includes(size);
-  cwAdd(known?`ZEN-ACWS-${size}`:'',`CW${size} attenuator module${known?'':' · product code to select'}`,2);
-  cwAdd(known?`ZEN-MPCWM-${size}-${branchCount}X90`:'',`CW${size} branch plate · ${branchCount} × 90 mm${known?'':' · product code to select'}`,2);
-  if(size==='320'&&qSeries.includes(component))cwAdd('ZEN-MSCW-320','CW320 mounting set · Q350 / Q450',1);
+  const {size,branchCount}=layout.mountedCw,codes=cwQuoteCodes(size);
+  cwAdd(codes.module??'',`CW${size} attenuator module${codes.module?'':' · product code to select'}`,2);
+  cwAdd(codes.branch??'',`CW${size} branch plate · ${branchCount} × 90 mm${codes.branch?'':' · product code to select'}`,2);
+  const mounting=cwMountQuoteCode(component,size);
+  if(mounting)cwAdd(mounting,`CW${size} mounting set · ${/aerofresh/i.test(identity(component))?'Aerofresh 450 / 600':/q600/i.test(identity(component))?'Q600':'Q350 / Q450'}`,1);
+  else cwAdd('',`CW${size} mounting set · product code to select`,1);
+ }
+ for(const component of project.components.filter(c=>c.floorId===floorId)){
+  const profile=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.cwProfile;if(!profile)continue;
+  const {size,mainSize,count}=profile,codes=cwQuoteCodes(size,mainSize);
+  cwAdd(codes.module??'',`CW${size} attenuator module${codes.module?'':' · product code to select'}`,1);
+  cwAdd(codes.branch??'',`CW${size} branch plate · ${count} × 90 mm${codes.branch?'':' · product code to select'}`,1);
+  cwAdd(codes.end??'',`CW${size} end plate · DN${mainSize}${codes.end?'':' · product code to select'}`,1);
  }
  const cwLines=[...cwGroups.values()];
+ const terminalGroups=new Map();
+ const terminalAdd=(code,description)=>{const key=code||description;const previous=terminalGroups.get(key);if(previous)previous.quantity++;else terminalGroups.set(key,{code,description,quantity:1,unit:'ea',codeSource:quoteCodeEvidence(code)});};
+ for(const component of project.components.filter(c=>c.floorId===floorId)){
+  const shape=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.shape;
+  if(shape==='wall-grille'){
+   terminalAdd('AER-GR-RECT-W','Aerofresh magnetic cover · cool white');
+   const entry=component.ports.find(p=>p.interface?.nominalSizeMm===90)?.drawingEntryId;
+   const code=entry==='back'?'AER-GR-RECT-BX90R':['left','right'].includes(entry)?'AER-GR-R-BX90E':null;
+   terminalAdd(code??'',code?`Aerofresh grille housing · ${entry==='back'?'rear entry':'side entry'}`:'Aerofresh grille housing · entry to select');
+  } else if(shape==='luna-grille'){
+   const routes=project.routes.filter(r=>r.ductKind==='semi-rigid-radial'&&[r.startAttachment,r.endAttachment].some(e=>e?.componentId===component.id));
+   const counts=new Set(routes.map(r=>r.parallelRunCount??null));
+   const runs=routes.length?(counts.size===1?[...counts][0]:null):component.ductRunCount;
+   const code=quotedCode(runs===1?'ZEN-H-TVA90-300':runs===2?'ZEN-H-TVA90-300TW':'');
+   terminalAdd(code??'',`TVA-P 90 housing · 300 mm · ${runs===1?'single connection':runs===2?'twin connection':'Single / Twin to select'}`);
+  }
+ }
+ const terminalLines=[...terminalGroups.values()];
  const unitLines=[
   {code:'HRV-DRAIN',description:'40 mm waterless drain trap',quantity:localUnits.length,unit:'ea'},
   {code:'PLU-SURGE',description:'10 A surge protector · excludes Q450 / Q600',quantity:surge.length,unit:'ea'},
@@ -39,12 +67,14 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const pendingDuctCount=radialRoutes.filter(route=>route.parallelRunCount==null).length+radial.filter(a=>a.stubQuantity>0&&a.stubTotalMm===null).length;
  const knownTotalLengthMm=drawnLengthMm+stubTotalMm,coilLengthMm=50000;
  const duct90={drawnLengthMm,stubTotalMm,knownTotalLengthMm,totalLengthMm:pendingDuctCount?null:knownTotalLengthMm,coilLengthMm,coilQuantity:Math.ceil(knownTotalLengthMm/coilLengthMm),pendingCount:pendingDuctCount,showOnThisFloor:owner?.id===floorId};
+ const capQuantity=radial.reduce((sum,a)=>sum+a.capQuantity,0),capPackQuantity=Math.ceil(capQuantity/10);
  const filterBagQuantity=Math.ceil(extractPoints.length/10),oRingPackQuantity=Math.ceil(oRingQuantity/10);
  const jobLines=owner?.id===floorId?[
+  ...(capPackQuantity?[{code:'ZEN-ECAP90',description:`90 mm end caps · ${capQuantity} required, 10 per pack`,quantity:capPackQuantity,unit:'pack'}]:[]),
   {code:'ZEN-C90-CSET',description:'ComfoSet 90 · three per job',quantity:3,unit:'ea'},
   ...(filterBagQuantity?[{code:'AER-GR-FILT-DN125',description:`Extract vent filters · ${extractPoints.length} ${extractPoints.length===1?'point':'points'}, 10 filters per bag`,quantity:filterBagQuantity,unit:'bag'}]:[]),
   ...(oRingPackQuantity||pendingORings?[{code:'ZEN-OR90',description:`90 mm O-rings · ${oRingQuantity} required${pendingORings?' + pending connections':''}, 10 per pack`,quantity:pendingORings?`${oRingPackQuantity} + pending`:oRingPackQuantity,unit:'pack'}]:[]),
  ]:[];
- return {unitLines,cwLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project),
+ return {unitLines,cwLines,terminalLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,capQuantity,capPackQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project),
   basis:'Drain trap and eligible surge protector per HRV; Q-series controls per Q-series unit. Three ComfoSet 90 per job. One filter per extract point, supplied in bags of ten. Project packs appear once on the first floor with ventilation.'};
 }

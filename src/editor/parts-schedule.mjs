@@ -1,3 +1,4 @@
+import {componentQuoteCode,quoteCodeEvidence} from "./quote-product-codes.mjs";
 import {deriveProjectAccessories} from "./project-accessories.mjs";
 import {deriveRadialAccessories} from "./radial-accessories.mjs";
 import { deriveEppTakeoff, deriveEppElbowStock, EPP_TAKEOFF_POLICY, deriveHrvEppConnectionAllowances, HRV_EPP_CONNECTION_ALLOWANCE_POLICY } from "./epp-takeoff.mjs";
@@ -101,6 +102,8 @@ function componentScheduleLines(components, assemblyByComponentId) {
         description: `${component.displayName ?? component.id}${handing ? ` · ${handing === "left" ? "Left" : "Right"}` : ""}`,
         manufacturer: component.manufacturer ?? null,
         productId: component.productId ?? null,
+        partNumber: componentQuoteCode(component),
+        partNumberSource: quoteCodeEvidence(componentQuoteCode(component)),
         manufacturerArticle: referenceManufacturerArticle(component),
         catalogueStatus: component.catalogueStatus ?? "unclassified",
         catalogueVersion: snapshot?.catalogueVersion ?? null,

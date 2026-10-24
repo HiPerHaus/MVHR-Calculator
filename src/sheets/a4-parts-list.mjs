@@ -1,3 +1,4 @@
+import {quotedCode} from '../editor/quote-product-codes.mjs';
 import {escapeXml,wrapSheetText} from './a3-sheet.mjs';
 
 export function partsListRows(schedule){
@@ -7,11 +8,12 @@ export function partsListRows(schedule){
   const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key);
   if(!lines.length)continue;
   section(title);
-  for(const line of lines)add(line.ref,line.description,line.quantity,'ea',line.productId??line.manufacturerArticle??'');
+  for(const line of lines)add(line.ref,line.description,line.quantity,'ea',line.partNumber??line.productId??line.manufacturerArticle??'');
  }
  if(!schedule.componentLines.length){section('MVHR units and terminals');add('—','No equipment placed',0);}
  const accessories=schedule.projectAccessories;
- if(accessories.cwLines.length){section('Unit-mounted CW components');for(const line of accessories.cwLines)add('CW',line.description,line.quantity,line.unit,line.code);}
+ if(accessories.terminalLines.length){section('Terminal components');for(const line of accessories.terminalLines)add('TERM',line.description,line.quantity,line.unit,line.code);}
+ if(accessories.cwLines.length){section('CW components');for(const line of accessories.cwLines)add('CW',line.description,line.quantity,line.unit,line.code);}
  if(accessories.unitLines.length){section('HRV accessories');for(const line of accessories.unitLines)add('HRV',line.description,line.quantity,line.unit,line.code);}
  if(accessories.jobLines.length){section('Job allowances and packs — counted once for the project');for(const line of accessories.jobLines)add('JOB',line.description,line.quantity,line.unit,line.code);}
 
@@ -28,15 +30,14 @@ export function partsListRows(schedule){
   for(const line of accessories.eppTotals){
    const size=line.nominalSizeMm,qty=value=>`${value}${line.pendingCount?' + pending':''}`;
    add('EPP',`Total DN${size} EPP duct · all streams and floors`,qty(metres(line.knownTotalLengthMm)),'m');
-   add('EPP',`DN${size} EPP straight · 1 m stock length, rounded up from total · socket included`,qty(line.stockLengthQuantity));
-   add('EPP',`DN${size} 90° elbow stock · includes halves for 45° bends`,qty(line.elbow90StockQuantity));
-   add('EPP',`DN${size} additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity));
+   add('EPP',`DN${size} EPP straight · 1 m stock length, rounded up from total · socket included`,qty(line.stockLengthQuantity),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
+   add('EPP',`DN${size} 90° elbow stock · includes halves for 45° bends`,qty(line.elbow90StockQuantity),'ea',quotedCode(`AER-DUC-DN${size}-B90`)??'');
+   add('EPP',`DN${size} additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
    if(line.otherBendQuantity)add('EPP',`DN${size} other bends · product selection required`,line.otherBendQuantity);
   }
  }
  const a=schedule.radialAccessories;
  if(a.capQuantity){section('Unused CW branch closures');
-  add('CW','90 mm end cap · unused CW branch',a.capQuantity);
   add('CW',`90 mm short pipe stub · unused CW branch${a.stubLengthMm===null?' · length to confirm':` · ${a.stubLengthMm} mm each · included in duct total`}`,a.stubQuantity);
  }
  return rows;

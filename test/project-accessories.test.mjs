@@ -37,6 +37,7 @@ test('EPP project totals combine streams and floors before rounding metre length
  const before=structuredClone(p),schedule=createPartsSchedule(p,{floorId:'ground'}),totals=schedule.projectAccessories.eppTotals;
  assert.deepEqual(totals.map(line=>[line.nominalSizeMm,line.totalLengthMm,line.stockLengthQuantity]),[[125,1001,2],[160,1000,1]]);
  const rows=partsListRows(schedule);assert.equal(rows.filter(row=>row.description.startsWith('Total DN160 EPP')).length,1);
+ assert.deepEqual(rows.filter(row=>/^AER-DUC-/.test(row.partNumber)).map(row=>row.partNumber),['AER-DUC-DN125-1MSL','AER-DUC-DN125-B90','AER-DUC-DN125-SL','AER-DUC-DN160-1MSL','AER-DUC-DN160-B90','AER-DUC-DN160-SL']);
  assert.equal(rows.find(row=>row.description.startsWith('Total DN160 EPP')).quantity,'1');
  assert.equal(rows.some(row=>row.description==='Other drawn duct lengths'),false);
  assert.equal(partsListRows(createPartsSchedule(p,{floorId:'upper'})).some(row=>row.description.startsWith('Total DN')),false);
