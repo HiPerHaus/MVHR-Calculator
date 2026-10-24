@@ -7643,7 +7643,8 @@ cloudSession=initializeCloudUI({
     document.querySelector("#project-cloud-open").disabled=false;
     document.querySelector("#project-signin").hidden=Boolean(state.workspace);
     document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
-    saveButton.disabled=state.loading || Boolean(cloudSavePending);
+    saveButton.disabled=state.loading || Boolean(cloudSavePending) || (!workingReady&&Boolean(workingContext(state)));
+    projectSaveButton.disabled=saveButton.disabled;
     if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
   },
   onOpen(loaded){
@@ -7701,6 +7702,8 @@ function handleWorkingSessionState(state){
  else if(workingReady)queueWorkingSession();
 }
 async function restoreWorkingSession(context){
+ const previousStorage=storageState,pendingStorage={kind:"pending",label:"Reopening current drawing…",detail:"Checking browser recovery and your saved project"};
+ storageState=pendingStorage;renderStorageState();
  try{
   let recovered=await workingSessions.read(context);
   if(!recovered&&context.userId&&workingActivity===0){
@@ -7726,11 +7729,14 @@ async function restoreWorkingSession(context){
  }catch(error){workingSessionFailed(error);}
  finally{
   workingRestoring=false;
+  if(storageState===pendingStorage)storageState=previousStorage;
+  renderStorageState();
   const current=workingContext();
   if(!current||workingContextKey(current)!==workingContextKey(context)){
    workingRestoreStarted=false;workingReady=false;
    if(current)queueMicrotask(()=>handleWorkingSessionState(cloudSession));
   }else{workingReady=true;queueWorkingSession();}
+  saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);projectSaveButton.disabled=saveButton.disabled;
  }
 }
 window.addEventListener("pagehide",()=>queueWorkingSession());
