@@ -102,3 +102,22 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
   }
   return [...allowances.values()];
 }
+
+// Project purchasing totals combine streams and floors before rounding stock.
+export function deriveEppProjectTotals(project) {
+  const lines = [...deriveEppTakeoff(project.routes), ...deriveHrvEppConnectionAllowances(project.routes, project.components)];
+  const elbows = deriveEppElbowStock(lines);
+  return [...new Set(lines.map(line => line.nominalSizeMm))].sort((a,b) => a-b).map(nominalSizeMm => {
+    const group = lines.filter(line => line.nominalSizeMm === nominalSizeMm);
+    const known = group.filter(line => line.parallelRunCount !== null);
+    const knownTotalLengthMm = known.reduce((sum,line) => sum + (line.totalCentrelineMm ?? line.ductLengthMm ?? 0), 0);
+    const pendingCount = group.length - known.length;
+    return {
+      nominalSizeMm, knownTotalLengthMm, totalLengthMm: pendingCount ? null : knownTotalLengthMm, pendingCount,
+      stockLengthQuantity: Math.ceil(knownTotalLengthMm / EPP_TAKEOFF_POLICY.stockLengthMm),
+      elbow90StockQuantity: elbows.find(line => line.nominalSizeMm === nominalSizeMm)?.elbow90StockQuantity ?? 0,
+      extraSleeveQuantity: known.reduce((sum,line) => sum + line.extraSleeveQuantity, 0),
+      otherBendQuantity: known.reduce((sum,line) => sum + (line.otherBendQuantity ?? 0), 0),
+    };
+  });
+}

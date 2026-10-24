@@ -21,17 +21,19 @@ export function partsListRows(schedule){
   add('90','Total 90 mm duct · drawn runs plus unused CW port stubs',`${metres(duct.knownTotalLengthMm)}${duct.pendingCount?' + pending':''}`,'m');
   add('90','ZEN-CT90-50M · 90 mm duct coil · 50 m per coil, rounded up',`${duct.coilQuantity}${duct.pendingCount?' + pending':''}`,'coil');
  }
- const otherRoutes=schedule.routeLines.filter(line=>line.ductKind!=='semi-rigid-radial');
+ const otherRoutes=schedule.routeLines.filter(line=>line.ductKind!=='semi-rigid-radial'&&!line.ductKind.startsWith('epp-rigid-'));
  if(otherRoutes.length){section('Other drawn duct lengths');for(const line of otherRoutes)add(line.ref,`${line.description} · ${line.stream}${line.pendingParallelRunRouteCount?' · some Single/Twin choices pending':''}`,`${metres(line.knownMultipliedPlanMm)}${line.pendingParallelRunRouteCount?' + pending':''}`,'m');}
- const sizes=new Set([...schedule.eppTakeoff,...schedule.eppUnitConnectionAllowances].map(line=>line.nominalSizeMm));
- if(sizes.size){section('EPP materials — includes HRV-to-ceiling allowances');for(const size of [...sizes].sort((a,b)=>a-b)){
-  const lines=[...schedule.eppTakeoff,...schedule.eppUnitConnectionAllowances].filter(line=>line.nominalSizeMm===size),pending=lines.some(line=>line.parallelRunCount===null);
-  const sum=field=>lines.reduce((total,line)=>total+(line[field]??0),0),qty=value=>`${value}${pending?' + pending':''}`;
-  add('EPP',`DN${size} EPP straight · 1 m stock length, socket included`,qty(sum('stockLengthQuantity')));
-  const stock=schedule.eppElbowStock.find(line=>line.nominalSizeMm===size);
-  add('EPP',`DN${size} 90° elbow stock · includes halves for 45° bends`,qty(stock?.elbow90StockQuantity??0));
-  add('EPP',`DN${size} additional sleeves · bends and HRV connections`,qty(sum('extraSleeveQuantity')));
- }}
+ if(duct.showOnThisFloor&&accessories.eppTotals.length){
+  section('EPP — project totals, including HRV-to-ceiling allowances');
+  for(const line of accessories.eppTotals){
+   const size=line.nominalSizeMm,qty=value=>`${value}${line.pendingCount?' + pending':''}`;
+   add('EPP',`Total DN${size} EPP duct · all streams and floors`,qty(metres(line.knownTotalLengthMm)),'m');
+   add('EPP',`DN${size} EPP straight · 1 m stock length, rounded up from total · socket included`,qty(line.stockLengthQuantity));
+   add('EPP',`DN${size} 90° elbow stock · includes halves for 45° bends`,qty(line.elbow90StockQuantity));
+   add('EPP',`DN${size} additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity));
+   if(line.otherBendQuantity)add('EPP',`DN${size} other bends · product selection required`,line.otherBendQuantity);
+  }
+ }
  const a=schedule.radialAccessories;
  if(a.capQuantity){section('Unused CW branch closures');
   add('CW','90 mm end cap · unused CW branch',a.capQuantity);

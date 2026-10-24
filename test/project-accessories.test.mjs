@@ -30,3 +30,18 @@ test('unused CW stubs join total duct; eleven terminal connections and twelve CW
  for(const [i,port] of ports.entries()){const terminal=createCatalogueComponent(`luna-${port.stream}`,{id:`point-${i}`,floorId:'ground',xMm:5000,yMm:2000+i*100});p=applyCommand(p,{type:'component.add',component:terminal});p=applyCommand(p,{type:'route.add',route:{id:`route-${i}`,floorId:'ground',system:'mvhr',stream:port.stream,role:port.role,ductKind:f.id,connectionInterface:f.connectionInterface,parallelRunCount:1,startAttachment:{componentId:c.id,portId:port.id},endAttachment:{componentId:terminal.id,portId:terminal.ports[0].id},points:[floorPortTransform(p,c.id,port.id).positionMm,floorPortTransform(p,terminal.id,terminal.ports[0].id).positionMm]}});}
  const a=deriveProjectAccessories(p,{floorId:'ground'});assert.equal(a.oRingQuantity,23);assert.equal(a.oRingPackQuantity,3);assert.equal(a.jobLines.find(l=>l.code==='ZEN-OR90').quantity,3);assert.equal(a.duct90.stubTotalMm,100);
 });
+test('EPP project totals combine streams and floors before rounding metre lengths and appear once',()=>{
+ let p=base();
+ const add=(id,floorId,length,stream='intake',kind='epp-rigid-dn160',runs=1)=>{const family=routeFamilyForKind(kind);p=applyCommand(p,{type:'route.add',route:{id,floorId,system:'mvhr',stream,role:stream==='intake'?'Outdoor intake':'Outdoor exhaust',ductKind:kind,connectionInterface:family.connectionInterface,parallelRunCount:runs,startAttachment:null,endAttachment:null,points:[{x:0,y:0,z:unknownMm('not set')},{x:length,y:0,z:unknownMm('not set')}]}});};
+ add('epp-one','ground',400);add('epp-two','upper',300,'exhaust','epp-rigid-dn160',2);add('epp-small','upper',1001,'intake','epp-rigid-dn125');
+ const before=structuredClone(p),schedule=createPartsSchedule(p,{floorId:'ground'}),totals=schedule.projectAccessories.eppTotals;
+ assert.deepEqual(totals.map(line=>[line.nominalSizeMm,line.totalLengthMm,line.stockLengthQuantity]),[[125,1001,2],[160,1000,1]]);
+ const rows=partsListRows(schedule);assert.equal(rows.filter(row=>row.description.startsWith('Total DN160 EPP')).length,1);
+ assert.equal(rows.find(row=>row.description.startsWith('Total DN160 EPP')).quantity,'1');
+ assert.equal(rows.some(row=>row.description==='Other drawn duct lengths'),false);
+ assert.equal(partsListRows(createPartsSchedule(p,{floorId:'upper'})).some(row=>row.description.startsWith('Total DN')),false);
+ assert.deepEqual(p,before);
+ add('epp-pending','upper',100,'intake','epp-rigid-dn160',null);
+ const pending=createPartsSchedule(p,{floorId:'ground'}).projectAccessories.eppTotals.find(line=>line.nominalSizeMm===160);
+ assert.equal(pending.totalLengthMm,null);assert.equal(pending.knownTotalLengthMm,1000);assert.equal(pending.pendingCount,1);
+});

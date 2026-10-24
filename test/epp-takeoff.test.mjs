@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveEppTakeoff, deriveEppElbowStock } from "../src/editor/epp-takeoff.mjs";
+import { deriveEppTakeoff, deriveEppElbowStock, deriveEppProjectTotals } from "../src/editor/epp-takeoff.mjs";
 import { knownMm, unknownMm } from "../src/domain/spatial.mjs";
 import { routeFamilyForKind } from "../src/editor/component-catalogue.mjs";
 
@@ -107,6 +107,11 @@ test("HRV allowance follows the port diameter and keeps route bend sleeves separ
   assert.equal(allowance.nominalSizeMm,125);
   assert.equal(allowance.extraSleeveQuantity+measured.extraSleeveQuantity,5);
   assert.equal(deriveEppElbowStock([measured,allowance])[0].elbow90StockQuantity,2);
+  const [total]=deriveEppProjectTotals({routes:[input],components:[unit]});
+  assert.equal(total.totalLengthMm,3000);
+  assert.equal(total.stockLengthQuantity,3);
+  assert.equal(total.elbow90StockQuantity,2);
+  assert.equal(total.extraSleeveQuantity,5);
 });
 
 test("HRV top elbows follow either EPP endpoint without changing geometry or stock", async()=>{
@@ -128,4 +133,13 @@ test("HRV top elbows follow either EPP endpoint without changing geometry or sto
  assert.deepEqual(deriveHrvCeilingElbows([{...first,startAttachment:null}],[unit]),[]);
  assert.deepEqual(first,before);
  assert.equal(deriveEppTakeoff([first])[0].elbow90Quantity,0);
+});
+
+test('project EPP totals share half elbows and retain additional sleeves',()=>{
+ const half=route([[0,0],[1000,0],[1500,500]]);
+ const full=route([[0,0],[1000,0],[1000,1000]]);
+ const [total]=deriveEppProjectTotals({routes:[half,{...half,floorId:'upper',stream:'exhaust'},full],components:[]});
+ assert.equal(total.elbow90StockQuantity,2);
+ assert.equal(total.extraSleeveQuantity,3);
+ assert.equal(total.stockLengthQuantity,Math.ceil((2*(1000+Math.hypot(500,500))+2000)/1000));
 });

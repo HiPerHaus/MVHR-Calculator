@@ -1,5 +1,6 @@
 import {mountedCwDrawingLayout} from "../domain/mounted-cw-drawing-connections.mjs";
 import {routeLengthSummary} from "../domain/spatial.mjs";
+import {deriveEppProjectTotals} from './epp-takeoff.mjs';
 import {deriveRadialAccessories} from './radial-accessories.mjs';
 
 export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
@@ -44,6 +45,6 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
   ...(filterBagQuantity?[{code:'AER-GR-FILT-DN125',description:`Extract vent filters · ${extractPoints.length} ${extractPoints.length===1?'point':'points'}, 10 filters per bag`,quantity:filterBagQuantity,unit:'bag'}]:[]),
   ...(oRingPackQuantity||pendingORings?[{code:'ZEN-OR90',description:`90 mm O-rings · ${oRingQuantity} required${pendingORings?' + pending connections':''}, 10 per pack`,quantity:pendingORings?`${oRingPackQuantity} + pending`:oRingPackQuantity,unit:'pack'}]:[]),
  ]:[];
- return {unitLines,cwLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,
+ return {unitLines,cwLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project),
   basis:'Drain trap and eligible surge protector per HRV; Q-series controls per Q-series unit. Three ComfoSet 90 per job. One filter per extract point, supplied in bags of ten. Project packs appear once on the first floor with ventilation.'};
 }
