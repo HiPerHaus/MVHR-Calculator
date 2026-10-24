@@ -1,3 +1,4 @@
+import {deriveProjectAccessories} from "./project-accessories.mjs";
 import {deriveRadialAccessories} from "./radial-accessories.mjs";
 import { deriveEppTakeoff, deriveEppElbowStock, EPP_TAKEOFF_POLICY, deriveHrvEppConnectionAllowances, HRV_EPP_CONNECTION_ALLOWANCE_POLICY } from "./epp-takeoff.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
@@ -56,6 +57,7 @@ export function createPartsSchedule(project, options = {}) {
     floorName: floor.name,
     componentLines,
     routeLines,
+    projectAccessories:deriveProjectAccessories(project,{floorId,stubLengthMm:options.cwStubLengthMm}),
     radialAccessories:deriveRadialAccessories(project,{floorId,stubLengthMm:options.cwStubLengthMm}),
     eppTakeoff,
     eppUnitConnectionAllowances,
