@@ -54,9 +54,9 @@ test("browser persistence never uses a privileged key or a public signed drawing
 
 test("Vercel production configuration invokes the access proxy for every editor HTML route", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
-  assert.equal(config.proxy.entrypoint, "proxy.mjs");
+  assert.equal(config.proxy.entrypoint, "proxy.js");
   assert.deepEqual(config.proxy.matcher, ["/app", "/app/", "/app/index.html"]);
-  const proxy = await readFile(new URL("../proxy.mjs", import.meta.url), "utf8");
+  const proxy = await readFile(new URL("../proxy.js", import.meta.url), "utf8");
   assert.match(proxy, /authorizeStudioRequest\(request\)/);
   assert.match(proxy, /Location: loginRedirect/);
   assert.match(proxy, /"Cache-Control": "private, no-store"/);
