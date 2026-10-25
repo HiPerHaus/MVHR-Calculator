@@ -15,7 +15,7 @@ export function validateWorkingSession(value,context){
  if(typeof value.name!=='string'||!value.name.trim()||value.name.length>120)throw new TypeError('Invalid working drawing name');
  const r=value.cloudRecord;
  if(r&&(!context.userId||r.workspace_id!==context.workspaceId||r.project_id!==project.id||typeof r.id!=='string'||!Number.isInteger(r.save_version)||r.save_version<1))throw new TypeError('Invalid cloud recovery binding');
- if(!['project','plan','ventilation','catalogue','checks','account','sheets'].includes(value.task))throw new TypeError('Invalid recovery view');
+ if(!['project','plan','ventilation','three-d','catalogue','checks','account','sheets'].includes(value.task))throw new TypeError('Invalid recovery view');
  const camera=value.camera;
  if(!camera||!['x','y','width','height'].every(k=>Number.isFinite(camera[k]))||camera.width<=0||camera.height<=0)throw new TypeError('Invalid recovery camera');
  return {...value,project};

@@ -4,6 +4,14 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "proxy": {
+    "entrypoint": "proxy.mjs",
+    "matcher": [
+      "/app",
+      "/app/",
+      "/app/index.html"
+    ]
+  },
   "redirects": [
     {
       "source": "/",
@@ -17,7 +25,7 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "private, no-store"
         }
       ]
     },

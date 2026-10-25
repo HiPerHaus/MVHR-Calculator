@@ -8,7 +8,9 @@ Run `npm ci`, then `npm run dev`. Open the localhost address shown in the termin
 
 ## Check and build
 
-Run `npm run check` and `npm run build`. Vercel publishes only `dist/`. PDF reference import uses the pinned PDF.js dependency; private reference manuals and local drawings are not included.
+Run `npm run check` and `npm run build`. With Docker Desktop running, `npm run check:supabase-local` creates an unlinked disposable Supabase stack, verifies the production migration timestamps and hashes, applies the proposed migrations over a test-only legacy-schema fixture, runs database and Storage API authorization checks, proves the guarded rollback, then destroys the stack. Vercel publishes only `dist/`. PDF reference import uses the pinned PDF.js dependency; private reference manuals and local drawings are not included.
+
+`npm run check:supabase-legacy-proposal` separately reproduces the legacy shared-schema exposure with synthetic records, applies the non-deployable hardening proposal in a disposable stack and verifies the retained RLS-helper, Auth-trigger and portal-token behaviour. It never invokes a hosted credit RPC.
 
 ## Project files
 
@@ -22,11 +24,17 @@ The previous application is preserved on `backup/pre-studio-v2-2026-10-23`, at c
 
 ## Sign-in and cloud drawings
 
-Use **Sign in** with an existing invited MVHR account. **Save** stores a complete drawing file (including embedded floor-plan references) in a private Supabase Storage bucket in the existing Sydney project. Project names, workspace membership and save versions are stored in Postgres. **Projects** reopens a drawing on another signed-in device. Cloud access is checked by row-level security, not by imported project content or editable user metadata.
+This checkout contains the locally tested customer-access candidate. Anonymous requests to the editor HTML are redirected by a Vercel request gate, and the editor is imported only after Supabase has network-verified the session and returned an active workspace membership. A short-lived HTTP-only gate cookie protects editor entry; Postgres and Storage RLS remain authoritative for every private drawing and company record.
 
-Cloud saving is explicit: wait for **Saved to cloud** before closing the tab. Another tab's newer save blocks stale overwrites; use Projects to reopen the latest version or Save As to preserve a separate copy. Export project remains a portable backup. Device-local projects remain separate and are never automatically uploaded. There is no public registration interface.
+Customers can request an account with email, password, name and company. New accounts remain pending after email verification until a platform administrator assigns an active workspace and a bounded `member` or `admin` role. Account metadata cannot assign a role or workspace. Company owners/admins can suspend or reactivate roles beneath their own role; suspension is recoverable and removes all project/company/storage access. Password recovery uses the existing Supabase flow. Existing workspace members migrate as active and are not converted to pending.
 
-Workspace memberships are server-managed. The migration bootstraps only existing accounts; an administrator must add membership for any later invited account. Existing accounts without a company receive a private workspace. Cloud files use unique paths; previous uploads remain available for recovery, and no automatic retention/deletion policy is applied in this first rollout.
+Cloud saving is explicit: wait for **Saved to cloud** before closing the tab. Another tab's newer save blocks stale overwrites; use Projects to reopen the latest version or Save As to preserve a separate copy. Export project remains a portable backup. Device-local projects remain separate and are never automatically uploaded. The public signup interface creates a pending access request only and never opens a workspace without verified-email approval.
+
+Workspace memberships remain server-managed. Self-service signup creates only a pending request; approval and suspension use security-definer RPCs that validate platform or workspace administration on the server. Cloud files use unique paths; previous uploads remain available for recovery, and no automatic retention/deletion policy is applied in this first rollout.
+
+Production rollout is deliberately pending. The proposed migration, verified-email setting, recovery redirect allowlist, first platform-administrator assignment, Vercel request gate and deployment must be reviewed and applied together. Until that exact rollout is approved and verified, the existing Vercel all-deployments SSO protection stays enabled and unchanged.
+
+The proposed production sequence, exact Auth settings, rollback boundary and unresolved shared-schema security findings are recorded in `docs/14-customer-access-rollout-runbook.md`. The runbook is planning evidence only and authorizes no live change.
 
 ## Drawing sheets and company branding
 

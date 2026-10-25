@@ -3,7 +3,7 @@ export { MOUNTED_CW_DIMENSIONS } from "../domain/mounted-cw-drawing-connections.
 import { deriveCa200Graphic } from "./ca200-profile.mjs";
 import { deriveStandaloneCwGraphic } from "./standalone-cw.mjs";
 export const EXTERNAL_GRILLE_PLAN_GRAPHIC_ID = "hiper-external-grille-plan-v1";
-const Q350_PROFILE_PATTERN = /^zehnder-q350-(?:hrv|erv)-(left|right)-drawing-profile$/u;
+const Q350_PROFILE_PATTERN = /^zehnder-q(350|450)(?:-de)?-(?:hrv|erv)-(left|right)-(?:drawing|bim)-profile$/u;
 const GENERIC_REMOTE_PATTERN = /^generic-(supply|extract)-remote-(round-end-plate|attenuator|radial-plate)$/u;
 const GENERIC_COMBINED_PATTERN = /^generic-(supply|extract)-attenuation-distribution-160$/u;
 
@@ -76,7 +76,7 @@ export function deriveComponentPlanGraphic(component) {
       evidenceBoundary:"Louvred weather hood drawing based on supplied Zehnder appearance; generic combined geometry remains schematic."});
   }
   const match = typeof recordId === "string" ? recordId.match(Q350_PROFILE_PATTERN) : null;
-  if (match) return deriveQ350PlanGraphic(component, recordId, match[1]);
+  if (match) return deriveQ350PlanGraphic(component, recordId, match[2], match[1]);
   const aeroMatch = typeof recordId === "string" ? recordId.match(/^aerofresh-450-(?:hrv|erv)-(left|right)-drawing-profile$/u) : null;
   if (aeroMatch) return deriveQ350PlanGraphic(component, recordId, aeroMatch[1]);
 
@@ -110,7 +110,7 @@ export function mountedCwShapes(graphic) {
   ];
 }
 
-function deriveQ350PlanGraphic(component, recordId, handing) {
+function deriveQ350PlanGraphic(component, recordId, handing, qSize = "350") {
   const symbol = component.displaySymbol ?? component.symbol ?? component.catalogueSnapshot?.symbol;
   const mounted = component.mvhrDesignIntent?.layout === "unit-mounted-cw";
   const aerofresh = recordId.startsWith("aerofresh-450");
@@ -140,8 +140,8 @@ function deriveQ350PlanGraphic(component, recordId, handing) {
 
   return deepFreeze({
     graphicId: Q350_PLAN_GRAPHIC_ID,
-    modelName: aerofresh ? "Aerofresh 450" : "ComfoAir Q350",
-    shortModelName: aerofresh ? "Aero 450" : "Q350",
+    modelName: aerofresh ? "Aerofresh 450" : `ComfoAir Q${qSize}`,
+    shortModelName: aerofresh ? "Aero 450" : `Q${qSize}`,
     brandLabel: aerofresh ? "A" : "Z",
     drawingBoundsMm,
     mountedDimensions: mountedDimensions ? { ...mountedDimensions, source: aerofresh ? mountedDimensions.envelopeStatus === "schematic-layout-allowance" ? "owner-confirmed-common-CW-family-schematic-AF450-layout" : `owner-aerofresh-450-CW${component.mvhrDesignIntent.cwSize ?? "520"}-drawing-2026-10-23` : component.mvhrDesignIntent.cwSize === "625" ? "Zehnder-ComfoWell-625-specifications-2021.02.18-pages-5-7" : "owner-supplied-Q350-Q450-mounted-CW-drawing-2026-10-23", branchDiameterMm: 90, branchCentresStatus: "schematic-not-verified" } : null,

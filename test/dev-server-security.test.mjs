@@ -16,6 +16,11 @@ test("development static paths are confined to explicit application roots", () =
     allowedRoot: resolve(ROOT, "app"),
     relativePath: "app/main.mjs",
   });
+  assert.deepEqual(resolveStaticRequestPath(ROOT, "/login/index.html"), {
+    filePath: resolve(ROOT, "login/index.html"),
+    allowedRoot: resolve(ROOT, "login"),
+    relativePath: "login/index.html",
+  });
   assert.deepEqual(resolveStaticRequestPath(ROOT, "/src/editor/mechanical-controller.mjs"), {
     filePath: resolve(ROOT, "src/editor/mechanical-controller.mjs"),
     allowedRoot: resolve(ROOT, "src/editor"),

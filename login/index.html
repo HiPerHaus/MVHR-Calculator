@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in — HiPer Studio</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="login-brand"><span aria-hidden="true">H</span><div><strong>HiPer Studio</strong><small>Private residential MVHR design workspace</small></div></div>
+        <div id="signin-panel">
+          <h1 id="login-title">Sign in</h1>
+          <p>Use your verified customer account. Project access is limited to approved company workspaces.</p>
+          <form id="login-form">
+            <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" required /></label>
+            <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
+            <div class="captcha-slot" data-captcha-action="sign-in" aria-live="polite"></div>
+            <button type="submit" class="primary">Sign in</button>
+          </form>
+          <div class="login-links"><button id="show-recovery" type="button">Forgot password?</button><button id="show-signup" type="button">Request customer access</button></div>
+        </div>
+        <div id="signup-panel" hidden>
+          <h1>Request customer access</h1>
+          <p>Your email must be verified, then a Studio administrator must approve and assign your company workspace. Registration never grants immediate project access.</p>
+          <form id="signup-form">
+            <label>Name<input name="fullName" type="text" autocomplete="name" maxlength="160" required /></label>
+            <label>Company name<input name="companyName" type="text" autocomplete="organization" maxlength="160" required /></label>
+            <label>Email<input name="email" type="email" autocomplete="email" maxlength="254" required /></label>
+            <label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required /></label>
+            <small>Use 12–72 characters. Do not reuse a password from another service.</small>
+            <div class="captcha-slot" data-captcha-action="signup" aria-live="polite"></div>
+            <button type="submit" class="primary">Submit access request</button>
+          </form>
+          <button class="back-signin" type="button">Back to sign in</button>
+        </div>
+        <div id="recovery-panel" hidden>
+          <h1>Reset password</h1>
+          <p>Enter your account email. Supabase will send its standard secure recovery link if the account exists.</p>
+          <form id="recovery-form">
+            <label>Email<input name="email" type="email" autocomplete="email" maxlength="254" required /></label>
+            <div class="captcha-slot" data-captcha-action="recovery" aria-live="polite"></div>
+            <button type="submit" class="primary">Send recovery link</button>
+          </form>
+          <button class="back-signin" type="button">Back to sign in</button>
+        </div>
+        <div id="new-password-panel" hidden>
+          <h1>Choose a new password</h1>
+          <form id="new-password-form">
+            <label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="72" required /></label>
+            <label>Confirm password<input name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="72" required /></label>
+            <button type="submit" class="primary">Update password</button>
+          </form>
+        </div>
+        <p id="login-status" role="status" aria-live="polite"></p>
+        <p class="security-note">No public project data is available from this page. Access is checked again before Studio opens and on every cloud data request.</p>
+      </section>
+    </main>
+    <script type="module" src="./login.mjs"></script>
+  </body>
+</html>

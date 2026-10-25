@@ -51,7 +51,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -211,6 +211,8 @@ export function createProject(id) {
     wallNodes: [],
     walls: [],
     floorAreaOutlines: [],
+    routingExclusions: [],
+    routingClearanceSettings: [],
     rooms: [],
     zones: [],
     referenceAssets: [],
@@ -381,6 +383,16 @@ export function applyCommand(project, command, options = {}) {
         component.positionMm.z = structuredClone(elevationMm);
         synchronizeAttachedRouteEndpoints(next, component.id);
       }
+      break;
+    }
+    case "equipmentAssembly.setMemberElevation": {
+      const assembly = requireEntity(next.equipmentAssemblies, command.assemblyId, "Equipment assembly");
+      if (!assembly.componentIds.includes(command.componentId)) {
+        throw new TypeError(`Component ${String(command.componentId)} is not a member of equipment assembly ${assembly.id}`);
+      }
+      const component = requireEntity(next.components, command.componentId, "Equipment assembly component");
+      component.positionMm.z = normalizeMeasurement(command.elevationMm);
+      synchronizeAttachedRouteEndpoints(next, component.id);
       break;
     }
     case "component.setDuctRunCount": {
@@ -658,6 +670,36 @@ export function applyCommand(project, command, options = {}) {
       next.floorAreaOutlines = next.floorAreaOutlines.filter(
         (candidate) => candidate.id !== command.outlineId,
       );
+      break;
+    }
+    case "routingExclusion.add": {
+      const exclusion = normalizeRoutingExclusion(command.exclusion);
+      requireUniqueId(next.routingExclusions, exclusion.id, "Routing exclusion");
+      requireEntity(next.floors, exclusion.floorId, "Routing exclusion floor");
+      next.routingExclusions.push(exclusion);
+      break;
+    }
+    case "routingExclusion.update": {
+      const index = next.routingExclusions.findIndex((candidate) => candidate.id === command.exclusionId);
+      if (index < 0) throw new TypeError(`Routing exclusion not found: ${String(command.exclusionId)}`);
+      const exclusion = normalizeRoutingExclusion({ ...next.routingExclusions[index], ...structuredClone(command.changes), id: command.exclusionId });
+      requireEntity(next.floors, exclusion.floorId, "Routing exclusion floor");
+      next.routingExclusions[index] = exclusion;
+      break;
+    }
+    case "routingExclusion.remove": {
+      requireEntity(next.routingExclusions, command.exclusionId, "Routing exclusion");
+      next.routingExclusions = next.routingExclusions.filter((candidate) => candidate.id !== command.exclusionId);
+      break;
+    }
+    case "routingClearance.set": {
+      const floorId = requireOpaqueId(command.floorId, "Routing-clearance floor ID");
+      requireEntity(next.floors, floorId, "Routing-clearance floor");
+      const clearSpacingMm = normalizeMeasurement(command.clearSpacingMm);
+      if (clearSpacingMm.state !== "unknown" && clearSpacingMm.valueMm < 0) throw new RangeError("Routing clear spacing cannot be negative");
+      const existing = next.routingClearanceSettings.find((candidate) => candidate.floorId === floorId);
+      if (existing) existing.clearSpacingMm = clearSpacingMm;
+      else next.routingClearanceSettings.push({ id: `routing-clearance-${floorId}`, floorId, clearSpacingMm });
       break;
     }
     case "terminal.assignZone": {
@@ -1245,6 +1287,7 @@ export function migrateProjectData(project) {
     };
   }
   if (migrated.schemaVersion === 19) migrated={...migrated,schemaVersion:20,projectDetails:createProjectDetails()};
+  if (migrated.schemaVersion === 20) migrated={...migrated,schemaVersion:21,routingExclusions:[],routingClearanceSettings:[]};
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -1280,6 +1323,8 @@ export function validateProject(project) {
     "wallNodes",
     "walls",
     "floorAreaOutlines",
+    "routingExclusions",
+    "routingClearanceSettings",
     "rooms",
     "zones",
     "referenceAssets",
@@ -1412,6 +1457,19 @@ export function validateProject(project) {
     }
     outlinedFloors.add(normalized.floorId);
     inspectFloorAreaOutline(normalized);
+  });
+  project.routingExclusions.forEach((exclusion) => {
+    const normalized = normalizeRoutingExclusion(exclusion);
+    requireEntity(project.floors, normalized.floorId, "Routing exclusion floor");
+  });
+  const clearanceFloors = new Set();
+  project.routingClearanceSettings.forEach((setting) => {
+    requireOpaqueId(setting.id, "Routing-clearance ID");
+    requireEntity(project.floors, setting.floorId, "Routing-clearance floor");
+    if (clearanceFloors.has(setting.floorId)) throw new TypeError(`Only one routing-clearance setting is supported per floor: ${setting.floorId}`);
+    clearanceFloors.add(setting.floorId);
+    const measurement = normalizeMeasurement(setting.clearSpacingMm);
+    if (measurement.state !== "unknown" && measurement.valueMm < 0) throw new RangeError("Routing clear spacing cannot be negative");
   });
   const assignedRoomBoundaries = new Map();
   const assignedTerminalEndpoints = new Map();
@@ -1610,6 +1668,17 @@ function scaleFloorPlanGeometry(project, floorId, anchorMm, scaleFactor) {
   for (const outline of project.floorAreaOutlines) {
     if (outline.floorId !== floorId) continue;
     for (const vertex of outline.vertices) scalePoint(vertex.positionMm);
+  }
+  for (const exclusion of project.routingExclusions) {
+    if (exclusion.floorId !== floorId) continue;
+    const origin = { x: exclusion.geometry.x, y: exclusion.geometry.y };
+    const far = { x: origin.x + exclusion.geometry.width, y: origin.y + exclusion.geometry.height };
+    scalePoint(origin);
+    scalePoint(far);
+    exclusion.geometry.x = Math.min(origin.x, far.x);
+    exclusion.geometry.y = Math.min(origin.y, far.y);
+    exclusion.geometry.width = Math.abs(far.x - origin.x);
+    exclusion.geometry.height = Math.abs(far.y - origin.y);
   }
 }
 
@@ -2510,6 +2579,36 @@ function normalizeFloorAreaOutline(outline) {
   return normalized;
 }
 
+function normalizeRoutingExclusion(exclusion) {
+  requireOpaqueId(exclusion?.id, "Routing exclusion ID");
+  requireOpaqueId(exclusion?.floorId, "Routing exclusion floor ID");
+  const geometry = exclusion?.geometry;
+  if (geometry?.shape !== "rectangle") throw new TypeError("Routing exclusion geometry must be a rectangle");
+  const x = requireFinite(geometry.x, "Routing exclusion x");
+  const y = requireFinite(geometry.y, "Routing exclusion y");
+  const width = requireFinite(geometry.width, "Routing exclusion width");
+  const height = requireFinite(geometry.height, "Routing exclusion height");
+  if (width <= 0 || height <= 0) throw new RangeError("Routing exclusion width and height must be positive");
+  const verticalRange = exclusion?.verticalRange;
+  const mode = normalizeChoice(verticalRange?.mode, ["all-height", "solid-range"], "Routing exclusion height mode");
+  let normalizedRange = { mode };
+  if (mode === "solid-range") {
+    const bottomMm = normalizeMeasurement(verticalRange.bottomMm);
+    const topMm = normalizeMeasurement(verticalRange.topMm);
+    if (bottomMm.state !== "unknown" && topMm.state !== "unknown" && topMm.valueMm <= bottomMm.valueMm) {
+      throw new RangeError("Routing exclusion top height must be above its bottom height");
+    }
+    normalizedRange = { mode, bottomMm, topMm };
+  }
+  return {
+    ...structuredClone(exclusion),
+    name: normalizeRoutingExclusionName(exclusion.name),
+    kind: normalizeChoice(exclusion.kind, ["beam", "void", "other"], "Routing exclusion kind"),
+    geometry: { shape: "rectangle", x, y, width, height },
+    verticalRange: normalizedRange,
+  };
+}
+
 function validateWall(project, wall) {
   requireOpaqueId(wall?.id, "Wall ID");
   requireOpaqueId(wall?.floorId, "Wall floor ID");
@@ -2873,6 +2972,13 @@ function normalizeFloorAreaName(value) {
   if (normalized.length > 120) {
     throw new RangeError("Floor area outline name cannot exceed 120 characters");
   }
+  return normalized;
+}
+
+function normalizeRoutingExclusionName(value) {
+  if (typeof value !== "string" || value.trim().length === 0) throw new TypeError("Routing exclusion name is required");
+  const normalized = value.trim();
+  if (normalized.length > 120) throw new RangeError("Routing exclusion name cannot exceed 120 characters");
   return normalized;
 }
 

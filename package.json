@@ -4,12 +4,15 @@
   "type": "module",
   "scripts": {
     "check": "node scripts/check.mjs",
+    "check:supabase-local": "node scripts/check-supabase-local.mjs",
+    "check:supabase-legacy-proposal": "node scripts/check-supabase-legacy-proposal.mjs",
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
     "predev": "node scripts/build-auth.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",
+    "@vercel/functions": "3.6.1",
     "pdfjs-dist": "6.4.299"
   },
   "devDependencies": {

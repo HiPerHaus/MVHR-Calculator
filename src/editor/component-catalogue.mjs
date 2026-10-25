@@ -11,7 +11,7 @@ import {
 } from "./distribution-box-design.mjs";
 
 export const CATALOGUE_ID = "hiper-studio-component-catalogue";
-export const CATALOGUE_VERSION = "2026-10-23.5";
+export const CATALOGUE_VERSION = "2026-10-24.1";
 
 const INTERNAL_IDENTIFIER_SOURCE = Object.freeze({
   sourceId: "internal-product-identifiers-rev-6a",
@@ -36,6 +36,18 @@ const Q350_TECHNICAL_SOURCE = Object.freeze({
   pages: [10, 11],
   releaseDate: "2017-01-25",
   verificationStatus: "visually-reviewed-dimensions-and-handed-air-directions",
+});
+
+const Q_DE_BIM_SOURCE = Object.freeze({
+  sourceId: "mepcontent-zehnder-comfoair-q-de-ifc4-2026-10-24",
+  sourceKind: "owner-supplied-manufacturer-bim-download",
+  catalogueMarket: "DE",
+  format: "IFC4",
+  viewDefinition: "CoordinationView_V2.0",
+  units: "mm",
+  authoringApplication: "Autodesk Revit 2023",
+  verificationStatus: "hash-pinned-identity-mesh-and-distribution-ports-reviewed",
+  evidenceBoundary: "Exact German article/type only; no export or Australian SKU equivalence, performance, CW fit or installation clearance is inferred.",
 });
 
 const GENERIC_FIXTURE_SOURCE = Object.freeze({
@@ -267,6 +279,16 @@ const Q350_TR_DN160 = deepFreeze({
   drawingConnectionClass: "circular-dn160",
   installationCompatibilityStatus: "unverified",
 });
+const Q450_DE_BIM_CONNECTION = deepFreeze({
+  family: "zehnder-q-tr-rotating-round",
+  nominalSizeMm: 180,
+  boreMm: 180,
+  outsideDiameterMm: 200,
+  matingProfile: null,
+  verificationStatus: "IFC-Diameter-1-and-mesh-envelope-with-conflicting-160-190-text-properties",
+  drawingConnectionClass: "circular-dn180",
+  installationCompatibilityStatus: "source-property-conflict-review-required",
+});
 
 export const COMPONENT_CATALOGUE = deepFreeze([
   ...ca200Records().map(componentRecord),
@@ -297,8 +319,10 @@ export const COMPONENT_CATALOGUE = deepFreeze([
   q350DrawingProfileRecord("zehnder-q350-hrv-right-drawing-profile", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2", "471502110", "right"),
   q350DrawingProfileRecord("zehnder-q350-erv-left-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "left"),
   q350DrawingProfileRecord("zehnder-q350-erv-right-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "right"),
+  ...["hrv", "erv"].flatMap((type) => ["left", "right"].map((handing) => qDeBimProfileRecord("350", type, handing))),
   qSetoutRecord("zehnder-q450-hrv-setout", "ZEN-Q450HRV", "ComfoAir Q450 TR - sensible", "Price List!A4:C4"),
   qSetoutRecord("zehnder-q450-erv-setout", "ZEN-Q450ERV", "ComfoAir Q450 TR - enthalpy", "Price List!A5:C5"),
+  ...["hrv", "erv"].flatMap((type) => ["left", "right"].map((handing) => qDeBimProfileRecord("450", type, handing))),
   ...remoteAssemblyRecords("supply", "Dwelling supply"),
   ...remoteAssemblyRecords("extract", "Dwelling extract"),
   componentRecord({
@@ -560,6 +584,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
     symbol: item.symbol,
     ports: item.ports,
     connectionSetout: item.connectionSetout ?? null,
+    manufacturerGeometryAsset: item.manufacturerGeometryAsset ?? null,
     ...(item.terminalSpecification ? { terminalSpecification: item.terminalSpecification } : {}),
   };
   return {
@@ -589,6 +614,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
       stream: definition.stream,
       role: definition.role,
       interface: structuredClone(definition.interface),
+      ...(definition.coordinateEvidence ? { coordinateEvidence: definition.coordinateEvidence } : {}),
       ...(definition.drawingEntries ? {drawingEntries:structuredClone(definition.drawingEntries),drawingEntryId:definition.drawingEntryId,drawingConnectionVersion:definition.drawingConnectionVersion} : {}),
       evidence: item.status === "synthetic-not-manufacturer-verified"
         ? "generic test fixture only"
@@ -753,6 +779,91 @@ function q350DrawingProfileRecord(id, productId, name, identifierLocator, manufa
       note: "Port centres and roles support explicit drawing topology. Matching nominal DN160 does not approve a physical joint, adapter, seal, support or installation arrangement.",
     },
     note: "Placeable handed drawing profile. The manufacturer article is source-backed, but its crosswalk to the local catalogue code and all physical installation compatibility remain unverified.",
+  });
+}
+
+function qDeBimProfileRecord(size, type, handing) {
+  const isLeft = handing === "left";
+  const sensible = type === "hrv";
+  const manufacturerArticle = size === "350"
+    ? sensible ? "471502009" : "471502010"
+    : sensible ? "471502011" : "471502012";
+  const assetId = `q${size}-de-${type}-${handing}`;
+  const connector = size === "350" ? Q350_TR_DN160 : Q450_DE_BIM_CONNECTION;
+  const portDefinitions = isLeft
+    ? [
+      ["left-rear", -290, -162, -1, 0, "extract", "Dwelling extract"],
+      ["left-front", -290, 118.5, -1, 0, "supply", "Dwelling supply"],
+      ["right-rear", 290, -162, 1, 0, "exhaust", "Outdoor exhaust"],
+      ["right-front", 290, 118.5, 1, 0, "intake", "Outdoor intake"],
+    ]
+    : [
+      ["left-rear", -290, -162, -1, 0, "intake", "Outdoor intake"],
+      ["left-front", -290, 118.5, -1, 0, "exhaust", "Outdoor exhaust"],
+      ["right-rear", 290, -162, 1, 0, "supply", "Dwelling supply"],
+      ["right-front", 290, 118.5, 1, 0, "extract", "Dwelling extract"],
+    ];
+  const ports = portDefinitions.map(([key, x, y, directionX, directionY, stream, role]) => {
+    const value = port(key, x, y, directionX, directionY, stream, role, connector);
+    value.positionMm.z = size === "350" ? 850 : 850.049;
+    value.coordinateEvidence = "IFC4 distribution-port placement registered to the 725 x 570 mm body centre; plan approach direction remains a drawing convention because TR connectors rotate";
+    return value;
+  });
+  return componentRecord({
+    id: `zehnder-q${size}-de-${type}-${handing}-bim-profile`,
+    versionId: `zehnder-q${size}-de-${type}-${handing}-bim-profile.v1`,
+    group: "Units",
+    category: "mvhr-unit-bim-profile",
+    manufacturer: "Zehnder",
+    productId: null,
+    manufacturerArticle,
+    name: `ComfoAir Q${size} TR DE · ${sensible ? "sensible" : "enthalpy"} · ${handing}`,
+    status: "source-backed-exact-german-bim-profile-local-crosswalk-unverified",
+    source: {
+      bim: Q_DE_BIM_SOURCE,
+      manufacturerCataloguePage: {
+        url: `https://www.mepcontent.com/en/bim-files/detail/${size === "350" ? "27574/comfoair-q350" : "27575/comfoair-q450"}/?ccc=DE&clc=WW`,
+        verificationStatus: "German-market-variant-selection",
+      },
+    },
+    localSkuCrosswalkStatus: "not-assigned-exact-german-article-only",
+    handing: `manufacturer-${handing}`,
+    dimensions: {
+      unit: "mm",
+      body: { width: 725, depth: 570, height: 850 },
+      drawingEnvelope: { width: 725, depth: 570 },
+      geometryBounds: { width: 800, depth: 581, height: 850.049 },
+      evidenceStatus: "manufacturer-IFC4-declared-envelope-and-reviewed-tessellated-solid",
+      note: "The 850 mm IFC height includes the configured rotating-connector geometry. The 800 x 581 mm mesh bounds include protrusions beyond the 725 x 570 mm body.",
+    },
+    symbol: { shape: "box", widthMm: 725, heightMm: 570 },
+    ports,
+    manufacturerGeometryAsset: {
+      assetId,
+      manufacturerArticle,
+      identityScope: "exact-German-article-and-handed-type",
+      persistedAssetReferenceOnly: true,
+    },
+    connectionSetout: {
+      connectionCount: 4,
+      nominalInternalDiameterMm: connector.nominalSizeMm,
+      externalDiameterMm: connector.outsideDiameterMm,
+      connectorOrientation: "configured-rotating-TR-geometry-in-reviewed-IFC4",
+      horizontalPortCentreSpacingMm: 580,
+      frontToRearRowCentreSpacingMm: 280.5,
+      rearRowCentreOffsetFromBackMm: 123,
+      coordinateOrigin: "centre-of-725-by-570-body-envelope",
+      coordinateAxes: "+x right; +y front; +z above unit base",
+      localPortCoordinatesStatus: "IFC4-distribution-port-placement-checked-against-dimensioned-setout",
+      roleMapStatus: "reviewed-IFC-flow-direction-and-manufacturer-handed-type",
+      routable: size === "350",
+      connectionScope: "drawing-only",
+      installationCompatibilityStatus: size === "350" ? "unverified" : "source-property-conflict-review-required",
+      note: size === "350"
+        ? "IFC distribution-port centres agree with the existing dimensioned Q350 setout. TR connector rotation and physical mating remain installation decisions."
+        : "The Q450 IFC contains conflicting connector metadata: Diameter 1 = 180 mm and the reviewed mesh has a 200 mm outside envelope, while other copied properties still say 160|190. DN180/200 is retained for this exact BIM record and no DN160 adapter or local equivalence is inferred.",
+    },
+    note: "Exact German BIM identity with reviewed solid and connector placements. It is separate from export/local catalogue records and carries no performance or CW compatibility claim.",
   });
 }
 

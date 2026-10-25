@@ -7,3 +7,6 @@ dist/
 .env*
 app/vendor/
 supabase/.temp/
+BIM files/
+backup-before-customer-access.sql
+reference-documents/

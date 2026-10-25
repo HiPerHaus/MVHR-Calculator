@@ -1,6 +1,8 @@
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
+import { getStudioClient } from "./auth-client.mjs";
+import { getBootAccess } from "./auth-context.mjs";
 let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
 const workingSessions=createWorkingSessionStore(window.indexedDB,{tabId:workingTabId(window.sessionStorage)});
 let workingReady=false,workingRestoring=false,workingRestoreStarted=false,workingActivity=0,workingQueued=false,workingOwnerKey=null;
@@ -120,6 +122,8 @@ import {
   ductBodyDisplayLabel,
 } from "../src/editor/duct-body-geometry.mjs";
 import { inspectAutomaticRadialRouting } from "../src/editor/automatic-radial-routing.mjs";
+import { inspectAutomaticEppRouting } from "../src/editor/automatic-epp-routing.mjs";
+import { inspectRoutingCoordination } from "../src/editor/routing-coordination.mjs";
 import { createDxfImportReviewController } from "../src/editor/dxf-import-controller.mjs";
 import {
   dxfReferenceSnapPoints,
@@ -130,7 +134,7 @@ import {
   createA3SheetModel,
   renderA3SheetSvg,
 } from "../src/sheets/a3-sheet.mjs";
-import { createThreeDDrawingScene, renderThreeDDrawingSvg } from "../src/sheets/three-d-drawing.mjs";
+import { createDefaultThreeDView, createThreeDDrawingScene, renderThreeDDrawingSvg } from "../src/sheets/three-d-drawing.mjs";
 import {
   deriveRoomBoundaries,
   deriveZoneBoundaries,
@@ -181,6 +185,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/build/pdf.wor
 const canvas = document.querySelector("#plan-canvas");
 const referenceLayer = document.querySelector("#reference-layer");
 const floorAreaLayer = document.querySelector("#floor-area-layer");
+const routingExclusionLayer = document.querySelector("#routing-exclusion-layer");
 const roomLayer = document.querySelector("#room-layer");
 const modelLayer = document.querySelector("#model-layer");
 const draftLayer = document.querySelector("#draft-layer");
@@ -324,6 +329,34 @@ const automaticRadialSummary = document.querySelector("#automatic-radial-summary
 const automaticRadialResults = document.querySelector("#automatic-radial-results");
 const cancelAutomaticRadialButton = document.querySelector("#cancel-automatic-radial");
 const applyAutomaticRadialButton = document.querySelector("#apply-automatic-radial");
+const automaticEppButton = document.querySelector("#auto-route-epp");
+const automaticEppDialog = document.querySelector("#automatic-epp-dialog");
+const automaticEppStart = document.querySelector("#automatic-epp-start");
+const automaticEppEnd = document.querySelector("#automatic-epp-end");
+const automaticEppSummary = document.querySelector("#automatic-epp-summary");
+const automaticEppResult = document.querySelector("#automatic-epp-result");
+const cancelAutomaticEppButton = document.querySelector("#cancel-automatic-epp");
+const applyAutomaticEppButton = document.querySelector("#apply-automatic-epp");
+const addRoutingExclusionButton = document.querySelector("#add-routing-exclusion");
+const routingClearanceInput = document.querySelector("#routing-clearance-input");
+const applyRoutingClearanceButton = document.querySelector("#apply-routing-clearance");
+const routingClearanceStatus = document.querySelector("#routing-clearance-status");
+const routingCoordinationStatus = document.querySelector("#routing-coordination-status");
+const routingExclusionList = document.querySelector("#routing-exclusion-list");
+const routingExclusionDialog = document.querySelector("#routing-exclusion-dialog");
+const routingExclusionForm = document.querySelector("#routing-exclusion-form");
+const routingExclusionName = document.querySelector("#routing-exclusion-name");
+const routingExclusionKind = document.querySelector("#routing-exclusion-kind");
+const routingExclusionX = document.querySelector("#routing-exclusion-x");
+const routingExclusionY = document.querySelector("#routing-exclusion-y");
+const routingExclusionWidth = document.querySelector("#routing-exclusion-width");
+const routingExclusionHeight = document.querySelector("#routing-exclusion-height");
+const routingExclusionHeightMode = document.querySelector("#routing-exclusion-height-mode");
+const routingExclusionHeightFields = document.querySelector("#routing-exclusion-height-fields");
+const routingExclusionBottom = document.querySelector("#routing-exclusion-bottom");
+const routingExclusionTop = document.querySelector("#routing-exclusion-top");
+const routingExclusionError = document.querySelector("#routing-exclusion-error");
+const cancelRoutingExclusionButton = document.querySelector("#cancel-routing-exclusion");
 let catalogueButtons = [];
 const routeButtons = [...document.querySelectorAll(".route-tool")];
 const planNavigationButton = document.querySelector("#plan-nav");
@@ -347,8 +380,10 @@ const threeDDuctHeight = document.querySelector("#three-d-duct-height");
 const threeDHeightBasis = document.querySelector("#three-d-height-basis");
 const threeDDatum = document.querySelector("#three-d-datum");
 const threeDHeightStatus = document.querySelector("#three-d-height-status");
+const threeDHeightItems = document.querySelector("#three-d-height-items");
 const threeDDiagnostics = document.querySelector("#three-d-diagnostics");
 const threeDHost = document.querySelector("#three-d-host");
+const threeDViewButtons = [...document.querySelectorAll("[data-three-d-view]")];
 const checksStatusPill = document.querySelector("#checks-status-pill");
 const checksReturnVentilationButton = document.querySelector("#checks-return-ventilation");
 const checksPartsSummary = document.querySelector("#checks-parts-summary");
@@ -531,6 +566,12 @@ let pendingClearVentilationFloorId = null;
 let calibrationState = null;
 let referenceCropState = null;
 let automaticRadialPreview = null;
+let automaticEppPreview = null;
+let routingExclusionDraftStart = null;
+let pendingRoutingExclusionId = null;
+let selectedRoutingExclusionId = null;
+let threeDView = { ...createDefaultThreeDView() };
+let threeDPointer = null;
 let camera = createCamera();
 let mechanicalState = createMechanicalInteractionState();
 let mvhrPlacementMounting = null;
@@ -549,9 +590,10 @@ function updateMvhrPreview() {
   const mounting = pendingMvhrDrop?.mounting ?? "vertical";
   const generic = mvhrModel.value === "generic";
   const ca200=mvhrModel.value === "ca200";
+  const germanBim=/^q(?:350|450)-de-(?:hrv|erv)$/u.test(mvhrModel.value);
   mvhrHanding.disabled = generic;
-  mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = generic || ca200;
-  if ((generic || ca200) && mvhrLayout.value === "unit-mounted-cw") mvhrLayout.value = "unit-only";
+  mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = generic || ca200 || germanBim;
+  if ((generic || ca200 || germanBim) && mvhrLayout.value === "unit-mounted-cw") mvhrLayout.value = "unit-only";
   document.querySelector("#mvhr-cw-size-label").hidden = mvhrLayout.value !== "unit-mounted-cw";
   const aerofresh = mvhrModel.value.startsWith("aerofresh-450");
   const accessoryNote = mvhrLayout.value === "unit-only" ? "" : mvhrLayout.value === "unit-mounted-cw"
@@ -563,6 +605,7 @@ function updateMvhrPreview() {
     ? `Generic ${mounting} planning symbol: 900 × 650 mm, four DN160 test ports. No manufacturer mounting dimensions or clearance are established.${accessoryNote}`
     : ca200 ? `CA200 manual version · ${mounting} · manufacturer ${mvhrHanding.value}-hand. Body 535 × 315 × 1108 mm; 1200 mm including spigots. Four DN125 drawing connections. Remote attenuators placed separately. Absolute port setout and installation fit require review.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
+    : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
     : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
 }
 mvhrForm.addEventListener("change", updateMvhrPreview);
@@ -952,6 +995,26 @@ automaticRadialDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelAutomaticRadialPreview();
 });
+automaticEppButton.addEventListener("click", openAutomaticEppPreview);
+automaticEppStart.addEventListener("change", refreshAutomaticEppPreview);
+automaticEppEnd.addEventListener("change", refreshAutomaticEppPreview);
+cancelAutomaticEppButton.addEventListener("click", cancelAutomaticEppPreview);
+applyAutomaticEppButton.addEventListener("click", applyAutomaticEppPreview);
+automaticEppDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelAutomaticEppPreview();
+});
+addRoutingExclusionButton.addEventListener("click", () => {
+  routingExclusionDraftStart = null;
+  setTool("routing-exclusion");
+  interactionMessage = "Click two opposite corners of the routing exclusion rectangle";
+  render();
+});
+applyRoutingClearanceButton.addEventListener("click", applyRoutingClearance);
+routingExclusionHeightMode.addEventListener("change", () => { routingExclusionHeightFields.hidden = routingExclusionHeightMode.value !== "solid-range"; });
+routingExclusionForm.addEventListener("submit", applyRoutingExclusionDialog);
+cancelRoutingExclusionButton.addEventListener("click", cancelRoutingExclusionDialog);
+routingExclusionDialog.addEventListener("cancel", (event) => { event.preventDefault(); cancelRoutingExclusionDialog(); });
 removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
@@ -968,6 +1031,12 @@ sheetsNavigationButton.addEventListener("click", openSheetPreview);
 threeDReturnButton.addEventListener("click", () => setTask("ventilation"));
 threeDHeightForm.addEventListener("submit", applyThreeDHeights);
 exportThreeDButton.addEventListener("click", exportThreeDDrawing);
+threeDViewButtons.forEach((button) => button.addEventListener("click", () => adjustThreeDView(button.dataset.threeDView)));
+threeDHost.addEventListener("wheel", handleThreeDWheel, { passive: false });
+threeDHost.addEventListener("pointerdown", startThreeDPointer);
+threeDHost.addEventListener("pointermove", moveThreeDPointer);
+threeDHost.addEventListener("pointerup", endThreeDPointer);
+threeDHost.addEventListener("pointercancel", endThreeDPointer);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 workflowOpenPlanButton.addEventListener("click", () => setTask("plan"));
@@ -1231,6 +1300,7 @@ canvas.addEventListener("pointermove", (event) => {
   cursorStatus.textContent = `X ${formatMm(hoverPoint.x)} · Y ${formatMm(hoverPoint.y)}`;
   if ((activeTool === "wall" || activeTool === "room-divider") && draftPoints.length > 0) renderDraft();
   if (activeTool === "floor-area" && floorAreaDraftPoints.length > 0) renderDraft();
+  if (activeTool === "routing-exclusion" && routingExclusionDraftStart) renderDraft();
   if (activeTool === "place-component" || activeTool === "place-assembly" || activeTool === "route") {
     const hoverPort=activeTool==="route"?mechanicalHitFromPointerEvent(event):null;
     const proposed=hoverPort?.positionMm??eventToGridWorld(event);
@@ -1395,6 +1465,19 @@ canvas.addEventListener("click", (event) => {
     return;
   }
   if (activeTask === "ventilation") {
+    if (activeTool === "routing-exclusion") {
+      addRoutingExclusionCorner(eventToGridWorld(event));
+      return;
+    }
+    const exclusionId = event.target?.dataset?.routingExclusionId;
+    if (activeTool === "select" && exclusionId) {
+      selectedRoutingExclusionId = exclusionId;
+      selectedRouteId = null;
+      mechanicalState = clearMechanicalSelection(mechanicalState);
+      interactionMessage = "Routing exclusion selected; use Edit or Remove in Routing coordination";
+      render();
+      return;
+    }
     const addPointTarget = event.target.closest?.(".route-add-point");
     if (activeTool === "select" && addPointTarget) {
       addRoutePointAtSegment(addPointTarget);
@@ -2316,6 +2399,7 @@ function setTool(tool, options = {}) {
   if (tool !== activeTool && (draftPoints.length > 0 || floorAreaDraftPoints.length > 0)) {
     cancelDraft("Changing tools cancelled the incomplete drawing draft");
   }
+  if (tool !== "routing-exclusion") routingExclusionDraftStart = null;
   if (activeTool === "calibrate" && tool !== "calibrate") calibrationState = null;
   if (activeTool === "crop-reference" && tool !== "crop-reference" && !referenceCropDialog.open) {
     referenceCropState = null;
@@ -2342,6 +2426,7 @@ function setTool(tool, options = {}) {
   wallButton.classList.toggle("active", tool === "wall");
   roomDividerButton.classList.toggle("active", tool === "room-divider");
   floorAreaButton.classList.toggle("active", tool === "floor-area");
+  addRoutingExclusionButton.classList.toggle("active", tool === "routing-exclusion");
   panToolButton.classList.toggle("active", tool === "pan");
   selectButton.setAttribute("aria-pressed", String(tool === "select"));
   wallButton.setAttribute("aria-pressed", String(tool === "wall"));
@@ -2349,6 +2434,7 @@ function setTool(tool, options = {}) {
   floorAreaButton.setAttribute("aria-pressed", String(tool === "floor-area"));
   panToolButton.setAttribute("aria-pressed", String(tool === "pan"));
   canvas.classList.toggle("wall-mode", tool === "wall" || tool === "room-divider" || tool === "floor-area");
+  canvas.classList.toggle("routing-exclusion-mode", tool === "routing-exclusion");
   canvas.classList.toggle("calibration-mode", tool === "calibrate");
   canvas.classList.toggle("crop-mode", tool === "crop-reference");
   canvas.classList.toggle("mechanical-mode", tool === "place-component" || tool === "place-assembly" || tool === "route");
@@ -2752,6 +2838,8 @@ function commitCommand(command, message) {
 }
 
 function openAutomaticRadialPreview() {
+  automaticEppPreview = null;
+  if (automaticEppDialog.open) automaticEppDialog.close();
   const floorId = currentFloorId();
   automaticRadialPreview = inspectAutomaticRadialRouting(history.present, floorId);
   automaticRadialResults.replaceChildren();
@@ -2823,6 +2911,199 @@ function applyAutomaticRadialPreview() {
   selectedRouteId = routes.at(-1).id;
   selectedRoutePointIndex = null;
   render();
+}
+
+function openAutomaticEppPreview() {
+  automaticRadialPreview = null;
+  if (automaticRadialDialog.open) automaticRadialDialog.close();
+  automaticEppStart.value = "";
+  automaticEppEnd.value = "";
+  refreshAutomaticEppPreview();
+  automaticEppDialog.showModal();
+  interactionMessage = "Choose two free compatible EPP ports; project unchanged";
+  render();
+}
+
+function refreshAutomaticEppPreview() {
+  const startKey = automaticEppStart.value;
+  const endKey = automaticEppEnd.value;
+  automaticEppPreview = inspectAutomaticEppRouting(history.present, currentFloorId(), { startKey, endKey });
+  const preview = automaticEppPreview;
+  replaceEppOptions(automaticEppStart, preview.endpoints, "Choose a free EPP port…", startKey);
+  replaceEppOptions(automaticEppEnd, preview.compatibleEnds, startKey ? "Choose a compatible destination…" : "Choose the first port above", endKey);
+  automaticEppEnd.disabled = !startKey || preview.compatibleEnds.length === 0;
+  automaticEppSummary.textContent = preview.message;
+  automaticEppResult.replaceChildren();
+  if (preview.proposal) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    const title = document.createElement("strong");
+    title.textContent = `${preview.proposal.source.displayName} → ${preview.proposal.destination.displayName}`;
+    const detail = document.createElement("span");
+    detail.textContent = `DN${preview.proposal.diameterMm} ${preview.proposal.stream} · ${Math.round(preview.proposal.lengthMm)} mm centreline · ${preview.proposal.geometryStatus.replaceAll("-", " ")}`;
+    row.append(title, detail);
+    automaticEppResult.append(row);
+  } else {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    row.textContent = preview.message;
+    automaticEppResult.append(row);
+  }
+  applyAutomaticEppButton.disabled = !preview.proposal;
+  render();
+}
+
+function replaceEppOptions(select, endpoints, placeholder, selectedKey) {
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = placeholder;
+  select.append(empty);
+  for (const endpoint of endpoints) {
+    const option = document.createElement("option");
+    option.value = endpoint.key;
+    option.textContent = endpoint.label;
+    select.append(option);
+  }
+  select.value = endpoints.some((endpoint) => endpoint.key === selectedKey) ? selectedKey : "";
+}
+
+function cancelAutomaticEppPreview() {
+  automaticEppPreview = null;
+  if (automaticEppDialog.open) automaticEppDialog.close();
+  interactionMessage = "Automatic EPP routing cancelled; project unchanged";
+  render();
+}
+
+function applyAutomaticEppPreview() {
+  const proposal = automaticEppPreview?.proposal;
+  if (!proposal) return;
+  const route = {
+    id: `route-synthetic-${routeIdentityCounter}`,
+    floorId: currentFloorId(),
+    system: proposal.system,
+    stream: proposal.stream,
+    role: proposal.role,
+    ductKind: proposal.ductKind,
+    connectionInterface: proposal.connectionInterface,
+    parallelRunCount: 1,
+    startAttachment: { componentId: proposal.source.componentId, portId: proposal.source.portId },
+    endAttachment: { componentId: proposal.destination.componentId, portId: proposal.destination.portId },
+    points: proposal.points.map((point) => ({ ...point, z: unknownMm("automatic EPP route elevation not set") })),
+  };
+  const committed = commitCommand({ type: "route.add", route }, `Automatic DN${proposal.diameterMm} EPP route applied in one undoable action`);
+  if (!committed) return;
+  routeIdentityCounter += 1;
+  automaticEppPreview = null;
+  automaticEppDialog.close();
+  selectedRouteId = route.id;
+  selectedRoutePointIndex = null;
+  render();
+}
+
+function addRoutingExclusionCorner(point) {
+  if (!routingExclusionDraftStart) {
+    routingExclusionDraftStart = point;
+    interactionMessage = "First corner set · click the opposite corner · Esc cancels";
+    render();
+    return;
+  }
+  const x = Math.min(routingExclusionDraftStart.x, point.x);
+  const y = Math.min(routingExclusionDraftStart.y, point.y);
+  const width = Math.abs(point.x - routingExclusionDraftStart.x);
+  const height = Math.abs(point.y - routingExclusionDraftStart.y);
+  if (width < 1 || height < 1) {
+    interactionMessage = "Exclusion rectangle needs visible width and height";
+    return;
+  }
+  pendingRoutingExclusionId = null;
+  routingExclusionName.value = `Routing exclusion ${history.present.routingExclusions.length + 1}`;
+  routingExclusionKind.value = "beam";
+  routingExclusionX.value = String(Math.round(x));
+  routingExclusionY.value = String(Math.round(y));
+  routingExclusionWidth.value = String(Math.round(width));
+  routingExclusionHeight.value = String(Math.round(height));
+  routingExclusionHeightMode.value = "all-height";
+  routingExclusionHeightFields.hidden = true;
+  routingExclusionBottom.value = "";
+  routingExclusionTop.value = "";
+  routingExclusionError.textContent = "";
+  routingExclusionDraftStart = null;
+  routingExclusionDialog.showModal();
+  render();
+}
+
+function openRoutingExclusionEditor(exclusionId) {
+  const exclusion = history.present.routingExclusions.find((candidate) => candidate.id === exclusionId);
+  if (!exclusion) return;
+  pendingRoutingExclusionId = exclusion.id;
+  selectedRoutingExclusionId = exclusion.id;
+  routingExclusionName.value = exclusion.name;
+  routingExclusionKind.value = exclusion.kind;
+  routingExclusionX.value = String(exclusion.geometry.x);
+  routingExclusionY.value = String(exclusion.geometry.y);
+  routingExclusionWidth.value = String(exclusion.geometry.width);
+  routingExclusionHeight.value = String(exclusion.geometry.height);
+  routingExclusionHeightMode.value = exclusion.verticalRange.mode;
+  routingExclusionHeightFields.hidden = exclusion.verticalRange.mode !== "solid-range";
+  routingExclusionBottom.value = exclusion.verticalRange.bottomMm?.state === "unknown" ? "" : String(exclusion.verticalRange.bottomMm?.valueMm ?? "");
+  routingExclusionTop.value = exclusion.verticalRange.topMm?.state === "unknown" ? "" : String(exclusion.verticalRange.topMm?.valueMm ?? "");
+  routingExclusionError.textContent = "";
+  routingExclusionDialog.showModal();
+  render();
+}
+
+function applyRoutingExclusionDialog(event) {
+  event.preventDefault();
+  const numeric = [routingExclusionX, routingExclusionY, routingExclusionWidth, routingExclusionHeight].map((input) => Number(input.value));
+  if (!numeric.every(Number.isFinite) || numeric[2] <= 0 || numeric[3] <= 0) {
+    routingExclusionError.textContent = "Enter finite coordinates and positive width/height.";
+    return;
+  }
+  const measurement = (input, label) => input.value === "" ? unknownMm(`${label} not set`) : assumedMm(Number(input.value), `user-entered ${label}`);
+  const verticalRange = routingExclusionHeightMode.value === "all-height" ? { mode: "all-height" } : {
+    mode: "solid-range", bottomMm: measurement(routingExclusionBottom, "obstacle bottom elevation"), topMm: measurement(routingExclusionTop, "obstacle top elevation"),
+  };
+  const value = { floorId: currentFloorId(), name: routingExclusionName.value, kind: routingExclusionKind.value,
+    geometry: { shape: "rectangle", x: numeric[0], y: numeric[1], width: numeric[2], height: numeric[3] }, verticalRange };
+  const id = pendingRoutingExclusionId ?? `routing-exclusion-${Date.now().toString(36)}-${history.present.routingExclusions.length + 1}`;
+  const command = pendingRoutingExclusionId
+    ? { type: "routingExclusion.update", exclusionId: id, changes: value }
+    : { type: "routingExclusion.add", exclusion: { id, ...value } };
+  if (!commitCommand(command, `${value.name} routing exclusion ${pendingRoutingExclusionId ? "updated" : "added"}`)) return;
+  selectedRoutingExclusionId = id;
+  pendingRoutingExclusionId = null;
+  routingExclusionDialog.close();
+  setTool("select");
+  render();
+}
+
+function cancelRoutingExclusionDialog() {
+  pendingRoutingExclusionId = null;
+  routingExclusionDraftStart = null;
+  if (routingExclusionDialog.open) routingExclusionDialog.close();
+  setTool("select");
+  interactionMessage = "Routing exclusion change cancelled; project unchanged";
+  render();
+}
+
+function removeRoutingExclusion(exclusionId) {
+  const exclusion = history.present.routingExclusions.find((candidate) => candidate.id === exclusionId);
+  if (!exclusion) return;
+  if (commitCommand({ type: "routingExclusion.remove", exclusionId }, `${exclusion.name} removed; Undo restores it`)) {
+    if (selectedRoutingExclusionId === exclusionId) selectedRoutingExclusionId = null;
+  }
+}
+
+function applyRoutingClearance() {
+  const value = routingClearanceInput.value;
+  const measurement = value === "" ? unknownMm("parallel duct clear spacing not set") : assumedMm(Number(value), "user-entered parallel duct clear spacing");
+  if (value !== "" && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+    interactionMessage = "Clear spacing must be zero or a positive millimetre value";
+    updateStatus();
+    return;
+  }
+  commitCommand({ type: "routingClearance.set", floorId: currentFloorId(), clearSpacingMm: measurement }, value === "" ? "Parallel duct clear spacing returned to unresolved" : `${Number(value)} mm parallel duct clear spacing applied`);
 }
 
 function currentFloorId() {
@@ -4766,6 +5047,127 @@ function applyThreeDHeights(event) {
   }, `3D heights applied as ${basis === "known" ? "confirmed measurements" : "explicit assumptions"} in one undoable action`);
 }
 
+function applyThreeDHeightItem(item, input, basis) {
+  const value = Number(input.value);
+  if (!Number.isFinite(value)) {
+    threeDHeightStatus.textContent = `Enter a finite millimetre elevation for ${item.label}.`;
+    input.focus();
+    return;
+  }
+  const elevationMm = basis.value === "known"
+    ? knownMm(value, `${item.label} elevation confirmed by designer in 3D setup`)
+    : assumedMm(value, `${item.label} coordination elevation entered by designer`);
+  const command = item.kind === "assembly"
+    ? { type: "equipmentAssembly.setElevation", assemblyId: item.id, elevationMm }
+    : item.kind === "assembly-component"
+      ? { type: "equipmentAssembly.setMemberElevation", assemblyId: item.assemblyId, componentId: item.id, elevationMm }
+    : item.kind === "component"
+      ? { type: "component.setElevation", componentId: item.id, elevationMm }
+      : { type: "route.setRoutingElevation", routeId: item.id, elevationMm };
+  commitCommand(command, `${item.label} height updated for 3D coordination`);
+}
+
+function clearThreeDHeightItem(item) {
+  const elevationMm = unknownMm(`${item.label} height not set`);
+  const command = item.kind === "assembly"
+    ? { type: "equipmentAssembly.setElevation", assemblyId: item.id, elevationMm }
+    : item.kind === "assembly-component"
+      ? { type: "equipmentAssembly.setMemberElevation", assemblyId: item.assemblyId, componentId: item.id, elevationMm }
+    : item.kind === "component"
+      ? { type: "component.setElevation", componentId: item.id, elevationMm }
+      : { type: "route.setRoutingElevation", routeId: item.id, elevationMm };
+  commitCommand(command, `${item.label} height returned to unknown`);
+}
+
+function renderThreeDHeightItems(scene) {
+  threeDHeightItems.replaceChildren();
+  if (!scene.heightItems.length) {
+    const empty = document.createElement("p");
+    empty.className = "checks-summary";
+    empty.textContent = "Place MVHR equipment, outlets or routes to edit individual heights.";
+    threeDHeightItems.append(empty);
+    return;
+  }
+  for (const item of scene.heightItems) {
+    const row = document.createElement("div");
+    row.className = "three-d-height-item";
+    row.dataset.heightKind = item.kind;
+    row.dataset.heightId = item.id;
+    const title = document.createElement("strong");
+    title.textContent = item.label;
+    title.title = `${item.kind} · ${item.measurement.state}${item.measurement.reason ? ` · ${item.measurement.reason}` : ""}`;
+    const inputLabel = document.createElement("label");
+    inputLabel.textContent = "Height mm";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "1";
+    input.placeholder = item.measurement.state === "mixed" ? "Mixed" : "Unknown";
+    input.value = item.measurement.valueMm === null ? "" : String(item.measurement.valueMm);
+    inputLabel.append(input);
+    const basisLabel = document.createElement("label");
+    basisLabel.textContent = "Basis";
+    const basis = document.createElement("select");
+    basis.append(new Option("Assumed", "assumed"), new Option("Confirmed", "known"));
+    basis.value = item.measurement.state === "known" ? "known" : "assumed";
+    basisLabel.append(basis);
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = "Apply";
+    apply.addEventListener("click", () => applyThreeDHeightItem(item, input, basis));
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.textContent = "Unset";
+    clear.disabled = item.measurement.state === "unknown";
+    clear.addEventListener("click", () => clearThreeDHeightItem(item));
+    row.append(title, inputLabel, basisLabel, apply, clear);
+    threeDHeightItems.append(row);
+  }
+}
+
+function adjustThreeDView(action) {
+  if (action === "reset") threeDView = { ...createDefaultThreeDView() };
+  if (action === "orbit-left") threeDView.azimuthRad -= Math.PI / 12;
+  if (action === "orbit-right") threeDView.azimuthRad += Math.PI / 12;
+  if (action === "pitch-up") threeDView.pitchRad = Math.min(1.35, threeDView.pitchRad + 0.12);
+  if (action === "pitch-down") threeDView.pitchRad = Math.max(0.15, threeDView.pitchRad - 0.12);
+  if (action === "zoom-in") threeDView.zoom = Math.min(4, threeDView.zoom * 1.2);
+  if (action === "zoom-out") threeDView.zoom = Math.max(0.35, threeDView.zoom / 1.2);
+  renderThreeDWorkspace();
+}
+
+function handleThreeDWheel(event) {
+  event.preventDefault();
+  threeDView.zoom = Math.max(0.35, Math.min(4, threeDView.zoom * Math.exp(-event.deltaY * 0.0015)));
+  renderThreeDWorkspace();
+}
+
+function startThreeDPointer(event) {
+  if (event.button !== 0 && event.button !== 1) return;
+  threeDPointer = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, mode: event.shiftKey || event.button === 1 ? "pan" : "orbit" };
+  threeDHost.setPointerCapture(event.pointerId);
+}
+
+function moveThreeDPointer(event) {
+  if (!threeDPointer || event.pointerId !== threeDPointer.pointerId) return;
+  const dx = event.clientX - threeDPointer.x, dy = event.clientY - threeDPointer.y;
+  threeDPointer.x = event.clientX;
+  threeDPointer.y = event.clientY;
+  if (threeDPointer.mode === "pan") {
+    threeDView.panX += dx;
+    threeDView.panY += dy;
+  } else {
+    threeDView.azimuthRad += dx * 0.008;
+    threeDView.pitchRad = Math.max(0.15, Math.min(1.35, threeDView.pitchRad - dy * 0.006));
+  }
+  renderThreeDWorkspace();
+}
+
+function endThreeDPointer(event) {
+  if (!threeDPointer || event.pointerId !== threeDPointer.pointerId) return;
+  if (threeDHost.hasPointerCapture(event.pointerId)) threeDHost.releasePointerCapture(event.pointerId);
+  threeDPointer = null;
+}
+
 function renderThreeDWorkspace() {
   const floorId = currentFloorId();
   if (!floorId) {
@@ -4775,13 +5177,14 @@ function renderThreeDWorkspace() {
     return;
   }
   const scene = createThreeDDrawingScene(history.present, floorId);
-  const svg = renderThreeDDrawingSvg(scene);
+  const svg = renderThreeDDrawingSvg(scene, { view: threeDView });
   threeDHost.innerHTML = svg;
   exportThreeDButton.disabled = scene.components.length === 0 && scene.routes.length === 0;
   threeDDatum.textContent = scene.floorDatumMm === null
     ? `${scene.floorName} · building datum unknown · inputs are relative to floor-local 0 mm`
     : `${scene.floorName} · floor-local 0 mm = building Z ${Math.round(scene.floorDatumMm)} mm (${scene.floorDatumState})`;
   threeDHeightStatus.textContent = `${scene.components.length} component${scene.components.length === 1 ? "" : "s"} and ${scene.routes.length} route${scene.routes.length === 1 ? "" : "s"} shown · ${scene.diagnostics.length} unresolved item${scene.diagnostics.length === 1 ? "" : "s"}.`;
+  renderThreeDHeightItems(scene);
   threeDDiagnostics.replaceChildren();
   if (!scene.diagnostics.length) {
     const item = document.createElement("p");
@@ -4800,7 +5203,7 @@ function exportThreeDDrawing() {
   const floorId = currentFloorId();
   if (!floorId) return;
   const scene = createThreeDDrawingScene(history.present, floorId);
-  const svg = renderThreeDDrawingSvg(scene);
+  const svg = renderThreeDDrawingSvg(scene, { view: threeDView });
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -4826,6 +5229,7 @@ function render() {
   renderCamera();
   renderReferences();
   renderFloorAreas();
+  renderRoutingExclusions();
   renderRooms();
   modelLayer.replaceChildren();
   const nodesById = new Map(history.present.wallNodes.map((node) => [node.id, node]));
@@ -4940,6 +5344,47 @@ function renderFloorAreas() {
   const evidence = floorAreaScaleEvidence(floor.id);
   floorAreaScale.textContent = evidence.panel;
   floorAreaScale.classList.toggle("verified", evidence.verified);
+}
+
+function renderRoutingExclusions() {
+  routingExclusionLayer.replaceChildren();
+  routingExclusionList.replaceChildren();
+  const floor = currentFloor();
+  if (!floor) return;
+  const exclusions = history.present.routingExclusions.filter((candidate) => candidate.floorId === floor.id);
+  for (const exclusion of exclusions) {
+    const { x, y, width, height } = exclusion.geometry;
+    routingExclusionLayer.append(svgElement("rect", { x: toView(x), y: toView(y), width: toView(width), height: toView(height),
+      class: `routing-exclusion${selectedRoutingExclusionId === exclusion.id ? " selected" : ""}`, "data-routing-exclusion-id": exclusion.id,
+      "aria-label": `${exclusion.name}, ${exclusion.kind}, ${exclusion.verticalRange.mode === "all-height" ? "all heights" : "height range"}` }));
+    const label = svgElement("text", { x: toView(x + width / 2), y: toView(y + height / 2), class: "routing-exclusion-label" });
+    label.textContent = `${exclusion.name} · ${exclusion.kind}`;
+    routingExclusionLayer.append(label);
+    const row = document.createElement("div");
+    row.className = "routing-exclusion-item";
+    const copy = document.createElement("span");
+    copy.textContent = `${exclusion.name} · ${exclusion.verticalRange.mode === "all-height" ? "all heights" : heightRangeLabel(exclusion.verticalRange)}`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => openRoutingExclusionEditor(exclusion.id));
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Remove"; remove.className = "danger-action"; remove.addEventListener("click", () => removeRoutingExclusion(exclusion.id));
+    row.append(copy, edit, remove); routingExclusionList.append(row);
+  }
+  if (!exclusions.length) routingExclusionList.append(htmlText("span", "No marked beams, voids or routing exclusions."));
+  const setting = history.present.routingClearanceSettings.find((candidate) => candidate.floorId === floor.id);
+  routingClearanceInput.value = setting?.clearSpacingMm?.state === "unknown" ? "" : String(setting?.clearSpacingMm?.valueMm ?? "");
+  routingClearanceStatus.textContent = setting?.clearSpacingMm?.state === "unknown" || !setting
+    ? "Not set · checks prevent envelope overlap only and report this limitation."
+    : `${setting.clearSpacingMm.valueMm} mm additional clear gap · ${setting.clearSpacingMm.state}.`;
+  const coordination = inspectRoutingCoordination(history.present, floor.id);
+  const errors = coordination.diagnostics.filter((item) => item.severity === "error").length;
+  const warnings = coordination.diagnostics.filter((item) => item.severity === "warning").length;
+  routingCoordinationStatus.textContent = errors || warnings
+    ? `${errors} coordination conflict${errors === 1 ? "" : "s"} · ${warnings} height review warning${warnings === 1 ? "" : "s"}. Open Checks for details.`
+    : "No clashes found against marked exclusions or modelled duct envelopes on this floor.";
+}
+
+function heightRangeLabel(range) {
+  const value = (measurement) => measurement?.state === "unknown" ? "?" : `${measurement.valueMm} mm`;
+  return `${value(range.bottomMm)} to ${value(range.topMm)}`;
 }
 
 function floorAreaScaleEvidence(floorId) {
@@ -6007,6 +6452,10 @@ function positiveAngleDelta(start, end) {
 
 function renderDraft() {
   draftLayer.replaceChildren();
+  if (activeTask === "ventilation" && activeTool === "routing-exclusion" && routingExclusionDraftStart && hoverPoint) {
+    const x = Math.min(routingExclusionDraftStart.x, hoverPoint.x), y = Math.min(routingExclusionDraftStart.y, hoverPoint.y);
+    draftLayer.append(svgElement("rect", { x: toView(x), y: toView(y), width: toView(Math.abs(hoverPoint.x - routingExclusionDraftStart.x)), height: toView(Math.abs(hoverPoint.y - routingExclusionDraftStart.y)), class: "routing-exclusion-draft" }));
+  }
   if (activeTask === "ventilation" && automaticRadialPreview?.proposals.length) {
     for (const proposal of automaticRadialPreview.proposals) {
       const swept = deriveSweptCentreline(proposal.points).points;
@@ -6022,6 +6471,21 @@ function renderDraft() {
         "data-automatic-route-preview-centre": proposal.destination.componentId,
       }));
     }
+  }
+  if (activeTask === "ventilation" && automaticEppPreview?.proposal) {
+    const proposal = automaticEppPreview.proposal;
+    const swept = deriveSweptCentreline(proposal.points).points;
+    draftLayer.append(svgElement("polyline", {
+      points: routePointString(swept),
+      class: `automatic-route-preview epp ${proposal.stream}`,
+      "stroke-width": toView(proposal.diameterMm),
+      "data-automatic-epp-preview": proposal.destination.componentId,
+    }));
+    draftLayer.append(svgElement("polyline", {
+      points: routePointString(swept),
+      class: "automatic-route-preview-centre epp",
+      "data-automatic-epp-preview-centre": proposal.destination.componentId,
+    }));
   }
   if (activeTool === "crop-reference" && referenceCropState) {
     const reference = selectedReference();
@@ -7848,6 +8312,8 @@ async function saveExplicit() {
 }
 
 cloudSession=initializeCloudUI({
+  client:getStudioClient(),
+  initialAccess:getBootAccess(),
   onAccount(){setTask("account");},
   onChange(state){
     handleWorkingSessionState(state);
@@ -7873,7 +8339,8 @@ cloudSession=initializeCloudUI({
     if(cloudSavePending)throw new Error("Wait for the current cloud save before signing out.");
     if(cloudSession?.workspace && projectHasUnsavedChanges())throw new Error("Save your drawing before signing out. Export backup is also available.");
   },
-  onSignedOut(){if(currentCloudRecord){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}interactionMessage="Signed out. Device-local projects remain on this browser.";updateStatus();}
+  onSignedOut(){if(currentCloudRecord){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}window.location.replace("/login/?signedout=1");},
+  onAccessLost(reason){window.location.replace(`/login/?reason=${encodeURIComponent(reason)}`);}
 });
 
 

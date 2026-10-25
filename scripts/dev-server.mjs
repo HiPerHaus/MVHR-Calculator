@@ -8,6 +8,8 @@ import {
   resolveStaticRequestPath,
   StaticPathError,
 } from "../src/dev/static-path.mjs";
+import * as authGate from "../api/auth-gate.mjs";
+import { authorizeStudioRequest, loginRedirect } from "../server/studio-auth.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const host = "127.0.0.1";
@@ -24,12 +26,31 @@ const contentTypes = new Map([
 ]);
 
 const server = createServer(async (request, response) => {
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  if (!request.method || !["GET", "HEAD", "POST", "DELETE"].includes(request.method)) {
     response.writeHead(405, { Allow: "GET, HEAD" });
     response.end("Method not allowed");
     return;
   }
   const url = new URL(request.url ?? "/", `http://${host}:${port}`);
+  if (url.pathname === "/api/auth-gate") {
+    const handler = authGate[request.method];
+    if (!handler) {
+      response.writeHead(405, { Allow: "GET, POST, DELETE" }); response.end("Method not allowed"); return;
+    }
+    try { return sendWebResponse(response, await handler(await webRequest(request, url))); }
+    catch { response.writeHead(500, { "Content-Type": "application/json", "Cache-Control": "no-store" }); response.end('{"authenticated":false,"reason":"identity-unavailable"}'); return; }
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.writeHead(405, { Allow: "GET, HEAD" }); response.end("Method not allowed"); return;
+  }
+  if (["/app", "/app/", "/app/index.html"].includes(url.pathname)) {
+    const authRequest = await webRequest(request, url);
+    const access = await authorizeStudioRequest(authRequest);
+    if (!access.ok) {
+      response.writeHead(303, { Location: loginRedirect(authRequest, access.reason).toString(), "Cache-Control": "no-store" });
+      response.end(); return;
+    }
+  }
   if (url.pathname === "/") {
     response.writeHead(302, { Location: "/app/" });
     response.end();
@@ -65,6 +86,28 @@ const server = createServer(async (request, response) => {
     response.end(statusCode === 404 ? "Not found" : error.message);
   }
 });
+
+async function webRequest(request, url) {
+  let body;
+  if (request.method === "POST" || request.method === "DELETE") {
+    const chunks = []; let bytes = 0;
+    for await (const chunk of request) {
+      bytes += chunk.length;
+      if (bytes > 16 * 1024) throw new Error("Request body too large");
+      chunks.push(chunk);
+    }
+    body = Buffer.concat(chunks);
+  }
+  return new Request(url, { method: request.method, headers: request.headers, body });
+}
+
+async function sendWebResponse(response, result) {
+  const headers = Object.fromEntries(result.headers.entries());
+  const cookies = result.headers.getSetCookie?.() ?? [];
+  if (cookies.length) headers["set-cookie"] = cookies;
+  response.writeHead(result.status, headers);
+  response.end(Buffer.from(await result.arrayBuffer()));
+}
 
 server.listen(port, host, () => {
   console.log(`HiPer Studio local shell: http://${host}:${port}/app/`);

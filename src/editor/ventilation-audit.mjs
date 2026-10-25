@@ -1,6 +1,7 @@
 import { inspectExternalGrilleSeparation } from "./external-grille-spacing.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { routeFamilyForKind } from "./component-catalogue.mjs";
+import { inspectRoutingCoordination } from "./routing-coordination.mjs";
 
 const REQUIRED_HRV_ROLES = Object.freeze(["Dwelling supply", "Dwelling extract"]);
 
@@ -33,6 +34,7 @@ export function auditVentilation(project, floorId) {
   inspectUnitMainPaths(unitPortsByRole, distributionPortsByRole, graph, diagnostics);
   inspectAssemblyMainPaths(assemblies, distributionPortsByRole, unitPortsByRole, graph, diagnostics);
   inspectOutlets(components, unitPortsByRole, graph, diagnostics);
+  diagnostics.push(...inspectRoutingCoordination(project, floorId).diagnostics);
   const externalGrilleSeparation=inspectExternalGrilleSeparation(project,floorId);
   for(const pair of externalGrilleSeparation) {
     if(pair.status === "plan-clearance-met")continue;

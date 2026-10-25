@@ -40,6 +40,19 @@ test("direct CW selection creates a schematic without manufacturing accessories 
   assert.throws(() => createConfiguredMvhrComponent({ ...choice, layout: "unknown" }, placement), /MVHR layout/);
 });
 
+test("German BIM variants are explicit exact-article placements and never inherit unverified CW mating", () => {
+  const q350 = createConfiguredMvhrComponent({ ...choice, model: "q350-de-hrv", handing: "left", layout: "unit-only" }, placement);
+  assert.equal(q350.catalogueItemId, "zehnder-q350-de-hrv-left-bim-profile");
+  assert.equal(q350.catalogueSnapshot.manufacturerArticle, "471502009");
+  assert.equal(q350.catalogueSnapshot.manufacturerGeometryAsset.assetId, "q350-de-hrv-left");
+  assert.ok(q350.ports.every((port) => port.positionMm.z === 850));
+  const q450 = createConfiguredMvhrComponent({ ...choice, model: "q450-de-erv", handing: "right", layout: "remote-attenuators" }, placement);
+  assert.equal(q450.catalogueItemId, "zehnder-q450-de-erv-right-bim-profile");
+  assert.equal(q450.catalogueSnapshot.manufacturerArticle, "471502012");
+  assert.ok(q450.ports.every((port) => port.interface.nominalSizeMm === 180));
+  assert.throws(() => createConfiguredMvhrComponent({ ...choice, model: "q350-de-hrv", layout: "unit-mounted-cw" }, placement), /no reviewed CW mating asset/);
+});
+
 
 test("mounted CW sizes mirror without changing any unit snap ports", async () => {
   const { deriveComponentPlanGraphic, mountedCwShapes } = await import("../src/editor/component-plan-graphics.mjs");

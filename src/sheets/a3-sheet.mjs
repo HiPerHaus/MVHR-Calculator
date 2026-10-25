@@ -251,6 +251,10 @@ function buildPrintScene(project, floorId, partsSchedule) {
     id:outline.id,name:sanitizeXmlText(outline.name,"Building area name"),
     vertices:outline.vertices.map(vertex=>planPoint(vertex.positionMm,"Building area vertex")),
   }));
+  const routingExclusions=(project.routingExclusions??[]).filter(exclusion=>exclusion.floorId===floorId).map(exclusion=>({
+    id:exclusion.id,name:sanitizeXmlText(exclusion.name,"Routing exclusion name"),kind:exclusion.kind,
+    geometry:{...exclusion.geometry},heightMode:exclusion.verticalRange.mode,
+  }));
   const routes = project.routes.filter((route) => route.floorId === floorId).map((route) => {
     const family = routeFamilyForKind(route.ductKind);
     const geometry = deriveDuctBodyGeometry(route, family);
@@ -323,6 +327,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
   const allBounds = [
     ...walls.map(wallBounds),
     ...floorAreas.map(outline=>pointsBounds(outline.vertices)),
+    ...routingExclusions.map(exclusion=>({minX:exclusion.geometry.x,minY:exclusion.geometry.y,maxX:exclusion.geometry.x+exclusion.geometry.width,maxY:exclusion.geometry.y+exclusion.geometry.height})),
     ...routes.map(routeBounds),
     ...components.map(componentBounds),
     ...references.map(referenceBounds),
@@ -333,12 +338,13 @@ function buildPrintScene(project, floorId, partsSchedule) {
     floorName: sanitizeXmlText(floor.name, "Floor name"),
     walls,
     floorAreas,
+    routingExclusions,
     routes,
     components,
     hrvCeilingElbows: deriveHrvCeilingElbows(project.routes.filter(route=>route.floorId===floorId),project.components.filter(component=>component.floorId===floorId)),
     references,
     cadReferences,
-    legend: buildLegend({ walls, floorAreas, routes, components, references, cadReferences }),
+    legend: buildLegend({ walls, floorAreas, routingExclusions, routes, components, references, cadReferences }),
     hasUncalibratedReference,
     hasPartialCadReference: cadReferences.some((reference) => reference.partialImportAccepted),
     modelBoundsMm: mergeBounds(allBounds),
@@ -348,6 +354,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
 function buildLegend(scene) {
   const legend = [];
   if(scene.floorAreas.length)legend.push({key:"building-area",label:"Building area — preliminary outline"});
+  if(scene.routingExclusions?.length)legend.push({key:"routing-exclusion",label:"Routing exclusion — user marked coordination area"});
   if (scene.walls.some((wall) => wall.classification === "physical")) {
     legend.push({ key: "wall", label: "Wall — authoritative model geometry" });
   }
@@ -400,6 +407,10 @@ function renderPrintScene(sheet) {
   for(const outline of scene.floorAreas){
     const path=[outline.vertices].map(vertices=>`M ${vertices.map(point=>`${mapX(point.x,transform)} ${mapY(point.y,transform)}`).join(" L ")} Z`).join(" ");
     out.push(`<path data-kind="building-area" data-id="${escapeXml(outline.id)}" d="${path}" fill="#e7b459" fill-opacity="0.05" fill-rule="evenodd" stroke="#a77927" stroke-width="0.4" stroke-dasharray="2 1"><title>${escapeXml(outline.name)} — preliminary building area</title></path>`);
+  }
+  for(const exclusion of scene.routingExclusions??[]){
+    const g=exclusion.geometry;
+    out.push(`<rect data-kind="routing-exclusion" data-id="${escapeXml(exclusion.id)}" x="${mapX(g.x,transform)}" y="${mapY(g.y,transform)}" width="${formatNumber(g.width*transform.scale)}" height="${formatNumber(g.height*transform.scale)}" fill="#e6a15f" fill-opacity="0.18" stroke="#a5521d" stroke-width="0.5" stroke-dasharray="2 1"><title>${escapeXml(exclusion.name)} — ${escapeXml(exclusion.kind)} — ${escapeXml(exclusion.heightMode)}</title></rect>`);
   }
   for (const wall of scene.walls) {
     const dash = wall.classification === "virtual" ? ' stroke-dasharray="2 1.2"' : "";

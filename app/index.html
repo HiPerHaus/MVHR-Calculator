@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="app-auth-status" class="app-auth-status" role="status"><strong>Checking Studio access…</strong><span>Verifying your account and company workspace.</span></div>
+    <div class="app-shell" hidden>
       <header class="topbar">
         <div class="brand-block">
           <span class="brand-mark" aria-hidden="true">H</span>
@@ -60,6 +61,25 @@
           </section>
           <section id="mechanical-tools-section" hidden>
             <h2>Parts</h2>
+            <div class="automatic-routing-actions" aria-label="Automatic duct routing">
+              <strong>Automatic routing</strong>
+              <span>Preview geometry before adding editable routes.</span>
+              <div>
+                <button id="auto-route-dn90" class="panel-action primary-route-action" type="button">Auto route DN90</button>
+                <button id="auto-route-epp" class="panel-action primary-route-action" type="button">Auto route EPP</button>
+              </div>
+            </div>
+            <details class="parts-details" open><summary>Routing coordination</summary>
+              <button id="add-routing-exclusion" class="panel-action" type="button">Mark exclusion rectangle</button>
+              <p class="clear-ventilation-note">Click two opposite corners on the plan, then name the beam, void or no-go area.</p>
+              <label class="catalogue-search">Clear spacing between independent ducts (mm)
+                <input id="routing-clearance-input" type="number" min="0" step="10" placeholder="Not set" />
+              </label>
+              <button id="apply-routing-clearance" class="panel-action" type="button">Apply clearance</button>
+              <p id="routing-clearance-status" class="clear-ventilation-note"></p>
+              <p id="routing-coordination-status" class="clear-ventilation-note" aria-live="polite"></p>
+              <div id="routing-exclusion-list" class="routing-exclusion-list"></div>
+            </details>
             <details class="parts-details"><summary>Design demand &amp; floor actions</summary>
             <p id="ventilation-readiness" class="room-guidance"></p>
             <button id="clear-ventilation" class="panel-action danger-action" type="button" disabled>Clear ventilation on this floor…</button>
@@ -73,8 +93,6 @@
               <div class="demand-card extract"><strong id="extract-run-demand">0</strong><span>Extract runs</span><small id="extract-run-detail">No extract outlets</small></div>
             </div>
             <p id="cw-suggestion-status" class="evidence-pending">CW suggestion: evidence pending.</p>
-            <button id="auto-route-dn90" class="panel-action" type="button">Preview automatic DN90 routes…</button>
-            <p class="clear-ventilation-note">Uses free compatible CW/distribution ports and keeps the full 90 mm drawing width inside the scaled building outline.</p>
             </details>
             <div id="catalogue-categories" class="parts-categories" aria-label="Part categories"></div>
             <label class="catalogue-search">Search manufacturer, product or type
@@ -173,6 +191,7 @@
             <rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#major-grid)" />
             <g id="reference-layer"></g>
             <g id="floor-area-layer"></g>
+            <g id="routing-exclusion-layer"></g>
             <g id="room-layer"></g>
             <g id="model-layer"></g>
             <g id="draft-layer"></g>
@@ -393,6 +412,7 @@
         <header class="project-workspace-heading"><div><strong>Account &amp; company</strong><span id="account-workspace-name"></span></div><button id="account-page-signout" type="button" hidden>Sign out</button><button id="account-page-signin" type="button">Sign in</button></header>
         <p id="account-email"></p>
         <article class="workflow-card"><h2>Company details</h2><form id="company-form"><fieldset id="company-fields" disabled><div class="company-fields-grid"><label>Company name<input name="companyName" type="text" maxlength="160" /></label><label>Company address<input name="address" type="text" maxlength="500" /></label><label>Company email<input name="email" type="email" maxlength="160" /></label><label>Company phone<input name="phone" type="tel" maxlength="60" /></label><label>Website<input name="website" type="text" maxlength="200" /></label><label>Primary contact<input name="contactName" type="text" maxlength="160" /></label><label>Contact email<input name="contactEmail" type="email" maxlength="160" /></label><label>Contact phone<input name="contactPhone" type="tel" maxlength="60" /></label></div><div class="company-logo-settings"><label>Company logo · PNG or JPEG, up to 2 MB<input id="company-logo" type="file" accept="image/png,image/jpeg" /></label><img id="company-logo-preview" alt="Company logo preview" hidden /><button id="remove-company-logo" type="button">Remove logo</button></div><button type="submit" class="primary-action">Save company details</button></fieldset></form><p id="company-status" role="status"></p></article>
+        <article id="access-admin-card" class="workflow-card" hidden><h2>Customer access</h2><p>Manage the current company workspace. New accounts remain pending until their email is verified and a platform administrator approves them.</p><section id="access-pending-section"><h3>Pending requests</h3><div id="access-pending-list" class="access-user-list"></div></section><section><h3>Workspace users</h3><div id="access-member-list" class="access-user-list"></div></section><p id="access-admin-status" role="status"></p></article>
       </section>
 
       <section id="catalogue-workspace" class="catalogue-workspace" aria-labelledby="catalogue-workspace-heading" hidden>
@@ -514,7 +534,16 @@
       <section id="three-d-workspace" class="three-d-workspace" aria-labelledby="three-d-heading" hidden>
         <header class="checks-workspace-heading">
           <div><strong id="three-d-heading">3D coordination drawing</strong><span>Same saved MVHR components and routes, viewed from an isometric angle.</span></div>
-          <div class="checks-heading-actions"><button id="export-three-d" type="button">Export SVG</button><button id="three-d-return" type="button">Return to ventilation</button></div>
+          <div class="checks-heading-actions three-d-view-actions" aria-label="3D view controls">
+            <button type="button" data-three-d-view="orbit-left" title="Orbit left">Orbit ←</button>
+            <button type="button" data-three-d-view="orbit-right" title="Orbit right">Orbit →</button>
+            <button type="button" data-three-d-view="pitch-up" title="View from higher angle">Tilt ↑</button>
+            <button type="button" data-three-d-view="pitch-down" title="View from lower angle">Tilt ↓</button>
+            <button type="button" data-three-d-view="zoom-out" title="Zoom out">−</button>
+            <button type="button" data-three-d-view="zoom-in" title="Zoom in">+</button>
+            <button type="button" data-three-d-view="reset" title="Fit and reset view">Fit</button>
+            <button id="export-three-d" type="button">Export SVG</button><button id="three-d-return" type="button">Return to ventilation</button>
+          </div>
         </header>
         <div class="three-d-layout">
           <aside class="three-d-settings">
@@ -528,11 +557,14 @@
               <button type="submit" class="primary-action">Apply heights to this floor</button>
             </form>
             <p id="three-d-height-status" class="checks-summary">Unknown heights stay unresolved until applied.</p>
+            <h3>Individual heights</h3>
+            <p class="checks-summary">Override equipment, outlets or each saved route independently. Route height creates vertical transitions to its unchanged typed endpoints.</p>
+            <div id="three-d-height-items" class="three-d-height-items"></div>
             <h3>Unresolved</h3>
             <div id="three-d-diagnostics" class="checks-diagnostics"></div>
             <p class="checks-boundary">Floor-local Z datum. Route height creates explicit vertical transitions at its saved endpoints. Component and product heights are never invented.</p>
           </aside>
-          <main class="three-d-stage"><div id="three-d-host" class="three-d-host"></div></main>
+          <main class="three-d-stage"><div id="three-d-host" class="three-d-host" tabindex="0" aria-label="Interactive 3D coordination view. Drag to orbit, Shift-drag to pan, and use the mouse wheel to zoom."></div><p class="three-d-gesture-help">Drag to orbit · Shift-drag to pan · Wheel to zoom</p></main>
         </div>
         <footer class="sheet-preview-note">Schematic coordination output only · not BIM · no clash, airflow, pressure-loss, fabrication or installation certification</footer>
       </section>
@@ -855,6 +887,46 @@
         </div>
       </form>
     </dialog>
+    <dialog id="automatic-epp-dialog" class="wide-dialog" aria-labelledby="automatic-epp-title">
+      <form method="dialog">
+        <h2 id="automatic-epp-title">Automatic EPP route</h2>
+        <p>Choose both endpoints so Studio never guesses between plausible equipment chains.</p>
+        <label>From
+          <select id="automatic-epp-start"><option value="">Choose a free EPP port…</option></select>
+        </label>
+        <label>To
+          <select id="automatic-epp-end" disabled><option value="">Choose the first port above</option></select>
+        </label>
+        <p id="automatic-epp-summary" aria-live="polite"></p>
+        <div id="automatic-epp-result" class="automatic-radial-results"></div>
+        <p class="scope-note">Preview geometry only. This does not calculate airflow, pressure loss, supports, obstacle clearance, manufacturer fit or installation compliance.</p>
+        <div class="dialog-actions">
+          <button id="cancel-automatic-epp" type="button">Cancel</button>
+          <button id="apply-automatic-epp" type="button" class="primary-action" disabled>Apply route</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="routing-exclusion-dialog" aria-labelledby="routing-exclusion-title">
+      <form id="routing-exclusion-form">
+        <h2 id="routing-exclusion-title">Routing exclusion</h2>
+        <label>Name <input id="routing-exclusion-name" maxlength="120" required /></label>
+        <label>Type <select id="routing-exclusion-kind"><option value="beam">Beam</option><option value="void">Void</option><option value="other">Other no-go area</option></select></label>
+        <div class="coordinate-grid">
+          <label>X (mm)<input id="routing-exclusion-x" type="number" required /></label>
+          <label>Y (mm)<input id="routing-exclusion-y" type="number" required /></label>
+          <label>Width (mm)<input id="routing-exclusion-width" type="number" min="1" required /></label>
+          <label>Height (mm)<input id="routing-exclusion-height" type="number" min="1" required /></label>
+        </div>
+        <label>Vertical behavior <select id="routing-exclusion-height-mode"><option value="all-height">Forbidden at every height</option><option value="solid-range">Solid vertical range</option></select></label>
+        <div id="routing-exclusion-height-fields" class="coordinate-grid" hidden>
+          <label>Bottom Z (mm)<input id="routing-exclusion-bottom" type="number" placeholder="Unknown" /></label>
+          <label>Top Z (mm)<input id="routing-exclusion-top" type="number" placeholder="Unknown" /></label>
+        </div>
+        <p class="scope-note">Unknown obstacle heights remain a coordination warning and never produce a false clear result.</p>
+        <p id="routing-exclusion-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button id="cancel-routing-exclusion" type="button">Cancel</button><button type="submit" class="primary-action">Save exclusion</button></div>
+      </form>
+    </dialog>
     <dialog id="mvhr-placement-dialog" aria-labelledby="mvhr-placement-title">
       <form id="mvhr-placement-form">
         <h2 id="mvhr-placement-title">Configure MVHR</h2>
@@ -863,6 +935,10 @@
             <option value="ca200">CA200 · manual version · DN125</option>
             <option value="q350-hrv">Q350 · sensible heat recovery</option>
             <option value="q350-erv">Q350 · enthalpy recovery</option>
+            <option value="q350-de-hrv">Q350 TR DE BIM · sensible · article 471502009</option>
+            <option value="q350-de-erv">Q350 TR DE BIM · enthalpy · article 471502010</option>
+            <option value="q450-de-hrv">Q450 TR DE BIM · sensible · article 471502011</option>
+            <option value="q450-de-erv">Q450 TR DE BIM · enthalpy · article 471502012</option>
             <option value="aerofresh-450-hrv">Aerofresh 450 · HRV</option>
             <option value="aerofresh-450-erv">Aerofresh 450 · ERV</option>
             <option value="generic">Generic planning unit</option>
@@ -924,19 +1000,13 @@
         <div class="dialog-actions"><button id="cancel-external-grille" type="button">Cancel</button><button type="submit" class="primary-action">Place grille</button></div>
       </form>
     </dialog>
-    <script type="module" src="./main.mjs"></script>
+    <script type="module" src="./bootstrap.mjs"></script>
     <dialog id="signin-dialog" class="cloud-dialog" aria-labelledby="signin-title">
-      <h2 id="signin-title">Sign in to HiPer Studio</h2>
-      <p>Use your existing invited account. Cloud drawings are private to your workspace.</p>
-      <form id="signin-form">
-        <label>Email<input id="signin-email" type="email" autocomplete="username" required /></label>
-        <label>Password<input id="signin-password" type="password" autocomplete="current-password" required /></label>
-        <button type="submit">Sign in</button>
-      </form>
-      <p id="signed-in-account" hidden></p>
+      <h2 id="signin-title">Studio account</h2>
+      <p id="signed-in-account"></p>
       <p id="signin-error" role="status"></p>
-      <p class="cloud-help">Need an account or a password reset? Contact your workspace administrator.</p>
-      <button id="signout-button" type="button" hidden>Sign out and close cloud drawing</button>
+      <p class="cloud-help">Signing out closes private cloud access on this browser. Save or export any changes first.</p>
+      <button id="signout-button" type="button">Sign out and close cloud drawing</button>
       <button id="close-signin" type="button">Close</button>
     </dialog>
     <dialog id="cloud-projects-dialog" class="cloud-dialog" aria-labelledby="cloud-projects-title">

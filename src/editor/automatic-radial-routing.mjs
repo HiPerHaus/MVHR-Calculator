@@ -1,6 +1,7 @@
 import { floorPortTransform } from "../domain/spatial.mjs";
 import { inspectFloorAreaOutline } from "../domain/floor-area.mjs";
 import { deriveSweptCentreline } from "./duct-body-geometry.mjs";
+import { routingCoordinationInputs } from "./routing-coordination.mjs";
 
 export const AUTOMATIC_RADIAL_DIAMETER_MM = 90;
 export const AUTOMATIC_RADIAL_CLEARANCE_MM = AUTOMATIC_RADIAL_DIAMETER_MM / 2;
@@ -15,7 +16,7 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   const outline = project.floorAreaOutlines?.find((candidate) => candidate.floorId === floorId);
   if (!outline) return blocked("Draw and confirm a closed building outline before routing.");
   if ((outline.holes?.length ?? 0) > 0) {
-    return blocked("Automatic routing does not yet support holes or internal exclusions.");
+    return blocked("Automatic routing does not yet support holes in the confirmed building outline. Marked routing exclusions are supported separately.");
   }
   const scaleEvidence = scaleEvidenceForFloor(project, floorId);
   if (scaleEvidence === "manual-project-grid") {
@@ -26,6 +27,7 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   }
 
   const polygon = inspectFloorAreaOutline(outline).polygon;
+  const coordination = routingCoordinationInputs(project, floorId);
   const occupied = occupiedPortKeys(project);
   const ports = eligibleDn90Ports(project, floorId, occupied);
   const destinations = ports.filter((entry) => entry.terminal);
@@ -46,7 +48,7 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   for (const destination of destinations) {
     for (const source of sources) {
       if (!compatible(source, destination)) continue;
-      const path = findContainedPath(source.positionMm, destination.positionMm, polygon, options);
+      const path = findContainedDuctPath(source.positionMm, destination.positionMm, polygon, AUTOMATIC_RADIAL_DIAMETER_MM, coordinationOptions(options, coordination, source, destination));
       if (path) candidates.push({ source, destination, path, lengthMm: pathLength(path) });
     }
   }
@@ -56,6 +58,10 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   const proposals = [];
   for (const candidate of candidates) {
     if (usedSources.has(candidate.source.key) || usedDestinations.has(candidate.destination.key)) continue;
+    const reserved = proposals.flatMap((proposal) => proposal.points.slice(1).map((point, index) => ({ start: proposal.points[index], end: point, radiusMm: AUTOMATIC_RADIAL_CLEARANCE_MM, routeId: `proposal-${proposal.destination.componentId}`, endpointComponentIds: [] })));
+    const rerouted = findContainedDuctPath(candidate.source.positionMm, candidate.destination.positionMm, polygon, AUTOMATIC_RADIAL_DIAMETER_MM,
+      coordinationOptions(options, { ...coordination, blockedSegments: [...coordination.blockedSegments, ...reserved] }, candidate.source, candidate.destination));
+    if (!rerouted) continue;
     usedSources.add(candidate.source.key);
     usedDestinations.add(candidate.destination.key);
     proposals.push(Object.freeze({
@@ -66,15 +72,15 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
       role: candidate.destination.port.role,
       diameterMm: AUTOMATIC_RADIAL_DIAMETER_MM,
       clearanceMm: AUTOMATIC_RADIAL_CLEARANCE_MM,
-      lengthMm: candidate.lengthMm,
-      points: Object.freeze(candidate.path.map((point) => Object.freeze({ x: point.x, y: point.y }))),
+      lengthMm: pathLength(rerouted),
+      points: Object.freeze(rerouted.map((point) => Object.freeze({ x: point.x, y: point.y }))),
     }));
   }
   const unresolvedEntries = destinations
     .filter((entry) => !usedDestinations.has(entry.key))
     .map((entry) => unresolved(entry, compatibleSources(entry, sources).length === 0
       ? "No compatible free DN90 distribution port is available."
-      : "No full-width DN90 route could be kept inside the building outline."));
+      : "No full-width DN90 route could avoid the building boundary, marked exclusions and modelled duct clearances."));
   return Object.freeze({
     status: proposals.length === 0 ? "partial" : unresolvedEntries.length ? "partial" : "ready",
     prerequisites: Object.freeze(context),
@@ -84,28 +90,38 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   });
 }
 
-export function validateDuctPathInsideOutline(points, polygon, diameterMm = AUTOMATIC_RADIAL_DIAMETER_MM) {
-  if (!Array.isArray(points) || points.length < 2 || !Array.isArray(polygon) || polygon.length < 3) return false;
-  const clearance = diameterMm / 2;
-  return points.every((point) => validCentre(point, polygon, clearance)) &&
-    points.slice(1).every((point, index) => validSegment(points[index], point, polygon, clearance));
+function coordinationOptions(options, coordination, source, destination) {
+  const componentIds = new Set([source.component.id, destination.component.id]);
+  return {
+    ...options,
+    forbiddenPolygons: coordination.forbiddenPolygons,
+    blockedSegments: coordination.blockedSegments.filter((segment) => !segment.endpointComponentIds?.some((id) => componentIds.has(id))),
+    clearSpacingMm: coordination.clearSpacingMm,
+  };
 }
 
-function findContainedPath(start, end, polygon, options) {
-  const clearance = AUTOMATIC_RADIAL_CLEARANCE_MM;
-  if (!validCentre(start, polygon, clearance) || !validCentre(end, polygon, clearance)) return null;
-  if (validSegment(start, end, polygon, clearance)) return [planPoint(start), planPoint(end)];
+export function validateDuctPathInsideOutline(points, polygon, diameterMm = AUTOMATIC_RADIAL_DIAMETER_MM, options = {}) {
+  if (!Array.isArray(points) || points.length < 2 || !Array.isArray(polygon) || polygon.length < 3) return false;
+  const clearance = diameterMm / 2;
+  return points.every((point) => validCentre(point, polygon, clearance, options)) &&
+    points.slice(1).every((point, index) => validSegment(points[index], point, polygon, clearance, options));
+}
+
+export function findContainedDuctPath(start, end, polygon, diameterMm = AUTOMATIC_RADIAL_DIAMETER_MM, options = {}) {
+  const clearance = diameterMm / 2;
+  if (!validCentre(start, polygon, clearance, options) || !validCentre(end, polygon, clearance, options)) return null;
+  if (validSegment(start, end, polygon, clearance, options)) return [planPoint(start), planPoint(end)];
   for (const marginMm of options.marginsMm ?? [15, 35, 70]) {
-    const controls = gridPath(start, end, polygon, clearance + marginMm, options.gridSpacingMm ?? 120);
+    const controls = gridPath(start, end, polygon, clearance + marginMm, options.gridSpacingMm ?? 120, options);
     if (!controls) continue;
-    const simplified = simplifyVisiblePath(controls, polygon, clearance + marginMm);
+    const simplified = simplifyVisiblePath(controls, polygon, clearance + marginMm, options);
     const swept = deriveSweptCentreline(simplified, { sweepTrimRatio: 0.25, samplesPerCorner: 8 }).points;
-    if (validateDuctPathInsideOutline(swept, polygon)) return simplified;
+    if (validateDuctPathInsideOutline(swept, polygon, diameterMm, options)) return simplified;
   }
   return null;
 }
 
-function gridPath(start, end, polygon, clearance, requestedSpacing) {
+function gridPath(start, end, polygon, clearance, requestedSpacing, options) {
   const minX = Math.min(...polygon.map((point) => point.x));
   const maxX = Math.max(...polygon.map((point) => point.x));
   const minY = Math.min(...polygon.map((point) => point.y));
@@ -120,14 +136,14 @@ function gridPath(start, end, polygon, clearance, requestedSpacing) {
   for (let row = 0; row <= rows; row += 1) {
     for (let column = 0; column <= columns; column += 1) {
       const point = { x: Math.min(maxX, minX + column * spacing), y: Math.min(maxY, minY + row * spacing) };
-      if (!validCentre(point, polygon, clearance)) continue;
+      if (!validCentre(point, polygon, clearance, options)) continue;
       const node = { id: `${column}:${row}`, column, row, point };
       nodes.push(node);
       byGrid.set(node.id, node);
     }
   }
-  const visibleFromStart = nodes.filter((node) => validSegment(start, node.point, polygon, clearance));
-  const visibleToEnd = new Set(nodes.filter((node) => validSegment(node.point, end, polygon, clearance)).map((node) => node.id));
+  const visibleFromStart = nodes.filter((node) => validSegment(start, node.point, polygon, clearance, options));
+  const visibleToEnd = new Set(nodes.filter((node) => validSegment(node.point, end, polygon, clearance, options)).map((node) => node.id));
   if (!visibleFromStart.length || !visibleToEnd.size) return null;
   const open = new Set(visibleFromStart.map((node) => node.id));
   const distance = new Map(visibleFromStart.map((node) => [node.id, Math.hypot(node.point.x - start.x, node.point.y - start.y)]));
@@ -152,7 +168,7 @@ function gridPath(start, end, polygon, clearance, requestedSpacing) {
     }
     for (const [dx, dy] of NEIGHBOURS) {
       const neighbour = byGrid.get(`${current.column + dx}:${current.row + dy}`);
-      if (!neighbour || !validSegment(current.point, neighbour.point, polygon, clearance)) continue;
+      if (!neighbour || !validSegment(current.point, neighbour.point, polygon, clearance, options)) continue;
       const tentative = distance.get(current.id) + Math.hypot(neighbour.point.x - current.point.x, neighbour.point.y - current.point.y);
       if (tentative >= (distance.get(neighbour.id) ?? Infinity)) continue;
       distance.set(neighbour.id, tentative);
@@ -167,24 +183,31 @@ const NEIGHBOURS = Object.freeze([
   [-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1],
 ]);
 
-function simplifyVisiblePath(points, polygon, clearance) {
+function simplifyVisiblePath(points, polygon, clearance, options) {
   const result = [points[0]];
   let index = 0;
   while (index < points.length - 1) {
     let next = points.length - 1;
-    while (next > index + 1 && !validSegment(points[index], points[next], polygon, clearance)) next -= 1;
+    while (next > index + 1 && !validSegment(points[index], points[next], polygon, clearance, options)) next -= 1;
     result.push(points[next]);
     index = next;
   }
   return result;
 }
 
-function validCentre(point, polygon, clearance) {
-  return pointInPolygon(point, polygon) && boundaryDistance(point, polygon) + 1e-6 >= clearance;
+function validCentre(point, polygon, clearance, options = {}) {
+  if (!pointInPolygon(point, polygon) || boundaryDistance(point, polygon) + 1e-6 < clearance) return false;
+  for (const obstacle of options.forbiddenPolygons ?? []) {
+    if (pointInPolygon(point, obstacle) || boundaryDistance(point, obstacle) + 1e-6 < clearance) return false;
+  }
+  for (const blocked of options.blockedSegments ?? []) {
+    if (pointSegmentDistance(point, blocked.start, blocked.end) + 1e-6 < clearance + blocked.radiusMm + (options.clearSpacingMm ?? 0)) return false;
+  }
+  return true;
 }
 
-function validSegment(start, end, polygon, clearance) {
-  if (!validCentre(start, polygon, clearance) || !validCentre(end, polygon, clearance)) return false;
+function validSegment(start, end, polygon, clearance, options = {}) {
+  if (!validCentre(start, polygon, clearance, options) || !validCentre(end, polygon, clearance, options)) return false;
   for (let index = 0; index < polygon.length; index += 1) {
     const edgeStart = polygon[index], edgeEnd = polygon[(index + 1) % polygon.length];
     if (segmentsIntersect(start, end, edgeStart, edgeEnd)) return false;
@@ -196,7 +219,18 @@ function validSegment(start, end, polygon, clearance) {
     );
     if (distance + 1e-6 < clearance) return false;
   }
-  return pointInPolygon({ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, polygon);
+  if (!pointInPolygon({ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, polygon)) return false;
+  for (const obstacle of options.forbiddenPolygons ?? []) {
+    if (pointInPolygon(start, obstacle) || pointInPolygon(end, obstacle)) return false;
+    for (let index = 0; index < obstacle.length; index += 1) {
+      const edgeStart = obstacle[index], edgeEnd = obstacle[(index + 1) % obstacle.length];
+      if (segmentDistance(start, end, edgeStart, edgeEnd) + 1e-6 < clearance) return false;
+    }
+  }
+  for (const blocked of options.blockedSegments ?? []) {
+    if (segmentDistance(start, end, blocked.start, blocked.end) + 1e-6 < clearance + blocked.radiusMm + (options.clearSpacingMm ?? 0)) return false;
+  }
+  return true;
 }
 
 function pointInPolygon(point, polygon) {
@@ -223,6 +257,11 @@ function pointSegmentDistance(point, start, end) {
   if (squared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
   const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / squared));
   return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
+}
+
+function segmentDistance(a, b, c, d) {
+  if (segmentsIntersect(a, b, c, d)) return 0;
+  return Math.min(pointSegmentDistance(a, c, d), pointSegmentDistance(b, c, d), pointSegmentDistance(c, a, b), pointSegmentDistance(d, a, b));
 }
 
 function segmentsIntersect(a, b, c, d) {
@@ -286,6 +325,6 @@ function scaleEvidenceForFloor(project, floorId) {
   if (project.floorCadReferences?.some((reference) => reference.floorId === floorId)) return "explicit-cad-units";
   return "manual-project-grid";
 }
-function notes() { return Object.freeze(["Geometric route only; airflow, pressure loss, supports and installation clearances are not certified."]); }
+function notes() { return Object.freeze(["The complete modelled duct width is checked against the building boundary, marked exclusions and configured spacing from existing modelled routes.", "Geometric route only; unknown external envelopes, unmarked structure, airflow, pressure loss, supports and installation clearances are not certified."]); }
 function blocked(reason, prerequisites = {}) { return Object.freeze({ status: "blocked", prerequisites: Object.freeze(prerequisites), proposals: Object.freeze([]), unresolved: Object.freeze([]), notes: Object.freeze([reason, ...notes()]) }); }
 function nothing(reason, prerequisites) { return Object.freeze({ status: "nothing-to-route", prerequisites: Object.freeze(prerequisites), proposals: Object.freeze([]), unresolved: Object.freeze([]), notes: Object.freeze([reason, ...notes()]) }); }

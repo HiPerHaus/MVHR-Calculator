@@ -34,3 +34,9 @@ test('tab identity survives refresh, while unavailable recovery reports a failur
  assert.equal(workingTabId(storage,()=> 'stable-tab'),'stable-tab');assert.equal(workingTabId(storage,()=> 'replacement-tab'),'stable-tab');
  const unavailable=createWorkingSessionStore(null,{tabId:'tab-a'});await assert.rejects(unavailable.write(context,snapshot()),/unavailable/);
 });
+test('the 3D coordination task survives refresh without becoming project authority',async()=>{
+ const db=indexedDbFixture(),store=createWorkingSessionStore(db,{tabId:'tab-3d'});
+ await store.write(context,{...snapshot('3D drawing'),task:'three-d'});
+ const restored=await store.read(context);
+ assert.equal(restored.task,'three-d');assert.equal(restored.project.id,'current-project');assert.equal(restored.dirty,true);
+});

@@ -2,6 +2,7 @@ import { resolve, sep } from "node:path";
 
 const ALLOWED_ROOTS = Object.freeze([
   "app",
+  "login",
   "src/domain",
   "src/editor",
   "src/import",

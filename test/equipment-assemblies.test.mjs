@@ -106,7 +106,7 @@ test("one atomic command places and persists an assembly with internal typed con
   assert.deepEqual(reopened, project);
 });
 
-test("assembly movement, rotation and elevation remain grouped while member-only edits are blocked", () => {
+test("assembly movement and rotation remain grouped while height setout can target the assembly or one member", () => {
   const value = createEquipmentAssembly("generic-remote-extract-attenuation-set", {
     id: "assembly-extract-1",
     floorId: "floor-ground",
@@ -150,6 +150,20 @@ test("assembly movement, rotation and elevation remain grouped while member-only
     elevationMm: knownMm(2400, "manual equipment placement"),
   });
   assert.ok(project.components.every((component) => component.positionMm.z.valueMm === 2400));
+  project = applyCommand(project, {
+    type: "equipmentAssembly.setMemberElevation",
+    assemblyId: value.assembly.id,
+    componentId: value.components[1].id,
+    elevationMm: knownMm(2525, "member mounting setout"),
+  });
+  assert.deepEqual(project.components.map((component) => component.positionMm.z.valueMm), [2400, 2525, 2400]);
+  assert.throws(() => applyCommand(project, {
+    type: "equipmentAssembly.setMemberElevation",
+    assemblyId: value.assembly.id,
+    componentId: "not-a-member",
+    elevationMm: knownMm(2500, "invalid member"),
+  }), /is not a member/);
+  assert.deepEqual(deserializeProject(serializeProject(project)), project);
   project = applyCommand(project, {
     type: "equipmentAssembly.setElevation",
     assemblyId: value.assembly.id,

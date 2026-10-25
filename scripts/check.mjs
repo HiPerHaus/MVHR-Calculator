@@ -2,9 +2,11 @@ import { execFileSync } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildAuth } from "./build-auth.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const syntaxRoots = ["app", "scripts", "src", "test"];
+await buildAuth();
+const syntaxRoots = ["api", "app", "login", "proxy.mjs", "scripts", "server", "src", "test"];
 const moduleFiles = syntaxRoots
   .flatMap((directory) => collectModules(resolve(root, directory)))
   .sort();
