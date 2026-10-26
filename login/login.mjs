@@ -1,6 +1,7 @@
 import { accessMessage, clearStudioGate, establishStudioGate, getStudioClient } from "../app/auth-client.mjs";
 import { createPasswordRecoveryGuard, requestStudioSignup, verifyStudioAccess } from "../src/persistence/studio-access.mjs";
 import { createStudioCaptcha, runWithStudioCaptcha, withCaptchaToken } from "../src/persistence/studio-captcha.mjs";
+import { bindFormSubmit, createPasswordUpdateAction, createSignInAction } from "./form-handlers.mjs";
 
 const client = getStudioClient();
 const captcha = createStudioCaptcha(window.__HIPER_STUDIO_CAPTCHA__);
@@ -15,18 +16,11 @@ document.querySelector("#show-signup").addEventListener("click", () => show("sig
 document.querySelector("#show-recovery").addEventListener("click", () => show("recovery-panel"));
 for (const button of document.querySelectorAll(".back-signin")) button.addEventListener("click", () => show("signin-panel"));
 
-document.querySelector("#login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  await submit(event.currentTarget, async (values) => {
-    recovery.requireVerified();
-    await runWithStudioCaptcha(captcha, "sign-in", async (captchaToken) => {
-      const credentials = withCaptchaToken({ email: values.email.trim(), password: values.password }, captchaToken);
-      const result = await client.auth.signInWithPassword(credentials);
-      if (result.error) throw result.error;
-      await continueApprovedSession(result.data.session);
-    });
-  });
-});
+bindFormSubmit(document.querySelector("#login-form"), submit, createSignInAction({
+  client,
+  captcha,
+  continueApprovedSession,
+}));
 
 document.querySelector("#signup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -55,18 +49,12 @@ document.querySelector("#recovery-form").addEventListener("submit", async (event
   });
 });
 
-document.querySelector("#new-password-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  await submit(event.currentTarget, async (values) => {
-    if (values.password !== values.confirmation) throw new Error("The password confirmation does not match");
-    if (values.password.length < 12 || values.password.length > 72) throw new Error("Use a password between 12 and 72 characters");
-    const result = await client.auth.updateUser({ password: values.password });
-    if (result.error) throw result.error;
-    await clearStudioGate();
-    await client.auth.signOut({ scope: "local" });
-    location.replace("/login/?reset=complete");
-  });
-});
+bindFormSubmit(document.querySelector("#new-password-form"), submit, createPasswordUpdateAction({
+  client,
+  recovery,
+  clearStudioGate,
+  complete: () => location.replace("/login/?reset=complete"),
+}));
 
 client.auth.onAuthStateChange((event) => {
   if (event === "PASSWORD_RECOVERY") {
