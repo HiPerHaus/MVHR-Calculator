@@ -66,6 +66,7 @@ import {
 } from "../src/persistence/local-project-library.mjs";
 import {
   clientPointToCamera,
+  createInitialCameraFitScheduler,
   createCamera,
   fitCameraToBounds,
   panCamera,
@@ -121,8 +122,9 @@ import {
   deriveSweptCentreline,
   ductBodyDisplayLabel,
 } from "../src/editor/duct-body-geometry.mjs";
-import { inspectAutomaticRadialRouting } from "../src/editor/automatic-radial-routing.mjs";
+import { inspectAutomaticRadialRouting, suggestBuildingAxis } from "../src/editor/automatic-radial-routing.mjs";
 import { inspectAutomaticEppRouting } from "../src/editor/automatic-epp-routing.mjs";
+import { inspectEquipmentFirstRouting } from "../src/editor/routing-workflow.mjs";
 import { inspectRoutingCoordination } from "../src/editor/routing-coordination.mjs";
 import { createDxfImportReviewController } from "../src/editor/dxf-import-controller.mjs";
 import {
@@ -323,13 +325,21 @@ const supplyRunDetail = document.querySelector("#supply-run-detail");
 const extractRunDemand = document.querySelector("#extract-run-demand");
 const extractRunDetail = document.querySelector("#extract-run-detail");
 const cwSuggestionStatus = document.querySelector("#cw-suggestion-status");
-const automaticRadialButton = document.querySelector("#auto-route-dn90");
+const automaticRouteButton = document.querySelector("#auto-route");
+const automaticRouteSystem = document.querySelector("#automatic-route-system");
+const automaticRouteStyle = document.querySelector("#automatic-route-style");
+const automaticRouteAxisRow = document.querySelector("#automatic-route-axis-row");
+const automaticRouteAxis = document.querySelector("#automatic-route-axis");
+const suggestBuildingAxisButton = document.querySelector("#suggest-building-axis");
+const automaticRouteAxisDetail = document.querySelector("#automatic-route-axis-detail");
+const automaticRouteSetupStatus = document.querySelector("#automatic-route-setup-status");
+const routingWorkflowSteps = document.querySelector("#routing-workflow-steps");
 const automaticRadialDialog = document.querySelector("#automatic-radial-dialog");
 const automaticRadialSummary = document.querySelector("#automatic-radial-summary");
+const automaticRadialSelectionStatus = document.querySelector("#automatic-radial-selection-status");
 const automaticRadialResults = document.querySelector("#automatic-radial-results");
 const cancelAutomaticRadialButton = document.querySelector("#cancel-automatic-radial");
 const applyAutomaticRadialButton = document.querySelector("#apply-automatic-radial");
-const automaticEppButton = document.querySelector("#auto-route-epp");
 const automaticEppDialog = document.querySelector("#automatic-epp-dialog");
 const automaticEppStart = document.querySelector("#automatic-epp-start");
 const automaticEppEnd = document.querySelector("#automatic-epp-end");
@@ -566,6 +576,7 @@ let pendingClearVentilationFloorId = null;
 let calibrationState = null;
 let referenceCropState = null;
 let automaticRadialPreview = null;
+let automaticRadialSelectedKeys = new Set();
 let automaticEppPreview = null;
 let routingExclusionDraftStart = null;
 let pendingRoutingExclusionId = null;
@@ -573,6 +584,16 @@ let selectedRoutingExclusionId = null;
 let threeDView = { ...createDefaultThreeDView() };
 let threeDPointer = null;
 let camera = createCamera();
+const initialCameraFit = createInitialCameraFitScheduler({
+  requestFrame: (callback) => window.requestAnimationFrame(callback),
+  measure: () => canvas.getBoundingClientRect(),
+  apply: (rect) => applyCameraFit(rect, "Drawing fitted after loading; project geometry unchanged"),
+});
+if (typeof window.ResizeObserver === "function") {
+  const drawingResizeObserver = new window.ResizeObserver(() => initialCameraFit.request());
+  drawingResizeObserver.observe(canvas);
+}
+referenceLayer.addEventListener("load", () => initialCameraFit.request(), true);
 let mechanicalState = createMechanicalInteractionState();
 let mvhrPlacementMounting = null;
 let pendingMvhrDrop = null;
@@ -988,14 +1009,26 @@ clearComponentDuctRunsButton.addEventListener("click", clearSelectedTerminalDuct
 singleRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(1));
 twinRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(2));
 clearRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(null));
-automaticRadialButton.addEventListener("click", openAutomaticRadialPreview);
+automaticRouteButton.addEventListener("click", () => automaticRouteSystem.value === "epp" ? openAutomaticEppPreview() : openAutomaticRadialPreview());
+automaticRouteSystem.addEventListener("change", renderRoutingWorkflow);
+automaticRouteStyle.addEventListener("change", () => {
+  updateAutomaticRoutingStyle({ suggestIfEmpty: true });
+  renderRoutingWorkflow();
+  if (automaticRadialDialog.open) openAutomaticRadialPreview();
+  if (automaticEppDialog.open) refreshAutomaticEppPreview();
+});
+automaticRouteAxis.addEventListener("change", () => {
+  automaticRouteAxisDetail.textContent = automaticRouteAxis.value === "" ? "Confirm the building axis before previewing." : "User-confirmed building axis for this preview.";
+  if (automaticRadialDialog.open) openAutomaticRadialPreview();
+  if (automaticEppDialog.open) refreshAutomaticEppPreview();
+});
+suggestBuildingAxisButton.addEventListener("click", () => applyOutlineAxisSuggestion());
 cancelAutomaticRadialButton.addEventListener("click", cancelAutomaticRadialPreview);
 applyAutomaticRadialButton.addEventListener("click", applyAutomaticRadialPreview);
 automaticRadialDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelAutomaticRadialPreview();
 });
-automaticEppButton.addEventListener("click", openAutomaticEppPreview);
 automaticEppStart.addEventListener("change", refreshAutomaticEppPreview);
 automaticEppEnd.addEventListener("change", refreshAutomaticEppPreview);
 cancelAutomaticEppButton.addEventListener("click", cancelAutomaticEppPreview);
@@ -1109,6 +1142,7 @@ document.querySelector("#pan-right").addEventListener("click", () => panBy(0.15,
 
 canvas.addEventListener("wheel", (event) => {
   event.preventDefault();
+  initialCameraFit.cancel();
   const anchor = clientPointToCamera(camera, { x: event.clientX, y: event.clientY }, canvas.getBoundingClientRect());
   camera = zoomCameraAt(camera, anchor, event.deltaY > 0 ? 1.15 : 0.87);
   interactionMessage = "View zoom changed; project geometry unchanged";
@@ -1119,6 +1153,7 @@ canvas.addEventListener("pointerdown", (event) => {
   if (event.button === 2) return;
   canvas.focus();
   if (event.button === 1 || (event.button === 0 && (spacePressed || activeTool === "pan"))) {
+    initialCameraFit.cancel();
     panState = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
     canvas.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -1921,6 +1956,7 @@ function setTask(task) {
       ? "MVHR system tools active; building geometry is visible and locked"
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
   render();
+  initialCameraFit.request();
 }
 
 function startPreliminaryLayout() {
@@ -2841,21 +2877,33 @@ function openAutomaticRadialPreview() {
   automaticEppPreview = null;
   if (automaticEppDialog.open) automaticEppDialog.close();
   const floorId = currentFloorId();
-  automaticRadialPreview = inspectAutomaticRadialRouting(history.present, floorId);
+  automaticRadialPreview = inspectAutomaticRadialRouting(history.present, floorId, automaticRoutingOptions());
   automaticRadialResults.replaceChildren();
   const preview = automaticRadialPreview;
+  automaticRadialSelectedKeys = new Set(preview.proposals.map(radialProposalKey));
   const routed = preview.proposals.length;
   automaticRadialSummary.textContent = preview.status === "blocked"
     ? preview.notes[0]
-    : `${routed} route${routed === 1 ? "" : "s"} ready to preview${preview.unresolved.length ? ` · ${preview.unresolved.length} unresolved` : ""}.`;
+    : `${routed} ${routingStyleLabel()} route${routed === 1 ? "" : "s"} ready to preview${preview.unresolved.length ? ` · ${preview.unresolved.length} unresolved` : ""}.`;
   for (const proposal of preview.proposals) {
     const row = document.createElement("div");
-    row.className = "automatic-radial-result";
+    row.className = "automatic-radial-result route-choice";
+    const choice = document.createElement("input");
+    choice.type = "checkbox";
+    choice.checked = true;
+    choice.setAttribute("aria-label", `Apply route to ${proposal.destination.displayName}`);
+    choice.addEventListener("change", () => {
+      if (choice.checked) automaticRadialSelectedKeys.add(radialProposalKey(proposal));
+      else automaticRadialSelectedKeys.delete(radialProposalKey(proposal));
+      updateAutomaticRadialSelection();
+    });
+    const copy = document.createElement("label");
     const title = document.createElement("strong");
     title.textContent = `${proposal.stream === "supply" ? "Supply" : "Extract"} · ${proposal.source.displayName} → ${proposal.destination.displayName}`;
     const detail = document.createElement("span");
-    detail.textContent = `${Math.round(proposal.lengthMm)} mm centreline · full 90 mm drawing width checked inside outline`;
-    row.append(title, detail);
+    detail.textContent = `${Math.round(proposal.lengthMm)} mm centreline · ${routingStyleLabel(proposal.routingStyle)} · full 90 mm drawing width checked inside outline`;
+    copy.append(title, detail);
+    row.append(choice, copy);
     automaticRadialResults.append(row);
   }
   for (const item of preview.unresolved) {
@@ -2874,14 +2922,28 @@ function openAutomaticRadialPreview() {
     row.textContent = preview.notes[0];
     automaticRadialResults.append(row);
   }
-  applyAutomaticRadialButton.disabled = preview.proposals.length === 0;
-  automaticRadialDialog.showModal();
+  updateAutomaticRadialSelection();
+  if (!automaticRadialDialog.open) automaticRadialDialog.showModal();
   interactionMessage = preview.proposals.length ? "Automatic DN90 route preview shown; project unchanged" : preview.notes[0];
   render();
 }
 
+function radialProposalKey(proposal) {
+  return `${proposal.destination.componentId}/${proposal.destination.portId}`;
+}
+
+function updateAutomaticRadialSelection() {
+  const count = automaticRadialSelectedKeys.size;
+  automaticRadialSelectionStatus.textContent = count
+    ? `${count} route${count === 1 ? "" : "s"} selected. Applied routes keep their occupied typed endpoints; preview again to generate only the remainder.`
+    : "No routes selected; project remains unchanged.";
+  applyAutomaticRadialButton.disabled = count === 0;
+  applyAutomaticRadialButton.textContent = count === 1 ? "Apply selected route" : `Apply ${count} selected routes`;
+}
+
 function cancelAutomaticRadialPreview() {
   automaticRadialPreview = null;
+  automaticRadialSelectedKeys = new Set();
   if (automaticRadialDialog.open) automaticRadialDialog.close();
   interactionMessage = "Automatic routing cancelled; project unchanged";
   render();
@@ -2890,7 +2952,9 @@ function cancelAutomaticRadialPreview() {
 function applyAutomaticRadialPreview() {
   if (!automaticRadialPreview?.proposals.length) return;
   const family = routeFamilyForKind("semi-rigid-radial");
-  const routes = automaticRadialPreview.proposals.map((proposal, index) => ({
+  const proposals = automaticRadialPreview.proposals.filter((proposal) => automaticRadialSelectedKeys.has(radialProposalKey(proposal)));
+  if (!proposals.length) return;
+  const routes = proposals.map((proposal, index) => ({
     id: `route-synthetic-${routeIdentityCounter + index}`,
     floorId: currentFloorId(),
     system: proposal.system,
@@ -2907,6 +2971,7 @@ function applyAutomaticRadialPreview() {
   if (!committed) return;
   routeIdentityCounter += routes.length;
   automaticRadialPreview = null;
+  automaticRadialSelectedKeys = new Set();
   automaticRadialDialog.close();
   selectedRouteId = routes.at(-1).id;
   selectedRoutePointIndex = null;
@@ -2927,7 +2992,7 @@ function openAutomaticEppPreview() {
 function refreshAutomaticEppPreview() {
   const startKey = automaticEppStart.value;
   const endKey = automaticEppEnd.value;
-  automaticEppPreview = inspectAutomaticEppRouting(history.present, currentFloorId(), { startKey, endKey });
+  automaticEppPreview = inspectAutomaticEppRouting(history.present, currentFloorId(), { startKey, endKey }, automaticRoutingOptions());
   const preview = automaticEppPreview;
   replaceEppOptions(automaticEppStart, preview.endpoints, "Choose a free EPP port…", startKey);
   replaceEppOptions(automaticEppEnd, preview.compatibleEnds, startKey ? "Choose a compatible destination…" : "Choose the first port above", endKey);
@@ -2940,7 +3005,7 @@ function refreshAutomaticEppPreview() {
     const title = document.createElement("strong");
     title.textContent = `${preview.proposal.source.displayName} → ${preview.proposal.destination.displayName}`;
     const detail = document.createElement("span");
-    detail.textContent = `DN${preview.proposal.diameterMm} ${preview.proposal.stream} · ${Math.round(preview.proposal.lengthMm)} mm centreline · ${preview.proposal.geometryStatus.replaceAll("-", " ")}`;
+    detail.textContent = `DN${preview.proposal.diameterMm} ${preview.proposal.stream} · ${Math.round(preview.proposal.lengthMm)} mm centreline · ${routingStyleLabel(preview.proposal.routingStyle)} · ${preview.proposal.geometryStatus.replaceAll("-", " ")}`;
     row.append(title, detail);
     automaticEppResult.append(row);
   } else {
@@ -2951,6 +3016,43 @@ function refreshAutomaticEppPreview() {
   }
   applyAutomaticEppButton.disabled = !preview.proposal;
   render();
+}
+
+function automaticRoutingOptions() {
+  const routingStyle = automaticRouteStyle.value;
+  if (routingStyle !== "building-aligned") return { routingStyle: "direct" };
+  const degrees = automaticRouteAxis.value === "" ? Number.NaN : Number(automaticRouteAxis.value);
+  return { routingStyle, buildingAxisRad: Number.isFinite(degrees) ? degrees * Math.PI / 180 : Number.NaN };
+}
+
+function routingStyleLabel(style = automaticRouteStyle.value) {
+  return style === "building-aligned" ? "Building-aligned" : "Direct";
+}
+
+function updateAutomaticRoutingStyle({ suggestIfEmpty = false } = {}) {
+  const aligned = automaticRouteStyle.value === "building-aligned";
+  automaticRouteAxisRow.hidden = !aligned;
+  if (aligned && suggestIfEmpty && automaticRouteAxis.value === "") applyOutlineAxisSuggestion({ refreshPreview: false });
+}
+
+function applyOutlineAxisSuggestion({ refreshPreview = true } = {}) {
+  const floorId = currentFloorId();
+  const outline = history.present.floorAreaOutlines.find((candidate) => candidate.floorId === floorId);
+  if (!outline) {
+    automaticRouteAxis.value = "";
+    automaticRouteAxisDetail.textContent = "No building outline is available. Enter and confirm an axis explicitly.";
+    return;
+  }
+  const suggestion = suggestBuildingAxis(inspectFloorAreaOutline(outline).polygon);
+  if (!suggestion) {
+    automaticRouteAxis.value = "";
+    automaticRouteAxisDetail.textContent = "The outline has no reliable edge. Enter and confirm an axis explicitly.";
+    return;
+  }
+  automaticRouteAxis.value = (suggestion.angleRad * 180 / Math.PI).toFixed(1);
+  automaticRouteAxisDetail.textContent = `Suggested from the longest outline edge (${Math.round(suggestion.lengthMm)} mm). Review before previewing; this does not rotate the drawing.`;
+  if (refreshPreview && automaticRadialDialog.open) openAutomaticRadialPreview();
+  if (refreshPreview && automaticEppDialog.open) refreshAutomaticEppPreview();
 }
 
 function replaceEppOptions(select, endpoints, placeholder, selectedKey) {
@@ -4199,6 +4301,7 @@ function applyLocalReopen(result, options = {}) {
     : result.recoveredFromInvalidCurrent
       ? "Reopened previous valid device save; undo history reset; current invalid record rejected"
       : `Opened “${currentProjectName}” from this browser; undo history reset`);
+  initialCameraFit.arm();
   setTask("project");
   render();
 }
@@ -4297,7 +4400,7 @@ function applyPortableOpen(imported) {
   savedProjectJson = null;
   setTool("select");
   savePresent("automatic");
-  fitView();
+  initialCameraFit.arm();
   interactionMessage = imported.portableBudget.portable === false
     ? `Portable project opened safely${imported.migration.migrated ? ` and migrated from schema ${imported.migration.fromSchemaVersion}` : ""}; migrated state exceeds the current portable budget, remains saved locally, and cannot grow`
     : imported.migration.migrated
@@ -5286,6 +5389,7 @@ function render() {
   renderCadReferenceList();
   renderInspector();
   renderConnectionDemand();
+  renderRoutingWorkflow();
   renderRouteGuidance();
   renderClearVentilationControl();
   renderStorageState();
@@ -6870,6 +6974,23 @@ function renderConnectionDemand() {
   cwSuggestionStatus.textContent = `CW suggestion: evidence pending. ${demand.cwSuggestion.note}`;
 }
 
+function renderRoutingWorkflow() {
+  const workflow = inspectEquipmentFirstRouting(history.present, currentFloorId());
+  for (const step of workflow.steps) {
+    const item = routingWorkflowSteps.querySelector(`[data-routing-step="${step.id}"]`);
+    if (!item) continue;
+    item.dataset.status = step.status;
+    const detail = item.querySelector("span");
+    if (detail) detail.textContent = step.detail;
+  }
+  updateAutomaticRoutingStyle();
+  const systemLabel = automaticRouteSystem.value === "epp" ? "EPP" : "DN90";
+  automaticRouteButton.textContent = `Preview ${systemLabel} auto routes`;
+  automaticRouteSetupStatus.textContent = workflow.status === "ready"
+    ? `${routingStyleLabel()} preview is ready. Existing manual and accepted routes remain unchanged.`
+    : "You can open the preview to see exact missing equipment or constraints; no route is committed until Apply.";
+}
+
 function renderRouteGuidance() {
   if (activeTool !== "route" || !mechanicalState.ductKind) {
     routeGuidance.classList.remove("active");
@@ -8049,12 +8170,14 @@ function eventToSvgWorld(event) {
 }
 
 function zoomAtCentre(factor) {
+  initialCameraFit.cancel();
   camera = zoomCameraAt(camera, { x: camera.x + camera.width / 2, y: camera.y + camera.height / 2 }, factor);
   interactionMessage = "View zoom changed; project geometry unchanged";
   render();
 }
 
 function panBy(xFraction, yFraction) {
+  initialCameraFit.cancel();
   camera = panCamera(camera, { x: camera.width * xFraction, y: camera.height * yFraction });
   interactionMessage = "View panned; project geometry unchanged";
   renderCamera();
@@ -8062,10 +8185,14 @@ function panBy(xFraction, yFraction) {
 }
 
 function fitView() {
-  const rect = canvas.getBoundingClientRect();
+  initialCameraFit.cancel();
+  applyCameraFit(canvas.getBoundingClientRect(), "View fitted; project geometry unchanged");
+}
+
+function applyCameraFit(rect, message) {
   const aspectRatio = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1.5;
   camera = fitCameraToBounds(projectBounds(), aspectRatio, 55);
-  interactionMessage = "View fitted; project geometry unchanged";
+  interactionMessage = message;
   render();
 }
 
@@ -8287,6 +8414,7 @@ function isTextInput(target) {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable === true;
 }
 
+initialCameraFit.arm();
 setTask("project");
 render();
 

@@ -538,8 +538,20 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .automatic-routing-actions { margin: 8px 0 12px; padding: 10px; border: 1px solid #b8cfd4; border-radius: 8px; background: #f3fafb; display: grid; gap: 5px; }
 .automatic-routing-actions > strong { font-size: 12px; color: #173f48; }
 .automatic-routing-actions > span { font-size: 10px; line-height: 1.35; color: #52646c; }
-.automatic-routing-actions > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.automatic-routing-actions > label { display: grid; gap: 3px; color: #425a63; font-size: 10px; font-weight: 700; }
+.automatic-routing-actions select, .automatic-routing-actions input { box-sizing: border-box; width: 100%; padding: 6px; border: 1px solid #b8c8cd; border-radius: 5px; background: white; color: #253d46; }
 .automatic-routing-actions .primary-route-action { margin: 0; min-width: 0; padding-inline: 6px; font-weight: 700; }
+.routing-workflow-steps { display: grid; gap: 4px; margin: 4px 0 6px; padding: 0; list-style: none; }
+.routing-workflow-steps li { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 5px; color: #53666d; font-size: 10px; line-height: 1.35; }
+.routing-workflow-steps b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #dfe8ea; color: #3f5962; font-size: 10px; }
+.routing-workflow-steps li[data-status="ready"] b, .routing-workflow-steps li[data-status="available"] b { background: #d8eee4; color: #216344; }
+.routing-workflow-steps li[data-status="attention"] b { background: #fff0d0; color: #87560d; }
+.routing-axis-row { display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: end; }
+.routing-axis-row label { display: grid; gap: 3px; font-size: 10px; font-weight: 700; color: #425a63; }
+.routing-axis-row small { grid-column: 1 / -1; color: #60737b; }
+.automatic-radial-result.route-choice { display: grid; grid-template-columns: auto 1fr; align-items: start; }
+.automatic-radial-result.route-choice input { margin-top: 3px; }
+.automatic-radial-result.route-choice label { min-width: 0; }
 .routing-exclusion-list { display: grid; gap: 6px; margin-top: 8px; }
 .routing-exclusion-item { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 5px; padding: 6px; border: 1px solid #d2b88d; border-radius: 6px; background: #fff9eb; font-size: 11px; }
 .routing-exclusion-item span { min-width: 0; }
@@ -549,9 +561,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .routing-exclusion.selected { fill: rgba(209, 126, 43, .3); stroke: #83370e; stroke-width: 3; }
 .routing-exclusion-label { fill: #6f3213; font-size: 11px; text-anchor: middle; paint-order: stroke; stroke: white; stroke-width: 3px; pointer-events: none; }
 .routing-exclusion-draft { fill: rgba(209,126,43,.12); stroke: #b55c21; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
-@media (max-width: 980px) {
-  .automatic-routing-actions > div { grid-template-columns: 1fr; }
-}
+@media (max-width: 980px) { .routing-axis-row { grid-template-columns: 1fr; } .routing-axis-row small { grid-column: auto; } }
 
 .wall-grille-graphic .component-symbol, .wall-grille-graphic .component-ghost { fill: none; stroke: var(--grille-colour); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .component-group.selected .wall-grille-graphic { filter: drop-shadow(0 0 3px #d8875d); }

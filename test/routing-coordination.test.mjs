@@ -34,6 +34,10 @@ test("DN90 and DN160 automatic routes detour around full-width exclusions and re
   const radial = inspectAutomaticRadialRouting(project, "ground", { gridSpacingMm: 180 });
   assert.equal(radial.status, "ready");
   assert.ok(radial.proposals[0].points.length > 2);
+  const alignedRadial = inspectAutomaticRadialRouting(project, "ground", { routingStyle: "building-aligned", buildingAxisRad: 0, gridSpacingMm: 180 });
+  assert.equal(alignedRadial.status, "ready");
+  assert.equal(alignedRadial.proposals[0].routingStyle, "building-aligned");
+  assert.ok(alignedRadial.proposals[0].points.length > 2);
 
   let eppProject = scaledFixture();
   eppProject = applyCommand(eppProject, { type: "routingExclusion.add", exclusion: beam("beam-centre", 4400, 1400, 1200, 3200) });
@@ -46,6 +50,9 @@ test("DN90 and DN160 automatic routes detour around full-width exclusions and re
   const ready = inspectAutomaticEppRouting(eppProject, "ground", { startKey: start.key, endKey: second.compatibleEnds[0].key }, { gridSpacingMm: 100 });
   assert.equal(ready.status, "ready");
   assert.ok(ready.proposal.points.length > 2);
+  const alignedEpp = inspectAutomaticEppRouting(eppProject, "ground", { startKey: start.key, endKey: second.compatibleEnds[0].key }, { routingStyle: "building-aligned", buildingAxisRad: 0, gridSpacingMm: 100 });
+  assert.equal(alignedEpp.status, "ready");
+  assert.equal(alignedEpp.proposal.routingStyle, "building-aligned");
 
   const blocked = applyCommand(project, { type: "routingExclusion.update", exclusionId: "beam-centre", changes: { geometry: { shape: "rectangle", x: 4400, y: 80, width: 1200, height: 5840 } } });
   const unresolved = inspectAutomaticRadialRouting(blocked, "ground", { gridSpacingMm: 160 });

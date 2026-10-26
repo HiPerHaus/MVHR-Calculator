@@ -5,6 +5,7 @@ import { routingCoordinationInputs } from "./routing-coordination.mjs";
 
 export const AUTOMATIC_RADIAL_DIAMETER_MM = 90;
 export const AUTOMATIC_RADIAL_CLEARANCE_MM = AUTOMATIC_RADIAL_DIAMETER_MM / 2;
+export const AUTOMATIC_ROUTING_STYLES = Object.freeze(["direct", "building-aligned"]);
 
 /**
  * Produces a disposable routing proposal. It never mutates the project and it
@@ -26,13 +27,27 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
     });
   }
 
+  const routingStyle = normalizeRoutingStyle(options);
+  if (routingStyle === "building-aligned" && !Number.isFinite(options.buildingAxisRad)) {
+    return blocked("Confirm the building axis before previewing Building-aligned routes.", {
+      scaleEvidence,
+      outlineId: outline.id,
+      routingStyle,
+    });
+  }
+
   const polygon = inspectFloorAreaOutline(outline).polygon;
   const coordination = routingCoordinationInputs(project, floorId);
   const occupied = occupiedPortKeys(project);
   const ports = eligibleDn90Ports(project, floorId, occupied);
   const destinations = ports.filter((entry) => entry.terminal);
   const sources = ports.filter((entry) => !entry.terminal);
-  const context = { scaleEvidence, outlineId: outline.id };
+  const context = {
+    scaleEvidence,
+    outlineId: outline.id,
+    routingStyle,
+    buildingAxisRad: routingStyle === "building-aligned" ? options.buildingAxisRad : null,
+  };
   if (destinations.length === 0) return nothing("No unconnected DN90 outlets are available on this floor.", context);
   if (sources.length === 0) {
     return {
@@ -72,6 +87,8 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
       role: candidate.destination.port.role,
       diameterMm: AUTOMATIC_RADIAL_DIAMETER_MM,
       clearanceMm: AUTOMATIC_RADIAL_CLEARANCE_MM,
+      routingStyle,
+      buildingAxisRad: context.buildingAxisRad,
       lengthMm: pathLength(rerouted),
       points: Object.freeze(rerouted.map((point) => Object.freeze({ x: point.x, y: point.y }))),
     }));
@@ -108,20 +125,60 @@ export function validateDuctPathInsideOutline(points, polygon, diameterMm = AUTO
 }
 
 export function findContainedDuctPath(start, end, polygon, diameterMm = AUTOMATIC_RADIAL_DIAMETER_MM, options = {}) {
+  const routingStyle = normalizeRoutingStyle(options);
+  if (routingStyle === "building-aligned") {
+    if (!Number.isFinite(options.buildingAxisRad)) return null;
+    const angle = options.buildingAxisRad;
+    const frameOptions = {
+      ...options,
+      routingStyle: "building-aligned-frame",
+      forbiddenPolygons: (options.forbiddenPolygons ?? []).map((obstacle) => obstacle.map((point) => rotatePoint(point, -angle))),
+      blockedSegments: (options.blockedSegments ?? []).map((segment) => ({
+        ...segment,
+        start: rotatePoint(segment.start, -angle),
+        end: rotatePoint(segment.end, -angle),
+      })),
+    };
+    const framed = findContainedDuctPathInFrame(
+      rotatePoint(start, -angle),
+      rotatePoint(end, -angle),
+      polygon.map((point) => rotatePoint(point, -angle)),
+      diameterMm,
+      frameOptions,
+    );
+    if (!framed) return null;
+    const restored = framed.map((point) => rotatePoint(point, angle));
+    return validateDuctPathInsideOutline(restored, polygon, diameterMm, options) ? restored : null;
+  }
+  return findContainedDuctPathInFrame(start, end, polygon, diameterMm, options);
+}
+
+function findContainedDuctPathInFrame(start, end, polygon, diameterMm, options) {
   const clearance = diameterMm / 2;
   if (!validCentre(start, polygon, clearance, options) || !validCentre(end, polygon, clearance, options)) return null;
-  if (validSegment(start, end, polygon, clearance, options)) return [planPoint(start), planPoint(end)];
+  const buildingAligned = options.routingStyle === "building-aligned-frame";
+  if ((!buildingAligned || axisAligned(start, end)) && validSegment(start, end, polygon, clearance, options)) {
+    return [planPoint(start), planPoint(end)];
+  }
+  if (buildingAligned) {
+    for (const corner of [{ x: end.x, y: start.y }, { x: start.x, y: end.y }]) {
+      const candidate = [planPoint(start), planPoint(corner), planPoint(end)];
+      if (candidate.slice(1).every((point, index) => validSegment(candidate[index], point, polygon, clearance, options))) return candidate;
+    }
+  }
   for (const marginMm of options.marginsMm ?? [15, 35, 70]) {
-    const controls = gridPath(start, end, polygon, clearance + marginMm, options.gridSpacingMm ?? 120, options);
+    const controls = gridPath(start, end, polygon, clearance + marginMm, options.gridSpacingMm ?? 120, options, buildingAligned);
     if (!controls) continue;
-    const simplified = simplifyVisiblePath(controls, polygon, clearance + marginMm, options);
+    const simplified = buildingAligned
+      ? simplifyCollinearPath(controls)
+      : simplifyVisiblePath(controls, polygon, clearance + marginMm, options);
     const swept = deriveSweptCentreline(simplified, { sweepTrimRatio: 0.25, samplesPerCorner: 8 }).points;
     if (validateDuctPathInsideOutline(swept, polygon, diameterMm, options)) return simplified;
   }
   return null;
 }
 
-function gridPath(start, end, polygon, clearance, requestedSpacing, options) {
+function gridPath(start, end, polygon, clearance, requestedSpacing, options, orthogonalOnly = false) {
   const minX = Math.min(...polygon.map((point) => point.x));
   const maxX = Math.max(...polygon.map((point) => point.x));
   const minY = Math.min(...polygon.map((point) => point.y));
@@ -142,8 +199,10 @@ function gridPath(start, end, polygon, clearance, requestedSpacing, options) {
       byGrid.set(node.id, node);
     }
   }
-  const visibleFromStart = nodes.filter((node) => validSegment(start, node.point, polygon, clearance, options));
-  const visibleToEnd = new Set(nodes.filter((node) => validSegment(node.point, end, polygon, clearance, options)).map((node) => node.id));
+  const visibleFromStart = nodes.filter((node) =>
+    (!orthogonalOnly || nearAxis(start, node.point, spacing)) && validSegment(start, node.point, polygon, clearance, options));
+  const visibleToEnd = new Set(nodes.filter((node) =>
+    (!orthogonalOnly || nearAxis(node.point, end, spacing)) && validSegment(node.point, end, polygon, clearance, options)).map((node) => node.id));
   if (!visibleFromStart.length || !visibleToEnd.size) return null;
   const open = new Set(visibleFromStart.map((node) => node.id));
   const distance = new Map(visibleFromStart.map((node) => [node.id, Math.hypot(node.point.x - start.x, node.point.y - start.y)]));
@@ -166,7 +225,7 @@ function gridPath(start, end, polygon, clearance, requestedSpacing, options) {
       }
       return [planPoint(start), ...path.reverse().map(planPoint), planPoint(end)];
     }
-    for (const [dx, dy] of NEIGHBOURS) {
+    for (const [dx, dy] of orthogonalOnly ? ORTHOGONAL_NEIGHBOURS : NEIGHBOURS) {
       const neighbour = byGrid.get(`${current.column + dx}:${current.row + dy}`);
       if (!neighbour || !validSegment(current.point, neighbour.point, polygon, clearance, options)) continue;
       const tentative = distance.get(current.id) + Math.hypot(neighbour.point.x - current.point.x, neighbour.point.y - current.point.y);
@@ -182,6 +241,56 @@ function gridPath(start, end, polygon, clearance, requestedSpacing, options) {
 const NEIGHBOURS = Object.freeze([
   [-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1],
 ]);
+const ORTHOGONAL_NEIGHBOURS = Object.freeze([[-1, 0], [1, 0], [0, -1], [0, 1]]);
+
+function nearAxis(start, end, spacing) {
+  return Math.abs(start.x - end.x) <= spacing / 2 || Math.abs(start.y - end.y) <= spacing / 2;
+}
+
+function axisAligned(start, end) {
+  return Math.abs(start.x - end.x) <= 1e-6 || Math.abs(start.y - end.y) <= 1e-6;
+}
+
+function simplifyCollinearPath(points) {
+  if (points.length <= 2) return points.map(planPoint);
+  const result = [planPoint(points[0])];
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = result.at(-1);
+    const current = points[index];
+    const next = points[index + 1];
+    if (Math.abs(orientation(previous, current, next)) <= 1e-6) continue;
+    result.push(planPoint(current));
+  }
+  result.push(planPoint(points.at(-1)));
+  return result;
+}
+
+function rotatePoint(point, angle) {
+  const cosine = Math.cos(angle), sine = Math.sin(angle);
+  return { x: point.x * cosine - point.y * sine, y: point.x * sine + point.y * cosine };
+}
+
+function normalizeRoutingStyle(options) {
+  const routingStyle = options.routingStyle ?? "direct";
+  if (!AUTOMATIC_ROUTING_STYLES.includes(routingStyle) && routingStyle !== "building-aligned-frame") {
+    throw new RangeError(`Unsupported automatic routing style: ${routingStyle}`);
+  }
+  return routingStyle;
+}
+
+export function suggestBuildingAxis(polygon) {
+  if (!Array.isArray(polygon) || polygon.length < 2) return null;
+  let best = null;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index], end = polygon[(index + 1) % polygon.length];
+    const lengthMm = Math.hypot(end.x - start.x, end.y - start.y);
+    if (!(lengthMm > 0) || best && lengthMm <= best.lengthMm) continue;
+    let angleRad = Math.atan2(end.y - start.y, end.x - start.x) % (Math.PI / 2);
+    if (angleRad < 0) angleRad += Math.PI / 2;
+    best = Object.freeze({ angleRad, lengthMm, edgeIndex: index });
+  }
+  return best;
+}
 
 function simplifyVisiblePath(points, polygon, clearance, options) {
   const result = [points[0]];

@@ -80,6 +80,26 @@ test("automatic EPP routing excludes incompatible and occupied ports and reports
   assert.match(attempt.message, /full-width DN160/);
 });
 
+test("Building-aligned EPP preview keeps explicit endpoints and reports its geometry style", () => {
+  let project = scaledFixture(rectangle());
+  project = add(project, createCatalogueComponent("synthetic-mvhr-placeholder", { id: "unit", floorId: "ground", xMm: 1400, yMm: 1200 }));
+  const assembly = createEquipmentAssembly("generic-remote-supply-attenuation-set", { id: "supply-set", floorId: "ground", xMm: 7000, yMm: 3600 });
+  project = applyCommand(project, { type: "equipmentAssembly.add", ...assembly });
+  const endpoints = inspectAutomaticEppRouting(project, "ground").endpoints;
+  const start = endpoints.find((entry) => entry.componentId === "unit" && entry.stream === "supply");
+  const choices = inspectAutomaticEppRouting(project, "ground", { startKey: start.key });
+  const end = choices.compatibleEnds.find((entry) => entry.componentId.endsWith("end-plate"));
+  const preview = inspectAutomaticEppRouting(project, "ground", { startKey: start.key, endKey: end.key }, {
+    routingStyle: "building-aligned",
+    buildingAxisRad: 0,
+  });
+  assert.equal(preview.status, "ready");
+  assert.equal(preview.proposal.routingStyle, "building-aligned");
+  assert.equal(preview.proposal.source.key, start.key);
+  assert.equal(preview.proposal.destination.key, end.key);
+  assert.ok(preview.proposal.points.length >= 3);
+});
+
 function routeFrom(proposal, id) {
   return {
     id, floorId: "ground", system: proposal.system, stream: proposal.stream, role: proposal.role,

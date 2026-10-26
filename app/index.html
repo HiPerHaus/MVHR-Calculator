@@ -62,12 +62,28 @@
           <section id="mechanical-tools-section" hidden>
             <h2>Parts</h2>
             <div class="automatic-routing-actions" aria-label="Automatic duct routing">
-              <strong>Automatic routing</strong>
-              <span>Preview geometry before adding editable routes.</span>
-              <div>
-                <button id="auto-route-dn90" class="panel-action primary-route-action" type="button">Auto route DN90</button>
-                <button id="auto-route-epp" class="panel-action primary-route-action" type="button">Auto route EPP</button>
+              <strong>Equipment-first routing</strong>
+              <span>Place typed equipment first, then preview routes. Existing routes are never overwritten.</span>
+              <ol id="routing-workflow-steps" class="routing-workflow-steps">
+                <li data-routing-step="equipment"><b>1</b><span>Place unit, outlets and external terminals.</span></li>
+                <li data-routing-step="distribution"><b>2</b><span>Place distribution boxes and attenuators.</span></li>
+                <li data-routing-step="constraints"><b>3</b><span>Confirm scale, outline and constraints.</span></li>
+                <li data-routing-step="generate"><b>4</b><span>Choose system and style, then preview.</span></li>
+                <li data-routing-step="review"><b>5</b><span>Accept good routes and regenerate the remainder.</span></li>
+              </ol>
+              <label>Duct system
+                <select id="automatic-route-system"><option value="dn90">DN90 radial</option><option value="epp">EPP main / outdoor</option></select>
+              </label>
+              <label>Route style
+                <select id="automatic-route-style"><option value="direct">Direct · shortest practical</option><option value="building-aligned">Building-aligned · orthogonal corridors</option></select>
+              </label>
+              <div id="automatic-route-axis-row" class="routing-axis-row" hidden>
+                <label>Building axis (degrees)<input id="automatic-route-axis" type="number" step="0.1" min="0" max="89.9" placeholder="Confirm axis" /></label>
+                <button id="suggest-building-axis" type="button">Use outline suggestion</button>
+                <small id="automatic-route-axis-detail">Review the suggested axis before previewing.</small>
               </div>
+              <button id="auto-route" class="panel-action primary-route-action" type="button">Preview auto routes</button>
+              <p id="automatic-route-setup-status" class="clear-ventilation-note" aria-live="polite"></p>
             </div>
             <details class="parts-details" open><summary>Routing coordination</summary>
               <button id="add-routing-exclusion" class="panel-action" type="button">Mark exclusion rectangle</button>
@@ -879,11 +895,12 @@
       <form method="dialog">
         <h2 id="automatic-radial-title">Automatic DN90 routes</h2>
         <p id="automatic-radial-summary"></p>
+        <p id="automatic-radial-selection-status" class="scope-note"></p>
         <div id="automatic-radial-results" class="automatic-radial-results"></div>
         <p class="scope-note">Preview geometry only. This does not calculate airflow, pressure loss, supports, clashes or installation compliance.</p>
         <div class="dialog-actions">
           <button id="cancel-automatic-radial" type="button">Cancel</button>
-          <button id="apply-automatic-radial" type="button" class="primary-action">Apply routes</button>
+          <button id="apply-automatic-radial" type="button" class="primary-action">Apply selected routes</button>
         </div>
       </form>
     </dialog>

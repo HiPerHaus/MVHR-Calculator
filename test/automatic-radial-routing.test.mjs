@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCommandHistory, executeCommand, undoCommand } from "../src/domain/history.mjs";
 import { applyCommand, createProject, deserializeProject, identityQuaternion, knownMm, serializeProject, unknownMm } from "../src/domain/spatial.mjs";
 import { createCatalogueComponent, routeFamilyForKind } from "../src/editor/component-catalogue.mjs";
-import { inspectAutomaticRadialRouting, validateDuctPathInsideOutline } from "../src/editor/automatic-radial-routing.mjs";
+import { inspectAutomaticRadialRouting, suggestBuildingAxis, validateDuctPathInsideOutline } from "../src/editor/automatic-radial-routing.mjs";
 import { standaloneCwRecordId } from "../src/editor/standalone-cw.mjs";
 
 test("automatic DN90 routing keeps its swept full-width path inside a concave scaled outline", () => {
@@ -77,6 +77,49 @@ test("batch application is one undo step, preserves existing routes and rejects 
   assert.deepEqual(project.routes, [manualRoute]);
 });
 
+test("Building-aligned DN90 routes follow a confirmed rotated building axis without changing topology", () => {
+  const angleRad = Math.PI / 6;
+  const outline = rectangleOutline().map((point) => rotate(point, angleRad));
+  let project = scaledFixture(outline);
+  const source = rotate({ x: 1100, y: 1100 }, angleRad);
+  const destination = rotate({ x: 5000, y: 2900 }, angleRad);
+  project = add(project, createCatalogueComponent(standaloneCwRecordId({ size: "320", orientation: "vertical", stream: "supply" }), {
+    id: "cw-rotated", floorId: "ground", xMm: source.x, yMm: source.y, allowAssemblyOnly: true,
+  }));
+  project = add(project, createCatalogueComponent("luna-supply", {
+    id: "outlet-rotated", floorId: "ground", xMm: destination.x, yMm: destination.y,
+  }));
+
+  const suggestion = suggestBuildingAxis(outline);
+  assert.ok(Math.abs(suggestion.angleRad - angleRad) < 1e-9);
+  const preview = inspectAutomaticRadialRouting(project, "ground", {
+    routingStyle: "building-aligned",
+    buildingAxisRad: suggestion.angleRad,
+    gridSpacingMm: 100,
+  });
+  assert.equal(preview.status, "ready");
+  assert.equal(preview.proposals[0].routingStyle, "building-aligned");
+  assert.ok(preview.proposals[0].points.length >= 3);
+  for (let index = 1; index < preview.proposals[0].points.length; index += 1) {
+    const localStart = rotate(preview.proposals[0].points[index - 1], -angleRad);
+    const localEnd = rotate(preview.proposals[0].points[index], -angleRad);
+    assert.ok(Math.abs(localStart.x - localEnd.x) < 1e-6 || Math.abs(localStart.y - localEnd.y) < 1e-6);
+  }
+  assert.equal(preview.proposals[0].source.componentId, "cw-rotated");
+  assert.equal(preview.proposals[0].destination.componentId, "outlet-rotated");
+});
+
+test("Building-aligned routing fails closed until its axis is confirmed", () => {
+  let project = scaledFixture(rectangleOutline());
+  project = add(project, createCatalogueComponent(standaloneCwRecordId({ size: "320", orientation: "vertical", stream: "supply" }), {
+    id: "cw-axis", floorId: "ground", xMm: 1000, yMm: 1000, allowAssemblyOnly: true,
+  }));
+  project = add(project, createCatalogueComponent("luna-supply", { id: "outlet-axis", floorId: "ground", xMm: 5000, yMm: 2500 }));
+  const preview = inspectAutomaticRadialRouting(project, "ground", { routingStyle: "building-aligned" });
+  assert.equal(preview.status, "blocked");
+  assert.match(preview.notes[0], /Confirm the building axis/);
+});
+
 function routeFromProposal(proposal, id) {
   const family = routeFamilyForKind("semi-rigid-radial");
   return {
@@ -111,3 +154,4 @@ function baseFixture(points) {
 
 function rectangleOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 0, y: 4000 }]; }
 function concaveOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 3500, y: 4000 }, { x: 3500, y: 1500 }, { x: 2500, y: 1500 }, { x: 2500, y: 4000 }, { x: 0, y: 4000 }]; }
+function rotate(point, angleRad) { return { x: point.x * Math.cos(angleRad) - point.y * Math.sin(angleRad), y: point.x * Math.sin(angleRad) + point.y * Math.cos(angleRad) }; }

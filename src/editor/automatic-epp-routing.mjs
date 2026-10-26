@@ -22,11 +22,24 @@ export function inspectAutomaticEppRouting(project, floorId, selection = {}, opt
   if (scaleEvidence === "manual-project-grid") {
     return blocked("Calibrate the plan reference or import a CAD reference with explicit units before routing.", { scaleEvidence, outlineId: outline.id });
   }
+  const routingStyle = options.routingStyle ?? "direct";
+  if (routingStyle === "building-aligned" && !Number.isFinite(options.buildingAxisRad)) {
+    return blocked("Confirm the building axis before previewing a Building-aligned route.", {
+      scaleEvidence,
+      outlineId: outline.id,
+      routingStyle,
+    });
+  }
 
   const polygon = inspectFloorAreaOutline(outline).polygon;
   const coordination = routingCoordinationInputs(project, floorId);
   const endpoints = eligibleEndpoints(project, floorId, occupiedPortKeys(project));
-  const context = { scaleEvidence, outlineId: outline.id };
+  const context = {
+    scaleEvidence,
+    outlineId: outline.id,
+    routingStyle,
+    buildingAxisRad: routingStyle === "building-aligned" ? options.buildingAxisRad : null,
+  };
   if (endpoints.length < 2) return nothing("Place at least two free compatible EPP ports before routing.", endpoints, context);
 
   const start = endpoints.find((entry) => entry.key === selection.startKey) ?? null;
@@ -62,6 +75,8 @@ export function inspectAutomaticEppRouting(project, floorId, selection = {}, opt
     connectionInterface: start.routeFamily.connectionInterface,
     diameterMm,
     clearanceMm: diameterMm / 2,
+    routingStyle,
+    buildingAxisRad: context.buildingAxisRad,
     lengthMm: pathLength(planned.points),
     points: Object.freeze(planned.points.map((point) => Object.freeze({ x: point.x, y: point.y }))),
     exteriorTermination: planned.exteriorTermination,
@@ -119,7 +134,7 @@ function interfaceCompatible(left, right) {
 function planInternal(start, end, polygon, diameterMm, options) {
   const controls = findContainedDuctPath(start.positionMm, end.positionMm, polygon, diameterMm, options);
   if (!controls) return null;
-  const points = alignAndConstrain(controls, start, end, diameterMm);
+  const points = alignAndConstrain(controls, start, end, diameterMm, options);
   return validateSwept(points, polygon, diameterMm, options) ? { points, exteriorTermination: false } : null;
 }
 
@@ -134,14 +149,15 @@ function planExternalTermination(start, end, polygon, diameterMm, options) {
   if (!controls) return null;
   let points = [...controls, external.positionMm];
   if (externalIsStart) points = points.reverse();
-  points = alignAndConstrain(points, start, end, diameterMm);
+  points = alignAndConstrain(points, start, end, diameterMm, options);
   const interior = externalIsStart ? points.slice(1) : points.slice(0, -1);
   if (interior.length < 2 || !validateSwept(interior, polygon, diameterMm, options)) return null;
   return { points, exteriorTermination: true };
 }
 
-function alignAndConstrain(points, start, end, diameterMm) {
-  const constrained = constrainEppPlanPoints(points.map((point) => ({ x: point.x, y: point.y })));
+function alignAndConstrain(points, start, end, diameterMm, options) {
+  const source = points.map((point) => ({ x: point.x, y: point.y }));
+  const constrained = options.routingStyle === "building-aligned" ? source : constrainEppPlanPoints(source);
   return alignEppPortApproaches(constrained, start.direction, end.direction, Math.max(500, diameterMm * 4));
 }
 

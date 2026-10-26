@@ -57,6 +57,70 @@ export function fitCameraToBounds(bounds, aspectRatio = 1.5, padding = 40) {
   return { x: centreX - width / 2, y: centreY - height / 2, width, height };
 }
 
+export function createInitialCameraFitScheduler({ requestFrame, measure, apply, tolerancePx = 0.5 }) {
+  if (typeof requestFrame !== "function" || typeof measure !== "function" || typeof apply !== "function") {
+    throw new TypeError("Initial camera fit needs frame, measurement and apply functions");
+  }
+  if (!Number.isFinite(tolerancePx) || tolerancePx < 0) {
+    throw new RangeError("Initial camera fit tolerance must be non-negative");
+  }
+
+  let pending = false;
+  let scheduled = false;
+  let generation = 0;
+  let previousSize = null;
+
+  function request() {
+    if (!pending || scheduled) return;
+    scheduled = true;
+    const requestedGeneration = generation;
+    requestFrame(() => {
+      scheduled = false;
+      if (!pending) return;
+      if (generation !== requestedGeneration) {
+        request();
+        return;
+      }
+      const rect = measure();
+      if (!Number.isFinite(rect?.width) || !Number.isFinite(rect?.height) || rect.width <= 0 || rect.height <= 0) {
+        previousSize = null;
+        return;
+      }
+      const size = { width: rect.width, height: rect.height };
+      if (
+        !previousSize
+        || Math.abs(previousSize.width - size.width) > tolerancePx
+        || Math.abs(previousSize.height - size.height) > tolerancePx
+      ) {
+        previousSize = size;
+        request();
+        return;
+      }
+      pending = false;
+      previousSize = null;
+      apply(rect);
+    });
+  }
+
+  return Object.freeze({
+    arm() {
+      pending = true;
+      previousSize = null;
+      generation += 1;
+      request();
+    },
+    request,
+    cancel() {
+      pending = false;
+      previousSize = null;
+      generation += 1;
+    },
+    isPending() {
+      return pending;
+    },
+  });
+}
+
 export function clientPointToCamera(camera, clientPoint, rect) {
   const current = normalizeCamera(camera);
   if (!Number.isFinite(rect?.x) || !Number.isFinite(rect?.y) || !Number.isFinite(rect?.width) || !Number.isFinite(rect?.height) || rect.width <= 0 || rect.height <= 0) {
