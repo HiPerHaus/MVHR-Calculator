@@ -42,7 +42,7 @@ const DRAWING_PADDING_MM = 6;
 const MAX_LEGEND_ITEMS = 20;
 const MAX_SHEET_SCHEDULE_LINES = 14;
 const STANDARD_SCALE_DENOMINATORS = Object.freeze([
-  1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000,
+  1, 2, 5, 10, 20, 25, 40, 50, 60, 75, 100, 125, 150, 200, 250, 400, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000,
 ]);
 
 export function a3PageBounds(orientation = "landscape") {
@@ -374,13 +374,10 @@ function buildLegend(scene) {
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?'external-grille':'component';
+    const key=g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key==='external-grille'?'External grille':"Placed component — P reference links to parts schedule";
+    const label=key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
-  }
-  if (scene.references.some((reference) => reference.calibrated)) {
-    legend.push({ key: "reference-calibrated", label: "Calibrated PNG reference — locked underlay" });
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
     legend.push({ key: "reference-uncalibrated", label: "Uncalibrated PNG reference — display only, NTS" });
@@ -416,13 +413,14 @@ function renderPrintScene(sheet) {
     const dash = wall.classification === "virtual" ? ' stroke-dasharray="2 1.2"' : "";
     out.push(`<line data-kind="wall" data-wall-classification="${escapeXml(wall.classification)}" data-id="${escapeXml(wall.id)}" x1="${mapX(wall.start.x, transform)}" y1="${mapY(wall.start.y, transform)}" x2="${mapX(wall.end.x, transform)}" y2="${mapY(wall.end.y, transform)}" stroke="#26373f" stroke-width="${formatNumber(Math.max(0.35, wall.thicknessMm * transform.scale))}" stroke-linecap="square"${dash}/>`);
   }
-  for (const route of scene.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) out.push(renderRoute(route, transform));
-  for (const component of scene.components) out.push(renderComponent(component, transform));
-  for (const route of scene.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) out.push(renderRoute(route, transform));
+  for (const route of scene.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
+  for (const component of scene.components.filter(component => component.planGraphic?.graphicId !== LUNA_GRILLE_PLAN_GRAPHIC_ID)) out.push(withoutDrawingLabels(renderComponent(component, transform)));
+  for (const route of scene.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
   for(const elbow of scene.hrvCeilingElbows??[]) {
     const shapes=hrvCeilingElbowShapes(elbow).map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}/>`).join("");
-    out.push(`<g data-kind="hrv-ceiling-elbow" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`);
+    out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
   }
+  for (const component of scene.components.filter(component => component.planGraphic?.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID)) out.push(withoutDrawingLabels(renderComponent(component, transform)));
   if (scene.references.some((reference) => !reference.calibrated)) {
     out.push(`<text x="${formatNumber(sheet.drawingBounds.xMm + 4)}" y="${formatNumber(sheet.drawingBounds.yMm + sheet.drawingBounds.heightMm - 4)}" fill="#a14a2b" font-size="3.2">UNCALIBRATED REFERENCE · DISPLAY ONLY · NOT TO SCALE</text>`);
   }
@@ -433,6 +431,10 @@ function renderPrintScene(sheet) {
     out.push(`<text data-kind="cad-reference-warning" x="${formatNumber(sheet.drawingBounds.xMm + 4)}" y="${formatNumber(warningY)}" fill="#a14a2b" font-size="3.2">DXF REFERENCE · UNSUPPORTED CONTENT OMITTED · REVIEW DIAGNOSTICS</text>`);
   }
   return out.join("");
+}
+
+function withoutDrawingLabels(svg) {
+  return svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, "");
 }
 
 function renderRoute(route, transform) {
@@ -578,7 +580,7 @@ function renderComponent(component, transform) {
   }
   if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId)) {
     const graphic = component.planGraphic;
-    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-service="${graphic.stream}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})" fill="none" stroke="${graphic.colour}" stroke-width="1.5" vector-effect="non-scaling-stroke">${graphic.paths.map((d, index) => `<path d="${d}" stroke-width="${graphic.strokeWidths?.[index] ?? 1.5}" vector-effect="non-scaling-stroke"/>`).join("")}</g><text x="0" y="${formatNumber(graphic.depthMm * transform.scale / 2 + 3)}" text-anchor="middle" fill="#29434d" font-size="2.7">${escapeXml(component.scheduleRef)}</text></g>`;
+    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-service="${graphic.stream}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})" fill="none" stroke="${graphic.colour}" stroke-width="1.5" vector-effect="non-scaling-stroke">${graphic.paths.map((d, index) => `<path d="${d}" fill="${graphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID && index === 0 ? "white" : "none"}" stroke-width="${graphic.strokeWidths?.[index] ?? 1.5}" vector-effect="non-scaling-stroke"/>`).join("")}</g><text x="0" y="${formatNumber(graphic.depthMm * transform.scale / 2 + 3)}" text-anchor="middle" fill="#29434d" font-size="2.7">${escapeXml(component.scheduleRef)}</text></g>`;
   }
   const width = component.symbol.widthMm * transform.scale;
   const height = component.symbol.heightMm * transform.scale;
@@ -825,7 +827,11 @@ function legendSwatch(key, x, y,item={}) {
   }
   if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
-  if(key==='external-grille')return `<path d="M ${x-2} ${y-2} h12 v4 h-12 Z M ${x+5} ${y+2} v3 h3 v-3" fill="#e7e9e9" stroke="#29434d" stroke-width=".4"/>`;
+  if(key.startsWith('external-grille-')) {
+    const scale=Math.min(12/g.widthMm,8/g.depthMm);
+    const shapes=externalGrilleShapes(g).filter(shape=>shape.tag!=="text").map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}/>`).join("");
+    return `<g data-kind="legend-external-grille" data-grille-type="${g.combined?'combined':g.ports[0]?.stream??'individual'}" transform="translate(${x+3} ${y}) scale(${scale})">${shapes}</g>`;
+  }
 
   if(key==="building-area")return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#a77927" stroke-width=".4" stroke-dasharray="2 1"/>`;
   if (key === "wall") return `<line x1="${formatNumber(x)}" y1="${formatNumber(y)}" x2="${formatNumber(x + 5)}" y2="${formatNumber(y)}" stroke="#26373f" stroke-width="1.2"/>`;

@@ -456,8 +456,8 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .sheet-preview-heading span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .sheet-preview-heading button { border: 1px solid #aebcc2; border-radius: 6px; padding: 8px 12px; background: white; cursor: pointer; }
 .sheet-preview-actions { display: flex !important; grid-auto-flow: column; gap: 8px !important; }
-.sheet-preview-stage { min-height: 0; overflow: auto; padding: 24px; }
-.sheet-preview-host { width: min(1180px, 100%); margin: 0 auto; }
+.sheet-preview-stage { min-height: 0; overflow: auto; padding: 12px; }
+.sheet-preview-host { width: 100%; margin: 0 auto; }
 .sheet-page { background:white; margin:0 auto 28px; box-shadow:0 10px 35px rgb(29 47 55 / 24%); }
 .sheet-page.sheet-a4 { width:min(794px,100%); }
 .sheet-page-label { background:#edf2f4; padding:9px 14px; color:#344e5a; font-size:12px; font-weight:600; }

@@ -928,3 +928,13 @@ The Ventilation sidebar uses one equipment-first routing workflow: place the MVH
 `Direct` retains the existing shortest valid full-width path behavior. `Building-aligned` uses a designer-confirmed building axis, not screen axes. Studio may suggest the longest confirmed outline edge, but the angle remains visible and editable before preview and does not rotate model geometry. In the axis-aligned frame, the route search uses orthogonal corridors, with localized connection legs where endpoints require them. Both styles retain the same building-boundary, exclusion, existing-duct envelope and configured-clearance checks. EPP port approaches retain their typed physical directions and supported bend constraints.
 
 Route geometry style never changes topology. Independent DN90 radial runs stay independent even when they visually share a corridor; no shared trunk or engineering sizing is inferred. EPP endpoint selection remains explicit and keeps intake, exhaust, dwelling supply and dwelling extract separate. DN90 preview rows may be accepted selectively. Applied and manually attached routes reserve their typed endpoints and are therefore retained when the designer previews again; only free remaining endpoints are proposed. Preview cancellation changes nothing, and each accepted batch remains one undoable command. This is drafting coordination, not airflow, pressure-loss, fabrication or installation proof.
+
+
+### 27 October 2026 — drawing output readability
+
+The owner requested a larger drawing and Luna symbols above ducts. A3 fitting now includes intermediate numeric scales (including 1:40, 1:60 and 1:75) to reduce unused drawing space while retaining the printed scale. The preview uses its available panel width with smaller outer padding. Luna symbols render after duct bodies and ceiling elbows with an opaque white circle centre; model geometry and connection positions are unchanged.
+
+
+### 27 October 2026 — clean drawing output and outdoor legend
+
+At the owner's request, calibrated raster underlays no longer add a legend row. Outdoor legend entries distinguish combined intake/exhaust, separate intake and separate exhaust, and use the same geometry as the drawn grilles. Equipment, route and bend text is suppressed in the output plan to reduce clutter. Legend, title block, schedule and reference warnings remain available; saved model data and editor labels are unchanged.

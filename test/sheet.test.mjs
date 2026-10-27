@@ -43,15 +43,15 @@ test("A3 page bounds are exact for landscape and portrait", () => {
   assert.throws(() => a3PageBounds("square"), /landscape or portrait/);
 });
 
-test("a known ten-metre wall derives a numeric 1:50 sheet scale from model millimetres", () => {
+test("a known ten-metre wall derives a numeric 1:40 sheet scale from model millimetres", () => {
   const sheet = createA3SheetModel(projectWithWall(10000), metadata());
   assert.equal(sheet.page.orientation, "landscape");
   assert.equal(sheet.fit.kind, "numeric");
-  assert.equal(sheet.fit.label, "1:50");
-  assert.equal(sheet.fit.denominator, 50);
-  assert.equal(sheet.fit.modelMmPerSheetMm, 50);
+  assert.equal(sheet.fit.label, "1:40");
+  assert.equal(sheet.fit.denominator, 40);
+  assert.equal(sheet.fit.modelMmPerSheetMm, 40);
   const projectedLengthMm = 10000 * sheet.fit.transform.scale;
-  assert.equal(projectedLengthMm, 200);
+  assert.equal(projectedLengthMm, 250);
   assert.ok(projectedLengthMm <= sheet.fit.innerBounds.widthMm);
 });
 
@@ -101,18 +101,17 @@ test("the sheet legend, plan references and schedule preserve service and eviden
     "wall",
     "service-supply",
     "component",
-    "reference-calibrated",
   ]);
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /data-kind="component"[^>]*data-schedule-ref="P01"/);
-  assert.match(svg, />P01<\/text>/);
+  assert.doesNotMatch(svg.slice(svg.indexOf('<g id="drawing-content"'), svg.indexOf('</g>', svg.indexOf('<g id="drawing-content"'))), /<text\b/);
   assert.match(svg, /Supply duct — drawing route/);
   assert.match(svg, /data-kind="parts-schedule"/);
   assert.match(svg, /Generic supply terminal/);
   assert.match(svg, /unmatched provisional/);
   assert.match(svg, /data-kind="route-body"/);
   assert.match(svg, /data-schedule-ref="D01"/);
-  assert.match(svg, /Calibrated PNG reference — locked underlay/);
+  assert.doesNotMatch(svg, /Calibrated PNG reference — locked underlay/);
 });
 
 test("A3 uses the shared Q350 plan graphic for both handed profiles and rotated placement", () => {
@@ -148,10 +147,10 @@ test("A3 uses the shared Q350 plan graphic for both handed profiles and rotated 
   assert.match(svg, /data-q350-handing="left"/);
   assert.match(svg, /data-q350-handing="right"/);
   assert.match(svg, /data-q350-port-role="Dwelling supply"/);
-  assert.match(svg, />SUP<\/text>/);
-  assert.match(svg, />ETA<\/text>/);
-  assert.match(svg, />Q350 LH<\/text>/);
-  assert.match(svg, />Q350 RH<\/text>/);
+  assert.doesNotMatch(svg, />SUP<\/text>/);
+  assert.doesNotMatch(svg, />ETA<\/text>/);
+  assert.doesNotMatch(svg, />Q350 LH<\/text>/);
+  assert.doesNotMatch(svg, />Q350 RH<\/text>/);
   assert.match(svg, /rotate\(90\)/);
 });
 
@@ -180,7 +179,7 @@ test("A3 shares the provisional CW-inspired assembly graphic for supply, extract
   const sheet = createA3SheetModel(project, metadata());
   const graphics = sheet.printScene.components.map((component) => component.planGraphic);
   assert.equal(graphics.length, 6);
-  assert.equal(sheet.fit.label, "1:50");
+  assert.equal(sheet.fit.label, "1:40");
   assert.deepEqual(graphics.slice(0, 3).map((graphic) => [graphic.widthMm, graphic.depthMm]), [
     [51, 336], [500, 320], [41, 336],
   ]);
@@ -196,11 +195,11 @@ test("A3 shares the provisional CW-inspired assembly graphic for supply, extract
   assert.equal((svg.match(/data-plan-graphic="hiper-generic-cw-inspired-plan-v1"/gu) ?? []).length, 6);
   assert.equal((svg.match(/data-generic-cw-status="provisional"/gu) ?? []).length, 6);
   assert.equal((svg.match(/data-generic-cw-part="attenuator"/gu) ?? []).length, 2);
-  assert.match(svg, /GENERIC · PROVISIONAL/);
-  assert.match(svg, /6×DN90 PLATE/);
+  assert.doesNotMatch(svg, /GENERIC · PROVISIONAL/);
+  assert.doesNotMatch(svg, /6×DN90 PLATE/);
   assert.match(svg, /data-generic-cw-service="supply"/);
   assert.match(svg, /data-generic-cw-service="extract"/);
-  assert.match(svg, /<g transform="scale\(0\.02\)"><rect[^>]*width="500" height="320"/);
+  assert.match(svg, /<g transform="scale\(0\.025\)"><rect[^>]*width="500" height="320"/);
   assert.match(svg, /rotate\(180\)/);
 });
 
@@ -242,7 +241,7 @@ test("print scene carries Twin smooth bodies, exact endpoints and saved-centreli
 
   const svg = renderA3SheetSvg(sheet);
   assert.equal((svg.match(/data-kind="route-body"/gu) ?? []).length, 2);
-  assert.match(svg, /D01 · Extract · Twin/);
+  assert.doesNotMatch(svg, /D01 · Extract · Twin/);
   assert.match(svg, /8 m plan qty/);
   assert.match(svg, /Display sweeps, bends, fittings, allowances and waste are excluded/);
 });
@@ -325,9 +324,9 @@ test("a calibrated PNG uses its saved model transform in the clipped print scene
   const project = addReference(projectWithFloor(), { calibrated: true, translationX: 500, translationY: 1000 });
   const sheet = createA3SheetModel(project, metadata());
   const svg = renderA3SheetSvg(sheet);
-  assert.equal(sheet.fit.label, "1:50");
+  assert.equal(sheet.fit.label, "1:40");
   assert.match(svg, /data-calibration="calibrated"/);
-  assert.match(svg, /transform="matrix\(0\.2 0 0 0\.2 /);
+  assert.match(svg, /transform="matrix\(0\.25 0 0 0\.25 /);
   assert.match(svg, /data-kind="reference"/);
 });
 
@@ -512,4 +511,40 @@ test("sheet preserves full raster payloads for PDF page underlays and logos, and
  assert.equal(sheet.printScene.floorAreas[0].vertices.length,4);
  project.floorReferences[0].visible=false;
  const areaOnly=createA3SheetModel(project,metadata());assert.notEqual(areaOnly.fit.transform,null,'building area alone determines sheet extent');
+});
+
+
+test("Luna symbol sits above radial duct with an opaque centre", () => {
+  let project = projectWithWall(10000);
+  project = applyCommand(project, {type: "component.add", component: createCatalogueComponent("luna-supply", {
+    id: "luna-over-duct", floorId: "floor-ground", xMm: 1000, yMm: 1000,
+  })});
+  project = applyCommand(project, {type: "route.add", route: {
+    id: "duct-under-luna", floorId: "floor-ground", system: "mvhr", stream: "supply", role: null,
+    ductKind: "semi-rigid-radial", startAttachment: null, endAttachment: null,
+    points: [{x:1000,y:1000,z:unknownMm("not set")},{x:3000,y:1000,z:unknownMm("not set")}],
+  }});
+  const svg = renderA3SheetSvg(createA3SheetModel(project, metadata()));
+  assert.ok(svg.indexOf('data-id="luna-over-duct"') > svg.indexOf('data-id="duct-under-luna"'));
+  assert.match(svg.slice(svg.indexOf('data-id="luna-over-duct"')), /<path d="[^"]+" fill="white"/);
+});
+
+
+test("outdoor legend distinguishes combined, intake and exhaust using the drawn profiles", () => {
+  let project=projectWithWall(10000);
+  for(const [index,service] of ["combined","intake","exhaust"].entries()) {
+    project=applyCommand(project,{type:"component.add",component:createCatalogueComponent(`generic-external-grille-${service}-dn160`,{
+      id:`outdoor-${service}`,floorId:"floor-ground",xMm:1000+index*1500,yMm:1000,
+    })});
+  }
+  const sheet=createA3SheetModel(project,metadata());
+  const entries=sheet.printScene.legend.filter(entry=>entry.key.startsWith("external-grille-"));
+  assert.deepEqual(entries.map(entry=>entry.key),["external-grille-combined","external-grille-intake","external-grille-exhaust"]);
+  const svg=renderA3SheetSvg(sheet);
+  for(const type of ["combined","intake","exhaust"]) assert.ok(svg.includes(`data-grille-type="${type}"`));
+  assert.match(svg,/Combined outdoor intake \/ exhaust grille/);
+  assert.match(svg,/Separate outdoor intake grille/);
+  assert.match(svg,/Separate outdoor exhaust grille/);
+  const drawing=svg.split('<g id="drawing-content"')[1].split('<text data-kind="draft-watermark"')[0];
+  assert.doesNotMatch(drawing,/<text\b/);
 });
