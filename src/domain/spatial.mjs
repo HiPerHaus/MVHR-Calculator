@@ -487,6 +487,29 @@ export function applyCommand(project, command, options = {}) {
       }
       break;
     }
+    case "route.replaceBatch": {
+      if (!Array.isArray(command.routes) || command.routes.length === 0) {
+        throw new TypeError("Route replacement requires at least one route");
+      }
+      const replacements = new Map();
+      for (const routeValue of command.routes) {
+        const route = normalizeRoute(routeValue);
+        if (replacements.has(route.id)) throw new TypeError(`Route ID already exists in replacement batch: ${route.id}`);
+        const existing = requireEntity(next.routes, route.id, "Route replacement");
+        assertRouteReplacementScope(existing, route);
+        replacements.set(route.id, route);
+      }
+      const originalOrder = next.routes.map((route) => route.id);
+      next.routes = next.routes.filter((route) => !replacements.has(route.id));
+      for (const route of replacements.values()) {
+        requireEntity(next.floors, route.floorId, "Floor");
+        synchronizeRouteEndpoints(next, route);
+        next.routes.push(route);
+      }
+      const byId = new Map(next.routes.map((route) => [route.id, route]));
+      next.routes = originalOrder.map((routeId) => byId.get(routeId));
+      break;
+    }
     case "route.delete": {
       requireEntity(next.routes, command.routeId, "Route");
       next.routes = next.routes.filter(route => route.id !== command.routeId);
@@ -3314,6 +3337,20 @@ function normalizeRoute(route) {
     normalized.routingElevationMm = normalizeMeasurement(route.routingElevationMm);
   }
   return normalized;
+}
+
+function assertRouteReplacementScope(existing, replacement) {
+  const unchangedFields = ["id", "floorId", "system", "stream", "role", "ductKind", "parallelRunCount"];
+  for (const field of unchangedFields) {
+    if (existing[field] !== replacement[field]) {
+      throw new TypeError(`Route replacement cannot change ${field}`);
+    }
+  }
+  for (const field of ["startAttachment", "endAttachment", "connectionInterface", "routingElevationMm"]) {
+    if (JSON.stringify(existing[field] ?? null) !== JSON.stringify(replacement[field] ?? null)) {
+      throw new TypeError(`Route replacement cannot change ${field}`);
+    }
+  }
 }
 
 function normalizeRoutePoint(point) {

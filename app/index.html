@@ -58,7 +58,7 @@
             <h2>Parts</h2>
             <div class="automatic-routing-actions" aria-label="Automatic duct routing">
               <strong>Equipment-first routing</strong>
-              <span>Place typed equipment first, then preview routes. Existing routes are never overwritten.</span>
+              <span>Place typed equipment first, then preview routes. Auto route leaves existing routes alone; Re-route replaces only your explicit selection.</span>
               <details class="routing-setup-details"><summary>Setup checklist</summary><ol id="routing-workflow-steps" class="routing-workflow-steps">
                 <li data-routing-step="equipment"><b>1</b><span>Place unit, outlets and external terminals.</span></li>
                 <li data-routing-step="distribution"><b>2</b><span>Place distribution boxes and attenuators.</span></li>
@@ -78,6 +78,7 @@
                 <small id="automatic-route-axis-detail">Review the suggested axis before previewing.</small>
               </div>
               <button id="auto-route" class="panel-action primary-route-action" type="button">Preview auto routes</button>
+              <button id="reroute-existing" class="panel-action" type="button">Re-route existing…</button>
               <p id="automatic-route-setup-status" class="clear-ventilation-note" aria-live="polite"></p>
             </div>
             <details class="parts-details"><summary>Routing coordination</summary>
@@ -941,6 +942,20 @@
         <div class="dialog-actions">
           <button id="cancel-automatic-epp" type="button">Cancel</button>
           <button id="apply-automatic-epp" type="button" class="primary-action" disabled>Apply route</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="automatic-reroute-dialog" class="wide-dialog" aria-labelledby="automatic-reroute-title">
+      <form method="dialog">
+        <h2 id="automatic-reroute-title">Re-route existing ducts</h2>
+        <p>Select only the routes you want to replace. Older saved drawings do not identify which routes were generated automatically, so Studio never selects or removes a route for you.</p>
+        <p id="automatic-reroute-summary" aria-live="polite">Select routes, then preview their replacement geometry.</p>
+        <div id="automatic-reroute-routes" class="automatic-radial-results"></div>
+        <p class="scope-note">The selected routes keep their exact typed endpoints, duct family and saved elevation. Unselected, unresolved and custom-height routes remain unchanged.</p>
+        <div class="dialog-actions split-actions">
+          <button id="cancel-automatic-reroute" type="button">Cancel</button>
+          <button id="preview-automatic-reroute" type="button">Preview selected replacements</button>
+          <button id="apply-automatic-reroute" type="button" class="primary-action" disabled>Apply replacements</button>
         </div>
       </form>
     </dialog>

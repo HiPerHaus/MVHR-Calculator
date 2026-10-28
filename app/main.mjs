@@ -131,6 +131,7 @@ import {
 } from "../src/editor/duct-body-geometry.mjs";
 import { inspectAutomaticRadialRouting, suggestBuildingAxis } from "../src/editor/automatic-radial-routing.mjs";
 import { inspectAutomaticEppRouting } from "../src/editor/automatic-epp-routing.mjs";
+import { inspectAutomaticRouteRerouting } from "../src/editor/automatic-route-rerouting.mjs";
 import { inspectEquipmentFirstRouting } from "../src/editor/routing-workflow.mjs";
 import { inspectRoutingCoordination } from "../src/editor/routing-coordination.mjs";
 import { createDxfImportReviewController } from "../src/editor/dxf-import-controller.mjs";
@@ -333,6 +334,7 @@ const extractRunDemand = document.querySelector("#extract-run-demand");
 const extractRunDetail = document.querySelector("#extract-run-detail");
 const cwSuggestionStatus = document.querySelector("#cw-suggestion-status");
 const automaticRouteButton = document.querySelector("#auto-route");
+const automaticRerouteButton = document.querySelector("#reroute-existing");
 const automaticRouteSystem = document.querySelector("#automatic-route-system");
 const automaticRouteStyle = document.querySelector("#automatic-route-style");
 const automaticRouteAxisRow = document.querySelector("#automatic-route-axis-row");
@@ -354,6 +356,12 @@ const automaticEppSummary = document.querySelector("#automatic-epp-summary");
 const automaticEppResult = document.querySelector("#automatic-epp-result");
 const cancelAutomaticEppButton = document.querySelector("#cancel-automatic-epp");
 const applyAutomaticEppButton = document.querySelector("#apply-automatic-epp");
+const automaticRerouteDialog = document.querySelector("#automatic-reroute-dialog");
+const automaticRerouteSummary = document.querySelector("#automatic-reroute-summary");
+const automaticRerouteRoutes = document.querySelector("#automatic-reroute-routes");
+const cancelAutomaticRerouteButton = document.querySelector("#cancel-automatic-reroute");
+const previewAutomaticRerouteButton = document.querySelector("#preview-automatic-reroute");
+const applyAutomaticRerouteButton = document.querySelector("#apply-automatic-reroute");
 const addRoutingExclusionButton = document.querySelector("#add-routing-exclusion");
 const routingClearanceInput = document.querySelector("#routing-clearance-input");
 const applyRoutingClearanceButton = document.querySelector("#apply-routing-clearance");
@@ -717,6 +725,8 @@ let referenceCropState = null;
 let automaticRadialPreview = null;
 let automaticRadialSelectedKeys = new Set();
 let automaticEppPreview = null;
+let automaticReroutePreview = null;
+let automaticRerouteSelectedIds = new Set();
 let routingExclusionDraftStart = null;
 let pendingRoutingExclusionId = null;
 let selectedRoutingExclusionId = null;
@@ -1159,17 +1169,31 @@ singleRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRun
 twinRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(2));
 clearRouteRunButton.addEventListener("click", () => setSelectedRouteParallelRuns(null));
 automaticRouteButton.addEventListener("click", () => automaticRouteSystem.value === "epp" ? openAutomaticEppPreview() : openAutomaticRadialPreview());
-automaticRouteSystem.addEventListener("change", renderRoutingWorkflow);
+automaticRerouteButton.addEventListener("click", openAutomaticRerouteDialog);
+automaticRouteSystem.addEventListener("change", () => {
+  renderRoutingWorkflow();
+  if (automaticRerouteDialog.open) openAutomaticRerouteDialog();
+});
 automaticRouteStyle.addEventListener("change", () => {
   updateAutomaticRoutingStyle({ suggestIfEmpty: true });
   renderRoutingWorkflow();
   if (automaticRadialDialog.open) openAutomaticRadialPreview();
   if (automaticEppDialog.open) refreshAutomaticEppPreview();
+  if (automaticRerouteDialog.open) {
+    invalidateAutomaticReroutePreview();
+    renderAutomaticRerouteDialog();
+    render();
+  }
 });
 automaticRouteAxis.addEventListener("change", () => {
   automaticRouteAxisDetail.textContent = automaticRouteAxis.value === "" ? "Confirm the building axis before previewing." : "User-confirmed building axis for this preview.";
   if (automaticRadialDialog.open) openAutomaticRadialPreview();
   if (automaticEppDialog.open) refreshAutomaticEppPreview();
+  if (automaticRerouteDialog.open) {
+    invalidateAutomaticReroutePreview();
+    renderAutomaticRerouteDialog();
+    render();
+  }
 });
 suggestBuildingAxisButton.addEventListener("click", () => applyOutlineAxisSuggestion());
 cancelAutomaticRadialButton.addEventListener("click", cancelAutomaticRadialPreview);
@@ -1185,6 +1209,13 @@ applyAutomaticEppButton.addEventListener("click", applyAutomaticEppPreview);
 automaticEppDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelAutomaticEppPreview();
+});
+cancelAutomaticRerouteButton.addEventListener("click", cancelAutomaticReroute);
+previewAutomaticRerouteButton.addEventListener("click", previewAutomaticReroute);
+applyAutomaticRerouteButton.addEventListener("click", applyAutomaticReroute);
+automaticRerouteDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelAutomaticReroute();
 });
 addRoutingExclusionButton.addEventListener("click", () => {
   routingExclusionDraftStart = null;
@@ -3293,6 +3324,11 @@ function applyOutlineAxisSuggestion({ refreshPreview = true } = {}) {
   automaticRouteAxisDetail.textContent = `Suggested from the longest outline edge (${Math.round(suggestion.lengthMm)} mm). Review before previewing; this does not rotate the drawing.`;
   if (refreshPreview && automaticRadialDialog.open) openAutomaticRadialPreview();
   if (refreshPreview && automaticEppDialog.open) refreshAutomaticEppPreview();
+  if (refreshPreview && automaticRerouteDialog.open) {
+    invalidateAutomaticReroutePreview();
+    renderAutomaticRerouteDialog();
+    render();
+  }
 }
 
 function replaceEppOptions(select, endpoints, placeholder, selectedKey) {
@@ -3339,6 +3375,139 @@ function applyAutomaticEppPreview() {
   automaticEppPreview = null;
   automaticEppDialog.close();
   selectedRouteId = route.id;
+  selectedRoutePointIndex = null;
+  render();
+}
+
+function openAutomaticRerouteDialog() {
+  automaticRadialPreview = null;
+  automaticEppPreview = null;
+  if (automaticRadialDialog.open) automaticRadialDialog.close();
+  if (automaticEppDialog.open) automaticEppDialog.close();
+  automaticReroutePreview = null;
+  automaticRerouteSelectedIds = new Set();
+  renderAutomaticRerouteDialog();
+  if (!automaticRerouteDialog.open) automaticRerouteDialog.showModal();
+  interactionMessage = "Choose existing routes to re-route; project unchanged";
+  render();
+}
+
+function eligibleAutomaticRerouteRoutes() {
+  const floorId = currentFloorId();
+  const system = automaticRouteSystem.value;
+  return history.present.routes.filter((route) => route.floorId === floorId && route.startAttachment && route.endAttachment && (
+    system === "dn90" ? route.ductKind === "semi-rigid-radial" : /^epp-rigid-dn(?:125|160)$/.test(route.ductKind)
+  ));
+}
+
+function renderAutomaticRerouteDialog() {
+  const routes = eligibleAutomaticRerouteRoutes();
+  automaticRerouteRoutes.replaceChildren();
+  for (const route of routes) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result route-choice";
+    const choice = document.createElement("input");
+    choice.type = "checkbox";
+    choice.checked = automaticRerouteSelectedIds.has(route.id);
+    choice.setAttribute("aria-label", `Select ${automaticRerouteRouteLabel(route)}`);
+    choice.addEventListener("change", () => {
+      if (choice.checked) automaticRerouteSelectedIds.add(route.id);
+      else automaticRerouteSelectedIds.delete(route.id);
+      invalidateAutomaticReroutePreview();
+      renderAutomaticRerouteDialog();
+    });
+    const copy = document.createElement("label");
+    const title = document.createElement("strong");
+    title.textContent = automaticRerouteRouteLabel(route);
+    const detail = document.createElement("span");
+    detail.textContent = `${route.ductKind === "semi-rigid-radial" ? "DN90 radial" : route.ductKind.replace("epp-rigid-", "EPP ").toUpperCase()} · explicit selection required`;
+    copy.append(title, detail);
+    row.append(choice, copy);
+    automaticRerouteRoutes.append(row);
+  }
+  if (routes.length === 0) {
+    const row = document.createElement("div");
+    row.className = "automatic-radial-result";
+    row.textContent = `No attached ${automaticRouteSystem.value === "dn90" ? "DN90 radial" : "EPP"} routes are available on this floor.`;
+    automaticRerouteRoutes.append(row);
+  }
+  if (automaticReroutePreview) {
+    for (const proposal of automaticReroutePreview.proposals) {
+      const row = document.createElement("div");
+      row.className = "automatic-radial-result reroute-preview-result";
+      const title = document.createElement("strong");
+      title.textContent = `Ready · ${automaticRerouteRouteLabel(proposal.replacementRoute)}`;
+      const detail = document.createElement("span");
+      detail.textContent = `${routingStyleLabel(proposal.routingStyle)} replacement · exact endpoints and ${proposal.ductKind} topology retained`;
+      row.append(title, detail);
+      automaticRerouteRoutes.append(row);
+    }
+    for (const unresolved of automaticReroutePreview.unresolved) {
+      const row = document.createElement("div");
+      row.className = "automatic-radial-result";
+      const title = document.createElement("strong");
+      title.textContent = `Unchanged · ${unresolved.routeId}`;
+      const detail = document.createElement("span");
+      detail.textContent = unresolved.reason;
+      row.append(title, detail);
+      automaticRerouteRoutes.append(row);
+    }
+  }
+  const count = automaticRerouteSelectedIds.size;
+  automaticRerouteSummary.textContent = automaticReroutePreview?.message ?? (count
+    ? `${count} route${count === 1 ? "" : "s"} selected. Preview ${routingStyleLabel()} replacements before applying.`
+    : "Nothing is selected. Existing routes remain unchanged.");
+  previewAutomaticRerouteButton.disabled = count === 0;
+  applyAutomaticRerouteButton.disabled = !automaticReroutePreview?.proposals.length;
+  applyAutomaticRerouteButton.textContent = automaticReroutePreview?.proposals.length === 1
+    ? "Apply replacement"
+    : `Apply ${automaticReroutePreview?.proposals.length ?? 0} replacements`;
+}
+
+function automaticRerouteRouteLabel(route) {
+  const endpointName = (attachment) => history.present.components.find((component) => component.id === attachment?.componentId)?.displayName ?? attachment?.componentId ?? "unattached";
+  return `${route.stream === "supply" ? "Supply" : route.stream === "extract" ? "Extract" : route.stream} · ${endpointName(route.startAttachment)} → ${endpointName(route.endAttachment)}`;
+}
+
+function invalidateAutomaticReroutePreview() {
+  automaticReroutePreview = null;
+}
+
+function previewAutomaticReroute() {
+  automaticReroutePreview = inspectAutomaticRouteRerouting(
+    history.present,
+    currentFloorId(),
+    [...automaticRerouteSelectedIds],
+    { ...automaticRoutingOptions(), system: automaticRouteSystem.value },
+  );
+  interactionMessage = automaticReroutePreview.proposals.length
+    ? `${automaticReroutePreview.proposals.length} replacement route preview${automaticReroutePreview.proposals.length === 1 ? "" : "s"} shown; project unchanged`
+    : automaticReroutePreview.message;
+  renderAutomaticRerouteDialog();
+  render();
+}
+
+function cancelAutomaticReroute() {
+  automaticReroutePreview = null;
+  automaticRerouteSelectedIds = new Set();
+  if (automaticRerouteDialog.open) automaticRerouteDialog.close();
+  interactionMessage = "Re-routing cancelled; accepted routes unchanged";
+  render();
+}
+
+function applyAutomaticReroute() {
+  const routes = automaticReroutePreview?.proposals.map((proposal) => structuredClone(proposal.replacementRoute)) ?? [];
+  if (!routes.length) return;
+  const committed = commitCommand(
+    { type: "route.replaceBatch", routes },
+    `${routes.length} existing route${routes.length === 1 ? "" : "s"} re-routed as ${routingStyleLabel()} in one undoable action`,
+  );
+  if (!committed) return;
+  const selectedId = routes.at(-1).id;
+  automaticReroutePreview = null;
+  automaticRerouteSelectedIds = new Set();
+  automaticRerouteDialog.close();
+  selectedRouteId = selectedId;
   selectedRoutePointIndex = null;
   render();
 }
@@ -6884,6 +7053,22 @@ function renderDraft() {
       "data-automatic-epp-preview-centre": proposal.destination.componentId,
     }));
   }
+  if (activeTask === "ventilation" && automaticReroutePreview?.proposals.length) {
+    for (const proposal of automaticReroutePreview.proposals) {
+      const swept = deriveSweptCentreline(proposal.points).points;
+      draftLayer.append(svgElement("polyline", {
+        points: routePointString(swept),
+        class: `automatic-route-preview reroute ${proposal.stream}`,
+        "stroke-width": toView(proposal.diameterMm),
+        "data-automatic-reroute-preview": proposal.routeId,
+      }));
+      draftLayer.append(svgElement("polyline", {
+        points: routePointString(swept),
+        class: "automatic-route-preview-centre reroute",
+        "data-automatic-reroute-preview-centre": proposal.routeId,
+      }));
+    }
+  }
   if (activeTool === "crop-reference" && referenceCropState) {
     const reference = selectedReference();
     const crop = referenceCropState.stagedSourceRectPx ?? (
@@ -7279,6 +7464,10 @@ function renderRoutingWorkflow() {
   updateAutomaticRoutingStyle();
   const systemLabel = automaticRouteSystem.value === "epp" ? "EPP" : "DN90";
   automaticRouteButton.textContent = `Preview ${systemLabel} auto routes`;
+  const reroutableCount = eligibleAutomaticRerouteRoutes().length;
+  automaticRerouteButton.textContent = `Re-route existing ${systemLabel}…`;
+  automaticRerouteButton.disabled = reroutableCount === 0;
+  automaticRerouteButton.title = reroutableCount ? `${reroutableCount} attached ${systemLabel} route${reroutableCount === 1 ? "" : "s"} available` : `No attached ${systemLabel} routes on this floor`;
   automaticRouteSetupStatus.textContent = workflow.status === "ready"
     ? `${routingStyleLabel()} preview is ready. Existing manual and accepted routes remain unchanged.`
     : "You can open the preview to see exact missing equipment or constraints; no route is committed until Apply.";
