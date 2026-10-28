@@ -1,3 +1,4 @@
+import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
@@ -469,6 +470,40 @@ const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
+const hiddenVentilationGroups = new Set();
+const componentIsVisible = component => !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
+const routeIsVisible = route => !hiddenVentilationGroups.has(routeVisibilityGroup(route));
+const visibilityControls = document.querySelector("#ventilation-visibility");
+for (const [key, label] of VENTILATION_VISIBILITY_GROUPS) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.visibilityGroup = key;
+  button.textContent = `Hide ${label}`;
+  button.setAttribute("aria-pressed", "true");
+  button.addEventListener("click", () => {
+    if (hiddenVentilationGroups.has(key)) hiddenVentilationGroups.delete(key);
+    else hiddenVentilationGroups.add(key);
+    button.textContent = `${hiddenVentilationGroups.has(key) ? "Show" : "Hide"} ${label}`;
+    button.setAttribute("aria-pressed", String(!hiddenVentilationGroups.has(key)));
+    mechanicalState = clearMechanicalSelection(mechanicalState);
+    selectedRouteId = null;
+    render();
+  });
+  visibilityControls.append(button);
+}
+const showAllVentilation = document.createElement("button");
+showAllVentilation.type = "button";
+showAllVentilation.textContent = "Show all";
+showAllVentilation.addEventListener("click", () => {
+  hiddenVentilationGroups.clear();
+  for (const button of visibilityControls.querySelectorAll("[data-visibility-group]")) {
+    button.textContent = `Hide ${VENTILATION_VISIBILITY_GROUPS.find(([key]) => key === button.dataset.visibilityGroup)[1]}`;
+    button.setAttribute("aria-pressed", "true");
+  }
+  render();
+});
+visibilityControls.append(showAllVentilation);
+
 const ventilationReadiness = document.querySelector("#ventilation-readiness");
 const roomToolsSection = document.querySelector("#room-tools-section");
 const floorAreaToolsSection = document.querySelector("#floor-area-tools-section");
@@ -3603,7 +3638,7 @@ function mechanicalHitFromPointerEvent(event) {
   const directHit = mechanicalHitFromTarget(event.target);
   if (activeTool !== "route") return directHit;
   const picked = pickPortAtClientPoint(
-    history.present,
+    { ...history.present, components: history.present.components.filter(componentIsVisible) },
     camera,
     canvas.getBoundingClientRect(),
     { x: event.clientX, y: event.clientY },
@@ -3630,11 +3665,11 @@ function mechanicalHitFromPointerEvent(event) {
 
 function routeIdFromPointerEvent(event) {
   const directRouteId = event.target?.dataset?.routeId;
-  if (directRouteId && history.present.routes.some((route) => route.id === directRouteId)) {
+  if (directRouteId && history.present.routes.some((route) => route.id === directRouteId && routeIsVisible(route))) {
     return directRouteId;
   }
   const hit = pickRouteAtClientPoint(
-    history.present.routes,
+    history.present.routes.filter(routeIsVisible),
     camera,
     canvas.getBoundingClientRect(),
     { x: event.clientX, y: event.clientY },
@@ -5359,15 +5394,15 @@ function render() {
     // EPP and DN90 radial ducts remain visible when their plan routes cross equipment.
     for (const route of history.present.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) renderDuctRoute(route);
     const selectedRoute = history.present.routes.find((route) => route.id === selectedRouteId);
-    if (selectedRoute && activeTool === "select") renderRouteEditHandles(selectedRoute);
+    if (selectedRoute && routeIsVisible(selectedRoute) && activeTool === "select") renderRouteEditHandles(selectedRoute);
     if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
       const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
       for(const guide of grilleAlignmentPreview.guides)modelLayer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
       const p=grilleAlignmentPreview.point,label=svgElement("text",{x:toView(p.x),y:toView(p.y)-30*unitsPerPixel,"font-size":11*unitsPerPixel,"text-anchor":"middle",fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","pointer-events":"none"});
       label.textContent="Intake + exhaust aligned";modelLayer.append(label);
     }
-    const displayedRoutes=history.present.routes.map(route=>({...route,points:routeDisplayPoints(route)}));
-    for(const elbow of deriveHrvCeilingElbows(displayedRoutes,history.present.components)) {
+    const displayedRoutes=history.present.routes.filter(routeIsVisible).map(route=>({...route,points:routeDisplayPoints(route)}));
+    for(const elbow of deriveHrvCeilingElbows(displayedRoutes,history.present.components.filter(componentIsVisible))) {
       const drawing=svgElement("g",{transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,"data-hrv-ceiling-elbow":elbow.portId,"data-route-id":elbow.routeId,"aria-label":"90° HRV top elbow to ceiling · provisional height"});
       for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
       const title=svgElement("title",{});title.textContent="90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
@@ -5653,6 +5688,7 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
 }
 
 function renderDuctRoute(route) {
+  if (!routeIsVisible(route)) return;
   const family = routeFamilyForKind(route.ductKind);
   const geometry = routeBodyGeometry(route, family);
   const serviceClass = ductServiceClass(route);
@@ -5808,6 +5844,7 @@ function renderRouteEditHandles(route) {
 }
 
 function renderComponent(component) {
+  if (!componentIsVisible(component)) return;
   const selected = mechanicalState.selectedComponentId === component.id;
   const dragDelta = componentDisplayDragDelta(component.id);
   const position = {
@@ -6352,7 +6389,7 @@ function componentDisplayDragDelta(componentId) {
 function renderEquipmentAssemblyServiceZone(assembly) {
   const centre = equipmentAssemblyCentre(history.present, assembly);
   const firstComponent = history.present.components.find((component) => component.id === assembly.componentIds[0]);
-  if (!firstComponent) return;
+  if (!firstComponent || !componentIsVisible(firstComponent)) return;
   const dragDelta = componentDisplayDragDelta(firstComponent.id);
   const angleRad = componentYaw(firstComponent.orientation);
   const angleDegrees = angleRad * 180 / Math.PI;

@@ -938,3 +938,8 @@ The owner requested a larger drawing and Luna symbols above ducts. A3 fitting no
 ### 27 October 2026 — clean drawing output and outdoor legend
 
 At the owner's request, calibrated raster underlays no longer add a legend row. Outdoor legend entries distinguish combined intake/exhaust, separate intake and separate exhaust, and use the same geometry as the drawn grilles. Equipment, route and bend text is suppressed in the output plan to reduce clutter. Legend, title block, schedule and reference warnings remain available; saved model data and editor labels are unchanged.
+
+
+### 28 October 2026 — ventilation layout visibility
+
+Layout buttons independently hide DN90 radial ducts, EPP ducts, HRV units, distribution/attenuator equipment, outlets, external grilles and remaining components. Buttons switch between Hide and Show; Show all restores the complete layout. Visibility is temporary view state, outside the saved project and undo history. Hidden objects are omitted from pointer acquisition and selected edit handles. Associated service zones and HRV ceiling elbows follow equipment visibility. Quantities, connections, checks, drawing exports and saved geometry remain unchanged.

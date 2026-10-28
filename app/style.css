@@ -640,3 +640,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .access-user-row span { color:#687880; font-size:12px; overflow-wrap:anywhere; }
 .access-user-row select { padding:8px; border:1px solid #b9c9cf; border-radius:6px; background:white; }
 .project-info-options { margin-bottom:12px; }
+
+.ventilation-visibility { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ventilation-visibility button { border: 1px solid #aebcc2; border-radius: 6px; padding: 7px 9px; background: white; color: #29434d; cursor: pointer; font: inherit; font-size: 11px; }
+.ventilation-visibility button[aria-pressed="false"] { background: #edf2f4; color: #64757d; border-style: dashed; }
