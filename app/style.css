@@ -541,6 +541,9 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .automatic-routing-actions > label { display: grid; gap: 3px; color: #425a63; font-size: 10px; font-weight: 700; }
 .automatic-routing-actions select, .automatic-routing-actions input { box-sizing: border-box; width: 100%; padding: 6px; border: 1px solid #b8c8cd; border-radius: 5px; background: white; color: #253d46; }
 .automatic-routing-actions .primary-route-action { margin: 0; min-width: 0; padding-inline: 6px; font-weight: 700; }
+.routing-setup-details { margin: 2px 0; color: #52646c; font-size: 10px; }
+.routing-setup-details > summary { cursor: pointer; font-weight: 700; }
+.routing-setup-details[open] > summary { margin-bottom: 6px; }
 .routing-workflow-steps { display: grid; gap: 4px; margin: 4px 0 6px; padding: 0; list-style: none; }
 .routing-workflow-steps li { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 5px; color: #53666d; font-size: 10px; line-height: 1.35; }
 .routing-workflow-steps b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #dfe8ea; color: #3f5962; font-size: 10px; }
@@ -578,12 +581,34 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 #component-context-menu button:hover, #component-context-menu button:focus-visible { background:#eaf1f3; }
 
 .drawing-view-toolbar { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:10px; padding:7px 12px; border-top:1px solid #cbd4d8; background:#f3f6f7; }
-.drawing-view-toolbar .view-controls, .drawing-view-toolbar .pan-controls { display:flex; gap:4px; }
+.drawing-view-toolbar .view-controls, .drawing-view-toolbar .pan-controls { display:flex; align-items:center; gap:4px; }
 .drawing-view-toolbar button { min-width:34px; min-height:32px; margin:0; }
 .drawing-view-toolbar .tool { width:auto; display:flex; align-items:center; gap:6px; padding:5px 10px; }
 .drawing-view-toolbar .snap-toggle { border-left:1px solid #cbd4d8; }
 .drawing-view-toolbar #snap-toggle-detail { display:none; }
 .drawing-view-toolbar .tool-glyph { width:auto; height:auto; }
+.view-options-anchor { position:relative; display:flex; }
+#view-options-toggle { display:flex; align-items:center; gap:5px; padding:4px 8px; color:#29434d; }
+#view-options-toggle.has-hidden { border-color:#c27b2f; background:#fff8e8; }
+.view-options-eye { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; }
+.view-options-hidden-count { display:grid; place-items:center; min-width:18px; height:18px; padding:0 4px; border-radius:9px; background:#c65b38; color:white; font-size:10px; line-height:1; }
+.view-options-popover { position:absolute; z-index:30; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%); box-sizing:border-box; width:300px; max-height:min(480px,calc(100vh - 160px)); overflow:auto; padding:14px; border:1px solid #aebec4; border-radius:10px; background:white; color:#29434d; box-shadow:0 10px 28px rgb(25 52 61 / 24%); text-align:left; }
+.view-options-popover[hidden] { display:none; }
+.view-options-popover header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; }
+.view-options-popover header strong { font-size:13px; }
+.view-options-popover header button { min-width:32px; min-height:32px; border:0; background:transparent; font-size:20px; }
+.view-options-popover > p { margin:0 0 12px; color:#65777e; font-size:10px; line-height:1.4; }
+.ventilation-visibility { display:grid; gap:10px; }
+.ventilation-visibility fieldset { display:grid; gap:5px; margin:0; padding:0 0 10px; border:0; border-bottom:1px solid #e0e6e8; }
+.ventilation-visibility fieldset:last-child { border-bottom:0; }
+.ventilation-visibility legend { margin-bottom:3px; color:#61747c; font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.ventilation-visibility label { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:30px; font-size:12px; }
+.ventilation-visibility input { width:18px; height:18px; margin:0; accent-color:#146b69; }
+.show-all-ventilation { width:100%; margin-top:10px!important; }
+@media(max-width:760px) {
+  .view-options-popover { position:fixed; left:12px; right:12px; bottom:68px; width:auto; max-height:60vh; transform:none; }
+  .drawing-view-toolbar button { min-width:40px; min-height:40px; }
+}
 
 /* Keep account and project actions visible on ordinary laptop widths. */
 .app-shell { grid-template-rows:auto minmax(0,1fr); }
@@ -640,7 +665,3 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .access-user-row span { color:#687880; font-size:12px; overflow-wrap:anywhere; }
 .access-user-row select { padding:8px; border:1px solid #b9c9cf; border-radius:6px; background:white; }
 .project-info-options { margin-bottom:12px; }
-
-.ventilation-visibility { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.ventilation-visibility button { border: 1px solid #aebcc2; border-radius: 6px; padding: 7px 9px; background: white; color: #29434d; cursor: pointer; font: inherit; font-size: 11px; }
-.ventilation-visibility button[aria-pressed="false"] { background: #edf2f4; color: #64757d; border-style: dashed; }

@@ -942,7 +942,9 @@ At the owner's request, calibrated raster underlays no longer add a legend row. 
 
 ### 28 October 2026 — ventilation layout visibility
 
-Layout buttons independently hide DN90 radial ducts, EPP ducts, HRV units, distribution/attenuator equipment, outlets, external grilles and remaining components. Buttons switch between Hide and Show; Show all restores the complete layout. Visibility is temporary view state, outside the saved project and undo history. Hidden objects are omitted from pointer acquisition and selected edit handles. Associated service zones and HRV ceiling elbows follow equipment visibility. Quantities, connections, checks, drawing exports and saved geometry remain unchanged.
+An eye-labelled View options popover beside the bottom zoom controls independently shows or hides DN90 radial ducts, EPP ducts, HRV units, distribution/attenuator equipment, outlets, external grilles, remaining components and supported bend labels. Stable checked controls mean visible; Show all restores the complete layout and the eye button reports how many groups are hidden. The popover closes on Escape, its close button or an outside pointer action, and remains usable as a bounded bottom sheet at narrow widths. The Ventilation sidebar retains compact routing and parts-placement controls while secondary setup, coordination, demand and evidence information remains collapsed until requested.
+
+Visibility is temporary view state, outside the saved project and undo history. Hidden objects are omitted from pointer acquisition and selected edit handles; hiding the selected object's group clears that selection. Associated service zones and HRV ceiling elbows follow equipment visibility. Quantities, connections, checks, drawing exports and saved geometry remain unchanged. Visibility never means deletion or exclusion from engineering scope.
 
 
 ### 28 October 2026 — fluid unsnapped movement and bend labels

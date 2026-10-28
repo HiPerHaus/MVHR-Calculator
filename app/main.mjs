@@ -474,36 +474,88 @@ const mechanicalToolsSection = document.querySelector("#mechanical-tools-section
 const hiddenVentilationGroups = new Set();
 const componentIsVisible = component => !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
 const routeIsVisible = route => !hiddenVentilationGroups.has(routeVisibilityGroup(route));
+const viewOptionsAnchor = document.querySelector("#view-options-anchor");
+const viewOptionsToggle = document.querySelector("#view-options-toggle");
+const viewOptionsPopover = document.querySelector("#view-options-popover");
+const viewOptionsClose = document.querySelector("#view-options-close");
+const viewOptionsHiddenCount = document.querySelector("#view-options-hidden-count");
 const visibilityControls = document.querySelector("#ventilation-visibility");
-for (const [key, label] of VENTILATION_VISIBILITY_GROUPS) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.visibilityGroup = key;
-  button.textContent = `Hide ${label}`;
-  button.setAttribute("aria-pressed", "true");
-  button.addEventListener("click", () => {
-    if (hiddenVentilationGroups.has(key)) hiddenVentilationGroups.delete(key);
-    else hiddenVentilationGroups.add(key);
-    button.textContent = `${hiddenVentilationGroups.has(key) ? "Show" : "Hide"} ${label}`;
-    button.setAttribute("aria-pressed", String(!hiddenVentilationGroups.has(key)));
-    mechanicalState = clearMechanicalSelection(mechanicalState);
-    selectedRouteId = null;
-    render();
-  });
-  visibilityControls.append(button);
+const visibilitySections = new Map([
+  ["Ductwork", new Set(["dn90", "epp"])],
+  ["Equipment", new Set(["hrv", "distribution", "terminals", "external", "other"])],
+  ["Annotations", new Set(["bend-labels"])],
+]);
+for (const [section, keys] of visibilitySections) {
+  const fieldset = document.createElement("fieldset");
+  const legend = document.createElement("legend");
+  legend.textContent = section;
+  fieldset.append(legend);
+  for (const [key, label] of VENTILATION_VISIBILITY_GROUPS.filter(([candidate]) => keys.has(candidate))) {
+    const row = document.createElement("label");
+    row.textContent = label;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.dataset.visibilityGroup = key;
+    input.setAttribute("aria-label", `Show ${label}`);
+    input.addEventListener("change", () => {
+      if (input.checked) hiddenVentilationGroups.delete(key);
+      else hiddenVentilationGroups.add(key);
+      if (!input.checked) clearSelectionHiddenBy(key);
+      syncViewOptions();
+      render();
+    });
+    row.append(input);
+    fieldset.append(row);
+  }
+  visibilityControls.append(fieldset);
 }
-const showAllVentilation = document.createElement("button");
-showAllVentilation.type = "button";
-showAllVentilation.textContent = "Show all";
+const showAllVentilation = document.querySelector("#show-all-ventilation");
 showAllVentilation.addEventListener("click", () => {
   hiddenVentilationGroups.clear();
-  for (const button of visibilityControls.querySelectorAll("[data-visibility-group]")) {
-    button.textContent = `Hide ${VENTILATION_VISIBILITY_GROUPS.find(([key]) => key === button.dataset.visibilityGroup)[1]}`;
-    button.setAttribute("aria-pressed", "true");
-  }
+  syncViewOptions();
   render();
 });
-visibilityControls.append(showAllVentilation);
+viewOptionsToggle.addEventListener("click", () => setViewOptionsOpen(viewOptionsPopover.hidden));
+viewOptionsClose.addEventListener("click", () => setViewOptionsOpen(false, { returnFocus: true }));
+document.addEventListener("pointerdown", (event) => {
+  if (!viewOptionsPopover.hidden && !viewOptionsAnchor.contains(event.target)) setViewOptionsOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || viewOptionsPopover.hidden) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  setViewOptionsOpen(false, { returnFocus: true });
+});
+syncViewOptions();
+
+function setViewOptionsOpen(open, { returnFocus = false } = {}) {
+  viewOptionsPopover.hidden = !open;
+  viewOptionsToggle.setAttribute("aria-expanded", String(open));
+  if (open) requestAnimationFrame(() => visibilityControls.querySelector("input")?.focus());
+  else if (returnFocus) viewOptionsToggle.focus();
+}
+
+function syncViewOptions() {
+  for (const input of visibilityControls.querySelectorAll("[data-visibility-group]")) {
+    input.checked = !hiddenVentilationGroups.has(input.dataset.visibilityGroup);
+  }
+  const hiddenCount = hiddenVentilationGroups.size;
+  viewOptionsHiddenCount.hidden = hiddenCount === 0;
+  viewOptionsHiddenCount.textContent = String(hiddenCount);
+  viewOptionsToggle.classList.toggle("has-hidden", hiddenCount > 0);
+  viewOptionsToggle.setAttribute("aria-label", hiddenCount ? `View options, ${hiddenCount} hidden` : "View options");
+  showAllVentilation.disabled = hiddenCount === 0;
+}
+
+function clearSelectionHiddenBy(key) {
+  const selectedComponent = history.present.components.find((component) => component.id === mechanicalState.selectedComponentId);
+  if (selectedComponent && ventilationVisibilityGroup(selectedComponent) === key) {
+    mechanicalState = clearMechanicalSelection(mechanicalState);
+  }
+  const selectedRoute = history.present.routes.find((route) => route.id === selectedRouteId);
+  if (selectedRoute && routeVisibilityGroup(selectedRoute) === key) selectedRouteId = null;
+}
 
 const ventilationReadiness = document.querySelector("#ventilation-readiness");
 const roomToolsSection = document.querySelector("#room-tools-section");
@@ -1914,6 +1966,8 @@ function setTask(task) {
   checksNavigationButton.classList.toggle("active", task === "checks");
   projectWorkspace.hidden = task !== "project";
   planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
+  viewOptionsAnchor.hidden = task !== "ventilation";
+  if (task !== "ventilation") setViewOptionsOpen(false);
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
   threeDWorkspace.hidden = task !== "three-d";
@@ -5412,7 +5466,7 @@ function render() {
       for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
       const title=svgElement("title",{});title.textContent="90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
       const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
-      const label=svgElement("text",{x:toView(elbow.xMm),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-6*unitsPerPixel,"font-size":10*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":"middle","pointer-events":"none"});
+      const label=svgElement("text",{x:toView(elbow.xMm),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-6*unitsPerPixel,"font-size":10*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":"middle","pointer-events":"none","data-ventilation-label":"bend"});
       label.textContent="90° ↑";
       if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
     }
@@ -5739,7 +5793,7 @@ function renderDuctRoute(route) {
       modelLayer.append(svgElement("line", {x1:toView(cut.a.x),y1:toView(cut.a.y),x2:toView(cut.b.x),y2:toView(cut.b.y),
         stroke:"#263f46","stroke-width":0.8,"stroke-dasharray":"2 1.5","data-epp-half-cut-guide":"true","pointer-events":"none"}));
     }
-    const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id});
+    const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id,"data-ventilation-label":"bend"});
     label.textContent = elbow.drawable ? `${elbow.angleDegrees}°` : "Review bend";
     if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
   }

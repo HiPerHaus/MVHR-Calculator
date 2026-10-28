@@ -60,20 +60,17 @@
 
           </section>
           <section id="mechanical-tools-section" hidden>
-            <h2>Layout visibility</h2>
-            <div id="ventilation-visibility" class="ventilation-visibility" role="group" aria-label="Layout component visibility"></div>
-            <p class="room-guidance">Hide items in this layout view. Your design and quantities stay unchanged.</p>
             <h2>Parts</h2>
             <div class="automatic-routing-actions" aria-label="Automatic duct routing">
               <strong>Equipment-first routing</strong>
               <span>Place typed equipment first, then preview routes. Existing routes are never overwritten.</span>
-              <ol id="routing-workflow-steps" class="routing-workflow-steps">
+              <details class="routing-setup-details"><summary>Setup checklist</summary><ol id="routing-workflow-steps" class="routing-workflow-steps">
                 <li data-routing-step="equipment"><b>1</b><span>Place unit, outlets and external terminals.</span></li>
                 <li data-routing-step="distribution"><b>2</b><span>Place distribution boxes and attenuators.</span></li>
                 <li data-routing-step="constraints"><b>3</b><span>Confirm scale, outline and constraints.</span></li>
                 <li data-routing-step="generate"><b>4</b><span>Choose system and style, then preview.</span></li>
                 <li data-routing-step="review"><b>5</b><span>Accept good routes and regenerate the remainder.</span></li>
-              </ol>
+              </ol></details>
               <label>Duct system
                 <select id="automatic-route-system"><option value="dn90">DN90 radial</option><option value="epp">EPP main / outdoor</option></select>
               </label>
@@ -88,7 +85,7 @@
               <button id="auto-route" class="panel-action primary-route-action" type="button">Preview auto routes</button>
               <p id="automatic-route-setup-status" class="clear-ventilation-note" aria-live="polite"></p>
             </div>
-            <details class="parts-details" open><summary>Routing coordination</summary>
+            <details class="parts-details"><summary>Routing coordination</summary>
               <button id="add-routing-exclusion" class="panel-action" type="button">Mark exclusion rectangle</button>
               <p class="clear-ventilation-note">Click two opposite corners on the plan, then name the beam, void or no-go area.</p>
               <label class="catalogue-search">Clear spacing between independent ducts (mm)
@@ -224,6 +221,18 @@
               <button id="zoom-in" type="button" title="Zoom in">+</button>
               <button id="zoom-out" type="button" title="Zoom out">−</button>
               <button id="fit-view" type="button" title="Fit model and reference">Fit</button>
+              <div id="view-options-anchor" class="view-options-anchor" hidden>
+                <button id="view-options-toggle" type="button" aria-expanded="false" aria-controls="view-options-popover" title="View options">
+                  <svg class="view-options-eye" aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg>
+                  <span>View</span><span id="view-options-hidden-count" class="view-options-hidden-count" hidden></span>
+                </button>
+                <section id="view-options-popover" class="view-options-popover" role="dialog" aria-label="Ventilation view options" hidden>
+                  <header><strong>View options</strong><button id="view-options-close" type="button" aria-label="Close view options">×</button></header>
+                  <p>View only — these controls do not change your design, quantities, checks or exports.</p>
+                  <div id="ventilation-visibility" class="ventilation-visibility"></div>
+                  <button id="show-all-ventilation" class="show-all-ventilation" type="button">Show all</button>
+                </section>
+              </div>
             </div>
             <div class="pan-controls" aria-label="Pan view">
               <button id="pan-left" type="button" aria-label="Pan left">←</button>
