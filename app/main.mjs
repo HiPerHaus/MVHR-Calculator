@@ -5910,7 +5910,9 @@ function renderComponent(component) {
     (component.ports[0].stream === "supply" || component.ports[0].stream === "extract")
     ? component.ports[0]
     : null;
-  label.textContent = [WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic?.graphicId)
+  label.textContent = planGraphic?.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID
+    ? (component.displayName ?? "External grille")
+    : [WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic?.graphicId)
     ? `${planGraphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID ? "Luna" : "Aerofresh"} ${planGraphic.stream}`
     : terminalPort
     ? `${assignedSpace?.name ?? "Unassigned"} · ${formatRoomChoice(terminalPort.stream)}`
@@ -5930,6 +5932,11 @@ function renderComponent(component) {
       const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
       label.style.fontSize = `${11 * unitsPerPixel}px`;
       label.setAttribute("y", toView(position.y + symbol.heightMm / 2) + 15 * unitsPerPixel);
+      if (planGraphic.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID) {
+        const angle = componentYaw(component.orientation);
+        const halfHeight = (Math.abs(Math.sin(angle)) * symbol.widthMm + Math.abs(Math.cos(angle)) * symbol.heightMm) / 2;
+        label.setAttribute("y", toView(position.y - halfHeight) - 15 * unitsPerPixel);
+      }
     }
     if ([Q350_PLAN_GRAPHIC_ID, STANDALONE_CW_GRAPHIC_ID, CA200_GRAPHIC_ID].includes(planGraphic.graphicId)) {
       const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);

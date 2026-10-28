@@ -948,3 +948,8 @@ Layout buttons independently hide DN90 radial ducts, EPP ducts, HRV units, distr
 ### 28 October 2026 — fluid unsnapped movement and bend labels
 
 Snap off now uses continuous floor coordinates for equipment dragging, placement and route-point editing instead of rounding to the 100 mm grid. Equipment dragging preserves the initial pointer-to-component offset for both single components and assemblies, so grabbing the casing away from its origin does not jump the unit. Snap on retains grid alignment of the equipment anchor. Layout visibility includes a separate bend-label toggle for route angle/review text and HRV ceiling-elbow annotations; bend geometry and model information remain intact.
+
+
+### 28 October 2026 — external grille label cleanup
+
+External grille plan labels show the grille name and size without the appended evidence-status text (including “generic test”). The label sits above the rotated symbol envelope, on the opposite side from its previous below-symbol position, with a zoom-adjusted gap. Saved catalogue evidence and inspector information remain unchanged.
