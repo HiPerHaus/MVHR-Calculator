@@ -574,6 +574,14 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 
 .terminal-menu-heading { grid-column: 1 / -1; margin: 9px 0 0; color: #42565f; font-size: 11px; font-weight: 750; letter-spacing: .03em; text-transform: none; }
 .terminal-menu-heading:first-child { margin-top: 0; }
+.terminal-service-tools { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 7px; border: 1px solid #d4dfe2; border-radius: 8px; background: #f5f8f9; }
+.terminal-service-tool { display: grid; gap: 2px; min-width: 0; min-height: 48px; border: 1px solid #bdcbd0; border-radius: 7px; padding: 7px 8px; background: white; color: #29434d; cursor: pointer; text-align: left; }
+.terminal-service-tool span { font-size: 11px; font-weight: 750; }
+.terminal-service-tool small { color: #6b7a80; font-size: 8px; line-height: 1.25; }
+.terminal-service-tool.active { border-color: #146b69; outline: 2px solid #146b69; outline-offset: -3px; background: #e7f3f2; color: #0c5554; }
+.terminal-service-tool.active small::before { content: "✓ "; font-weight: 800; }
+.terminal-service-tool:focus-visible { outline: 3px solid #4a9d9a; outline-offset: 2px; }
+.terminal-service-hint { grid-column: 1 / -1; margin: 0; color: #607078; font-size: 8px; line-height: 1.35; }
 
 #component-context-menu { position:fixed; z-index:100; min-width:250px; padding:6px; background:white; border:1px solid #bccbd0; border-radius:10px; box-shadow:0 6px 24px #233b4430; }
 #component-context-menu[hidden] { display:none; }
@@ -644,6 +652,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
   .tablet-panel-controls button[aria-expanded="true"] { border-color:#146b69; background:#e7f3f2; }
   .tool, .panel-action, .history-controls button, .parts-category, .parts-product-tile, .right-panel button, .right-panel select, .right-panel input { min-height:44px; }
   .parts-product-tile { min-height:96px; }
+  .terminal-service-tool { min-height:52px; }
   .drawing-view-toolbar { justify-content:flex-start; flex-wrap:nowrap; gap:7px; overflow-x:auto; padding:7px 10px max(7px,env(safe-area-inset-bottom)); overscroll-behavior-inline:contain; }
   .drawing-view-toolbar button { flex:0 0 auto; min-width:44px; min-height:44px; }
   .drawing-view-toolbar .pan-controls { display:none; }

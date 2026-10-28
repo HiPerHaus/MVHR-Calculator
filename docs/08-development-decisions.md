@@ -964,3 +964,10 @@ At tablet widths or with a coarse primary pointer, the Plan and Ventilation work
 A single finger or Apple Pencil continues the active drawing/editing tool. Two concurrent touch pointers cancel only an uncommitted drag preview and then pan/zoom the camera around their midpoint; they do not commit geometry, clear the wall/route draft or change calibration. Camera changes remain outside project authority. This milestone does not promise full phone CAD, pressure/airflow validation, or advanced 3D editing.
 
 PDF import keeps the pinned PDF.js 6.4.299 API and worker matched, but uses the distribution's `legacy` pair because PDF.js lists Safari under that build. This records the official Safari 18+ support evidence without translating it into an unsupported iPadOS minimum. Native Files selection, printing, downloads, keyboard interruption and device-memory behavior still require an actual iPad Safari acceptance pass before production rollout. Chromium device emulation and pointer-event tests are implementation evidence, not genuine iPad verification.
+
+
+### 28 October 2026 — persistent typed outlet placement candidate
+
+The internal-terminal catalogue exposes explicit Supply and Extract placement modes. Choosing either mode retains the current Round or Rectangle outlet product and keeps that typed placement armed after each successful outlet. Changing mode affects only subsequent placements; every outlet remains its own undoable component with its own saved supply/extract ports and room or zone association. Select, Pan, the visible tablet Cancel action and Escape all leave outlet placement.
+
+Single-finger and Apple Pencil taps place outlets. A two-finger camera gesture cancels only its transient pointer preview and suppresses the following click, so it cannot add an outlet. This is a touch interaction improvement, not an airflow, size or room-demand inference. Actual iPad acceptance remains required before production promotion.

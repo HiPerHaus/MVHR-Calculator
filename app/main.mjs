@@ -79,6 +79,11 @@ import {
   updatePinchCameraGesture,
 } from "../src/editor/tablet-camera-gesture.mjs";
 import {
+  activateTerminalPlacementMode,
+  terminalPlacementLabel,
+  terminalPlacementRecordId,
+} from "../src/editor/terminal-placement-mode.mjs";
+import {
   activateMechanicalTool,
   cancelMechanicalOperation,
   componentMoveIntent,
@@ -925,26 +930,32 @@ tabletMoreActions.addEventListener("click", () => {
 document.addEventListener("pointerdown",event=>{if(!componentContext.contains(event.target))closeComponentContext();});
 document.addEventListener("keydown",event=>{if(event.key==="Escape")closeComponentContext();});
 
-let terminalPlacementShape = null;
+let terminalPlacementMode = null;
 let pendingTerminalDrop = null;
 const terminalDefaults = new Map();
 const terminalDialog = document.querySelector("#terminal-placement-dialog");
 const terminalService = document.querySelector("#terminal-service");
 const terminalError = document.querySelector("#terminal-placement-error");
-function terminalRecordId(shape, service) {
-  return shape === "round" ? `luna-${service}` : `aerofresh-magnetic-wall-grille-${service}`;
+function armTerminalPlacement({ shape = terminalPlacementMode?.shape ?? "round", service }) {
+  const mode = activateTerminalPlacementMode({ shape, service });
+  setTool("place-component", { catalogueItemId: terminalPlacementRecordId(mode) });
+  terminalPlacementMode = mode;
+  renderCataloguePalette();
+  interactionMessage = `${terminalPlacementLabel(mode)} outlet placement active · tap to place repeatedly · Select, Pan, Cancel or Esc exits`;
+  render();
 }
 function placeConfiguredTerminal(drop, service) {
   const id = `component-catalogue-${componentIdentityCounter}`;
-  const component = createCatalogueComponent(terminalRecordId(drop.shape, service), {
+  const mode = activateTerminalPlacementMode({ shape: drop.shape, service });
+  const component = createCatalogueComponent(terminalPlacementRecordId(mode), {
     id, floorId: "floor-ground", xMm: drop.point.x, yMm: drop.point.y,
   });
   if (!commitCommand({ type: "component.add", component, autoAssignTerminalSpace: true }, "Terminal placed")) return false;
   componentIdentityCounter += 1;
   terminalDefaults.set(drop.shape, service);
   mechanicalState.selectedComponentId = id;
-  if (!drop.repeat) setTool("select");
-  interactionMessage = `${drop.shape === "round" ? "Round" : "Rectangular"} ${service} terminal placed${drop.space ? ` in ${drop.space.space.name}` : ""}`;
+  if (!drop.keepArmed && !drop.repeat) setTool("select");
+  interactionMessage = `${drop.shape === "round" ? "Round" : "Rectangular"} ${service} terminal placed${drop.space ? ` in ${drop.space.space.name}` : ""}${drop.keepArmed ? " · tap again or change outlet type" : ""}`;
   render();
   return true;
 }
@@ -952,7 +963,17 @@ function openTerminalPlacement(point, repeat) {
   const space = terminalPlacementSpace(history.present, "floor-ground", point);
   const role = space?.space.ventilationRole;
   const automatic = ["supply", "extract"].includes(role) ? role : null;
-  const drop = { point, repeat, shape: terminalPlacementShape, space };
+  const drop = {
+    point,
+    repeat,
+    keepArmed: Boolean(terminalPlacementMode),
+    shape: terminalPlacementMode?.shape,
+    space,
+  };
+  if (terminalPlacementMode?.service) {
+    placeConfiguredTerminal(drop, terminalPlacementMode.service);
+    return;
+  }
   // Repeated placements still follow each destination's confirmed ventilation role.
   const remembered = terminalDefaults.get(drop.shape);
   if (repeat && remembered && (automatic || !space)) {
@@ -985,7 +1006,7 @@ document.querySelector("#realign-epp-connections").addEventListener("click",()=>
 document.querySelector("#cancel-terminal-placement").addEventListener("click", () => terminalDialog.close("cancel"));
 terminalDialog.addEventListener("close", () => {
   pendingTerminalDrop = null;
-  if (terminalDialog.returnValue !== "placed-repeat") setTool("select");
+  if (!["placed-repeat", "placed-continue"].includes(terminalDialog.returnValue)) setTool("select");
   canvas.focus();
 });
 document.querySelector("#terminal-placement-form").addEventListener("submit", event => {
@@ -994,7 +1015,9 @@ document.querySelector("#terminal-placement-form").addEventListener("submit", ev
   if (!["supply", "extract"].includes(terminalService.value)) { terminalError.textContent = "Choose Supply or Extract."; return; }
   try {
     const repeat = pendingTerminalDrop.repeat;
-    if (placeConfiguredTerminal(pendingTerminalDrop, terminalService.value)) terminalDialog.close(repeat ? "placed-repeat" : "placed");
+    if (placeConfiguredTerminal(pendingTerminalDrop, terminalService.value)) {
+      terminalDialog.close(pendingTerminalDrop.keepArmed ? "placed-continue" : repeat ? "placed-repeat" : "placed");
+    }
     else terminalError.textContent = "The terminal could not be placed. Review the drawing status and try again.";
   } catch (error) { terminalError.textContent = error.message; }
 });
@@ -2718,7 +2741,7 @@ function setTool(tool, options = {}) {
   }
   mvhrPlacementMounting = null;
   standaloneCwPlacement = null;
-  terminalPlacementShape = null;
+  terminalPlacementMode = null;
   externalGrillePlacement = null;
   grilleAlignmentPreview = null;
   activeTool = tool;
@@ -3654,7 +3677,7 @@ function handleMechanicalClick(event, selectedHit = null) {
   if (result.intent?.type === "component.place" && externalGrillePlacement) {
     openExternalGrille(result.intent.point,event.shiftKey||event.ctrlKey);return;
   }
-  if (result.intent?.type === "component.place" && terminalPlacementShape) {
+  if (result.intent?.type === "component.place" && terminalPlacementMode) {
     openTerminalPlacement(result.intent.point, event.shiftKey || event.ctrlKey);
     return;
   }
@@ -7340,6 +7363,9 @@ function renderCataloguePalette() {
       queueWorkingSession();
       catalogueSearchInput.value = "";
       renderCataloguePalette();
+      if (groupName === "Terminals") {
+        requestAnimationFrame(() => catalogueGroups.querySelector(".terminal-service-tools")?.scrollIntoView({ block: "nearest" }));
+      }
     });
     catalogueCategories.append(button);
   }
@@ -7359,6 +7385,7 @@ function renderCataloguePalette() {
   for (const item of entries) {
     if(item.terminalSection && item.terminalSection!==terminalSection) {
       catalogueGroups.append(htmlText("h3",item.terminalSection,"terminal-menu-heading"));
+      if (item.terminalSection === "Internal") catalogueGroups.append(createTerminalServiceControls());
       terminalSection=item.terminalSection;
     }
     const tile = document.createElement(item.placeable ? "button" : "div");
@@ -7371,7 +7398,7 @@ function renderCataloguePalette() {
       else if (item.mounting) tile.dataset.mvhrMounting = item.mounting;
       else if (item.isAssemblyTemplate) tile.dataset.assemblyTemplateId = item.id;
       else tile.dataset.catalogueItemId = item.id;
-      const active = item.cwOrientation ? standaloneCwPlacement === item.cwOrientation : item.isExternalGrille ? externalGrillePlacement === item.externalGrilleKind : item.terminalShape ? terminalPlacementShape === item.terminalShape : item.mounting ? mvhrPlacementMounting === item.mounting : item.isAssemblyTemplate
+      const active = item.cwOrientation ? standaloneCwPlacement === item.cwOrientation : item.isExternalGrille ? externalGrillePlacement === item.externalGrilleKind : item.terminalShape ? terminalPlacementMode?.shape === item.terminalShape : item.mounting ? mvhrPlacementMounting === item.mounting : item.isAssemblyTemplate
         ? activeTool === "place-assembly" && mechanicalState.placement?.assemblyTemplateId === item.id
         : activeTool === "place-component" && mechanicalState.placement?.catalogueItemId === item.id;
       tile.setAttribute("aria-pressed", String(active));
@@ -7387,12 +7414,10 @@ function renderCataloguePalette() {
           externalGrillePlacement=item.externalGrilleKind;renderCataloguePalette();
           interactionMessage=`Click outside the building to place ${item.externalGrilleKind === "combined" ? "a combined grille" : "an individual intake or exhaust grille"}`;render();
         } else if (item.terminalShape) {
-          const service = terminalDefaults.get(item.terminalShape) ?? "supply";
-          setTool("place-component", { catalogueItemId: terminalRecordId(item.terminalShape, service) });
-          terminalPlacementShape = item.terminalShape;
-          renderCataloguePalette();
-          interactionMessage = "Click the plan to configure a terminal · room/zone selects air service · Shift/Ctrl repeats";
-          render();
+          armTerminalPlacement({
+            shape: item.terminalShape,
+            service: terminalPlacementMode?.service ?? terminalDefaults.get(item.terminalShape) ?? "supply",
+          });
         } else if (item.mounting) {
           setTool("place-component", { catalogueItemId: "synthetic-mvhr-placeholder" });
           mvhrPlacementMounting = item.mounting;
@@ -7424,6 +7449,35 @@ function renderCataloguePalette() {
     catalogueGroups.append(htmlText("p", "No catalogue records match this search.", "catalogue-empty"));
   }
   catalogueButtons = [...catalogueGroups.querySelectorAll(".catalogue-tool")];
+}
+
+function createTerminalServiceControls() {
+  const group = document.createElement("div");
+  group.className = "terminal-service-tools";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Persistent outlet placement type");
+  for (const service of ["supply", "extract"]) {
+    const button = document.createElement("button");
+    const active = activeTool === "place-component" && terminalPlacementMode?.service === service;
+    button.type = "button";
+    button.className = `terminal-service-tool terminal-service-tool-${service}`;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", `${service === "supply" ? "Supply" : "Extract"} outlet placement, ${active ? "active" : "inactive"}`);
+    button.append(
+      htmlText("span", service === "supply" ? "Supply" : "Extract"),
+      htmlText("small", active ? "Active · keep placing" : "Tap to place repeatedly"),
+    );
+    button.addEventListener("click", () => armTerminalPlacement({ service }));
+    group.append(button);
+  }
+  const hint = htmlText(
+    "p",
+    `Outlet product: ${terminalPlacementMode?.shape === "rectangular" ? "Rectangle" : "Round"} · choose a product below to change it`,
+    "terminal-service-hint",
+  );
+  group.append(hint);
+  return group;
 }
 
 function cataloguePlacementSummary(item) {
