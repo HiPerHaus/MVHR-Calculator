@@ -4,6 +4,7 @@ export const VENTILATION_VISIBILITY_GROUPS = Object.freeze([
   ["dn90", "90 mm duct"], ["epp", "EPP"], ["hrv", "HRV"],
   ["distribution", "distribution & attenuators"], ["terminals", "outlets"],
   ["external", "external grilles"], ["other", "other components"],
+  ["bend-labels", "bend labels"],
 ]);
 
 export function routeVisibilityGroup(route) {

@@ -1,3 +1,4 @@
+import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
@@ -1257,6 +1258,7 @@ canvas.addEventListener("pointerdown", (event) => {
     const assembly = equipmentAssemblyForComponent(history.present, componentId);
     componentDragState = {
       componentId,
+      pointerStart: eventToSvgWorld(event),
       assemblyId: assembly?.id ?? null,
       memberIds: assembly?.componentIds ?? [componentId],
       pointerId: event.pointerId,
@@ -1345,7 +1347,10 @@ canvas.addEventListener("pointermove", (event) => {
     return;
   }
   if (componentDragState && event.pointerId === componentDragState.pointerId) {
-    const proposed=eventToGridWorld(event);
+    const proposed = layoutPointerPosition(eventToSvgWorld(event), {
+      snapEnabled, gridMm: GRID_SNAP_MM,
+      drag: { pointerStart: componentDragState.pointerStart, start: componentDragState.start },
+    });
     const component=history.present.components.find(c=>c.id===componentDragState.componentId);
     grilleAlignmentPreview=!componentDragState.assemblyId ? grilleAlignment(component,proposed) : null;
     componentDragState.preview = grilleAlignmentPreview?.point ?? proposed;
@@ -5408,7 +5413,8 @@ function render() {
       const title=svgElement("title",{});title.textContent="90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
       const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
       const label=svgElement("text",{x:toView(elbow.xMm),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-6*unitsPerPixel,"font-size":10*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":"middle","pointer-events":"none"});
-      label.textContent="90° ↑";modelLayer.append(label);
+      label.textContent="90° ↑";
+      if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
     }
   }
   for (const node of activeTask === "plan" ? history.present.wallNodes : []) {
@@ -5735,7 +5741,7 @@ function renderDuctRoute(route) {
     }
     const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id});
     label.textContent = elbow.drawable ? `${elbow.angleDegrees}°` : "Review bend";
-    modelLayer.append(label);
+    if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
   }
   const hitLines = geometry.arrangement === "twin" ? lanePointStrings : [sweepPoints];
   for (const points of hitLines) {
@@ -8193,7 +8199,7 @@ function closestEndpoint(event, candidates) {
 
 function eventToGridWorld(event) {
   const raw = eventToSvgWorld(event);
-  return { x: gridSnap(raw.x), y: gridSnap(raw.y) };
+  return layoutPointerPosition(raw, { snapEnabled, gridMm: GRID_SNAP_MM });
 }
 
 function eventToSvgWorld(event) {

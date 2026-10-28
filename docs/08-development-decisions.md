@@ -943,3 +943,8 @@ At the owner's request, calibrated raster underlays no longer add a legend row. 
 ### 28 October 2026 — ventilation layout visibility
 
 Layout buttons independently hide DN90 radial ducts, EPP ducts, HRV units, distribution/attenuator equipment, outlets, external grilles and remaining components. Buttons switch between Hide and Show; Show all restores the complete layout. Visibility is temporary view state, outside the saved project and undo history. Hidden objects are omitted from pointer acquisition and selected edit handles. Associated service zones and HRV ceiling elbows follow equipment visibility. Quantities, connections, checks, drawing exports and saved geometry remain unchanged.
+
+
+### 28 October 2026 — fluid unsnapped movement and bend labels
+
+Snap off now uses continuous floor coordinates for equipment dragging, placement and route-point editing instead of rounding to the 100 mm grid. Equipment dragging preserves the initial pointer-to-component offset for both single components and assemblies, so grabbing the casing away from its origin does not jump the unit. Snap on retains grid alignment of the equipment anchor. Layout visibility includes a separate bend-label toggle for route angle/review text and HRV ceiling-elbow annotations; bend geometry and model information remain intact.
