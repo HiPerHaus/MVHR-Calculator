@@ -490,9 +490,11 @@ const componentIsVisible = component => !hiddenVentilationGroups.has(ventilation
 const routeIsVisible = route => !hiddenVentilationGroups.has(routeVisibilityGroup(route));
 const viewOptionsAnchor = document.querySelector("#view-options-anchor");
 const viewOptionsToggle = document.querySelector("#view-options-toggle");
+const viewOptionsBackdrop = document.querySelector("#view-options-backdrop");
 const viewOptionsPopover = document.querySelector("#view-options-popover");
 const viewOptionsClose = document.querySelector("#view-options-close");
 const viewOptionsHiddenCount = document.querySelector("#view-options-hidden-count");
+document.body.append(viewOptionsBackdrop, viewOptionsPopover);
 const visibilityControls = document.querySelector("#ventilation-visibility");
 const visibilitySections = new Map([
   ["Ductwork", new Set(["dn90", "epp"])],
@@ -532,8 +534,10 @@ showAllVentilation.addEventListener("click", () => {
 });
 viewOptionsToggle.addEventListener("click", () => setViewOptionsOpen(viewOptionsPopover.hidden));
 viewOptionsClose.addEventListener("click", () => setViewOptionsOpen(false, { returnFocus: true }));
-document.addEventListener("pointerdown", (event) => {
-  if (!viewOptionsPopover.hidden && !viewOptionsAnchor.contains(event.target)) setViewOptionsOpen(false);
+viewOptionsBackdrop.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  setViewOptionsOpen(false, { returnFocus: true });
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || viewOptionsPopover.hidden) return;
@@ -544,6 +548,7 @@ document.addEventListener("keydown", (event) => {
 syncViewOptions();
 
 function setViewOptionsOpen(open, { returnFocus = false } = {}) {
+  viewOptionsBackdrop.hidden = !open;
   viewOptionsPopover.hidden = !open;
   viewOptionsToggle.setAttribute("aria-expanded", String(open));
   if (open) requestAnimationFrame(() => visibilityControls.querySelector("input")?.focus());
@@ -2696,10 +2701,12 @@ function setTool(tool, options = {}) {
   addRoutingExclusionButton.classList.toggle("active", tool === "routing-exclusion");
   panToolButton.classList.toggle("active", tool === "pan");
   selectButton.setAttribute("aria-pressed", String(tool === "select"));
+  selectButton.setAttribute("aria-label", `Select tool, ${tool === "select" ? "active" : "inactive"}`);
   wallButton.setAttribute("aria-pressed", String(tool === "wall"));
   roomDividerButton.setAttribute("aria-pressed", String(tool === "room-divider"));
   floorAreaButton.setAttribute("aria-pressed", String(tool === "floor-area"));
   panToolButton.setAttribute("aria-pressed", String(tool === "pan"));
+  panToolButton.setAttribute("aria-label", `Pan drawing view, ${tool === "pan" ? "active" : "inactive"}`);
   canvas.classList.toggle("wall-mode", tool === "wall" || tool === "room-divider" || tool === "floor-area");
   canvas.classList.toggle("routing-exclusion-mode", tool === "routing-exclusion");
   canvas.classList.toggle("calibration-mode", tool === "calibrate");
@@ -2730,7 +2737,9 @@ function toggleSnap() {
   hoverPoint = null;
   snapToggleButton.classList.toggle("active", snapEnabled);
   snapToggleButton.setAttribute("aria-pressed", String(snapEnabled));
-  snapToggleLabel.textContent = snapEnabled ? "Snap on" : "Snap off";
+  snapToggleButton.setAttribute("aria-label", `Snap ${snapEnabled ? "on" : "off"}`);
+  snapToggleButton.title = `Snap ${snapEnabled ? "on" : "off"}`;
+  snapToggleLabel.textContent = "Snap";
   snapToggleDetail.textContent = snapEnabled
     ? "Endpoints · walls · grid · DXF"
     : "Free placement";

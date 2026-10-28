@@ -584,6 +584,9 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .drawing-view-toolbar .view-controls, .drawing-view-toolbar .pan-controls { display:flex; align-items:center; gap:4px; }
 .drawing-view-toolbar button { min-width:34px; min-height:32px; margin:0; }
 .drawing-view-toolbar .tool { width:auto; display:flex; align-items:center; gap:6px; padding:5px 10px; }
+.drawing-view-toolbar .toolbar-mode-tool kbd, .drawing-view-toolbar .snap-toggle kbd { flex:0 0 24px; }
+.drawing-view-toolbar .toolbar-state-indicator { display:none; flex:0 0 18px; place-items:center; width:18px; height:18px; border:1px solid currentColor; border-radius:50%; font-size:11px; font-weight:800; line-height:1; }
+.drawing-view-toolbar [aria-pressed="true"] .toolbar-state-indicator { display:grid; }
 .drawing-view-toolbar .snap-toggle { border-left:1px solid #cbd4d8; }
 .drawing-view-toolbar #snap-toggle-detail { display:none; }
 .drawing-view-toolbar .tool-glyph { width:auto; height:auto; }
@@ -595,7 +598,8 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 #view-options-toggle.has-hidden { border-color:#c27b2f; background:#fff8e8; }
 .view-options-eye { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; }
 .view-options-hidden-count { display:grid; place-items:center; min-width:18px; height:18px; padding:0 4px; border-radius:9px; background:#c65b38; color:white; font-size:10px; line-height:1; }
-.view-options-popover { position:absolute; z-index:30; bottom:calc(100% + 10px); left:50%; transform:translateX(-50%); box-sizing:border-box; width:300px; max-height:min(480px,calc(100vh - 160px)); overflow:auto; padding:14px; border:1px solid #aebec4; border-radius:10px; background:white; color:#29434d; box-shadow:0 10px 28px rgb(25 52 61 / 24%); text-align:left; }
+.view-options-backdrop { position:fixed; z-index:89; inset:0; border:0; background:transparent; touch-action:none; }
+.view-options-popover { position:fixed; z-index:90; bottom:78px; left:50%; transform:translateX(-50%); box-sizing:border-box; width:min(300px,calc(100vw - 24px)); max-height:min(480px,calc(100dvh - 102px)); overflow:auto; overscroll-behavior:contain; padding:14px; border:1px solid #aebec4; border-radius:10px; background:white; color:#29434d; box-shadow:0 10px 28px rgb(25 52 61 / 24%); text-align:left; }
 .view-options-popover[hidden] { display:none; }
 .view-options-popover header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; }
 .view-options-popover header strong { font-size:13px; }
@@ -609,7 +613,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .ventilation-visibility input { width:18px; height:18px; margin:0; accent-color:#146b69; }
 .show-all-ventilation { width:100%; margin-top:10px!important; }
 @media(max-width:760px) {
-  .view-options-popover { position:fixed; left:12px; right:12px; bottom:68px; width:auto; max-height:60vh; transform:none; }
+  .view-options-popover { width:calc(100vw - 24px); }
   .drawing-view-toolbar button { min-width:40px; min-height:40px; }
 }
 
@@ -655,7 +659,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
   dialog { max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow:auto; }
   #component-context-menu { min-width:min(300px,calc(100vw - 24px)); }
   #component-context-menu button { min-height:48px; }
-  .view-options-popover { max-height:min(60dvh,480px); }
+  .view-options-popover { bottom:calc(104px + env(safe-area-inset-bottom)); max-height:min(60dvh,calc(100dvh - 128px),480px); }
 }
 
 @media (max-width:700px) {

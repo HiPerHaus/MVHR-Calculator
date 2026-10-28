@@ -44,12 +44,6 @@
       <div id="plan-workspace" class="workspace">
         <button id="tablet-panel-backdrop" class="tablet-panel-backdrop" type="button" aria-label="Close drawing panels" tabindex="-1"></button>
         <aside class="left-panel" aria-label="Tools and layers">
-          <section id="primary-tools-section">
-            <h2>Drawing tools</h2>
-            <button id="select-tool" class="tool active" type="button" aria-pressed="true">
-              <kbd>V</kbd><span>Select</span>
-            </button>
-          </section>
           <section id="draw-tools-section">
             <h2>Plan drawing</h2>
             <button id="wall-tool" class="tool" type="button" aria-pressed="false">
@@ -218,9 +212,11 @@
             <g id="draft-layer"></g>
           </svg>
 <div class="drawing-view-toolbar" role="toolbar" aria-label="Drawing view and snapping">
-
-            <button id="pan-tool" class="tool view-pan-tool" type="button" aria-pressed="false" aria-label="Pan drawing view" title="Pan drawing view">
-              <span class="tool-glyph" aria-hidden="true">P</span><span>Pan</span>
+            <button id="select-tool" class="tool toolbar-mode-tool active" type="button" aria-pressed="true" aria-label="Select tool, active" title="Select tool">
+              <kbd>V</kbd><span>Select</span><span class="toolbar-state-indicator" aria-hidden="true">✓</span>
+            </button>
+            <button id="pan-tool" class="tool toolbar-mode-tool view-pan-tool" type="button" aria-pressed="false" aria-label="Pan drawing view, inactive" title="Pan drawing view">
+              <kbd>P</kbd><span>Pan</span><span class="toolbar-state-indicator" aria-hidden="true">✓</span>
             </button>
             <div class="view-controls">
               <button id="zoom-in" type="button" title="Zoom in">+</button>
@@ -231,7 +227,8 @@
                   <svg class="view-options-eye" aria-hidden="true" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.75"/></svg>
                   <span>View</span><span id="view-options-hidden-count" class="view-options-hidden-count" hidden></span>
                 </button>
-                <section id="view-options-popover" class="view-options-popover" role="dialog" aria-label="Ventilation view options" hidden>
+                <div id="view-options-backdrop" class="view-options-backdrop" aria-hidden="true" hidden></div>
+                <section id="view-options-popover" class="view-options-popover" role="dialog" aria-modal="true" aria-label="Ventilation view options" hidden>
                   <header><strong>View options</strong><button id="view-options-close" type="button" aria-label="Close view options">×</button></header>
                   <p>View only — these controls do not change your design, quantities, checks or exports.</p>
                   <div id="ventilation-visibility" class="ventilation-visibility"></div>
@@ -245,8 +242,8 @@
               <button id="pan-down" type="button" aria-label="Pan down">↓</button>
               <button id="pan-right" type="button" aria-label="Pan right">→</button>
             </div>
-            <button id="snap-toggle" class="tool snap-toggle active" type="button" aria-pressed="true">
-              <kbd>S</kbd><span><span id="snap-toggle-label">Snap on</span><small id="snap-toggle-detail">Endpoints · walls · grid · DXF</small></span>
+            <button id="snap-toggle" class="tool snap-toggle active" type="button" aria-pressed="true" aria-label="Snap on" title="Snap on">
+              <kbd>S</kbd><span><span id="snap-toggle-label">Snap</span><small id="snap-toggle-detail">Endpoints · walls · grid · DXF</small></span><span class="toolbar-state-indicator" aria-hidden="true">✓</span>
             </button>
             <div id="tablet-draft-actions" class="tablet-draft-actions" hidden>
               <button id="tablet-draft-back" type="button">Back</button>

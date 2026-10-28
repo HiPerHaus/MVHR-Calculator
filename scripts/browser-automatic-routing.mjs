@@ -39,10 +39,16 @@ try {
   assert.equal(await evaluate(cdp, `document.querySelector("#add-routing-exclusion")?.closest("details")?.open`), false, "Routing coordination should start collapsed");
   assert.equal(await visible(cdp, "#view-options-toggle"), true);
   assert.equal(await evaluate(cdp, `document.querySelector(".left-panel #ventilation-visibility") === null`), true, "View-only controls must leave the left panel");
+  assert.equal(await evaluate(cdp, `document.querySelector(".left-panel #select-tool") === null && document.querySelector(".drawing-view-toolbar #select-tool") !== null`), true, "Select must live beside the bottom view tools");
+  assert.equal(await evaluate(cdp, `document.querySelector("#pan-tool kbd")?.textContent`), "P", "Pan should use the same boxed shortcut treatment as Snap");
+  assert.equal(await evaluate(cdp, `document.querySelector("#snap-toggle-label")?.textContent`), "Snap");
 
   await click(cdp, "#view-options-toggle");
   assert.equal(await evaluate(cdp, `document.querySelector("#view-options-toggle")?.getAttribute("aria-expanded")`), "true");
   assert.equal(await visible(cdp, "#view-options-popover"), true);
+  assert.equal(await visible(cdp, "#view-options-backdrop"), true, "Open view options should shield the drawing canvas");
+  assert.equal(await evaluate(cdp, `document.querySelector("#view-options-popover")?.parentElement === document.body`), true, "View options must escape toolbar clipping and stacking contexts");
+  assert.equal(await evaluate(cdp, `(() => { const panel=document.querySelector("#view-options-popover"),box=panel.getBoundingClientRect(),top=document.elementFromPoint(box.left+box.width/2,box.top+Math.min(20,box.height/2)); return panel.contains(top); })()`), true, "View options must paint above the drawing at its visible centre");
   assert.equal(await evaluate(cdp, `document.querySelectorAll("#ventilation-visibility input[type=checkbox]").length`), 8);
   await setChecked(cdp, `#ventilation-visibility [data-visibility-group="epp"]`, false);
   await setChecked(cdp, `#ventilation-visibility [data-visibility-group="external"]`, false);
@@ -54,8 +60,10 @@ try {
   assert.equal(await visible(cdp, "#view-options-popover"), false);
   assert.equal(await evaluate(cdp, `document.activeElement?.id`), "view-options-toggle", "Escape should return focus to View options");
   await click(cdp, "#view-options-toggle");
-  await outsidePointerDown(cdp, "#plan-canvas");
+  const viewBoxBeforeDismiss = await evaluate(cdp, `document.querySelector("#plan-canvas")?.getAttribute("viewBox")`);
+  await outsidePointerDown(cdp, "#view-options-backdrop");
   assert.equal(await visible(cdp, "#view-options-popover"), false, "Outside pointer action should dismiss the popover");
+  assert.equal(await evaluate(cdp, `document.querySelector("#plan-canvas")?.getAttribute("viewBox")`), viewBoxBeforeDismiss, "Dismissal must not interact with the drawing canvas");
 
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 900, height: 900, deviceScaleFactor: 1, mobile: false });
   await delay(80);
@@ -64,8 +72,25 @@ try {
   assert.equal(compact.system.visible, true);
   assert.equal(compact.style.visible, true);
   assert.equal(await visible(cdp, "#tablet-tools-toggle"), true, "Tablet tools drawer control should be visible");
+  await click(cdp, "#pan-tool");
+  assert.equal(await evaluate(cdp, `document.querySelector("#pan-tool")?.getAttribute("aria-pressed")`), "true");
+  assert.equal(await visible(cdp, `#pan-tool .toolbar-state-indicator`), true, "Pan active state needs a visible non-colour indicator");
+  await click(cdp, "#select-tool");
+  assert.equal(await evaluate(cdp, `document.querySelector("#select-tool")?.getAttribute("aria-pressed")`), "true");
+  assert.equal(await visible(cdp, `#select-tool .toolbar-state-indicator`), true, "Select active state needs a visible non-colour indicator");
+  await click(cdp, "#snap-toggle");
+  assert.equal(await evaluate(cdp, `document.querySelector("#snap-toggle")?.getAttribute("aria-pressed")`), "false");
+  assert.equal(await evaluate(cdp, `document.querySelector("#snap-toggle-label")?.textContent`), "Snap", "Snap label must not change with state");
+  assert.match(await evaluate(cdp, `document.querySelector("#snap-toggle")?.getAttribute("aria-label") ?? ""`), /off/u);
+  await click(cdp, "#snap-toggle");
+  assert.equal(await evaluate(cdp, `document.querySelector("#snap-toggle")?.getAttribute("aria-pressed")`), "true");
   await click(cdp, "#tablet-tools-toggle");
   assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), true);
+  await click(cdp, "#view-options-toggle");
+  assert.equal(await evaluate(cdp, `Number(getComputedStyle(document.querySelector("#view-options-popover")).zIndex) > Number(getComputedStyle(document.querySelector(".left-panel")).zIndex)`), true, "View options must stay above an open tablet drawer");
+  await pressEscape(cdp);
+  assert.equal(await visible(cdp, "#view-options-popover"), false, "Escape should close View options before the tablet drawer");
+  assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), true, "Closing View options must leave the requested drawer open");
   await pressEscape(cdp);
   assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), false, "Escape should close tablet drawers");
 
@@ -94,8 +119,14 @@ try {
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 640, height: 800, deviceScaleFactor: 1, mobile: false });
   await delay(80);
   await click(cdp, "#view-options-toggle");
-  const narrowPopover = await evaluate(cdp, `(() => { const box=document.querySelector("#view-options-popover")?.getBoundingClientRect(); return { left:box.left, right:box.right, bottom:box.bottom, width:box.width, viewport:innerWidth }; })()`);
-  assert.ok(narrowPopover.left >= 0 && narrowPopover.right <= narrowPopover.viewport, `Narrow popover escaped the viewport: ${JSON.stringify(narrowPopover)}`);
+  const narrowPopover = await evaluate(cdp, `(() => { const box=document.querySelector("#view-options-popover")?.getBoundingClientRect(); return { left:box.left, right:box.right, top:box.top, bottom:box.bottom, width:box.width, viewportWidth:innerWidth, viewportHeight:innerHeight }; })()`);
+  assert.ok(narrowPopover.left >= 0 && narrowPopover.right <= narrowPopover.viewportWidth && narrowPopover.top >= 0 && narrowPopover.bottom <= narrowPopover.viewportHeight, `Narrow popover escaped the viewport: ${JSON.stringify(narrowPopover)}`);
+  await pressEscape(cdp);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 900, height: 500, deviceScaleFactor: 1, mobile: false });
+  await delay(80);
+  await click(cdp, "#view-options-toggle");
+  const reducedHeightPopover = await evaluate(cdp, `(() => { const box=document.querySelector("#view-options-popover")?.getBoundingClientRect(); return { top:box.top, bottom:box.bottom, viewportHeight:innerHeight }; })()`);
+  assert.ok(reducedHeightPopover.top >= 0 && reducedHeightPopover.bottom <= reducedHeightPopover.viewportHeight, `Popover escaped a keyboard-reduced viewport: ${JSON.stringify(reducedHeightPopover)}`);
   await pressEscape(cdp);
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
   await delay(80);
@@ -214,6 +245,7 @@ async function seedSyntheticProject(cdp) {
     const standalone = await import("/src/editor/standalone-cw.mjs");
     const automatic = await import("/src/editor/automatic-radial-routing.mjs");
     const recovery = await import("/src/persistence/working-session.mjs");
+    const auth = await import("/app/auth-context.mjs");
     let project = spatial.createProject("browser-routing-acceptance");
     project = spatial.applyCommand(project, { type: "floor.add", floor: { id: "ground", name: "Ground", transform: { translationMm: { x: 0, y: 0, z: spatial.knownMm(0, "floor datum") }, orientation: spatial.identityQuaternion() } } });
     project = spatial.applyCommand(project, { type: "floorArea.create", outline: { id: "outline", floorId: "ground", name: "Building outline", geometrySource: "manual-floor-area-outline", purpose: "preliminary-quoting", areaConvention: "closed-plan-outline", measurementBasis: "floor-local-plan-mm", holes: [], vertices: [{x:0,y:0},{x:6000,y:0},{x:6000,y:4000},{x:0,y:4000}].map((point,index) => ({ id: \`v-\${index+1}\`, positionMm: { ...point, z: spatial.knownMm(0, "plan") } })) } });
@@ -231,7 +263,9 @@ async function seedSyntheticProject(cdp) {
     project = spatial.applyCommand(project, { type: "route.add", route: { id: "route-label-browser", floorId: "ground", system: "mvhr", stream: "intake", role: "Outdoor intake", ductKind: eppFamily.id, connectionInterface: eppFamily.connectionInterface, parallelRunCount: 1, startAttachment: null, endAttachment: null, points: [[400,3400],[1800,3400],[1800,3800]].map(([x,y]) => ({ x, y, z: spatial.unknownMm("browser label fixture") })) } });
     const tabId = recovery.workingTabId(sessionStorage);
     const store = recovery.createWorkingSessionStore(indexedDB, { tabId });
-    await store.write({}, { projectJson: spatial.serializeProject(project), name: "Routing browser fixture", dirty: true, cloudRecord: null, task: "ventilation", camera: { x: 0, y: 0, width: 20, height: 20 }, catalogueGroup: "all" });
+    const access = auth.getBootAccess();
+    const context = { userId: access.user.id, workspaceId: access.memberships[0].workspace.id };
+    await store.write(context, { projectJson: spatial.serializeProject(project), name: "Routing browser fixture", dirty: true, cloudRecord: null, task: "ventilation", camera: { x: 0, y: 0, width: 20, height: 20 }, catalogueGroup: "all" });
     await store.flush();
     return true;
   })()`);
