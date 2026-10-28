@@ -75,12 +75,17 @@ import {
   zoomCameraAt,
 } from "../src/editor/camera.mjs";
 import {
+  beginPinchCameraGesture,
+  updatePinchCameraGesture,
+} from "../src/editor/tablet-camera-gesture.mjs";
+import {
   activateMechanicalTool,
   cancelMechanicalOperation,
   componentMoveIntent,
   componentRotationIntent,
   createMechanicalInteractionState,
   handleMechanicalCanvasClick,
+  removeMechanicalRoutePoint,
   requiresProjectReplacementConfirmation,
   resolveComponentPlacementState,
   updateMechanicalPointer,
@@ -169,7 +174,7 @@ import {
   PDF_IMPORTER,
   renderPdfPageToCanvas,
 } from "../src/import/pdf-reference.mjs";
-import * as pdfjsLib from "../node_modules/pdfjs-dist/build/pdf.mjs";
+import * as pdfjsLib from "../node_modules/pdfjs-dist/legacy/build/pdf.mjs";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const PROJECT_ID = "project-local-wall-shell";
@@ -184,7 +189,7 @@ const PDF_RESOURCE_URLS = Object.freeze({
   wasmUrl: "/node_modules/pdfjs-dist/wasm/",
 });
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/build/pdf.worker.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
 
 const canvas = document.querySelector("#plan-canvas");
 const referenceLayer = document.querySelector("#reference-layer");
@@ -379,6 +384,15 @@ const catalogueNavigationButton = document.querySelector("#catalogue-nav");
 const checksNavigationButton = document.querySelector("#checks-nav");
 const sheetsNavigationButton = document.querySelector("#sheets-nav");
 const planWorkspace = document.querySelector("#plan-workspace");
+const tabletToolsToggle = document.querySelector("#tablet-tools-toggle");
+const tabletInspectorToggle = document.querySelector("#tablet-inspector-toggle");
+const tabletPanelBackdrop = document.querySelector("#tablet-panel-backdrop");
+const tabletDraftActions = document.querySelector("#tablet-draft-actions");
+const tabletDraftBack = document.querySelector("#tablet-draft-back");
+const tabletDraftFinish = document.querySelector("#tablet-draft-finish");
+const tabletDraftCancel = document.querySelector("#tablet-draft-cancel");
+const tabletMoreActions = document.querySelector("#tablet-more-actions");
+const tabletTouchFeedback = document.querySelector("#tablet-touch-feedback");
 const projectWorkspace = document.querySelector("#project-workspace");
 const catalogueWorkspace = document.querySelector("#catalogue-workspace");
 const checksWorkspace = document.querySelector("#checks-workspace");
@@ -557,6 +571,34 @@ function clearSelectionHiddenBy(key) {
   if (selectedRoute && routeVisibilityGroup(selectedRoute) === key) selectedRouteId = null;
 }
 
+function setTabletPanel(panel = null) {
+  const toolsOpen = panel === "tools";
+  const inspectorOpen = panel === "inspector";
+  planWorkspace.classList.toggle("tablet-tools-open", toolsOpen);
+  planWorkspace.classList.toggle("tablet-inspector-open", inspectorOpen);
+  tabletToolsToggle.setAttribute("aria-expanded", String(toolsOpen));
+  tabletInspectorToggle.setAttribute("aria-expanded", String(inspectorOpen));
+}
+
+function closeTabletPanels() {
+  setTabletPanel(null);
+}
+
+tabletToolsToggle.addEventListener("click", () => {
+  setTabletPanel(planWorkspace.classList.contains("tablet-tools-open") ? null : "tools");
+});
+tabletInspectorToggle.addEventListener("click", () => {
+  setTabletPanel(planWorkspace.classList.contains("tablet-inspector-open") ? null : "inspector");
+});
+tabletPanelBackdrop.addEventListener("click", closeTabletPanels);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!planWorkspace.classList.contains("tablet-tools-open") && !planWorkspace.classList.contains("tablet-inspector-open")) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  closeTabletPanels();
+});
+
 const ventilationReadiness = document.querySelector("#ventilation-readiness");
 const roomToolsSection = document.querySelector("#room-tools-section");
 const floorAreaToolsSection = document.querySelector("#floor-area-tools-section");
@@ -647,6 +689,10 @@ let componentDragState = null;
 let grilleAlignmentPreview = null;
 let routePointDragState = null;
 let panState = null;
+const canvasTouchPointers = new Map();
+let pinchCameraGesture = null;
+let pinchTouchSequenceActive = false;
+let touchFeedbackTimer = null;
 let spacePressed = false;
 let suppressNextClick = false;
 let interactionMessage = "";
@@ -825,11 +871,9 @@ function editPlacedMvhr(component){
   document.querySelector("#mvhr-placement-title").textContent="Change MVHR / CW configuration";
   updateMvhrPreview();
 }
-canvas.addEventListener("contextmenu",event=>{
-  const hit=mechanicalHitFromTarget(event.target);
-  const component=history.present.components.find(c=>c.id===hit?.componentId);
-  if(!component)return;
-  event.preventDefault();setTool("select");mechanicalState.selectedComponentId=component.id;render();
+function openComponentContextAt(component, clientX, clientY) {
+  if (!component) return;
+  setTool("select");mechanicalState.selectedComponentId=component.id;render();
   componentContext.replaceChildren();
   const action=(label,fn)=>{const button=document.createElement("button");button.type="button";button.setAttribute("role","menuitem");button.textContent=label;button.addEventListener("click",()=>{closeComponentContext();fn();});componentContext.append(button);};
   action("Rotate 90°",()=>rotateSelectedComponent());
@@ -847,9 +891,21 @@ canvas.addEventListener("contextmenu",event=>{
     action("Flip Left / Right",()=>{commitCommand({type:"component.setExternalGrilleHanding",componentId:component.id,handing:(component.externalGrilleHanding??"left")==="left"?"right":"left"},"Grille flipped; attached ducts updated");render();});
   } else action("Turn 180°",()=>{commitCommand({type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI},"Component turned 180°");render();});
   componentContext.hidden=false;
-  componentContext.style.left=`${Math.max(0,Math.min(event.clientX,window.innerWidth-290))}px`;
-  componentContext.style.top=`${Math.max(0,Math.min(event.clientY,window.innerHeight-200))}px`;
+  componentContext.style.left=`${Math.max(0,Math.min(clientX,window.innerWidth-290))}px`;
+  componentContext.style.top=`${Math.max(0,Math.min(clientY,window.innerHeight-200))}px`;
   componentContext.querySelector("button")?.focus();
+}
+canvas.addEventListener("contextmenu",event=>{
+  const hit=mechanicalHitFromTarget(event.target);
+  const component=history.present.components.find(c=>c.id===hit?.componentId);
+  if(!component)return;
+  event.preventDefault();
+  openComponentContextAt(component,event.clientX,event.clientY);
+});
+tabletMoreActions.addEventListener("click", () => {
+  const component = history.present.components.find((candidate) => candidate.id === mechanicalState.selectedComponentId);
+  const rect = tabletMoreActions.getBoundingClientRect();
+  openComponentContextAt(component, rect.left, Math.max(8, rect.top - 190));
 });
 document.addEventListener("pointerdown",event=>{if(!componentContext.contains(event.target))closeComponentContext();});
 document.addEventListener("keydown",event=>{if(event.key==="Escape")closeComponentContext();});
@@ -1237,8 +1293,54 @@ canvas.addEventListener("wheel", (event) => {
   render();
 }, { passive: false });
 
+function touchPoints() {
+  return [...canvasTouchPointers.values()].slice(0, 2);
+}
+
+function cancelTransientPointerPreviewForPinch() {
+  if (dragState) cancelPointEdit();
+  if (floorAreaDragState) cancelFloorAreaPointEdit();
+  if (componentDragState) cancelComponentMove();
+  if (routePointDragState) cancelRoutePointMove();
+  if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
+    referenceCropState.pointerId = null;
+    referenceCropState.startSourcePoint = null;
+    referenceCropState.currentSourcePoint = null;
+  }
+  panState = null;
+}
+
+function showCanvasTouchFeedback(event) {
+  if (!["touch", "pen"].includes(event.pointerType)) return;
+  clearTimeout(touchFeedbackTimer);
+  tabletTouchFeedback.hidden = false;
+  tabletTouchFeedback.style.left = `${event.clientX}px`;
+  tabletTouchFeedback.style.top = `${event.clientY}px`;
+  touchFeedbackTimer = setTimeout(() => { tabletTouchFeedback.hidden = true; }, 320);
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   if (event.button === 2) return;
+  showCanvasTouchFeedback(event);
+  if (event.pointerType === "touch") {
+    canvasTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (canvasTouchPointers.size >= 2) {
+      pinchTouchSequenceActive = true;
+      cancelTransientPointerPreviewForPinch();
+      initialCameraFit.cancel();
+      suppressNextClick = true;
+      try {
+        pinchCameraGesture = beginPinchCameraGesture(camera, touchPoints(), canvas.getBoundingClientRect());
+      } catch {
+        pinchCameraGesture = null;
+      }
+      canvas.setPointerCapture(event.pointerId);
+      interactionMessage = "Two-finger pan and zoom · project geometry unchanged";
+      updateStatus();
+      event.preventDefault();
+      return;
+    }
+  }
   canvas.focus();
   if (event.button === 1 || (event.button === 0 && (spacePressed || activeTool === "pan"))) {
     initialCameraFit.cancel();
@@ -1371,6 +1473,17 @@ canvas.addEventListener("pointerdown", (event) => {
 });
 
 canvas.addEventListener("pointermove", (event) => {
+  if (event.pointerType === "touch" && canvasTouchPointers.has(event.pointerId)) {
+    canvasTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pinchCameraGesture && canvasTouchPointers.size >= 2) {
+      camera = updatePinchCameraGesture(pinchCameraGesture, touchPoints());
+      interactionMessage = "Two-finger pan and zoom · project geometry unchanged";
+      renderCamera();
+      updateStatus();
+      event.preventDefault();
+      return;
+    }
+  }
   if (panState && event.pointerId === panState.pointerId) {
     const rect = canvas.getBoundingClientRect();
     const delta = {
@@ -1438,6 +1551,20 @@ canvas.addEventListener("pointermove", (event) => {
 });
 
 canvas.addEventListener("pointerup", (event) => {
+  if (event.pointerType === "touch") {
+    canvasTouchPointers.delete(event.pointerId);
+    if (pinchTouchSequenceActive) {
+      if (canvasTouchPointers.size < 2) pinchCameraGesture = null;
+      suppressNextClick = true;
+      if (canvasTouchPointers.size === 0) {
+        pinchTouchSequenceActive = false;
+        setTimeout(() => { suppressNextClick = false; }, 0);
+      }
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
+  }
   if (panState && event.pointerId === panState.pointerId) {
     panState = null;
     suppressNextClick = true;
@@ -1568,12 +1695,19 @@ canvas.addEventListener("pointerup", (event) => {
   event.preventDefault();
 });
 
-canvas.addEventListener("pointercancel", cancelActivePointer);
+canvas.addEventListener("pointercancel", (event) => {
+  canvasTouchPointers.delete(event.pointerId);
+  if (canvasTouchPointers.size < 2) pinchCameraGesture = null;
+  if (canvasTouchPointers.size === 0) {
+    pinchTouchSequenceActive = false;
+    suppressNextClick = false;
+  }
+  cancelActivePointer();
+});
 canvas.addEventListener("lostpointercapture", () => {
   if (dragState) cancelPointEdit();
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
-  if (routePointDragState) cancelRoutePointMove();
   if (routePointDragState) cancelRoutePointMove();
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
@@ -1583,6 +1717,7 @@ canvas.addEventListener("lostpointercapture", () => {
     render();
   }
   panState = null;
+  if (canvasTouchPointers.size < 2) pinchCameraGesture = null;
 });
 
 canvas.addEventListener("click", (event) => {
@@ -1941,6 +2076,7 @@ function createInitialProject(projectId = PROJECT_ID) {
 
 function setTask(task) {
   if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
     sheetsNavigationButton.classList.remove("active");
@@ -2550,6 +2686,7 @@ function setTool(tool, options = {}) {
   externalGrillePlacement = null;
   grilleAlignmentPreview = null;
   activeTool = tool;
+  closeTabletPanels();
   if (tool !== "select") selectedRoutePointIndex = null;
   if (tool === "pan") interactionMessage = "";
   selectButton.classList.toggle("active", tool === "select");
@@ -5221,6 +5358,49 @@ function cancelActivePointer() {
   }
   panState = null;
 }
+
+function removeLastTabletDraftPoint() {
+  if (mechanicalState.routeDraft?.points.length) {
+    mechanicalState = removeMechanicalRoutePoint(mechanicalState);
+    interactionMessage = mechanicalState.routeDraft
+      ? "Last route point removed; finish at a compatible typed port"
+      : "Route start removed; choose a typed port to begin again";
+  } else if (activeTool === "floor-area" && floorAreaDraftPoints.length) {
+    floorAreaDraftPoints.pop();
+    interactionMessage = "Building-outline draft point removed; committed model unchanged";
+  } else if ((activeTool === "wall" || activeTool === "room-divider") && draftPoints.length) {
+    draftPoints.pop();
+    if (draftPoints.length === 0) activeChainId = null;
+    interactionMessage = "Draft point removed; committed model unchanged";
+  }
+  renderDraft();
+  updateStatus();
+}
+
+function finishTabletDraft() {
+  if (activeTool === "wall") commitWallChain();
+  else if (activeTool === "room-divider") commitRoomDivider();
+  else if (activeTool === "floor-area") stageFloorAreaCreation();
+}
+
+function cancelTabletOperation() {
+  if (activeTool === "crop-reference") cancelReferenceCrop("PDF crop cancelled; project unchanged");
+  else if (activeTool === "calibrate") cancelCalibration("Calibration cancelled; model unchanged");
+  else if (activeTool === "place-component" || activeTool === "place-assembly" || activeTool === "route") {
+    mechanicalState = cancelMechanicalOperation(mechanicalState);
+    setTool("select");
+    interactionMessage = "Ventilation operation cancelled; committed model unchanged";
+    render();
+  } else if (draftPoints.length || floorAreaDraftPoints.length) {
+    cancelDraft("Drawing draft cancelled; committed model unchanged");
+  } else {
+    setTool("select");
+  }
+}
+
+tabletDraftBack.addEventListener("click", removeLastTabletDraftPoint);
+tabletDraftFinish.addEventListener("click", finishTabletDraft);
+tabletDraftCancel.addEventListener("click", cancelTabletOperation);
 
 function applyThreeDHeights(event) {
   event.preventDefault();
@@ -8104,6 +8284,23 @@ function updateStatus() {
             : "Select walls or endpoints · drag to edit · wheel zoom · choose Pan to move the view · Space-drag pans");
   undoButton.disabled = !canUndo(history);
   redoButton.disabled = !canRedo(history);
+  const wallDraft = (isWall || isDivider) && draftPoints.length > 0;
+  const outlineDraft = isFloorArea && floorAreaDraftPoints.length > 0;
+  const routeDraft = isRoute && Boolean(mechanicalState.routeDraft?.points.length);
+  const cancellableTool = wallDraft || outlineDraft || routeDraft || isPlacement || isCalibration || isReferenceCrop;
+  tabletDraftActions.hidden = !cancellableTool;
+  tabletDraftBack.hidden = !(wallDraft || outlineDraft || routeDraft);
+  tabletDraftBack.disabled = !(draftPoints.length || floorAreaDraftPoints.length || mechanicalState.routeDraft?.points.length);
+  tabletDraftFinish.hidden = !(wallDraft || outlineDraft || routeDraft);
+  tabletDraftFinish.disabled = routeDraft || (wallDraft && draftPoints.length < 2) || (outlineDraft && floorAreaDraftPoints.length < 3);
+  tabletDraftFinish.textContent = routeDraft ? "Finish at port" : "Finish";
+  tabletMoreActions.hidden = !(activeTask === "ventilation" && mechanicalState.selectedComponentId && activeTool === "select");
+  const hasInspectorSelection = Boolean(
+    mechanicalState.selectedComponentId || selectedRouteId || selectedWallId || selectedNodeId ||
+    selectedFloorAreaId || selectedRoomId || selectedZoneId,
+  );
+  tabletInspectorToggle.classList.toggle("has-selection", hasInspectorSelection);
+  tabletInspectorToggle.textContent = hasInspectorSelection ? "Inspector •" : "Inspector";
 }
 
 function resolvePointerPoint(event) {

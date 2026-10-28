@@ -36,10 +36,10 @@ test("development static paths are confined to explicit application roots", () =
     allowedRoot: resolve(ROOT, "src/import"),
     relativePath: "src/import/dxf-reference.mjs",
   });
-  assert.deepEqual(resolveStaticRequestPath(ROOT, "/node_modules/pdfjs-dist/build/pdf.mjs"), {
-    filePath: resolve(ROOT, "node_modules/pdfjs-dist/build/pdf.mjs"),
-    allowedRoot: resolve(ROOT, "node_modules/pdfjs-dist/build"),
-    relativePath: "node_modules/pdfjs-dist/build/pdf.mjs",
+  assert.deepEqual(resolveStaticRequestPath(ROOT, "/node_modules/pdfjs-dist/legacy/build/pdf.mjs"), {
+    filePath: resolve(ROOT, "node_modules/pdfjs-dist/legacy/build/pdf.mjs"),
+    allowedRoot: resolve(ROOT, "node_modules/pdfjs-dist/legacy/build"),
+    relativePath: "node_modules/pdfjs-dist/legacy/build/pdf.mjs",
   });
 
   for (const path of [

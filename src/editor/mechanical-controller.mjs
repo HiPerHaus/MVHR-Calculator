@@ -103,6 +103,18 @@ export function cancelMechanicalOperation(state) {
   };
 }
 
+export function removeMechanicalRoutePoint(state) {
+  requireState(state);
+  const points = state.routeDraft?.points;
+  if (!points?.length) return state;
+  if (points.length === 1) return { ...state, routeDraft: null, pointer: null };
+  return {
+    ...state,
+    routeDraft: { ...state.routeDraft, points: points.slice(0, -1) },
+    pointer: points.at(-2),
+  };
+}
+
 export function resolveComponentPlacementState(state, outcome) {
   requireState(state);
   if (typeof outcome?.committed !== "boolean") {

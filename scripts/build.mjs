@@ -10,8 +10,8 @@ for(const folder of ["app","login","src"])await cp(resolve(root,folder),resolve(
 await buildAuth(new URL('../dist/app/vendor/',import.meta.url));
 const pdfRoot=resolve(root,"node_modules/pdfjs-dist");
 for(const folder of ["cmaps","standard_fonts","wasm"])await cp(resolve(pdfRoot,folder),resolve(output,"node_modules/pdfjs-dist",folder),{recursive:true});
-await mkdir(resolve(output,"node_modules/pdfjs-dist/build"),{recursive:true});
-for(const name of ["pdf.mjs","pdf.worker.min.mjs"])await cp(resolve(pdfRoot,"build",name),resolve(output,"node_modules/pdfjs-dist/build",name));
+await mkdir(resolve(output,"node_modules/pdfjs-dist/legacy/build"),{recursive:true});
+for(const name of ["pdf.mjs","pdf.worker.min.mjs"])await cp(resolve(pdfRoot,"legacy/build",name),resolve(output,"node_modules/pdfjs-dist/legacy/build",name));
 await cp(resolve(pdfRoot,"LICENSE"),resolve(output,"node_modules/pdfjs-dist/LICENSE"));
 await writeFile(resolve(output,"index.html"),'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/app/"><a href="/app/">Open HiPer Studio</a>');
 console.log("Built HiPer Studio and PDF assets in dist/");

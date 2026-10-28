@@ -42,6 +42,7 @@
       </header>
 
       <div id="plan-workspace" class="workspace">
+        <button id="tablet-panel-backdrop" class="tablet-panel-backdrop" type="button" aria-label="Close drawing panels" tabindex="-1"></button>
         <aside class="left-panel" aria-label="Tools and layers">
           <section id="primary-tools-section">
             <h2>Drawing tools</h2>
@@ -193,6 +194,10 @@
               <span>1 grid square = 1,000 mm</span>
             </div>
             <div id="mode-prompt" role="status">Select a tool</div>
+            <div class="tablet-panel-controls" aria-label="Drawing panels">
+              <button id="tablet-tools-toggle" type="button" aria-expanded="false">Tools</button>
+              <button id="tablet-inspector-toggle" type="button" aria-expanded="false">Inspector</button>
+            </div>
           </div>
           <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas">
             <defs>
@@ -243,7 +248,14 @@
             <button id="snap-toggle" class="tool snap-toggle active" type="button" aria-pressed="true">
               <kbd>S</kbd><span><span id="snap-toggle-label">Snap on</span><small id="snap-toggle-detail">Endpoints · walls · grid · DXF</small></span>
             </button>
+            <div id="tablet-draft-actions" class="tablet-draft-actions" hidden>
+              <button id="tablet-draft-back" type="button">Back</button>
+              <button id="tablet-draft-finish" type="button">Finish</button>
+              <button id="tablet-draft-cancel" type="button">Cancel</button>
+            </div>
+            <button id="tablet-more-actions" class="tablet-more-actions" type="button" hidden>More…</button>
           </div>
+          <span id="tablet-touch-feedback" class="tablet-touch-feedback" aria-hidden="true" hidden></span>
           <div class="statusbar">
             <span id="tool-status">Tool: Select</span>
             <span id="cursor-status">X 0 mm · Y 0 mm</span>

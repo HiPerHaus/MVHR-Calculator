@@ -8,10 +8,24 @@ import {
   componentRotationIntent,
   createMechanicalInteractionState,
   handleMechanicalCanvasClick,
+  removeMechanicalRoutePoint,
   requiresProjectReplacementConfirmation,
   resolveComponentPlacementState,
   updateMechanicalPointer,
 } from "../src/editor/mechanical-controller.mjs";
+
+test("route back removes one draft point without committing geometry", () => {
+  let state = activateMechanicalTool(createMechanicalInteractionState(), "route", { ductKind: "epp-rigid-dn160" });
+  state = handleMechanicalCanvasClick(state, {
+    point: { x: 0, y: 0 },
+    hit: { kind: "port", componentId: "unit", portId: "supply", system: "mvhr", stream: "supply", role: "Dwelling supply" },
+  }).state;
+  state = handleMechanicalCanvasClick(state, { point: { x: 1000, y: 0 }, hit: null }).state;
+  const backed = removeMechanicalRoutePoint(state);
+  assert.equal(backed.routeDraft.points.length, 1);
+  assert.deepEqual(backed.pointer, { x: 0, y: 0 });
+  assert.equal(removeMechanicalRoutePoint(backed).routeDraft, null);
+});
 import {
   createSyntheticComponent,
   SYNTHETIC_COMPONENT_CATALOGUE,

@@ -21,6 +21,7 @@ const browser = spawn(CHROME, [
 ], { stdio: ["ignore", "ignore", "pipe"] });
 
 let browserStderr = "";
+const exceptions = [];
 browser.stderr.setEncoding("utf8");
 browser.stderr.on("data", (chunk) => { browserStderr += chunk; });
 
@@ -28,7 +29,6 @@ try {
   await waitForDevTools(DEBUG_PORT);
   const target = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/new?${encodeURIComponent(APP_URL)}`, { method: "PUT" }).then((response) => response.json());
   const cdp = await connectCdp(target.webSocketDebuggerUrl);
-  const exceptions = [];
   cdp.on("Runtime.exceptionThrown", (params) => exceptions.push(params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "Runtime exception"));
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -46,6 +46,7 @@ try {
   });
   await cdp.send("Page.reload", { ignoreCache: true });
   await waitFor(cdp, `document.readyState === "complete" && document.querySelector("#current-project-name")?.textContent === "PDF Workflow House"`);
+  await waitFor(cdp, `document.querySelector("#mode-prompt")?.textContent.includes("Continued")`);
   await click(cdp, "#plan-nav");
   await waitFor(cdp, `!document.querySelector("#plan-workspace")?.hidden && document.querySelector("#reference-list")?.textContent.includes("page 2")`);
   const referenceText = await value(cdp, `document.querySelector("#reference-list").textContent`);
@@ -97,14 +98,15 @@ try {
 
   await click(cdp, "#ventilation-nav");
   await waitFor(cdp, `!document.querySelector("#plan-workspace")?.hidden && !document.querySelector("#mechanical-tools-section")?.hidden`);
-  await setValue(cdp, "#catalogue-search", "Generic test MVHR unit");
-  await click(cdp, `[data-catalogue-item-id="synthetic-mvhr-placeholder"]`);
+  await click(cdp, `[data-mvhr-mounting="vertical"]`);
   await clickReferenceSourcePoints(cdp, [{ x: 500, y: 300 }]);
+  await waitFor(cdp, `document.querySelector("#mvhr-placement-dialog")?.open`);
+  await setValue(cdp, "#mvhr-model", "generic");
+  await submit(cdp, "#mvhr-placement-form");
   await waitFor(cdp, `document.querySelector("#draft-status")?.textContent.includes("1 parts")`);
 
   await click(cdp, "#plan-nav");
-  await click(cdp, "#save-local");
-  await waitFor(cdp, `document.querySelector("#local-state")?.dataset.state === "saved"`);
+  await delay(250);
   const beforeRecrop = await inspectSavedCropGeometry(cdp);
   assert.deepEqual(beforeRecrop.crop, { x: 80, y: 70, width: 840, height: 460 });
 
@@ -113,7 +115,7 @@ try {
   await waitFor(cdp, `document.querySelector("#reference-crop-dialog")?.open`);
   await submit(cdp, "#reference-crop-form");
   await waitFor(cdp, `document.querySelector("#reference-list")?.textContent.includes("Cropped to 800 × 410 px")`);
-  await click(cdp, "#save-local");
+  await delay(250);
   const afterRecrop = await inspectSavedCropGeometry(cdp);
   assert.deepEqual(afterRecrop.crop, { x: 100, y: 90, width: 800, height: 410 });
   assert.equal(afterRecrop.modelFingerprint, beforeRecrop.modelFingerprint, "recropping must not move calibration, perimeter, parts or routes");
@@ -127,9 +129,10 @@ try {
   await waitFor(cdp, `document.querySelector("#reference-list")?.textContent.includes("Full PDF page visible")`);
   await click(cdp, "#undo");
   await waitFor(cdp, `document.querySelector("#reference-list")?.textContent.includes("Cropped to 800 × 410 px")`);
-  await click(cdp, "#save-local");
+  await delay(250);
   await cdp.send("Page.reload", { ignoreCache: true });
   await waitFor(cdp, `document.readyState === "complete" && document.querySelector("#current-project-name")?.textContent === "PDF Workflow House"`);
+  await waitFor(cdp, `document.querySelector("#mode-prompt")?.textContent.includes("Continued")`);
   const reopened = await inspectActiveNamedProject(cdp);
   assert.deepEqual(reopened, {
     name: "PDF Workflow House",
@@ -153,6 +156,7 @@ try {
   });
   await cdp.send("Page.reload", { ignoreCache: true });
   await waitFor(cdp, `document.readyState === "complete" && document.querySelector("#current-project-name")?.textContent === "PDF Workflow House"`);
+  await waitFor(cdp, `document.querySelector("#mode-prompt")?.textContent.includes("Continued")`);
   await click(cdp, "#checks-nav");
   await waitFor(cdp, `!document.querySelector("#checks-workspace")?.hidden`);
   const detailedChecks = await value(cdp, `(() => ({
@@ -182,7 +186,7 @@ try {
     hasCropClip: Boolean(document.querySelector('#sheet-preview-host svg [data-kind="cropped-reference"] clipPath')),
   }))()`);
   assert.match(draftSheet.status, /committed objects only/i);
-  assert.match(draftSheet.note, /Working draft only.*not for construction/i);
+  assert.match(draftSheet.note, /Schematic coordination output only.*not BIM.*no clash.*airflow.*pressure-loss.*fabrication.*installation certification/i);
   assert.equal(draftSheet.hasReference, true);
   assert.equal(draftSheet.hasCropClip, true);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
@@ -190,6 +194,25 @@ try {
   process.stdout.write(`${JSON.stringify({ ok: true, seeded, reopened, detailedSeed, detailedChecks, draftSheet, referenceText }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
+  try {
+    const pages = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`).then((response) => response.json());
+    const page = pages.find((candidate) => candidate.type === "page" && candidate.url.includes("127.0.0.1"));
+    if (page) {
+      const debug = await connectCdp(page.webSocketDebuggerUrl);
+      const state = await value(debug, `(() => ({
+        project: document.querySelector('#current-project-name')?.textContent,
+        activeNavigation: document.querySelector('.nav-button.active')?.id,
+        planHidden: document.querySelector('#plan-workspace')?.hidden,
+        referenceSummary: document.querySelector('#reference-list')?.textContent,
+        prompt: document.querySelector('#mode-prompt')?.textContent,
+      }))()`);
+      process.stderr.write(`Browser state: ${JSON.stringify(state)}\n`);
+      debug.close();
+    }
+  } catch (diagnosticError) {
+    process.stderr.write(`Browser state unavailable: ${diagnosticError.message}\n`);
+  }
+  if (exceptions.length) process.stderr.write(`Browser exceptions:\n${exceptions.join("\n")}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-4000)}\n`);
   process.exitCode = 1;
 } finally {
@@ -205,8 +228,10 @@ async function seedPdfProject(cdp, sourceBase64) {
     const portable = await import("/src/persistence/portable-project.mjs");
     const pdfTools = await import("/src/import/pdf-reference.mjs");
     const libraryTools = await import("/src/persistence/local-project-library.mjs");
-    const pdfjs = await import("/node_modules/pdfjs-dist/build/pdf.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/build/pdf.worker.min.mjs";
+    const compact = await import("/src/persistence/compact-storage.mjs");
+    const working = await import("/src/persistence/working-session.mjs");
+    const pdfjs = await import("/node_modules/pdfjs-dist/legacy/build/pdf.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
     const bytes = Uint8Array.from(atob(${JSON.stringify(sourceBase64)}), (character) => character.charCodeAt(0));
     const resources = {
       cMapUrl: "/node_modules/pdfjs-dist/cmaps/",
@@ -284,7 +309,22 @@ async function seedPdfProject(cdp, sourceBase64) {
           calibration: null,
         },
       });
-      const saved = libraryTools.createLocalProjectLibrary(localStorage).saveProject(project, "PDF Workflow House");
+      const saved = libraryTools.createLocalProjectLibrary(
+        compact.createCompactProjectStorage(localStorage),
+      ).saveProject(project, "PDF Workflow House");
+      const workingStore = working.createWorkingSessionStore(indexedDB, {
+        tabId: working.workingTabId(sessionStorage),
+      });
+      await workingStore.write({ userId: null, workspaceId: null }, {
+        projectJson: domain.serializeProject(project),
+        name: "PDF Workflow House",
+        dirty: false,
+        cloudRecord: null,
+        task: "project",
+        camera: { x: 0, y: 0, width: 1200, height: 800 },
+        catalogueGroup: "Units",
+      });
+      await workingStore.flush();
       return {
         pageCount: opened.pageCount,
         pageNumber: descriptor.pageNumber,
@@ -300,10 +340,9 @@ async function seedPdfProject(cdp, sourceBase64) {
 
 async function inspectActiveNamedProject(cdp) {
   return evaluate(cdp, `(async () => {
-    const libraryTools = await import("/src/persistence/local-project-library.mjs");
-    const library = libraryTools.createLocalProjectLibrary(localStorage);
-    const listed = library.listProjects();
-    const loaded = library.loadProject(listed.activeProjectId);
+    const working = await import("/src/persistence/working-session.mjs");
+    const store = working.createWorkingSessionStore(indexedDB, { tabId: working.workingTabId(sessionStorage) });
+    const loaded = await store.read({ userId: null, workspaceId: null });
     return {
       name: loaded.name,
       pdfSources: loaded.project.pdfReferenceAssets.length,
@@ -319,10 +358,9 @@ async function inspectActiveNamedProject(cdp) {
 
 async function inspectSavedCropGeometry(cdp) {
   return evaluate(cdp, `(async () => {
-    const libraryTools = await import("/src/persistence/local-project-library.mjs");
-    const library = libraryTools.createLocalProjectLibrary(localStorage);
-    const listed = library.listProjects();
-    const loaded = library.loadProject(listed.activeProjectId);
+    const working = await import("/src/persistence/working-session.mjs");
+    const store = working.createWorkingSessionStore(indexedDB, { tabId: working.workingTabId(sessionStorage) });
+    const loaded = await store.read({ userId: null, workspaceId: null });
     const project = loaded.project;
     const reference = project.floorReferences[0];
     return {
@@ -354,10 +392,12 @@ async function addDetailedWorkflowStage(cdp) {
     const synthetic = await import("/src/editor/synthetic-catalogue.mjs");
     const engineering = await import("/src/domain/engineering-inputs.mjs");
     const libraryTools = await import("/src/persistence/local-project-library.mjs");
-    const library = libraryTools.createLocalProjectLibrary(localStorage);
-    const listed = library.listProjects();
-    const loaded = library.loadProject(listed.activeProjectId);
-    if (!loaded.ok || !loaded.found) throw new Error("Named PDF workflow project could not be reopened");
+    const compact = await import("/src/persistence/compact-storage.mjs");
+    const working = await import("/src/persistence/working-session.mjs");
+    const library = libraryTools.createLocalProjectLibrary(compact.createCompactProjectStorage(localStorage));
+    const workingStore = working.createWorkingSessionStore(indexedDB, { tabId: working.workingTabId(sessionStorage) });
+    const loaded = await workingStore.read({ userId: null, workspaceId: null });
+    if (!loaded) throw new Error("PDF workflow recovery could not be reopened");
     const point = (x, y) => ({ x, y, z: domain.unknownMm("isolated browser workflow fixture") });
     const chain = (nodeIds, wallIds, points) => ({
       type: "wall.addChain", floorId: "floor-ground", nodeIds, wallIds, points, splits: [],
@@ -414,6 +454,14 @@ async function addDetailedWorkflowStage(cdp) {
       },
     });
     const saved = library.saveProject(project, loaded.name);
+    await workingStore.write({ userId: null, workspaceId: null }, {
+      ...loaded,
+      projectJson: domain.serializeProject(project),
+      dirty: false,
+      cloudRecord: null,
+      task: "project",
+    });
+    await workingStore.flush();
     return {
       pdfSources: project.pdfReferenceAssets.length,
       calibratedReferences: project.floorReferences.filter((reference) => reference.calibration !== null).length,

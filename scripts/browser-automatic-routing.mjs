@@ -63,6 +63,33 @@ try {
   assert.equal(compact.action.visible, true);
   assert.equal(compact.system.visible, true);
   assert.equal(compact.style.visible, true);
+  assert.equal(await visible(cdp, "#tablet-tools-toggle"), true, "Tablet tools drawer control should be visible");
+  await click(cdp, "#tablet-tools-toggle");
+  assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), true);
+  await pressEscape(cdp);
+  assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), false, "Escape should close tablet drawers");
+
+  await click(cdp, "#plan-nav");
+  await click(cdp, "#tablet-tools-toggle");
+  await click(cdp, "#wall-tool");
+  assert.equal(await evaluate(cdp, `document.querySelector("#plan-workspace")?.classList.contains("tablet-tools-open")`), false, "Choosing a tool should return to the drawing");
+  await canvasClick(cdp, 0.35, 0.4);
+  assert.match(await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`), /1 draft point/u);
+  assert.equal(await visible(cdp, "#tablet-draft-actions"), true);
+  const draftBeforePinch = await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`);
+  const cameraBeforePinch = await evaluate(cdp, `document.querySelector("#plan-canvas")?.getAttribute("viewBox")`);
+  await canvasPinch(cdp);
+  assert.equal(await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`), draftBeforePinch, "Two-finger navigation must preserve the active draft");
+  assert.notEqual(await evaluate(cdp, `document.querySelector("#plan-canvas")?.getAttribute("viewBox")`), cameraBeforePinch, "Pinch should change only the camera");
+  await click(cdp, "#tablet-draft-back");
+  assert.doesNotMatch(await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`), /draft point/u);
+  await canvasClick(cdp, 0.35, 0.4);
+  await canvasClick(cdp, 0.55, 0.4);
+  assert.equal(await evaluate(cdp, `document.querySelector("#tablet-draft-finish")?.disabled`), false);
+  await click(cdp, "#tablet-draft-finish");
+  assert.match(await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`), /1 walls/u);
+  await click(cdp, "#undo");
+  await click(cdp, "#ventilation-nav");
 
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 640, height: 800, deviceScaleFactor: 1, mobile: false });
   await delay(80);
@@ -99,6 +126,14 @@ try {
   const statusBeforeVisibility = await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`);
   await click(cdp, `[data-component-id="cw-browser"]`);
   assert.equal(await evaluate(cdp, `document.querySelector("#inspector-empty")?.hidden`), true, "Fixture distribution component should be selected");
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1024, height: 768, deviceScaleFactor: 2, mobile: true });
+  await delay(80);
+  assert.equal(await visible(cdp, "#tablet-more-actions"), true, "Selected equipment should expose a touch More action");
+  await click(cdp, "#tablet-more-actions");
+  assert.equal(await visible(cdp, "#component-context-menu"), true, "More should expose rotate and configuration actions without a context click");
+  await pressEscape(cdp);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await delay(80);
   await click(cdp, "#view-options-toggle");
   await setChecked(cdp, `#ventilation-visibility [data-visibility-group="distribution"]`, false);
   assert.equal(await evaluate(cdp, `document.querySelector('[data-component-id="cw-browser"]') === null`), true, "Hidden equipment must leave the drawing");
@@ -146,7 +181,7 @@ try {
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   assert.deepEqual(consoleErrors, [], `Browser console errors: ${consoleErrors.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, guidedSteps: 5, systems: ["DN90", "EPP"], styles: ["Direct", "Building-aligned"], fitOnReopen: true, validDirectPreview: true, validAlignedPreview: true, selectiveApply: true, cancelPreservesProject: true, undoAndRegenerate: true, manualRoutePreserved: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, guidedSteps: 5, systems: ["DN90", "EPP"], styles: ["Direct", "Building-aligned"], tabletDrawers: true, visibleDraftActions: true, twoFingerCamera: true, touchMoreActions: true, fitOnReopen: true, validDirectPreview: true, validAlignedPreview: true, selectiveApply: true, cancelPreservesProject: true, undoAndRegenerate: true, manualRoutePreserved: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-4000)}\n`);
@@ -210,4 +245,19 @@ async function select(cdp, selector, value) { const found = await evaluate(cdp, 
 async function setChecked(cdp, selector, checked) { const found = await evaluate(cdp, `(() => { const element = document.querySelector(${JSON.stringify(selector)}); if (!element) return false; element.checked=${JSON.stringify(checked)}; element.dispatchEvent(new Event("change",{bubbles:true})); return true; })()`); assert.equal(found, true, `Missing checkbox: ${selector}`); await delay(50); }
 async function pressEscape(cdp) { await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" }); await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" }); await delay(50); }
 async function outsidePointerDown(cdp, selector) { const found = await evaluate(cdp, `(() => { const element=document.querySelector(${JSON.stringify(selector)}); if(!element)return false; element.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,pointerId:1,pointerType:"mouse",clientX:1,clientY:1})); return true; })()`); assert.equal(found, true, `Missing outside target: ${selector}`); await delay(50); }
+async function canvasClick(cdp, xRatio, yRatio) {
+  const point = await evaluate(cdp, `(() => { const box=document.querySelector("#plan-canvas").getBoundingClientRect(); return {x:box.left+box.width*${xRatio},y:box.top+box.height*${yRatio}}; })()`);
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+  await delay(50);
+}
+async function canvasPinch(cdp) {
+  const box = await evaluate(cdp, `(() => { const box=document.querySelector("#plan-canvas").getBoundingClientRect(); return {left:box.left,top:box.top,width:box.width,height:box.height}; })()`);
+  const centre = { x: box.left + box.width * .5, y: box.top + box.height * .5 };
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: centre.x - 45, y: centre.y, id: 1 }, { x: centre.x + 45, y: centre.y, id: 2 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: centre.x - 85, y: centre.y - 20, id: 1 }, { x: centre.x + 85, y: centre.y + 20, id: 2 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [{ x: centre.x - 85, y: centre.y - 20, id: 1 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await delay(80);
+}
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }

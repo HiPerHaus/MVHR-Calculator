@@ -955,3 +955,12 @@ Snap off now uses continuous floor coordinates for equipment dragging, placement
 ### 28 October 2026 — external grille label cleanup
 
 External grille plan labels show the grille name and size without the appended evidence-status text (including “generic test”). The label sits above the rotated symbol envelope, on the opposite side from its previous below-symbol position, with a zoom-adjusted gap. Saved catalogue evidence and inspector information remain unchanged.
+
+
+### 28 October 2026 — iPad-first two-dimensional interaction candidate
+
+At tablet widths or with a coarse primary pointer, the Plan and Ventilation workspaces use temporary Tools and Inspector drawers so the authoritative drawing keeps most of the landscape viewport. Drawer state, touch feedback and camera gestures are presentation state only. Controls use at least 44 CSS-pixel targets. Wall, divider and outline drafts expose visible Back, Finish and Cancel actions; typed routes expose Back and Cancel while Finish remains disabled until a compatible port is selected. Selected equipment exposes the existing rotate, flip and reconfiguration menu through a visible More action instead of requiring a context click. Desktop panels and keyboard shortcuts remain available.
+
+A single finger or Apple Pencil continues the active drawing/editing tool. Two concurrent touch pointers cancel only an uncommitted drag preview and then pan/zoom the camera around their midpoint; they do not commit geometry, clear the wall/route draft or change calibration. Camera changes remain outside project authority. This milestone does not promise full phone CAD, pressure/airflow validation, or advanced 3D editing.
+
+PDF import keeps the pinned PDF.js 6.4.299 API and worker matched, but uses the distribution's `legacy` pair because PDF.js lists Safari under that build. This records the official Safari 18+ support evidence without translating it into an unsupported iPadOS minimum. Native Files selection, printing, downloads, keyboard interruption and device-memory behavior still require an actual iPad Safari acceptance pass before production rollout. Chromium device emulation and pointer-event tests are implementation evidence, not genuine iPad verification.
