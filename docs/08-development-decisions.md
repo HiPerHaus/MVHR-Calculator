@@ -965,6 +965,14 @@ A single finger or Apple Pencil continues the active drawing/editing tool. Two c
 
 PDF import keeps the pinned PDF.js 6.4.299 API and worker matched, but uses the distribution's `legacy` pair because PDF.js lists Safari under that build. This records the official Safari 18+ support evidence without translating it into an unsupported iPadOS minimum. Native Files selection, printing, downloads, keyboard interruption and device-memory behavior still require an actual iPad Safari acceptance pass before production rollout. Chromium device emulation and pointer-event tests are implementation evidence, not genuine iPad verification.
 
+### 29 October 2026 — design-stage navigation and evidence-only Check summary
+
+Plan, Place, Route, Check, and Export are UI navigation state, separate from `project.workflow.stage`. Entering Place or Route through this strip does not run legacy upgrade commands or start Preliminary layout. Repeated active-stage selection is a no-op so repeat placement stays armed; moving to a different stage cancels only uncommitted interaction state. The stage is stored in browser recovery as non-authoritative view state.
+
+Design Check is a grouped projection of `auditVentilation` and `inspectAirflowBalance`, not a second solver. Typed HRV roots are recognised by their persisted unit roles/design intent rather than one synthetic catalogue ID. Typed distribution recognition uses main-plus-radial interfaces, and a mounted-CW unit does not require an external dwelling main. Drawing-only equal-DN links can support topology while physical compatibility remains explicitly unverified. Unsupported roots remain **not assessed**. Pressure remains **Not calculated**.
+
+Room airflow presentation is Normal mode on the active floor only. Child zones replace a partitioned parent in totals. Required and assigned targets retain input value/unit, basis, source, and canonical L/s. Known subtotals do not convert unresolved operands to zero; unresolved counts remain visible. Terminal count, duct-run count, parallel runs, and Twin drawings never multiply a room target, and per-terminal allocation remains deferred.
+
 
 ### 28 October 2026 — persistent typed outlet placement candidate
 

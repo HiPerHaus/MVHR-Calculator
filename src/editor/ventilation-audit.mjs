@@ -25,8 +25,12 @@ export function auditVentilation(project, floorId) {
 
   const graph = createPortGraph(components, routes, connections);
   const diagnostics = [];
-  const unitPortsByRole = genericUnitPortsByRole(components);
+  const unitComponents = components.filter(isHrvUnit);
+  const unitPortsByRole = unitPortsForTopology(unitComponents);
   const distributionPortsByRole = distributionMainPortsByRole(components, assemblies, connections);
+  const topologyCoverage = unitComponents.length > 0
+    ? { status: "assessed-supported-typed-roots", unitComponentIds: unitComponents.map((component) => component.id) }
+    : { status: "not-assessed-no-supported-unit-root", unitComponentIds: [] };
 
   inspectRoutes(routes, componentById, diagnostics);
   inspectDirectConnections(connections, componentById, diagnostics);
@@ -34,6 +38,14 @@ export function auditVentilation(project, floorId) {
   inspectUnitMainPaths(unitPortsByRole, distributionPortsByRole, graph, diagnostics);
   inspectAssemblyMainPaths(assemblies, distributionPortsByRole, unitPortsByRole, graph, diagnostics);
   inspectOutlets(components, unitPortsByRole, graph, diagnostics);
+  if (topologyCoverage.status === "not-assessed-no-supported-unit-root" && (components.length > 0 || routes.length > 0)) {
+    diagnostics.push(diagnostic(
+      "topology-not-assessed",
+      "info",
+      "Whole-system topology is not assessed",
+      "No supported typed MVHR unit root is present on this floor. Free ends and interface conflicts are still checked independently.",
+    ));
+  }
   diagnostics.push(...inspectRoutingCoordination(project, floorId).diagnostics);
   const externalGrilleSeparation=inspectExternalGrilleSeparation(project,floorId);
   for(const pair of externalGrilleSeparation) {
@@ -49,6 +61,7 @@ export function auditVentilation(project, floorId) {
     parts: summarizeParts(components, assemblies, assemblyByComponentId),
     routes: summarizeRoutes(routes),
     spareBranches: summarizeSpareBranches(components, graph.externallyOccupied),
+    topologyCoverage,
     externalGrilleSeparation,
     diagnostics: diagnostics.sort(compareDiagnostics),
     diagnosticCounts: countDiagnostics(diagnostics),
@@ -185,11 +198,14 @@ function createPortGraph(components, routes, connections) {
   return { adjacency, externallyOccupied };
 }
 
-function genericUnitPortsByRole(components) {
+function unitPortsForTopology(components) {
   const result = new Map(REQUIRED_HRV_ROLES.map((role) => [role, []]));
-  for (const component of components.filter(isGenericHrv)) {
+  for (const component of components) {
     for (const port of component.ports) {
-      if (result.has(port.role)) result.get(port.role).push(endpointValue(component, port));
+      if (result.has(port.role)) result.get(port.role).push({
+        ...endpointValue(component, port),
+        requiresExternalMain: component.mvhrDesignIntent?.layout !== "unit-mounted-cw",
+      });
     }
   }
   return result;
@@ -204,8 +220,7 @@ function distributionMainPortsByRole(components, assemblies, connections) {
   const assemblyComponentIds = new Set(assemblies.flatMap((assembly) => assembly.componentIds));
   for (const component of components) {
     const isAssemblyMember = assemblyComponentIds.has(component.id);
-    const isStandaloneDistribution = component.catalogueItemId === "generic-supply-attenuation-distribution-160"
-      || component.catalogueItemId === "generic-extract-attenuation-distribution-160";
+    const isStandaloneDistribution = isTypedDistribution(component);
     if (!isAssemblyMember && !isStandaloneDistribution) continue;
     for (const port of component.ports) {
       if (!result.has(port.role) || port.interface?.family !== "rigid-epp") continue;
@@ -241,14 +256,14 @@ function inspectRoutes(routes, componentById, diagnostics) {
         }));
       }
       const expectedInterface = route.connectionInterface ?? family.connectionInterface;
-      if (!interfacesCompatible(expectedInterface, port.interface)) {
+      if (!interfacesCompatibleForDrawing(route, expectedInterface, port.interface)) {
         diagnostics.push(diagnostic("route-size-conflict", "error", "Route interface or size conflict", `${family.name} route ${route.id} does not match ${port.role} ${formatInterface(port.interface)}. Add an explicit adapter instead of inferring a transition.`, {
           routeId: route.id,
           componentId: attachments[index].componentId,
         }));
       }
     }
-    if (!interfacesCompatible(ports[0]?.interface, ports[1]?.interface)) {
+    if (!interfacesCompatibleForDrawing(route, ports[0]?.interface, ports[1]?.interface)) {
       diagnostics.push(diagnostic("route-endpoint-size-conflict", "error", "Connected ports need an explicit adapter", `${family.name} route ${route.id} joins ${formatInterface(ports[0]?.interface)} to ${formatInterface(ports[1]?.interface)}. Add a modelled explicit adapter or correct an endpoint.`, {
         routeId: route.id,
         componentId: attachments[0].componentId,
@@ -263,6 +278,15 @@ function inspectDirectConnections(connections, componentById, diagnostics) {
     const toComponent = componentById.get(connection.to.componentId);
     const fromPort = fromComponent?.ports.find((port) => port.id === connection.from.portId);
     const toPort = toComponent?.ports.find((port) => port.id === connection.to.portId);
+    if (fromPort && toPort && (fromPort.system !== toPort.system || fromPort.stream !== toPort.stream || fromPort.role !== toPort.role)) {
+      diagnostics.push(diagnostic(
+        "direct-connection-role-conflict",
+        "error",
+        "Direct connection role conflict",
+        `${fromComponent?.displayName ?? connection.from.componentId} ${fromPort.role} is joined to ${toComponent?.displayName ?? connection.to.componentId} ${toPort.role}. Correct the typed endpoints; visual overlap is not a connection rule.`,
+        { componentId: connection.from.componentId },
+      ));
+    }
     if (interfacesCompatible(fromPort?.interface, toPort?.interface)) continue;
     diagnostics.push(diagnostic(
       "direct-connection-size-conflict",
@@ -287,6 +311,7 @@ function inspectSetoutOnlyUnits(components, diagnostics) {
 function inspectUnitMainPaths(unitPortsByRole, distributionMainPortsByRole, graph, diagnostics) {
   for (const role of REQUIRED_HRV_ROLES) {
     for (const endpoint of unitPortsByRole.get(role)) {
+      if (!endpoint.requiresExternalMain) continue;
       if (!graph.externallyOccupied.has(endpoint.key)) {
         diagnostics.push(diagnostic("unit-main-disconnected", "error", `${role} main route is missing`, `${endpoint.componentName} ${role} port is free. Connect it with the matching DN160 main route.`, {
           componentId: endpoint.componentId,
@@ -333,7 +358,7 @@ function inspectOutlets(components, unitPortsByRole, graph, diagnostics) {
         componentId: component.id,
         portId: terminalPort.id,
       }));
-    } else if (!canReachAny(endpoint.key, unitPortsByRole.get(terminalPort.role) ?? [], graph.adjacency)) {
+    } else if ((unitPortsByRole.get(terminalPort.role) ?? []).length > 0 && !canReachAny(endpoint.key, unitPortsByRole.get(terminalPort.role) ?? [], graph.adjacency)) {
       diagnostics.push(diagnostic("outlet-path-incomplete", "error", "Outlet path does not reach the correct HRV side", `${component.displayName} is connected locally but no ${terminalPort.role.toLowerCase()} HRV port is reachable through the modelled network.`, {
         componentId: component.id,
         portId: terminalPort.id,
@@ -391,8 +416,26 @@ function assignableOutletPort(component) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-function isGenericHrv(component) {
-  return component.catalogueItemId === "synthetic-mvhr-placeholder";
+function isHrvUnit(component) {
+  if (component.mvhrDesignIntent) return true;
+  const category = component.catalogueSnapshot?.category ?? component.catalogueCategory ?? "";
+  if (String(category).includes("mvhr-unit")) return true;
+  const roles = new Set(component.ports.filter((port) => port.system === "mvhr").map((port) => port.role));
+  return ["Dwelling supply", "Dwelling extract", "Outdoor intake", "Outdoor exhaust"].every((role) => roles.has(role));
+}
+
+function isTypedDistribution(component) {
+  const branchesByRole = new Map();
+  for (const port of component.ports) {
+    if (port.system !== "mvhr" || port.interface?.family !== "semi-rigid-pe") continue;
+    if (!branchesByRole.has(port.role)) branchesByRole.set(port.role, 0);
+    branchesByRole.set(port.role, branchesByRole.get(port.role) + 1);
+  }
+  return [...branchesByRole.entries()].some(([role, count]) => (
+    count >= 2 && component.ports.some((port) => (
+      port.system === "mvhr" && port.role === role && port.interface?.family !== "semi-rigid-pe"
+    ))
+  ));
 }
 
 function endpointValue(component, port) {
@@ -415,6 +458,14 @@ function interfacesCompatible(left, right) {
   if (left.family !== right.family) return false;
   if (left.nominalSizeMm === null || right.nominalSizeMm === null) return true;
   return left.nominalSizeMm === right.nominalSizeMm;
+}
+
+function interfacesCompatibleForDrawing(route, left, right) {
+  if (interfacesCompatible(left, right)) return true;
+  if (route.connectionInterface?.connectionScope !== "drawing-only") return false;
+  const leftSize = left?.nominalSizeMm;
+  const rightSize = right?.nominalSizeMm;
+  return Number.isFinite(leftSize) && leftSize === rightSize;
 }
 
 function formatInterface(value) {

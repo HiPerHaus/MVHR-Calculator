@@ -21,6 +21,7 @@ import {
   routeFamilyForKind,
 } from "../src/editor/component-catalogue.mjs";
 import { createEquipmentAssembly } from "../src/editor/equipment-assemblies.mjs";
+import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs";
 import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
 
 test("audit counts placed constituents once, keeps groups separate and accepts a complete generic topology", () => {
@@ -134,6 +135,49 @@ test("audit is reproducible through portable reopen and command undo-redo", () =
   assert.deepEqual(auditVentilation(history.present, "floor-ground"), expected);
   history = redoCommand(history);
   assert.deepEqual(auditVentilation(history.present, "floor-ground"), changed);
+});
+
+test("typed handed units and standalone distributions are assessed without a synthetic root", () => {
+  let project = projectWithFloor();
+  const unit = catalogueComponent("zehnder-q350-hrv-left-drawing-profile", "q350", 1000, 2200);
+  const supply = catalogueComponent("generic-supply-attenuation-distribution-160", "supply-box", 4200, 1200);
+  const extract = catalogueComponent("generic-extract-attenuation-distribution-160", "extract-box", 4200, 3200);
+  for (const componentValue of [unit, supply, extract]) project = applyCommand(project, { type: "component.add", component: componentValue });
+  project = applyCommand(project, routeCommand("supply-main", "epp-rigid-dn160", endpoint(unit, "Dwelling supply"), endpoint(supply, "Dwelling supply", "rigid-epp")));
+  project = applyCommand(project, routeCommand("extract-main", "epp-rigid-dn160", endpoint(unit, "Dwelling extract"), endpoint(extract, "Dwelling extract", "rigid-epp")));
+
+  const audit = auditVentilation(project, "floor-ground");
+  assert.equal(audit.topologyCoverage.status, "assessed-supported-typed-roots");
+  assert.equal(audit.diagnostics.some((item) => item.code === "topology-not-assessed"), false);
+  assert.equal(audit.diagnostics.some((item) => item.code.startsWith("unit-main-")), false);
+  assert.equal(audit.diagnostics.some((item) => item.code.includes("size-conflict")), false);
+});
+
+test("mounted-CW units use their typed radial branches without fictitious external mains", () => {
+  let project = projectWithFloor();
+  const unit = createConfiguredMvhrComponent({ model: "q350-hrv", mounting: "vertical", handing: "left", layout: "unit-mounted-cw", cwSize: "320" }, {
+    id: "mounted-q350", floorId: "floor-ground", xMm: 1800, yMm: 2200,
+  });
+  const terminal = catalogueComponent("synthetic-supply-terminal", "mounted-terminal", 6500, 1600);
+  project = applyCommand(project, { type: "component.add", component: unit });
+  project = applyCommand(project, { type: "component.add", component: terminal });
+  project = applyCommand(project, { type: "component.setDuctRunCount", componentId: terminal.id, ductRunCount: 1 });
+  project = applyCommand(project, routeCommand("mounted-branch", "semi-rigid-radial", endpoint(unit, "Dwelling supply", "semi-rigid-pe"), endpoint(terminal, "Dwelling supply")));
+
+  const audit = auditVentilation(project, "floor-ground");
+  assert.equal(audit.topologyCoverage.status, "assessed-supported-typed-roots");
+  assert.equal(audit.diagnostics.some((item) => item.code.startsWith("unit-main-")), false);
+  assert.equal(audit.diagnostics.some((item) => item.code === "outlet-path-incomplete"), false);
+});
+
+test("unknown topology stays not assessed while independent free-end checks still run", () => {
+  let project = projectWithFloor();
+  const terminal = catalogueComponent("synthetic-supply-terminal", "loose-terminal", 3000, 1800);
+  project = applyCommand(project, { type: "component.add", component: terminal });
+  const audit = auditVentilation(project, "floor-ground");
+  assert.equal(audit.topologyCoverage.status, "not-assessed-no-supported-unit-root");
+  assert.ok(audit.diagnostics.some((item) => item.code === "topology-not-assessed"));
+  assert.ok(audit.diagnostics.some((item) => item.code === "outlet-disconnected"));
 });
 
 function completeGenericSystem() {

@@ -1,5 +1,14 @@
 # Development progress
 
+## Plan → Place → Route → Check → Export preview milestone — 29 October 2026
+
+- Added non-authoritative design-stage navigation without changing `project.workflow.stage`, project serialization, dirty state, or undo history. Project, 3D, Catalogue, and Account remain utilities.
+- Added grouped Errors, Warnings, and Not calculated presentation from the existing ventilation audit and explicit room-target inspection. Empty and unknown topology are not shown as a pass; network pressure remains Not calculated.
+- Generalised topology roots beyond the synthetic placeholder to supported typed handed units, structural distribution recognition, and mounted-CW branch layouts without fictitious external mains. Drawing topology does not approve product fit.
+- Added a current-floor Normal room/zone table with explicit required/assigned targets, canonical L/s and m³/h, unresolved counts, terminal-association review, and no terminal/run multiplication or inferred allocation.
+- Added typed component, route, room, and zone Show on plan targets, temporary reveal for hidden ventilation items, stale-target safety, and Return to Check.
+- Automated verification includes focused pure tests and an isolated browser path covering non-mutating stage navigation, room focus/return, Export close/back, explicit target editing and updated airflow presentation. Genuine iPad hardware review remains required before production promotion.
+
 ## Auth redirect review and CAPTCHA prerequisite — 25 October 2026
 
 - Reviewed the production Auth screenshots without changing settings. Existing Resend SMTP remains enabled but delivery is unverified; CAPTCHA and leaked-password protection remain disabled. The current apex Site URL differs from the canonical `www` application origin, and the existing single-star wildcard does not cover the implemented `/login/?recovery=1` callback under Supabase's documented separator rules. The proposed production change is limited to the canonical `www` Site URL and the exact recovery redirect, retaining existing redirects until live flows are verified.

@@ -4,7 +4,11 @@ The companion UX Blueprint is accepted design direction subordinate to the Maste
 
 ## Project navigation
 
-The planned entry point is a Projects home with explicit create/open status. Within a project, the stable task strip is **Project, Plan, Rooms, Ventilation, Checks, Sheets**. Project-level sections include **Overview, Estimate, Files, Issued drawings, Activity**. These routes expose the same authoritative project rather than separate copies.
+The planned entry point is a Projects home with explicit create/open status. Within the current design shell, the primary design progression is **Plan → Place → Route → Check → Export**. Project, 3D, Catalogue, and Account remain utilities around that progression. These UI stages are presentation/navigation state only: they never change the commercial/design lifecycle, project data, dirty state, or undo history. Project-level sections include **Overview, Estimate, Files, Issued drawings, Activity**. These routes expose the same authoritative project rather than separate copies.
+
+The Check stage groups existing audit evidence into Errors, Warnings, and Not calculated. Empty or unsupported topology is never presented as a pass. Show on plan accepts typed component, route, room, and zone targets, temporarily reveals a hidden ventilation target without changing saved view preferences, and offers a direct return to Check.
+
+The current-floor Normal airflow table shows Room/zone, Service, Required target, Assigned design target, Difference, Associated terminals, and Review. Required and assigned values retain their input unit, canonical L/s, basis, and source. Unknown values read **Not set**. Multiple terminals do not divide or multiply a room target; allocation remains unresolved until an explicit later method is approved. The table is not delivered, predicted, balanced, or commissioned airflow.
 
 ## Workspace layout
 

@@ -150,6 +150,12 @@ Two exports from the same immutable design snapshot and template produce the sam
 
 ## Workflow-boundary acceptance
 
+Click Plan, Place, Route, Check, and Export repeatedly in an incomplete project and a legacy project. The project serialization, lifecycle stage, dirty state, and undo/redo history remain unchanged. Leaving an uncommitted draw or placement safely cancels only that draft. Clicking the already active stage preserves an armed repeat-placement tool. Check-to-target-to-Check and Export-close/back return to the prior design context without creating a project command.
+
+The actionable Check summary uses the existing topology and airflow inspections. It reports free route ends, role/interface conflicts, disconnected paths, missing room/zone targets, and terminal-association gaps. A supported typed generic remote, handed unit with standalone distribution, and mounted-CW topology are assessed without requiring the synthetic placeholder ID or a fictitious mounted external main. Unknown roots state **not assessed** while independent free-end and interface diagnostics still run. Network pressure stays **Not calculated**.
+
+For a current floor containing rooms and child zones, the Normal airflow table excludes a partitioned parent from totals, converts m³/h to canonical L/s using division by 3.6, preserves a known zero difference, and shows known subtotals with unresolved counts. Adding a second terminal does not multiply the room target, and multiple-terminal allocation remains unresolved. Show on plan resolves component, route, room, and zone targets; a stale target fails safely and a hidden route/component is revealed only for the review session.
+
 Create a concept quote with no thermal module and no pressure result, then record Design engaged and advance that same project to detailed MVHR. Stable object IDs and history remain. Recording customer payment, Design engaged, or SaaS payment changes neither calculation currency nor technical approval. Commissioning remains unavailable until measured installation evidence exists.
 
 Remove an essential fitting curve, bore, or elevation. The affected engineering result becomes incomplete/blocked; preliminary drawing and transparent quote remain usable. A warning acknowledgement cannot turn missing evidence into a complete result.

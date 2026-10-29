@@ -166,6 +166,9 @@ import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
 import { createPartsSchedule } from "../src/editor/parts-schedule.mjs";
 import { inspectConnectionAccessoryEvidence } from "../src/editor/connection-accessory-evidence.mjs";
 import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
+import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
+import { transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
+import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   externalStaticPressureFromInput,
   unresolvedExternalStaticPressure,
@@ -392,6 +395,7 @@ const routeButtons = [...document.querySelectorAll(".route-tool")];
 const planNavigationButton = document.querySelector("#plan-nav");
 const projectNavigationButton = document.querySelector("#project-nav");
 const ventilationNavigationButton = document.querySelector("#ventilation-nav");
+const routeNavigationButton = document.querySelector("#route-nav");
 const threeDNavigationButton = document.querySelector("#three-d-nav");
 const catalogueNavigationButton = document.querySelector("#catalogue-nav");
 const checksNavigationButton = document.querySelector("#checks-nav");
@@ -443,9 +447,17 @@ const checksConnectionEvidenceSummary = document.querySelector("#checks-connecti
 const checksConnectionEvidence = document.querySelector("#checks-connection-evidence");
 const checksConnectionEvidenceBoundary = document.querySelector("#checks-connection-evidence-boundary");
 const checksAirflowSummary = document.querySelector("#checks-airflow-summary");
-const checksAirflowSpaces = document.querySelector("#checks-airflow-spaces");
+const checksAirflowTable = document.querySelector("#checks-airflow-table");
 const checksAirflowIssues = document.querySelector("#checks-airflow-issues");
 const checksAirflowBoundary = document.querySelector("#checks-airflow-boundary");
+const checksErrors = document.querySelector("#checks-errors");
+const checksWarnings = document.querySelector("#checks-warnings");
+const checksNotCalculated = document.querySelector("#checks-not-calculated");
+const checksErrorCount = document.querySelector("#checks-error-count");
+const checksWarningCount = document.querySelector("#checks-warning-count");
+const checksNotCalculatedCount = document.querySelector("#checks-not-calculated-count");
+const checksActionBoundary = document.querySelector("#checks-action-boundary");
+const returnToCheckButton = document.querySelector("#return-to-check");
 const checksEngineeringForm = document.querySelector("#checks-engineering-form");
 const checksEngineeringUnit = document.querySelector("#checks-engineering-unit");
 const checksEngineeringPressure = document.querySelector("#checks-engineering-pressure");
@@ -499,8 +511,12 @@ const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
-const componentIsVisible = component => !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
-const routeIsVisible = route => !hiddenVentilationGroups.has(routeVisibilityGroup(route));
+const componentIsVisible = component => temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
+  ? true
+  : !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
+const routeIsVisible = route => temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
+  ? true
+  : !hiddenVentilationGroups.has(routeVisibilityGroup(route));
 const viewOptionsAnchor = document.querySelector("#view-options-anchor");
 const viewOptionsToggle = document.querySelector("#view-options-toggle");
 const viewOptionsBackdrop = document.querySelector("#view-options-backdrop");
@@ -690,6 +706,9 @@ let savedProjectName = initialNamedLoad?.ok && initialNamedLoad.found
   : null;
 let activeTool = "select";
 let activeTask = "project";
+let activeDesignStage = "plan";
+let checkFocusReturnStage = null;
+let temporaryCheckReveal = null;
 let selectedCatalogueGroup = "Units";
 let snapEnabled = true;
 let draftPoints = [];
@@ -1255,15 +1274,16 @@ removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
-planNavigationButton.addEventListener("click", () => setTask("plan"));
-ventilationNavigationButton.addEventListener("click", openVentilationTask);
+planNavigationButton.addEventListener("click", () => selectDesignStage("plan"));
+ventilationNavigationButton.addEventListener("click", () => selectDesignStage("place"));
+routeNavigationButton.addEventListener("click", () => selectDesignStage("route"));
 threeDNavigationButton.addEventListener("click", () => setTask("three-d"));
 catalogueNavigationButton.addEventListener("click", () => setTask("catalogue"));
-checksNavigationButton.addEventListener("click", () => setTask("checks"));
-checksReturnVentilationButton.addEventListener("click", () => setTask("ventilation"));
+checksNavigationButton.addEventListener("click", () => selectDesignStage("check"));
+checksReturnVentilationButton.addEventListener("click", () => selectDesignStage(lastCanvasDesignStage));
 checksEngineeringForm.addEventListener("submit", applyEngineeringDutyInput);
 checksEngineeringClear.addEventListener("click", clearEngineeringDutyInput);
-sheetsNavigationButton.addEventListener("click", openSheetPreview);
+sheetsNavigationButton.addEventListener("click", () => selectDesignStage("export"));
 threeDReturnButton.addEventListener("click", () => setTask("ventilation"));
 threeDHeightForm.addEventListener("submit", applyThreeDHeights);
 exportThreeDButton.addEventListener("click", exportThreeDDrawing);
@@ -1275,7 +1295,8 @@ threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
-workflowOpenPlanButton.addEventListener("click", () => setTask("plan"));
+returnToCheckButton.addEventListener("click", returnToDesignCheck);
+workflowOpenPlanButton.addEventListener("click", () => selectDesignStage("plan"));
 workflowOpenVentilationButton.addEventListener("click", openVentilationTask);
 workflowStartPreliminaryButton.addEventListener("click", startPreliminaryLayout);
 workflowConvertButton.addEventListener("click", openProjectConversionDialog);
@@ -2133,7 +2154,30 @@ function createInitialProject(projectId = PROJECT_ID) {
   });
 }
 
-function setTask(task) {
+let lastCanvasDesignStage = "plan";
+let sheetReturnStage = "plan";
+
+function selectDesignStage(stage) {
+  const transition = transitionStudioDesignStage(activeDesignStage, stage);
+  const alreadyVisible = transition.task === "sheets"
+    ? !sheetPreviewPanel.hidden
+    : activeTask === transition.task && sheetPreviewPanel.hidden;
+  if (!transition.changed && alreadyVisible) {
+    if (stage === "export" && sheetPreviewPanel.hidden) openSheetPreview({ designStage: true });
+    return;
+  }
+  if (["plan", "place", "route"].includes(stage)) lastCanvasDesignStage = stage;
+  if (stage === "export") {
+    sheetReturnStage = activeDesignStage === "export" ? lastCanvasDesignStage : activeDesignStage;
+    activeDesignStage = stage;
+    openSheetPreview({ designStage: true });
+    return;
+  }
+  activeDesignStage = stage;
+  setTask(transition.task, { designNavigation: true });
+}
+
+function setTask(task, { designNavigation = false } = {}) {
   if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
@@ -2141,24 +2185,27 @@ function setTask(task) {
     sheetsNavigationButton.classList.remove("active");
   }
   activeTask = task;
+  document.body.dataset.designStage = activeDesignStage;
   queueWorkingSession();
   document.querySelector("#account-workspace").hidden=task!=="account";
   document.querySelector("#account-nav").classList.toggle("active",task==="account");
-  if(task==="ventilation" && history.present.components.some(c=>!c.ports.length&&["luna-grille","wall-grille"].includes(c.displaySymbol?.shape))) {
+  if(task==="ventilation" && !designNavigation && history.present.components.some(c=>!c.ports.length&&["luna-grille","wall-grille"].includes(c.displaySymbol?.shape))) {
     commitCommand({type:"terminal.enableDrawingConnections"},"90 mm terminal drawing connections enabled · Undo restores prior symbols");
   }
-  if(task==="ventilation" && history.present.components.some(pendingMountedCwConnections)) {
+  if(task==="ventilation" && !designNavigation && history.present.components.some(pendingMountedCwConnections)) {
     commitCommand({type:"component.enableMountedCwDrawingConnections"},"CW DN90 drawing snap targets enabled · Undo restores prior symbols");
   }
-  if(task==="ventilation" && history.present.components.some(needsCombinedGrilleSpacing)) {
+  if(task==="ventilation" && !designNavigation && history.present.components.some(needsCombinedGrilleSpacing)) {
     commitCommand({type:"component.matchCombinedGrilleSpacing"},"DN160 combined grille ports matched to Q350 spacing · connected ducts follow · Undo available");
   }
   projectNavigationButton.classList.toggle("active", task === "project");
-  planNavigationButton.classList.toggle("active", task === "plan");
-  ventilationNavigationButton.classList.toggle("active", task === "ventilation");
+  planNavigationButton.classList.toggle("active", activeDesignStage === "plan");
+  ventilationNavigationButton.classList.toggle("active", activeDesignStage === "place");
+  routeNavigationButton.classList.toggle("active", activeDesignStage === "route");
   threeDNavigationButton.classList.toggle("active", task === "three-d");
   catalogueNavigationButton.classList.toggle("active", task === "catalogue");
-  checksNavigationButton.classList.toggle("active", task === "checks");
+  checksNavigationButton.classList.toggle("active", activeDesignStage === "check");
+  sheetsNavigationButton.classList.toggle("active", activeDesignStage === "export");
   projectWorkspace.hidden = task !== "project";
   planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
   viewOptionsAnchor.hidden = task !== "ventilation";
@@ -2242,7 +2289,9 @@ function setTask(task) {
   }
   setTool("select");
   interactionMessage = task === "ventilation"
-      ? "MVHR system tools active; building geometry is visible and locked"
+      ? activeDesignStage === "route"
+        ? "Route stage active; preview typed duct paths, then accept or edit them"
+        : "Place stage active; building geometry is visible and locked"
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
   render();
   initialCameraFit.request();
@@ -2251,6 +2300,8 @@ function setTask(task) {
 function startPreliminaryLayout() {
   if (history.present.workflow.stage !== "quick-quote") return;
   if (commitCommand({ type: "workflow.startPreliminaryLayout" }, "Preliminary ventilation layout stage started; rooms remain optional")) {
+    activeDesignStage = "place";
+    lastCanvasDesignStage = "place";
     setTask("ventilation");
   }
 }
@@ -2260,6 +2311,8 @@ function openVentilationTask() {
     startPreliminaryLayout();
     return;
   }
+  activeDesignStage = "place";
+  lastCanvasDesignStage = "place";
   setTask("ventilation");
 }
 
@@ -2567,7 +2620,7 @@ function signedCount(value) {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function openSheetPreview() {
+function openSheetPreview({ designStage = false } = {}) {
   try {
     const floor = history.present.floors.find((candidate) => candidate.id === "floor-ground")
       ?? history.present.floors[0];
@@ -2614,9 +2667,12 @@ function openSheetPreview() {
     projectNavigationButton.classList.remove("active");
     planNavigationButton.classList.remove("active");
     ventilationNavigationButton.classList.remove("active");
+    routeNavigationButton.classList.remove("active");
     catalogueNavigationButton.classList.remove("active");
     checksNavigationButton.classList.remove("active");
     sheetsNavigationButton.classList.add("active");
+    if (designStage) activeDesignStage = "export";
+    document.body.dataset.designStage = activeDesignStage;
     closeSheetPreviewButton.focus();
   } catch (error) {
     interactionMessage = `Sheet preview unavailable: ${error.message}`;
@@ -2625,7 +2681,9 @@ function openSheetPreview() {
 }
 
 function closeSheetPreview() {
-  setTask("plan");
+  const target = sheetReturnStage === "export" ? lastCanvasDesignStage : sheetReturnStage;
+  activeDesignStage = target;
+  setTask(transitionStudioDesignStage("export", target).task, { designNavigation: true });
 }
 
 function printSheetPreview() {
@@ -7624,9 +7682,16 @@ function renderChecksWorkspace() {
     checksConnectionEvidence.replaceChildren();
     checksConnectionEvidenceBoundary.textContent = "No connection or accessory conclusion is available.";
     checksAirflowSummary.textContent = "The project has no floor to total.";
-    checksAirflowSpaces.replaceChildren();
+    checksAirflowTable.replaceChildren();
     checksAirflowIssues.replaceChildren();
     checksAirflowBoundary.textContent = "No airflow or balance conclusion is available.";
+    checksErrors.replaceChildren();
+    checksWarnings.replaceChildren();
+    checksNotCalculated.replaceChildren();
+    checksErrorCount.textContent = "0";
+    checksWarningCount.textContent = "0";
+    checksNotCalculatedCount.textContent = "0";
+    checksActionBoundary.textContent = "No design-check conclusion is available.";
     checksEngineeringForm.querySelectorAll("input, select, button").forEach((element) => { element.disabled = true; });
     checksEngineeringInputStatus.textContent = "No active floor.";
     checksEngineeringSummary.textContent = "No duty or pressure evidence is available.";
@@ -7647,16 +7712,14 @@ function renderChecksWorkspace() {
   const schedule = createPartsSchedule(history.present, { floorId: floor.id });
   const connectionEvidence = inspectConnectionAccessoryEvidence(history.present, floor.id);
   const airflow = inspectAirflowBalance(history.present, floor.id);
+  const designCheck = createDesignCheckSummary(audit, airflow);
   const sizing = inspectSizingPressureEvidence(history.present, floor.id);
   const costing = inspectProductCostingReadiness(history.present, floor.id);
   const installer = createInstallerDocumentFoundation(history.present, floor.id);
-  const issueCount = audit.diagnosticCounts.error + audit.diagnosticCounts.warning;
-  checksStatusPill.textContent = audit.parts.componentCount === 0 && audit.routes.routeCount === 0
-    ? "No ventilation model"
-    : issueCount === 0
-    ? "No topology issues"
-    : `${issueCount} ${issueCount === 1 ? "issue" : "issues"}`;
-  checksStatusPill.className = `checks-status-pill${audit.diagnosticCounts.error > 0 ? " error" : audit.diagnosticCounts.warning > 0 ? " warning" : ""}`;
+  const topologyIssueCount = audit.diagnosticCounts.error + audit.diagnosticCounts.warning;
+  checksStatusPill.textContent = `${designCheck.counts.errors} errors · ${designCheck.counts.warnings} warnings · ${designCheck.counts.notCalculated} not calculated`;
+  checksStatusPill.className = `checks-status-pill${designCheck.counts.errors > 0 ? " error" : " warning"}`;
+  renderDesignCheckSummary(designCheck);
 
   checksPartsSummary.textContent = `${audit.parts.componentCount} placed part ${audit.parts.componentCount === 1 ? "record" : "records"} · ${audit.parts.assemblyGroupCount} equipment ${audit.parts.assemblyGroupCount === 1 ? "group" : "groups"} organise ${audit.parts.groupedComponentCount} of them · ${audit.parts.independentComponentCount} independent.`;
   checksAssemblyGroups.replaceChildren();
@@ -7778,7 +7841,7 @@ function renderChecksWorkspace() {
 
   checksDiagnosticSummary.textContent = audit.parts.componentCount === 0 && audit.routes.routeCount === 0
     ? "No ventilation topology exists on this floor yet."
-    : issueCount === 0
+    : topologyIssueCount === 0
     ? "No current connection-topology issues were found in the bounded generic check."
     : `${audit.diagnosticCounts.error} ${audit.diagnosticCounts.error === 1 ? "error" : "errors"} · ${audit.diagnosticCounts.warning} ${audit.diagnosticCounts.warning === 1 ? "warning" : "warnings"}. Select Show on plan to inspect a flagged component.`;
   checksSpareBranches.replaceChildren();
@@ -7923,6 +7986,25 @@ function renderInstallerFoundation(installer) {
   checksInstallerBoundary.textContent = installer.evidenceBoundary;
 }
 
+function renderDesignCheckSummary(summary) {
+  checksErrorCount.textContent = String(summary.counts.errors);
+  checksWarningCount.textContent = String(summary.counts.warnings);
+  checksNotCalculatedCount.textContent = String(summary.counts.notCalculated);
+  renderDesignCheckGroup(checksErrors, summary.groups.errors, "No errors in the bounded checks.");
+  renderDesignCheckGroup(checksWarnings, summary.groups.warnings, "No warnings in the bounded checks.");
+  renderDesignCheckGroup(checksNotCalculated, summary.groups.notCalculated, "No unresolved calculation boundaries recorded.");
+  checksActionBoundary.textContent = summary.evidenceBoundary;
+}
+
+function renderDesignCheckGroup(container, items, emptyText) {
+  container.replaceChildren();
+  if (items.length === 0) {
+    container.append(htmlText("div", emptyText, "checks-diagnostic-empty"));
+    return;
+  }
+  for (const item of items) container.append(renderCheckDiagnostic(item));
+}
+
 function renderAirflowChecks(airflow) {
   const supply = airflow.totals.supply;
   const extract = airflow.totals.extract;
@@ -7931,21 +8013,35 @@ function renderAirflowChecks(airflow) {
     : "All supply/extract assigned room targets are known — numeric difference only, with no tolerance applied";
   checksAirflowSummary.textContent = airflow.lines.length === 0
     ? "No confirmed rooms or ventilation zones exist on this floor. Preliminary room-free markup remains valid."
-    : `Normal mode · assigned supply ${formatAirflowLps(supply.assignedKnownLps)} · assigned extract ${formatAirflowLps(extract.assignedKnownLps)} · difference ${formatSignedAirflowLps(airflow.assignedImbalanceLps)} (supply − extract). ${completeness}.`;
+    : `Normal / current floor only · assigned supply known subtotal ${formatAirflowLps(supply.assignedKnownLps)} (${supply.assignedUnresolvedSpaceCount} not set) · assigned extract known subtotal ${formatAirflowLps(extract.assignedKnownLps)} (${extract.assignedUnresolvedSpaceCount} not set) · known-subtotal difference ${formatSignedAirflowLps(airflow.assignedImbalanceLps)} (supply − extract). ${completeness}.`;
 
-  checksAirflowSpaces.replaceChildren();
+  checksAirflowTable.replaceChildren();
   for (const line of airflow.lines) {
-    const role = formatRoomChoice(line.ventilationRole);
-    const delta = line.assignedMinusRequiredLps === null
-      ? "required/assigned difference unresolved"
-      : `assigned − required ${formatSignedAirflowLps(line.assignedMinusRequiredLps)}`;
-    checksAirflowSpaces.append(checksListRow(
-      `${line.name} · ${role}`,
-      `Required ${formatAirflowTarget(line.required)} · Assigned ${formatAirflowTarget(line.assigned)} · ${line.terminalCount} associated ${line.terminalCount === 1 ? "terminal" : "terminals"} · ${delta}`,
-    ));
+    const row = document.createElement("tr");
+    const target = { kind: line.kind, id: line.id };
+    const nameButton = htmlText("button", `${line.name}${line.kind === "zone" ? " · zone" : ""}`, "checks-table-focus");
+    nameButton.type = "button";
+    nameButton.addEventListener("click", () => focusCheckTarget({ target }));
+    const nameCell = document.createElement("td");
+    nameCell.append(nameButton);
+    const review = airflowLineReview(line);
+    row.append(
+      nameCell,
+      checksTableCell(formatRoomChoice(line.ventilationRole)),
+      checksTableCell(formatCheckAirflowTarget(line.required)),
+      checksTableCell(formatCheckAirflowTarget(line.assigned)),
+      checksTableCell(line.assignedMinusRequiredLps === null ? "Not set" : formatSignedAirflowLps(line.assignedMinusRequiredLps)),
+      checksTableCell(`${line.terminalCount}`),
+      checksTableCell(review),
+    );
+    checksAirflowTable.append(row);
   }
   if (airflow.lines.length === 0) {
-    checksAirflowSpaces.append(htmlText("p", "Add confirmed rooms or zones when room-level airflow design is needed.", "catalogue-empty"));
+    const row = document.createElement("tr");
+    const cell = checksTableCell("Add confirmed rooms or zones when room-level airflow design is needed.");
+    cell.colSpan = 7;
+    row.append(cell);
+    checksAirflowTable.append(row);
   }
 
   const linesById = new Map(airflow.lines.map((line) => [line.id, line]));
@@ -7994,6 +8090,20 @@ function renderAirflowChecks(airflow) {
     ));
   }
   checksAirflowBoundary.textContent = airflow.evidenceBoundary;
+}
+
+function checksTableCell(text) {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  return cell;
+}
+
+function airflowLineReview(line) {
+  if (line.ventilationRole !== "supply" && line.ventilationRole !== "extract") return "Service not set";
+  if (line.assigned.state === "unresolved") return line.terminalCount > 0 ? "Assigned target not set" : "Target and terminal unresolved";
+  if (line.terminalCount === 0) return "No associated terminal";
+  if (line.terminalCount > 1) return "Allocation across terminals unresolved";
+  return "One associated terminal · target is a design input";
 }
 
 function airflowIssue(title, detail) {
@@ -8056,29 +8166,59 @@ function renderCheckDiagnostic(item) {
   copy.className = "checks-diagnostic-copy";
   copy.append(htmlText("strong", item.title), htmlText("span", item.detail));
   card.append(copy);
-  if (item.componentId) {
+  const target = item.target ?? (item.componentId ? { kind: "component", id: item.componentId } : item.routeId ? { kind: "route", id: item.routeId } : null);
+  if (target) {
     const focus = htmlText("button", "Show on plan", "diagnostic-focus");
     focus.type = "button";
-    focus.addEventListener("click", () => focusCheckTarget(item));
+    focus.addEventListener("click", () => focusCheckTarget({ target }));
     card.append(focus);
   }
   return card;
 }
 
 function focusCheckTarget(item) {
-  const component = history.present.components.find((candidate) => candidate.id === item.componentId);
-  if (!component) return;
-  setTask("ventilation");
-  mechanicalState = { ...clearMechanicalSelection(mechanicalState), selectedComponentId: component.id };
-  const centre = { x: toView(component.positionMm.x), y: toView(component.positionMm.y) };
+  const target = item.target ?? (item.componentId ? { kind: "component", id: item.componentId } : item.routeId ? { kind: "route", id: item.routeId } : null);
+  if (!target) return;
+  const resolved = resolveDesignCheckTarget(history.present, target);
+  if (!resolved) {
+    interactionMessage = "That checked item no longer exists; refresh the Check view.";
+    updateStatus();
+    return;
+  }
+  checkFocusReturnStage = "check";
+  temporaryCheckReveal = target;
+  returnToCheckButton.hidden = false;
+  activeDesignStage = target.kind === "route" ? "route" : target.kind === "component" ? "place" : "plan";
+  setTask(target.kind === "room" || target.kind === "zone" ? "plan" : "ventilation", { designNavigation: true });
+  mechanicalState = clearMechanicalSelection(mechanicalState);
+  selectedRouteId = null;
+  selectedRoomId = null;
+  selectedZoneId = null;
+  if (target.kind === "component") mechanicalState = { ...mechanicalState, selectedComponentId: target.id };
+  if (target.kind === "route") selectedRouteId = target.id;
+  if (target.kind === "room") selectedRoomId = target.id;
+  if (target.kind === "zone") {
+    selectedZoneId = target.id;
+    selectedRoomId = resolved.value.parentRoomId;
+  }
+  const centre = { x: toView(resolved.centreMm.x), y: toView(resolved.centreMm.y) };
   camera = {
     ...camera,
     x: centre.x - camera.width / 2,
     y: centre.y - camera.height / 2,
   };
-  interactionMessage = `Showing checked item: ${component.displayName ?? component.id}`;
+  interactionMessage = `Showing checked ${target.kind}: ${resolved.label}`;
   render();
   canvas.focus();
+}
+
+function returnToDesignCheck() {
+  if (checkFocusReturnStage !== "check") return;
+  temporaryCheckReveal = null;
+  checkFocusReturnStage = null;
+  returnToCheckButton.hidden = true;
+  activeDesignStage = "check";
+  setTask("checks", { designNavigation: true });
 }
 
 function formatDrawingLength(valueMm) {
@@ -8846,6 +8986,12 @@ function formatAirflowTarget(target) {
   return `${Number(target.inputValue.toFixed(2)).toLocaleString()} ${unit} · ${target.basis} · source: ${target.source}`;
 }
 
+function formatCheckAirflowTarget(target) {
+  if (target?.state !== "known") return "Not set";
+  const inputUnit = target.inputUnit === "m3/h" ? "m³/h" : "L/s";
+  return `${formatAirflowLps(target.valueLps)} · entered ${Number(target.inputValue.toFixed(2)).toLocaleString()} ${inputUnit} · ${target.basis} · source: ${target.source}`;
+}
+
 function formatRoomChoice(value) {
   return value
     .split("-")
@@ -9041,7 +9187,7 @@ function queueWorkingSession(modelChanged=false){
    if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
    const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
     cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
-    task:sheetPreviewPanel.hidden?activeTask:"sheets",camera:{...camera},catalogueGroup:selectedCatalogueGroup};
+    task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,camera:{...camera},catalogueGroup:selectedCatalogueGroup};
    const model=history.present;workingWrites++;
    workingSessions.write(context,snapshot).then(()=>{
     workingRecoveryError="";
@@ -9083,7 +9229,10 @@ async function restoreWorkingSession(context){
    currentCloudRecord=recovered.cloudRecord??null;cloudBindingVersion++;
    camera={...recovered.camera};
    if(typeof recovered.catalogueGroup==="string")selectedCatalogueGroup=recovered.catalogueGroup;
-   if(recovered.task==="sheets")openSheetPreview();else setTask(recovered.task);
+   activeDesignStage=["plan","place","route","check","export"].includes(recovered.designStage)
+     ? recovered.designStage
+     : recovered.task==="ventilation"?"place":recovered.task==="checks"?"check":recovered.task==="sheets"?"export":"plan";
+   if(recovered.task==="sheets")openSheetPreview({designStage:true});else setTask(recovered.task,{designNavigation:["plan","ventilation","checks"].includes(recovered.task)});
    const dirty=projectHasUnsavedChanges();storageState={kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:currentCloudRecord?`Cloud version ${currentCloudRecord.save_version} · device recovery is separate from Save`:"Current drawing restored from this browser"};
    interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · changes still need saving":""}`;
    render();renderStorageState();updateStatus();

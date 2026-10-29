@@ -40,3 +40,10 @@ test('the 3D coordination task survives refresh without becoming project authori
  const restored=await store.read(context);
  assert.equal(restored.task,'three-d');assert.equal(restored.project.id,'current-project');assert.equal(restored.dirty,true);
 });
+test('design stage recovery is optional view state and rejects lifecycle labels',async()=>{
+ const db=indexedDbFixture(),store=createWorkingSessionStore(db,{tabId:'tab-stage'});
+ await store.write(context,{...snapshot('Route view'),designStage:'route'});
+ assert.equal((await store.read(context)).designStage,'route');
+ await store.write(context,{...snapshot('Invalid view'),designStage:'detailed-design'});
+ await assert.rejects(store.read(context),/Invalid recovery design stage/);
+});

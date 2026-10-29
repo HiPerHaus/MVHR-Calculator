@@ -17,14 +17,17 @@
             <span>Manual plan, rooms and mechanical interaction milestone</span>
           </div>
         </div>
-        <nav class="task-nav" aria-label="Project tasks">
+        <nav class="task-nav" aria-label="Studio navigation">
           <button id="project-nav" type="button">Project</button>
-          <button id="plan-nav" type="button" class="active">Plan</button>
-          <button id="ventilation-nav" type="button">Ventilation</button>
+          <div class="design-stage-nav" role="group" aria-label="Design workflow">
+            <button id="plan-nav" type="button" class="active" data-design-stage="plan">Plan</button>
+            <button id="ventilation-nav" type="button" data-design-stage="place">Place</button>
+            <button id="route-nav" type="button" data-design-stage="route">Route</button>
+            <button id="checks-nav" type="button" data-design-stage="check">Check</button>
+            <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
+          </div>
           <button id="three-d-nav" type="button">3D</button>
           <button id="catalogue-nav" type="button">Catalogue</button>
-          <button id="checks-nav" type="button">Checks</button>
-          <button id="sheets-nav" type="button">Sheets</button>
           <button id="account-nav" type="button">Account</button>
         </nav>
         <div class="local-controls">
@@ -243,6 +246,7 @@
               <button id="pan-down" type="button" aria-label="Pan down">↓</button>
               <button id="pan-right" type="button" aria-label="Pan right">→</button>
             </div>
+            <button id="return-to-check" type="button" hidden>Return to Check</button>
             <button id="snap-toggle" class="tool snap-toggle active" type="button" aria-pressed="true" aria-label="Snap on" title="Snap on">
               <kbd>S</kbd><span><span id="snap-toggle-label">Snap</span><small id="snap-toggle-detail">Endpoints · walls · grid · DXF</small></span><span class="toolbar-state-indicator" aria-hidden="true">✓</span>
             </button>
@@ -469,15 +473,32 @@
       <section id="checks-workspace" class="checks-workspace" aria-labelledby="checks-workspace-heading" hidden>
         <header class="checks-workspace-heading">
           <div>
-            <strong id="checks-workspace-heading">Parts &amp; connection checks</strong>
-            <span>Live read-only summary of the active floor’s committed ventilation model.</span>
+            <strong id="checks-workspace-heading">Design Check</strong>
+            <span>Actionable connection and room-target review for the active floor. No compliance pass is inferred.</span>
           </div>
           <div class="checks-heading-actions">
-            <span id="checks-status-pill" class="checks-status-pill">No issues</span>
-            <button id="checks-return-ventilation" type="button">Return to ventilation</button>
+            <span id="checks-status-pill" class="checks-status-pill warning">Not assessed</span>
+            <button id="checks-return-ventilation" type="button">Return to design</button>
           </div>
         </header>
         <div class="checks-layout">
+          <article class="checks-card checks-card-wide checks-action-summary">
+            <h2>Actionable review</h2>
+            <div class="checks-group-grid">
+              <section><h3>Errors <span id="checks-error-count">0</span></h3><div id="checks-errors" class="checks-diagnostics"></div></section>
+              <section><h3>Warnings <span id="checks-warning-count">0</span></h3><div id="checks-warnings" class="checks-diagnostics"></div></section>
+              <section><h3>Not calculated <span id="checks-not-calculated-count">0</span></h3><div id="checks-not-calculated" class="checks-diagnostics"></div></section>
+            </div>
+            <p id="checks-action-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
+            <h2>Current-floor Normal airflow targets</h2>
+            <p id="checks-airflow-summary" class="checks-summary"></p>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Room / zone</th><th>Service</th><th>Required target</th><th>Assigned design target</th><th>Difference</th><th>Associated terminals</th><th>Review</th></tr></thead><tbody id="checks-airflow-table"></tbody></table></div>
+            <div id="checks-airflow-issues" class="checks-diagnostics"></div>
+            <p id="checks-airflow-boundary" class="checks-boundary"></p>
+          </article>
+          <details class="checks-detail-disclosure checks-card-wide"><summary>Engineering evidence, schedules and detailed checks</summary><div class="checks-detail-layout">
           <article class="checks-card">
             <h2>Placed parts</h2>
             <p id="checks-parts-summary" class="checks-summary"></p>
@@ -501,13 +522,6 @@
             <h3>Unresolved matches and quantities</h3>
             <div id="checks-schedule-unresolved" class="checks-list"></div>
             <p id="checks-schedule-boundary" class="checks-boundary"></p>
-          </article>
-          <article class="checks-card checks-card-wide">
-            <h2>Room airflow &amp; supply/extract totals</h2>
-            <p id="checks-airflow-summary" class="checks-summary"></p>
-            <div id="checks-airflow-spaces" class="checks-list"></div>
-            <div id="checks-airflow-issues" class="checks-diagnostics"></div>
-            <p id="checks-airflow-boundary" class="checks-boundary"></p>
           </article>
           <article class="checks-card checks-card-wide">
             <h2>Manufacturer duty &amp; pressure evidence</h2>
@@ -566,6 +580,7 @@
             <div id="checks-diagnostics" class="checks-diagnostics"></div>
             <p id="checks-evidence-boundary" class="checks-boundary"></p>
           </article>
+          </div></details>
         </div>
       </section>
 

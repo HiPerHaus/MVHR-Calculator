@@ -157,6 +157,25 @@ test("airflow targets and balance are deterministic through save and reopen", ()
   }), /Known airflow targets require a supply or extract/);
 });
 
+test("zero difference stays known and multiple terminals do not multiply a room target", () => {
+  let project = twoRoomProject();
+  project = createRoom(project, "room-multi", "Bedroom", "supply", leftBoundary(project));
+  project = updateTargets(project, "room-multi", "room", {
+    required: airflowTargetFromInput(10, "l/s", "Room requirement", "Test schedule"),
+    assigned: airflowTargetFromInput(36, "m3/h", "Assigned room design target", "Test schedule"),
+  });
+  project = addAndAssignTerminal(project, "supply-terminal-a", "synthetic-supply-terminal", "room-multi", 1500, 1500);
+  project = addAndAssignTerminal(project, "supply-terminal-b", "synthetic-supply-terminal", "room-multi", 2500, 2500);
+
+  const inspection = inspectAirflowBalance(project, "floor-ground");
+  const line = inspection.lines.find((candidate) => candidate.id === "room-multi");
+  assert.equal(line.terminalCount, 2);
+  assert.equal(line.assignedMinusRequiredLps, 0);
+  assert.equal(line.coverageStatus, "assigned-target-not-allocated-across-multiple-terminals");
+  assert.equal(inspection.totals.supply.assignedKnownLps, 10);
+  assert.equal(inspection.totals.supply.terminalCount, 2);
+});
+
 function updateTargets(project, id, kind, partial) {
   const collection = kind === "zone" ? project.zones : project.rooms;
   const space = collection.find((candidate) => candidate.id === id);
