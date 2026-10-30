@@ -1,4 +1,5 @@
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
+import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
 import { enableMountedCwDrawingConnections } from "./mounted-cw-drawing-connections.mjs";
 import { enableTerminalDrawingConnection, selectTerminalDrawingEntry } from "./terminal-drawing-connections.mjs";
@@ -51,7 +52,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -201,6 +202,7 @@ export function createProject(id) {
   return {
     schemaVersion: SCHEMA_VERSION,
     projectDetails:createProjectDetails(),
+    ventilationDesignType:"unclassified",
     id,
     coordinateSystem: { ...COORDINATE_SYSTEM },
     floors: [],
@@ -878,6 +880,10 @@ export function applyCommand(project, command, options = {}) {
       next.projectDetails=normalizeProjectDetails(command.details);
       break;
     }
+    case "project.setVentilationDesignType": {
+      next.ventilationDesignType=normalizeVentilationProjectType(command.ventilationDesignType);
+      break;
+    }
     case "quote.updateDraft": {
       next.quoteDraft = normalizeQuoteDraft(command.quoteDraft);
       break;
@@ -1347,6 +1353,7 @@ export function migrateProjectData(project) {
   }
   if (migrated.schemaVersion === 19) migrated={...migrated,schemaVersion:20,projectDetails:createProjectDetails()};
   if (migrated.schemaVersion === 20) migrated={...migrated,schemaVersion:21,routingExclusions:[],routingClearanceSettings:[]};
+  if (migrated.schemaVersion === 21) migrated={...migrated,schemaVersion:22,ventilationDesignType:"unclassified"};
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -1364,6 +1371,7 @@ export function validateProject(project) {
     throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
   }
   requireOpaqueId(project.id, "Project ID");
+  normalizeVentilationProjectType(project.ventilationDesignType);
   if (
     !project.coordinateSystem ||
     project.coordinateSystem.lengthUnit !== COORDINATE_SYSTEM.lengthUnit ||

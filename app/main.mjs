@@ -51,6 +51,11 @@ import {
   worldPointToSource,
 } from "../src/domain/spatial.mjs";
 import {
+  filterVentilationProjectEntries,
+  inspectVentilationProjectType,
+  ventilationProjectTypeLabel,
+} from "../src/domain/ventilation-project-type.mjs";
+import {
   bytesToDataUrl,
   exportPortableProject,
   importPortableProject,
@@ -266,12 +271,20 @@ const projectNameSummary = document.querySelector("#project-name-summary");
 const projectNameInput = document.querySelector("#project-name-input");
 const projectNameError = document.querySelector("#project-name-error");
 const cancelProjectNameButton = document.querySelector("#cancel-project-name");
+const projectTypeConflictDialog = document.querySelector("#project-type-conflict-dialog");
+const projectTypeConflictMessage = document.querySelector("#project-type-conflict-message");
+const keepProjectTypeButton = document.querySelector("#keep-project-type");
 const newProjectButton = document.querySelector("#new-project");
 const renameProjectButton = document.querySelector("#rename-project");
 const projectSaveButton = document.querySelector("#project-save");
 const projectSaveAsButton = document.querySelector("#project-save-as");
 const currentProjectNameElement = document.querySelector("#current-project-name");
 const currentProjectIdElement = document.querySelector("#current-project-id");
+const currentProjectTypeElement = document.querySelector("#current-project-type");
+const projectVentilationTypeSelect = document.querySelector("#project-ventilation-type");
+const projectVentilationTypeStatus = document.querySelector("#project-ventilation-type-status");
+const projectTypeFilter = document.querySelector("#project-type-filter");
+const ventilationProjectTypeContext = document.querySelector("#ventilation-project-type-context");
 const projectLibraryList = document.querySelector("#project-library-list");
 const deleteWallButton = document.querySelector("#delete-wall");
 const deleteWallDialog = document.querySelector("#delete-wall-dialog");
@@ -755,6 +768,7 @@ let portableDirty = true;
 let pendingPortableOpen = null;
 let pendingProjectTransition = null;
 let projectNameMode = null;
+let pendingProjectType = null;
 let pendingDeleteWallId = null;
 let pendingComponentDeletion = null;
 let pendingClearVentilationFloorId = null;
@@ -1172,6 +1186,16 @@ document.querySelector("#project-details-form").addEventListener("submit",event=
  try{const details=Object.fromEntries(new FormData(form));commitCommand({type:"project.updateDetails",details},"Project details applied · save the drawing to keep changes");currentProjectName=details.name.trim();document.querySelector("#project-details-status").textContent="Applied. Save the drawing to keep these details.";renderProjectWorkspace();}
  catch(error){document.querySelector("#project-details-status").textContent=error.message;}
 });
+projectVentilationTypeSelect.addEventListener("change",()=>requestVentilationProjectType(projectVentilationTypeSelect.value));
+projectTypeConflictDialog.addEventListener("close",()=>{
+  const chosen=pendingProjectType;
+  pendingProjectType=null;
+  if(chosen && projectTypeConflictDialog.returnValue==="keep") applyVentilationProjectType(chosen);
+  else if(chosen && projectTypeConflictDialog.returnValue==="mixed") applyVentilationProjectType("mixed");
+  else renderProjectWorkspace();
+});
+keepProjectTypeButton.addEventListener("click",()=>{ projectTypeConflictDialog.returnValue="keep"; });
+projectTypeFilter.addEventListener("change",renderProjectLibrary);
 cancelProjectNameButton.addEventListener("click", closeProjectNameDialog);
 projectLibraryList.addEventListener("click", openProjectFromLibraryClick);
 undoButton.addEventListener("click", () => applyHistoryChange(undoCommand(history), "Undo saved locally"));
@@ -2385,11 +2409,51 @@ function linkExistingOutletsByPosition() {
   renderProjectWorkspace();
 }
 
+function requestVentilationProjectType(type) {
+  if(type===history.present.ventilationDesignType) return renderProjectWorkspace();
+  const inspection=inspectVentilationProjectType({...history.present,ventilationDesignType:type});
+  if(!inspection.conflictsWithContent) return applyVentilationProjectType(type);
+  pendingProjectType=type;
+  projectTypeConflictMessage.textContent=`This drawing contains ${inspection.contentLabel.toLowerCase()} ventilation objects. “${ventilationProjectTypeLabel(type)}” would conflict with that content. Mixed keeps both centralised and decentralised tools available without deleting anything.`;
+  keepProjectTypeButton.textContent=`Keep ${ventilationProjectTypeLabel(type)}`;
+  projectTypeConflictDialog.showModal();
+}
+
+function applyVentilationProjectType(type) {
+  const previous=history.present.ventilationDesignType;
+  if(type===previous) return renderProjectWorkspace();
+  commitCommand({type:"project.setVentilationDesignType",ventilationDesignType:type},`${ventilationProjectTypeLabel(type)} project type applied · geometry and ventilation objects preserved`);
+  if(previous==="unclassified" && type==="decentralised" && activeTask==="project") selectedCatalogueGroup=null;
+  renderCataloguePalette();
+  render();
+}
+
+function applyProjectTypeBadge(element,type) {
+  element.textContent=ventilationProjectTypeLabel(type);
+  element.className=`project-type-badge ${type}`;
+}
+
+function projectTypeStatus(project) {
+  const inspection=inspectVentilationProjectType(project);
+  if(inspection.conflictsWithContent) return {warning:true,text:`Selected ${inspection.selectedLabel} conflicts with ${inspection.contentLabel.toLowerCase()} objects already in the drawing. Use Mixed to keep both workflows visible.`};
+  if(inspection.selectedType==="unclassified") {
+    return inspection.contentType==="unclassified"
+      ? {warning:false,text:"Choose the system type explicitly. This drawing remains unclassified until reviewed."}
+      : {warning:false,text:`Unclassified project. The current drawing suggests ${inspection.contentLabel}, but Studio will not assign it automatically.`};
+  }
+  return {warning:false,text:`${inspection.selectedLabel} project. Changing this classification never removes drawing content.`};
+}
+
 function renderProjectWorkspace() {
   renderProjectLibrary();
   const details=history.present.projectDetails,form=document.querySelector("#project-details-form");
   for(const key of ["name","address","clientName","projectReference"])form.elements.namedItem(key).value=details[key] || (key==="name"?currentProjectName:"");
   const project = history.present;
+  projectVentilationTypeSelect.value=project.ventilationDesignType;
+  applyProjectTypeBadge(currentProjectTypeElement,project.ventilationDesignType);
+  const typeStatus=projectTypeStatus(project);
+  projectVentilationTypeStatus.textContent=typeStatus.text;
+  projectVentilationTypeStatus.classList.toggle("warning",typeStatus.warning);
   const quote = inspectQuickQuote(project);
   const detailed = inspectDetailedDesign(project);
   workflowStagePill.textContent = stageLabel(project.workflow.stage);
@@ -2452,18 +2516,36 @@ function renderProjectLibrary() {
     projectLibraryList.replaceChildren(empty);
     return;
   }
-  projectLibraryList.replaceChildren(...listed.projects.map((metadata) => {
+  const filter=projectTypeFilter.value;
+  const projects=listed.projects.map((metadata)=>{
+    const loaded=projectLibrary.loadProject(metadata.id);
+    return {...metadata,ventilationDesignType:loaded.ok&&loaded.found?loaded.project.ventilationDesignType:"unavailable"};
+  });
+  const filteredProjects=filterVentilationProjectEntries(projects,filter);
+  if(filteredProjects.length===0) {
+    const empty=document.createElement("p");
+    empty.className="project-library-empty";
+    empty.textContent=`No ${filter === "all" ? "" : `${ventilationProjectTypeLabel(filter).toLowerCase()} `}device projects match this filter.`;
+    projectLibraryList.replaceChildren(empty);
+    return;
+  }
+  projectLibraryList.replaceChildren(...filteredProjects.map((metadata) => {
     const row = document.createElement("div");
     row.className = `project-library-entry${metadata.id === history.present.id ? " active" : ""}`;
     const copy = document.createElement("div");
     copy.className = "project-library-entry-copy";
     const name = document.createElement("strong");
     name.textContent = metadata.name;
+    const typeBadge=document.createElement("span");
+    if(metadata.ventilationDesignType==="unavailable") {
+      typeBadge.textContent="Type unavailable";
+      typeBadge.className="project-type-badge unavailable";
+    } else applyProjectTypeBadge(typeBadge,metadata.ventilationDesignType);
     const saved = document.createElement("span");
     saved.textContent = `Last saved ${formatSavedAt(metadata.lastSavedAtUtc)}`;
     const id = document.createElement("small");
     id.textContent = metadata.id;
-    copy.append(name, saved, id);
+    copy.append(name,typeBadge,saved,id);
     const open = document.createElement("button");
     open.type = "button";
     open.dataset.openProjectId = metadata.id;
@@ -7437,8 +7519,22 @@ function renderCataloguePalette() {
     // Legacy generic remote assemblies remain readable in saved projects and the library.
 
   ];
-  const groups = [...new Set(allEntries.map((item) => item.group)), "Duct"];
-  if (!groups.includes(selectedCatalogueGroup)) selectedCatalogueGroup = groups[0];
+  const projectType=history.present.ventilationDesignType;
+  const unorderedGroups=[...new Set(allEntries.map((item) => item.group)), "Duct"];
+  const preferredGroup=projectType==="decentralised"?"Decentralised MVHR":"Units";
+  const groups=projectType==="decentralised"
+    ? ["Decentralised MVHR",...unorderedGroups.filter((group)=>group!=="Decentralised MVHR")]
+    : projectType==="centralised"
+      ? ["Units",...unorderedGroups.filter((group)=>group!=="Units")]
+      : unorderedGroups;
+  if (!groups.includes(selectedCatalogueGroup)) selectedCatalogueGroup = groups.includes(preferredGroup)?preferredGroup:groups[0];
+  ventilationProjectTypeContext.textContent=projectType==="decentralised"
+    ? "Decentralised project · through-wall unit markers are shown first. Central duct tools remain available if the project is changed to Mixed."
+    : projectType==="centralised"
+      ? "Centralised project · units, terminals and duct routing are shown first. Decentralised markers remain available for an explicit Mixed design."
+      : projectType==="mixed"
+        ? "Mixed project · centralised routing and decentralised markers remain separate and available together."
+        : "Unclassified project · choose Centralised, Decentralised or Mixed in Project details. Studio will not infer the choice from incomplete geometry.";
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
     const button = document.createElement("button");

@@ -18,6 +18,7 @@ test('cloud file round trip preserves the complete authoritative document',async
  const b=backend(),args=input();const saved=await b.store.save(args),loaded=await b.store.open(saved.record);
  assert.equal(serializeProject(loaded.project),serializeProject(args.project));assert.equal(loaded.name,args.name);
  assert.ok(saved.record.object_path.startsWith('workspace-a/user-a/'));assert.equal(saved.record.save_version,1);
+ const described=await b.store.describe(saved.record);assert.equal(described.ventilationDesignType,'unclassified');assert.equal(described.contentType,'unclassified');
 });
 test('two tabs cannot silently overwrite a shared cloud save version',async()=>{
  const b=backend(),args=input();const initial=await b.store.save(args);

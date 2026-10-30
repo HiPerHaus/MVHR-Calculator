@@ -165,6 +165,17 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .project-workspace-heading strong { font-size: 20px; }
 .project-workspace-heading span { color: var(--muted); font-size: 11px; }
 .workflow-stage-pill { border-radius: 999px; padding: 7px 12px; background: #eaf5f4; color: #315654 !important; font-size: 11px !important; font-weight: 750; }
+.project-home-pills { display:flex!important; align-items:center; justify-content:flex-end; gap:7px; }
+.project-type-badge { display:inline-flex; align-items:center; width:max-content; border:1px solid #b9c7cc; border-radius:999px; padding:4px 8px; background:#f2f5f6; color:#52646c; font-size:9px!important; font-weight:750; line-height:1.2; }
+.project-type-badge.centralised { border-color:#94b8c7; background:#eaf5f8; color:#315d70; }
+.project-type-badge.decentralised { border-color:#9abda9; background:#edf7f0; color:#356348; }
+.project-type-badge.mixed { border-color:#b3a4c5; background:#f3eef8; color:#5e4c72; }
+.project-type-badge.unavailable { border-color:#d0b18b; background:#fff6e9; color:#795b24; }
+.project-type-status { padding:9px; border-radius:7px; background:#f4f7f8; color:#52646c; font-size:10px; line-height:1.45; }
+.project-type-status.warning { background:#fff7df; color:#795b24; }
+.project-type-context { margin:0 0 10px; padding:8px 9px; border-radius:7px; background:#f4f7f8; color:#52646c; font-size:10px; line-height:1.4; }
+.project-type-filter { max-width:220px; color:#52646c; font-size:11px; }
+.project-type-filter select, #project-ventilation-type { min-height:40px; border:1px solid #bdcbd1; border-radius:6px; padding:8px; background:white; color:inherit; }
 .project-workflow-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 1180px; margin: 0 auto; }
 .workflow-card { min-width: 0; border: 1px solid #d4dee2; border-radius: 10px; padding: 18px; background: white; }
 .workflow-card-wide { grid-column: 1 / -1; }
@@ -183,6 +194,7 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .project-library-entry-copy { display: grid; gap: 2px; min-width: 0; }
 .project-library-entry-copy strong { overflow-wrap: anywhere; }
 .project-library-entry-copy span { color: #64767d; font-size: 10px; }
+.project-library-entry-copy .project-type-badge { color:inherit; font-size:9px; }
 .project-library-entry-copy small { color: #819097; font-size: 9px; overflow-wrap: anywhere; }
 .workflow-summary { margin: 0 0 14px; color: #41565f; font-size: 13px; line-height: 1.5; }
 .workflow-stage-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -729,6 +741,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .cloud-help { font-size:12px; color:#687880; }
 .cloud-project-row { display:flex; justify-content:space-between; gap:16px; padding:12px 0; border-bottom:1px solid #d7dfe3; }
 .cloud-project-row div { display:grid; gap:4px; }
+.cloud-project-row .project-type-badge { margin-top:2px; }
 
 .project-home-heading { max-width:1000px; margin:0 auto 20px; }
 .project-home-heading > button, .project-home-actions button, .project-home-detail button { border:1px solid #b9c9cf; border-radius:7px; background:white; padding:10px 15px; cursor:pointer; }

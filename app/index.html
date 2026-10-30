@@ -59,6 +59,7 @@
           </section>
           <section id="mechanical-tools-section" hidden>
             <h2>Parts</h2>
+            <p id="ventilation-project-type-context" class="project-type-context" aria-live="polite"></p>
             <div class="automatic-routing-actions" aria-label="Automatic duct routing">
               <strong>Equipment-first routing</strong>
               <span>Place typed equipment first, then preview routes. Auto route leaves existing routes alone; Re-route replaces only your explicit selection.</span>
@@ -397,7 +398,7 @@
           <article class="workflow-card workflow-card-wide project-home-current">
             <div class="project-library-heading">
               <div><h2>Current drawing</h2><strong id="current-project-name">Untitled project</strong><small id="current-project-id" hidden></small></div>
-              <span id="workflow-stage-pill" class="workflow-stage-pill">Quick quote</span>
+              <div class="project-home-pills"><span id="current-project-type" class="project-type-badge unclassified">Unclassified</span><span id="workflow-stage-pill" class="workflow-stage-pill">Quick quote</span></div>
             </div>
             <p id="project-storage-note" class="project-home-note">Sign in to save and reopen drawings across devices.</p>
             <div class="project-home-actions">
@@ -410,11 +411,12 @@
             <details class="project-home-options project-info-options"><summary>Project details</summary>
               <form id="project-details-form" class="company-fields-grid">
                 <label>Project name<input name="name" maxlength="120" required /></label>
+                <label>Ventilation system<select id="project-ventilation-type"><option value="unclassified">Choose project type</option><option value="centralised">Centralised</option><option value="decentralised">Decentralised</option><option value="mixed">Mixed</option></select></label>
                 <label>Project reference<input name="projectReference" maxlength="80" /></label>
                 <label>Client name<input name="clientName" maxlength="160" /></label>
                 <label>Site address<textarea name="address" maxlength="500" rows="2"></textarea></label>
                 <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
-              </form><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
+              </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
             </details>
             <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button" hidden>Save As</button></div></details>
           </article>
@@ -675,6 +677,18 @@
         <div class="dialog-actions">
           <button id="cancel-project-name" type="button">Cancel</button>
           <button type="submit" class="primary-action">Continue</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="project-type-conflict-dialog" aria-labelledby="project-type-conflict-title">
+      <form method="dialog">
+        <h2 id="project-type-conflict-title">Existing ventilation content differs</h2>
+        <p id="project-type-conflict-message"></p>
+        <p>Changing the project type never removes equipment, routes, rooms or saved geometry.</p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button id="keep-project-type" value="keep">Keep chosen type</button>
+          <button value="mixed" class="primary-action">Use Mixed</button>
         </div>
       </form>
     </dialog>
@@ -1087,6 +1101,7 @@
     </dialog>
     <dialog id="cloud-projects-dialog" class="cloud-dialog" aria-labelledby="cloud-projects-title">
       <h2 id="cloud-projects-title">Projects</h2>
+      <label class="project-type-filter">Show project type<select id="project-type-filter"><option value="all">All types</option><option value="centralised">Centralised</option><option value="decentralised">Decentralised</option><option value="mixed">Mixed</option><option value="unclassified">Unclassified</option></select></label>
       <p id="cloud-projects-status" role="status"></p>
       <div id="cloud-projects-list"></div>
       <details id="legacy-device-projects" hidden><summary>Older drawings on this device</summary><p>Previous browser-only drawings. Open one and choose Save to keep it with your account.</p><div id="project-library-list" class="project-library-list"></div></details>

@@ -987,3 +987,11 @@ The four current HiPer Haus decentralised product identities are placeable as sc
 The plan marker is not to scale and is not a drilling template. Conflicting sleeve/core-opening evidence remains visible in the pinned catalogue record while the authoritative penetration diameter stays unknown. Placement does not establish wall suitability, installed projection, clearance, electrical design, wet-area suitability or compliance.
 
 Decentralised markers expose no central DN90/EPP ports and remain outside the central connection graph. Catalogue airflow levels remain reference evidence only and are excluded from room and project totals. Design Check reports missing associations and states that decentralised airflow is not calculated. The parts schedule counts physical markers once and reports unique pair/group and controller references separately without inferring purchase quantities.
+
+### 30 October 2026 — explicit ventilation project classification
+
+The authoritative project stores one explicit ventilation design type: `unclassified`, `centralised`, `decentralised`, or `mixed`. This field is descriptive design context, not lifecycle, approval, entitlement or engineering evidence. Schema 22 migrates every earlier project to `unclassified`; current content may produce a display-only suggestion but cannot silently classify or rewrite the drawing.
+
+Changing type is an ordinary undoable project command and never deletes or converts components, routes, rooms, connections, associations or saved selections. A choice that differs from existing ventilation content opens a conflict review and offers Mixed. If the designer keeps the conflicting type, Studio retains the content and warning rather than hiding it.
+
+Project lists derive the type from the private saved project document. This avoids a production database schema change at the cost of reading each project document when the cloud list opens. Failed reads show `Type unavailable`, not `Unclassified`. Centralised and decentralised classifications only change catalogue ordering and guidance; they do not alter calculations or connectivity. Mixed exposes both authoring contexts while keeping their topology and airflow evidence separate.

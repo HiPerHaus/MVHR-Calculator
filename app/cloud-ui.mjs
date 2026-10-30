@@ -4,6 +4,7 @@ import { clearStudioGate, establishStudioGate } from "./auth-client.mjs";
 import { createReturnAccessVerifier } from "./protected-lifecycle.mjs";
 import { createCloudProjectStore } from "../src/persistence/cloud-project-store.mjs";
 import { verifyStudioAccess } from "../src/persistence/studio-access.mjs";
+import { filterVentilationProjectEntries, ventilationProjectTypeLabel } from "../src/domain/ventilation-project-type.mjs";
 
 export function initializeCloudUI({ client, initialAccess, onChange, onOpen, beforeSignOut, onSignedOut, onAccount, onAccessLost }) {
   if (!client || initialAccess?.state !== "approved") throw new TypeError("Verified Studio access is required");
@@ -20,8 +21,10 @@ export function initializeCloudUI({ client, initialAccess, onChange, onOpen, bef
   const projects = document.querySelector("#cloud-projects-dialog");
   const list = document.querySelector("#cloud-projects-list");
   const listStatus = document.querySelector("#cloud-projects-status");
+  const projectTypeFilter = document.querySelector("#project-type-filter");
   const text = (tag, value) => { const element = document.createElement(tag); element.textContent = value; return element; };
   let revision = 0;
+  let cloudProjects = [];
 
   const notify = () => {
     account.textContent = "Account";
@@ -95,6 +98,41 @@ export function initializeCloudUI({ client, initialAccess, onChange, onOpen, bef
   });
   document.querySelector("#close-cloud-projects").addEventListener("click", () => projects.close());
 
+  function renderProjectRows() {
+    list.replaceChildren();
+    const filter=projectTypeFilter.value;
+    const shown=filterVentilationProjectEntries(cloudProjects,filter);
+    if(cloudProjects.length===0) {
+      listStatus.textContent="No saved projects yet. Import a drawing backup or start a new project.";
+      return;
+    }
+    listStatus.textContent=shown.length
+      ? `Choose a drawing to open. ${shown.length} of ${cloudProjects.length} shown.`
+      : `No ${ventilationProjectTypeLabel(filter).toLowerCase()} cloud projects match this filter.`;
+    for (const entry of shown) {
+      const {record}=entry;
+      const row = text("div", ""); row.className = "cloud-project-row";
+      const copy = text("div", "");
+      const badge=text("span",entry.ventilationDesignType==="unavailable"?"Type unavailable":ventilationProjectTypeLabel(entry.ventilationDesignType));
+      badge.className=`project-type-badge ${entry.ventilationDesignType}`;
+      if(entry.conflictsWithContent) badge.title="Selected project type conflicts with saved ventilation content";
+      copy.append(text("strong", record.name),badge,text("small", `Saved ${new Date(record.updated_at).toLocaleString()} · version ${record.save_version}`));
+      const open = text("button", "Open"); open.type = "button";
+      open.addEventListener("click", async () => {
+        open.disabled = true; listStatus.textContent = "Opening cloud drawing…";
+        try {
+          const loaded = await store.open(record);
+          if (state.user?.id !== entry.userId) throw new Error("Account changed; cloud drawing was not opened");
+          projects.close(); onOpen(loaded);
+        } catch (cause) { listStatus.textContent = cause.message; }
+        finally { open.disabled = false; }
+      });
+      row.append(copy, open); list.append(row);
+    }
+  }
+
+  projectTypeFilter.addEventListener("change",renderProjectRows);
+
   async function showProjects() {
     if (!projects.open) projects.showModal();
     list.replaceChildren();
@@ -105,23 +143,14 @@ export function initializeCloudUI({ client, initialAccess, onChange, onOpen, bef
     try {
       const records = await store.list(state.workspace.id);
       if (state.user?.id !== userId) return;
-      listStatus.textContent = records.length ? "Choose a drawing to open." : "No saved projects yet. Import a drawing backup or start a new project.";
-      for (const record of records) {
-        const row = text("div", ""); row.className = "cloud-project-row";
-        const copy = text("div", "");
-        copy.append(text("strong", record.name), text("small", `Saved ${new Date(record.updated_at).toLocaleString()} · version ${record.save_version}`));
-        const open = text("button", "Open"); open.type = "button";
-        open.addEventListener("click", async () => {
-          open.disabled = true; listStatus.textContent = "Opening cloud drawing…";
-          try {
-            const loaded = await store.open(record);
-            if (state.user?.id !== userId) throw new Error("Account changed; cloud drawing was not opened");
-            projects.close(); onOpen(loaded);
-          } catch (cause) { listStatus.textContent = cause.message; }
-          finally { open.disabled = false; }
-        });
-        row.append(copy, open); list.append(row);
-      }
+      if(!records.length) { cloudProjects=[]; renderProjectRows(); return; }
+      listStatus.textContent="Reading project types…";
+      cloudProjects=await Promise.all(records.map(async(record)=>{
+        try { return {record,userId,...await store.describe(record)}; }
+        catch { return {record,userId,ventilationDesignType:"unavailable",contentType:"unavailable",conflictsWithContent:false}; }
+      }));
+      if (state.user?.id !== userId) return;
+      renderProjectRows();
     } catch (cause) { listStatus.textContent = cause.message; }
   }
 

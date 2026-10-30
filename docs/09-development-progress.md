@@ -1,5 +1,13 @@
 # Development progress
 
+## Explicit ventilation project types — 30 October 2026
+
+- Schema 22 adds an explicit `Centralised`, `Decentralised`, `Mixed`, or `Unclassified` ventilation design type. Schema-21 and earlier drawings migrate in memory to `Unclassified`; Studio does not infer or persist a type from incomplete geometry.
+- Project details, the current-project badge, cloud and legacy-device project lists, filters, portable backups, working recovery and A3/A4 output use the same saved project field. Cloud list classification is read from each private project document, so no production database column or migration is required.
+- A conflicting explicit choice opens a review dialog and offers `Mixed`. Keeping the chosen type remains possible, visibly warns, and never removes equipment, routes, rooms, associations or saved geometry. Mixed leaves centralised routing and decentralised markup available as separate systems.
+- Decentralised projects show the decentralised catalogue first; centralised projects show central units first. The other catalogue remains available for an explicit Mixed design. Project type remains separate from the commercial/design lifecycle and Plan → Place → Route → Check → Export navigation.
+- Pure tests cover migration, persistence, conflict inspection, content preservation, filtering and cloud summaries. An isolated coarse-pointer browser journey covers explicit selection, decentralised-first placement, conflict-to-Mixed review, touch-sized filtering and working-session reopen without customer data.
+
 ## Plan → Place → Route → Check → Export preview milestone — 29 October 2026
 
 - Added non-authoritative design-stage navigation without changing `project.workflow.stage`, project serialization, dirty state, or undo history. Project, 3D, Catalogue, and Account remain utilities.

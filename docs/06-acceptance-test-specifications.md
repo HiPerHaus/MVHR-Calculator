@@ -170,6 +170,16 @@ Place a continuous-balanced marker beside a central MVHR system. It does not req
 
 The parts list counts every physical marker once. Pair/group and controller references appear as associations rather than additional purchase quantities. A3/A4 output identifies schematic decentralised markers without claiming a drilling template, wall suitability, clearance, product compatibility or installation certification.
 
+## Ventilation project type acceptance
+
+Open an older saved drawing containing no project-type field. It opens as **Unclassified** without changing its saved source, equipment, routes, rooms or lifecycle stage. Existing centralised or decentralised geometry may be described as a suggestion but does not assign the type automatically.
+
+Choose Centralised, Decentralised and Mixed in separate projects, save, reopen and export a portable backup. The explicit type survives each boundary and appears in A3/A4 metadata. Project-list badges and filters return only matching explicit types; a failed private-document read is shown as **Type unavailable** rather than guessed.
+
+In a drawing with decentralised markers, choose Centralised. Studio warns before committing and offers Mixed. Choose Mixed and confirm that all components, associations and any central routes are unchanged. Repeat while keeping the conflicting type: the warning remains visible and no content is hidden or deleted. Undo restores only the prior type.
+
+A Decentralised project opens the decentralised catalogue group first. A Centralised project opens central units first. Mixed keeps both catalogues and central routing available while decentralised markers remain outside the central connection graph and calculated airflow totals. Classification does not change `project.workflow.stage`, Plan → Place → Route → Check → Export state, pressure status or engineering evidence.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

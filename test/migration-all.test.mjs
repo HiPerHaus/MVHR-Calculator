@@ -40,6 +40,7 @@ test("portable migration from every schema preserves every field available in th
     assert.equal(opened.migration.toSchemaVersion, SCHEMA_VERSION);
     assert.equal(opened.migration.migrated, schemaVersion !== SCHEMA_VERSION);
     assert.equal(migrated.schemaVersion, SCHEMA_VERSION);
+    assert.equal(migrated.ventilationDesignType, "unclassified");
     assert.deepEqual(migrated.floors, current.floors, `schema ${schemaVersion} floors`);
     assert.deepEqual(migrated.wallNodes, current.wallNodes, `schema ${schemaVersion} wall nodes`);
     assert.deepEqual(migrated.walls, current.walls, `schema ${schemaVersion} walls`);
@@ -228,6 +229,7 @@ async function completeCurrentProject() {
 function toSchemaVersion(current, schemaVersion) {
   const legacy = structuredClone(current);
   legacy.schemaVersion = schemaVersion;
+  if (schemaVersion < 22) delete legacy.ventilationDesignType;
   if (schemaVersion < 20) delete legacy.projectDetails;
   if (schemaVersion < 19) {
     for (const reference of legacy.floorReferences) delete reference.cropSourceRectPx;

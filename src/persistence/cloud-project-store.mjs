@@ -1,10 +1,20 @@
 import {serializeProject,deserializeProject} from '../domain/spatial.mjs';
+import {inspectVentilationProjectType} from '../domain/ventilation-project-type.mjs';
 export const CLOUD_BUCKET='studio-drawings';
 export const CLOUD_FILE_FORMAT='hiper-studio-cloud-drawing-v1';
 const MAX_CLOUD_BYTES=48*1024*1024;
 export class CloudConflictError extends Error {constructor(){super('This cloud drawing has changed in another tab. Open the latest cloud copy, or use Save As to keep your changes separately.');this.name='CloudConflictError';}}
 const checked=result=>{if(result.error)throw new Error(result.error.message??'Cloud request failed');return result.data;};
 export function createCloudProjectStore(client,{uuid=()=>crypto.randomUUID()}={}) {
+ const loadProject=async record=>{
+   const blob=checked(await client.storage.from(CLOUD_BUCKET).download(record.object_path));
+   if(blob.size>MAX_CLOUD_BYTES)throw new RangeError('Cloud drawing exceeds the supported file size');
+   const file=JSON.parse(await blob.text());
+   if(file.format!==CLOUD_FILE_FORMAT || file.projectId!==record.project_id)throw new TypeError('Invalid cloud drawing file');
+   const project=deserializeProject(file.projectJson);
+   if(project.id!==record.project_id)throw new TypeError('Cloud drawing identity mismatch');
+   return project;
+ };
  return {
   async workspaces(){return checked(await client.from('studio_workspaces').select('id,name').order('name'));},
   async list(workspaceId){return checked(await client.from('studio_projects').select('*').eq('workspace_id',workspaceId).order('updated_at',{ascending:false}));},
@@ -34,13 +44,13 @@ export function createCloudProjectStore(client,{uuid=()=>crypto.randomUUID()}={}
    return {record:saved,projectJson};
   },
   async open(record){
-   const blob=checked(await client.storage.from(CLOUD_BUCKET).download(record.object_path));
-   if(blob.size>MAX_CLOUD_BYTES)throw new RangeError('Cloud drawing exceeds the supported file size');
-   const file=JSON.parse(await blob.text());
-   if(file.format!==CLOUD_FILE_FORMAT || file.projectId!==record.project_id)throw new TypeError('Invalid cloud drawing file');
-   const project=deserializeProject(file.projectJson);
-   if(project.id!==record.project_id)throw new TypeError('Cloud drawing identity mismatch');
+   const project=await loadProject(record);
    return {project,name:record.name,record};
+  },
+  async describe(record){
+   const project=await loadProject(record);
+   const inspection=inspectVentilationProjectType(project);
+   return {ventilationDesignType:inspection.selectedType,contentType:inspection.contentType,conflictsWithContent:inspection.conflictsWithContent};
   }
  };
 }

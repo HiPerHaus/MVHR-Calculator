@@ -24,6 +24,7 @@ import {
   q350CasingPath,
 } from "../editor/component-plan-graphics.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
+import { ventilationProjectTypeLabel } from "../domain/ventilation-project-type.mjs";
 
 export const A3_DIMENSIONS_MM = Object.freeze({ short: 297, long: 420 });
 export const SHEET_TEMPLATE_ID = "hiper-a3-plan-sidebar-v3";
@@ -812,7 +813,7 @@ function renderTitleBlock(sheet,bounds){
  else {out.push(renderTextLines(wrapSheetText(c.companyName||'Company details not set',32,2),x+4,cy+5,4.8,5.3));cy+=16;}
  const contact=[sheet.metadata.companyLogoDataUrl?c.companyName:'',c.address,[c.phone,c.email].filter(Boolean).join(' · '),c.website,[c.contactName,c.contactPhone||c.contactEmail].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
  out.push(renderTextLines(wrapSheetText(contact,49,4),x+4,cy,2.3,3.1));cy=y+36;
- const rows=[['PROJECT',sheet.metadata.projectName],['CLIENT',sheet.metadata.clientName],['ADDRESS',sheet.metadata.siteName],['DRAWING',sheet.metadata.drawingTitle]];
+ const rows=[['PROJECT',sheet.metadata.projectName],['SYSTEM',sheet.metadata.ventilationDesignTypeLabel],['CLIENT',sheet.metadata.clientName],['ADDRESS',sheet.metadata.siteName],['DRAWING',sheet.metadata.drawingTitle]];
  for(const [label,value] of rows){out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/><text x="${x+3}" y="${cy+3}" font-size="1.9" fill="#687880">${label}</text>`);const lines=wrapSheetText(value||'—',38,label==='ADDRESS'?3:2);out.push(renderTextLines(lines,x+3,cy+6.5,2.8,3.3));cy+=label==='ADDRESS'?17:13;}
  out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/>`);
  out.push(renderTextLines(wrapSheetText(`${sheet.metadata.drawingId} · Rev ${sheet.metadata.revision}`,43,1),x+3,cy+5,2.8,3.2));
@@ -882,6 +883,8 @@ function normalizeMetadata(project, metadata) {
     company:normalizeCompanyProfile(metadata.company),
     companyLogoDataUrl:validateLogoDataUrl(metadata.companyLogoDataUrl),
     floorId,
+    ventilationDesignType:project.ventilationDesignType,
+    ventilationDesignTypeLabel:ventilationProjectTypeLabel(project.ventilationDesignType),
     projectName: sanitizeXmlText(metadata.projectName ?? project.projectDetails?.name, "Project name", true),
     siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
     clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),
