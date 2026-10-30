@@ -6024,10 +6024,13 @@ function render() {
   }
   if (activeTask === "ventilation") {
     for (const assembly of history.present.equipmentAssemblies) renderEquipmentAssemblyServiceZone(assembly);
+    const ductOccludingComponents = history.present.components.filter(componentRendersAboveDucts);
     for (const route of history.present.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) renderDuctRoute(route);
-    for (const component of history.present.components) renderComponent(component);
+    for (const component of history.present.components.filter(component=>!ductOccludingComponents.includes(component))) renderComponent(component);
     // EPP and DN90 radial ducts remain visible when their plan routes cross equipment.
     for (const route of history.present.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) renderDuctRoute(route);
+    // Terminal faces intentionally occlude the rounded route cap. The saved endpoint and route geometry stay unchanged.
+    for (const component of ductOccludingComponents) renderComponent(component);
     const selectedRoute = history.present.routes.find((route) => route.id === selectedRouteId);
     if (selectedRoute && routeIsVisible(selectedRoute) && activeTool === "select") renderRouteEditHandles(selectedRoute);
     if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
@@ -6066,6 +6069,11 @@ function render() {
   renderStorageState();
   updateStatus();
   if (activeTask === "checks") renderChecksWorkspace();
+}
+
+function componentRendersAboveDucts(component) {
+  const graphicId=deriveComponentPlanGraphic(component)?.graphicId;
+  return graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID||graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID;
 }
 
 function renderFloorAreas() {

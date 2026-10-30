@@ -532,6 +532,26 @@ test("Luna symbol sits above radial duct with an opaque centre", () => {
   assert.match(svg, /data-kind="legend-terminal"[^>]*>[\s\S]*?<circle data-part="luna-duct-mask"[^>]+fill="white"/);
 });
 
+test("external grille face sits above the duct and keeps its authoritative route endpoint", () => {
+  let project=projectWithWall(10000);
+  const grille=createCatalogueComponent("generic-external-grille-intake-dn160",{id:"outdoor-over-duct",floorId:"floor-ground",xMm:3000,yMm:1000});
+  project=applyCommand(project,{type:"component.add",component:grille});
+  const port=grille.ports[0];
+  const requestedEndpoint={x:2820,y:1000,z:unknownMm("not set")};
+  project=applyCommand(project,{type:"route.add",route:{
+    id:"duct-under-outdoor",floorId:"floor-ground",system:"mvhr",stream:"intake",role:"Outdoor intake",
+    ductKind:"epp-rigid-dn160",parallelRunCount:1,startAttachment:null,endAttachment:{componentId:grille.id,portId:port.id},
+    connectionInterface:{family:"rigid-epp",nominalSizeMm:160,connectionType:"drawing-only",drawingConnectionClass:"circular-dn160",installationCompatibility:"unverified"},
+    points:[{x:1000,y:1000,z:unknownMm("not set")},requestedEndpoint],
+  }});
+  const endpoint=structuredClone(project.routes[0].points.at(-1));
+  assert.deepEqual({x:endpoint.x,y:endpoint.y},{x:2820,y:1000});
+  const svg=renderA3SheetSvg(createA3SheetModel(project,metadata()));
+  assert.ok(svg.indexOf('data-id="outdoor-over-duct"')>svg.indexOf('data-id="duct-under-outdoor"'));
+  assert.match(svg.slice(svg.indexOf('data-id="outdoor-over-duct"')),/<rect x="-180" y="-130" width="360" height="260"[^>]+fill="#e1e5e6"/);
+  assert.deepEqual(project.routes[0].points.at(-1),endpoint,"presentation masking must not shorten the route");
+});
+
 
 test("outdoor legend distinguishes combined, intake and exhaust using the drawn profiles", () => {
   let project=projectWithWall(10000);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
@@ -14,6 +14,8 @@ const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
 const outputDirectory = resolve(root, "../tmp/pdf-export-qa");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
+const canvasOutputPath = resolve(outputDirectory, "grille-canvas.png");
+const previewOutputPath = resolve(outputDirectory, "grille-print-preview.png");
 const debuggingPort = await reservePort();
 const server = await startQaServer();
 const address = server.address();
@@ -47,7 +49,7 @@ try {
   assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total 90 mm duct")), false);
   assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total DN160 EPP")), false);
   assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "ZEN-CT90-50M").map((row) => [row.quantity, row.unit]), [["1", "coil"]]);
-  assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "AER-DUC-DN160-1MSL").map((row) => [row.quantity, row.unit]), [["2", "ea"]]);
+  assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "AER-DUC-DN160-1MSL").map((row) => [row.quantity, row.unit]), [["7", "ea"]]);
   assert.equal(supplierEvidence.some((row) => row.unit === "stock" && row.quantity === "Not set" && row.description.includes("DN150")), true);
   assert.equal(supplierEvidence.some((row) => row.unit === "m"), false);
   const grilleEvidence = await evaluate(cdp, "window.__grilleEvidence");
@@ -57,6 +59,7 @@ try {
   assert.equal(grilleEvidence.fills.includes("#e2342f"), true);
   assert.deepEqual(grilleEvidence.labels.sort(), ["Exhaust air out", "Exhaust air out", "Outside Air", "Outside Air"]);
   assert.equal(grilleEvidence.largeArrows, true);
+  assert.equal(grilleEvidence.offsetArrows, true);
   assert.equal(grilleEvidence.readableLabels, true);
   assert.equal(grilleEvidence.lunaMasks, 2,"placed Luna and key should both retain opaque duct masks");
   await evaluate(cdp, "document.querySelector('#download').click()");
@@ -66,9 +69,12 @@ try {
   await cdp.send("Page.navigate", { url: appUrl });
   await waitFor(cdp, "document.readyState === 'complete' && !document.querySelector('.app-shell')?.hidden && document.querySelector('#draft-status')?.textContent.includes('outline')", 20_000);
   await waitFor(cdp, "document.querySelectorAll('[data-plan-graphic=\"hiper-external-grille-plan-v1\"] [data-part=\"airflow-label\"]').length === 4");
-  const canvasEvidence=await evaluate(cdp, `({labels:[...document.querySelectorAll('[data-plan-graphic="hiper-external-grille-plan-v1"] [data-part="airflow-label"]')].map(node=>node.textContent),masks:[...document.querySelectorAll('[data-plan-graphic="hiper-luna-grille-v1"] [data-part="luna-duct-mask"]')].map(node=>getComputedStyle(node).fill)})`);
+  const canvasEvidence=await evaluate(cdp, `(()=>{const follows=(routeId,componentId)=>{const route=document.querySelector('[data-route-id="'+routeId+'"]'),component=document.querySelector('.component-group[data-component-id="'+componentId+'"]');return Boolean(route&&component&&(route.compareDocumentPosition(component)&Node.DOCUMENT_POSITION_FOLLOWING));};return {labels:[...document.querySelectorAll('[data-plan-graphic="hiper-external-grille-plan-v1"] [data-part="airflow-label"]')].map(node=>node.textContent),masks:[...document.querySelectorAll('[data-plan-graphic="hiper-luna-grille-v1"] [data-part="luna-duct-mask"]')].map(node=>getComputedStyle(node).fill),lunaAboveDuct:follows('qa-radial','luna-output'),externalAboveDuct:follows('qa-grille-intake','grille-combined')};})()`);
   assert.deepEqual(canvasEvidence.labels.sort(),["Exhaust air out","Exhaust air out","Outside Air","Outside Air"]);
   assert.deepEqual(canvasEvidence.masks,["rgb(255, 255, 255)"],"Canvas Luna terminal should keep an opaque white centre over its duct");
+  assert.equal(canvasEvidence.lunaAboveDuct,true,"Canvas Luna face should mask the rounded route cap");
+  assert.equal(canvasEvidence.externalAboveDuct,true,"Canvas external grille face should mask the rounded route cap");
+  await writeFile(canvasOutputPath,Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
   assert.equal(await evaluate(cdp, "document.querySelector('#export-sheet-pdf')?.textContent"), "Export PDF");
   assert.equal(await evaluate(cdp, "document.querySelector('#print-sheet-preview')?.textContent"), "Print");
   await evaluate(cdp, `(()=>{const form=document.querySelector('#project-details-form');form.elements.name.value='QA House';form.elements.drawingTitle.value='';form.elements.drawnBy.value='QA Designer';form.elements.checkedBy.value='';form.requestSubmit();})()`);
@@ -80,11 +86,12 @@ try {
   assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child #drawing-content [data-part="airflow-label"]').length`),4,"Print drawing should retain all external airflow labels");
   assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child [data-kind="legend-external-grille"] [data-part="airflow-label"]').length`),4,"Print key should retain the matching external airflow labels");
   assert.ok(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child [data-part="luna-duct-mask"]').length`)>=2,"Print preview and key should retain Luna duct masks");
+  await writeFile(previewOutputPath,Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
   await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
   await waitForDownloadCount(downloadDirectory, 2);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, pagePlan, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -123,6 +130,8 @@ async function startQaServer() {
     for (const [id,catalogueItemId,x,y,angleRad] of [["grille-combined","generic-external-grille-combined-dn160",5200,1200,0],["grille-intake","generic-external-grille-intake-dn160",5200,2300,Math.PI/2],["grille-exhaust","generic-external-grille-exhaust-dn160",5200,3100,Math.PI],["luna-output","luna-supply",4500,3500,0]]) { project=domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id,floorId:"floor-ground",xMm:x,yMm:y})}); if(angleRad) project=domain.applyCommand(project,{type:"component.rotateFloorZ",componentId:id,angleRad}); }
     const addRoute = (id, ductKind, stream, points, parallelRunCount=1) => { const family=routeFamilyForKind(ductKind); project=domain.applyCommand(project,{type:"route.add",route:{id,floorId:"floor-ground",system:"mvhr",stream,role:stream==="extract"?"Dwelling extract":stream==="intake"?"Outdoor intake":"Dwelling supply",ductKind,connectionInterface:family.connectionInterface,parallelRunCount,startAttachment:null,endAttachment:null,points:points.map(([x,y])=>({x,y,z:domain.unknownMm("QA route elevation not set")}))}}); };
     addRoute("qa-radial","semi-rigid-radial","supply",[[500,3500],[4500,3500]]);
+    addRoute("qa-grille-intake","epp-rigid-dn160","intake",[[2600,1059.75],[5020,1059.75]]);
+    addRoute("qa-grille-exhaust","epp-rigid-dn160","exhaust",[[2600,1340.25],[5020,1340.25]]);
     addRoute("qa-epp","epp-rigid-dn160","intake",[[500,4000],[1500,4000],[1500,4500]]);
     addRoute("qa-flex","flexible-round-dn150","supply",[[2000,4500],[4200,4500]]);
     const sheet = createA3SheetModel(project,{floorId:"floor-ground",orientation:"landscape",includeSchedule:false,projectName:"PDF browser QA",siteName:"Test address",issueDate:"2026-10-30",drawingTitle:"Ventilation",drawingId:"V-QA",status:"Preliminary — not for construction",revision:"A",revisionText:"Review"});
@@ -132,7 +141,7 @@ async function startQaServer() {
     const drawingDocument = new DOMParser().parseFromString(pages[0].svg,"image/svg+xml");
     const grilleArrows = [...drawingDocument.querySelectorAll('#drawing-content [data-part="airflow-arrow"]')];
     const grilleLabels=[...drawingDocument.querySelectorAll('#drawing-content [data-part="airflow-label"]')];
-    window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>{const values=(node.getAttribute("d").match(/-?\\d+(?:\\.\\d+)?/g)||[]).map(Number);return Math.max(...values.filter((_,index)=>index%2===0))-Math.min(...values.filter((_,index)=>index%2===0))>=320;}),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))>=70),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
+    window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>{const values=(node.getAttribute("d").match(/-?\\d+(?:\\.\\d+)?/g)||[]).map(Number);return Math.max(...values.filter((_,index)=>index%2===0))-Math.min(...values.filter((_,index)=>index%2===0))>=320;}),offsetArrows:grilleArrows.every(node=>Number(node.getAttribute("data-grille-clearance-mm"))>=120),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))>=70),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
     window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});

@@ -309,18 +309,26 @@ export function externalGrilleShapes(graphic) {
 function appendExternalGrilleAirflowArrows(graphic,push) {
   const length=graphic.combined?Math.max(420,Math.min(540,graphic.widthMm*1.25)):Math.max(320,Math.min(440,graphic.widthMm*1.15));
   const shaftHalfWidth=Math.max(18,Math.min(30,graphic.depthMm*.075));
+  const annotationGapMm=Math.max(120,Math.min(180,graphic.depthMm*.35));
   for(const port of graphic.ports.filter(port=>["intake","exhaust"].includes(port.stream))) {
     const directionLength=Math.hypot(port.directionX??NaN,port.directionY??NaN);
     if(!Number.isFinite(directionLength)||directionLength<=0)continue;
     const portDirection={x:port.directionX/directionLength,y:port.directionY/directionLength};
     const sign=port.stream==="intake"?1:-1;
     const flow={x:portDirection.x*sign,y:portDirection.y*sign};
-    const centre=graphic.combined?{x:0,y:port.yMm}:{x:0,y:0};
+    const exterior={x:-portDirection.x,y:-portDirection.y};
+    const exteriorEdgeMm=Math.abs(exterior.x)*graphic.widthMm/2+Math.abs(exterior.y)*graphic.depthMm/2;
+    const origin=graphic.combined?{x:0,y:port.yMm}:{x:0,y:0};
+    const centre={
+      x:origin.x+exterior.x*(exteriorEdgeMm+annotationGapMm+length/2),
+      y:origin.y+exterior.y*(exteriorEdgeMm+annotationGapMm+length/2),
+    };
     push("path",{
       d:filledAirflowArrowPath(centre,flow,length,shaftHalfWidth),
       fill:externalAirflowColour(port.stream),stroke:"white","stroke-width":3,
       "data-part":"airflow-arrow","data-stream":port.stream,
       "data-flow-x":roundGraphicNumber(flow.x),"data-flow-y":roundGraphicNumber(flow.y),
+      "data-grille-clearance-mm":roundGraphicNumber(annotationGapMm),
     });
     const label=port.stream==="intake"?"Outside Air":"Exhaust air out";
     const labelNormal=airflowLabelNormal(flow);

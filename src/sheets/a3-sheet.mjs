@@ -418,13 +418,13 @@ function renderPrintScene(sheet) {
     out.push(`<line data-kind="wall" data-wall-classification="${escapeXml(wall.classification)}" data-id="${escapeXml(wall.id)}" x1="${mapX(wall.start.x, transform)}" y1="${mapY(wall.start.y, transform)}" x2="${mapX(wall.end.x, transform)}" y2="${mapY(wall.end.y, transform)}" stroke="#26373f" stroke-width="${formatNumber(Math.max(0.35, wall.thicknessMm * transform.scale))}" stroke-linecap="square"${dash}/>`);
   }
   for (const route of scene.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
-  for (const component of scene.components.filter(component => component.planGraphic?.graphicId !== LUNA_GRILLE_PLAN_GRAPHIC_ID)) out.push(withoutDrawingLabels(renderComponent(component, transform)));
+  for (const component of scene.components.filter(component => ![LUNA_GRILLE_PLAN_GRAPHIC_ID,EXTERNAL_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
   for (const route of scene.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
   for(const elbow of scene.hrvCeilingElbows??[]) {
     const shapes=hrvCeilingElbowShapes(elbow).map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}/>`).join("");
     out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
   }
-  for (const component of scene.components.filter(component => component.planGraphic?.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID)) out.push(withoutDrawingLabels(renderComponent(component, transform)));
+  for (const component of scene.components.filter(component => [EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
   if (scene.references.some((reference) => !reference.calibrated)) {
     out.push(`<text x="${formatNumber(sheet.drawingBounds.xMm + 4)}" y="${formatNumber(sheet.drawingBounds.yMm + sheet.drawingBounds.heightMm - 4)}" fill="#a14a2b" font-size="3.2">UNCALIBRATED REFERENCE · DISPLAY ONLY · NOT TO SCALE</text>`);
   }

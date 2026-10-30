@@ -101,13 +101,19 @@ test("placed combined grille swaps Left/Right without changing port identities a
  const arrows=shapes.filter(s=>s.attributes["data-part"]==="airflow-arrow");
  assert.deepEqual(arrows.map(s=>[s.attributes["data-stream"],s.attributes["data-flow-x"],s.attributes["data-flow-y"]]),[["intake",-1,0],["exhaust",1,0]]);
  assert.deepEqual(arrows.map(s=>s.attributes.fill),["#1769d2","#e2342f"]);
+ assert.ok(arrows.every(arrow=>arrow.attributes["data-grille-clearance-mm"]>=120));
+ for(const arrow of arrows) {
+  const values=arrow.attributes.d.match(/-?\d+(?:\.\d+)?/gu).map(Number),xs=values.filter((_,index)=>index%2===0);
+  assert.ok(Math.min(...xs)>=graphic.widthMm/2+arrow.attributes["data-grille-clearance-mm"]-1e-6,"airflow arrow stays wholly beyond the outside grille face");
+ }
  assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","Exhaust air out","ODA","Outside Air"]);
  const labels=shapes.filter(s=>s.attributes["data-part"]==="airflow-label");
  assert.deepEqual(labels.map(s=>[s.attributes["data-stream"],s.text]),[["intake","Outside Air"],["exhaust","Exhaust air out"]]);
- assert.ok(graphic.drawingBoundsMm.minX<=-174&&graphic.drawingBoundsMm.maxX>=174,"larger arrows and labels are included in print fitting bounds");
+ assert.ok(graphic.drawingBoundsMm.minX<=-174&&graphic.drawingBoundsMm.maxX>=700,"offset arrows and labels are included in print fitting bounds");
  const sheet=createA3SheetModel(history.present,{projectName:"Grille review",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-10-23",status:"Preliminary — not for construction",floorId:"floor-ground"});
  const svg=renderA3SheetSvg(sheet);
  assert.match(svg,/data-external-grille-handing="right"/);
+ assert.ok(svg.indexOf('data-id="grille"')>svg.indexOf('data-id="epp-run"'),"external grille face masks the rounded route cap without changing route geometry");
  assert.equal((svg.match(/data-part="airflow-arrow"/g)||[]).length,4,"drawing and legend both retain two semantic airflow arrows");
 });
 
