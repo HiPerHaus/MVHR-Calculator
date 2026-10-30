@@ -95,7 +95,7 @@ try {
   assert.ok(filterHeight>=40,`Expected touch-usable type filter, got ${filterHeight}`);
   await evaluate(cdp,`document.querySelector("#cloud-projects-dialog").close()`);
 
-  await delay(300);
+  await waitForValue(() => savedProjectType(cdp), "mixed");
   await cdp.send("Page.reload", { ignoreCache: true });
   await waitFor(cdp, `document.readyState === "complete" && !document.querySelector(".app-shell")?.hidden && document.querySelectorAll('[data-system="decentralised-mvhr"]').length >= 3`);
   records = await savedDecentralised(cdp);
@@ -169,4 +169,5 @@ async function waitForDevTools(port) { for(let attempt=0;attempt<160;attempt+=1)
 async function connectCdp(url) { const socket=new WebSocket(url); await new Promise((resolveOpen,reject)=>{socket.addEventListener("open",resolveOpen,{once:true});socket.addEventListener("error",reject,{once:true});}); let sequence=0;const pending=new Map(),handlers=new Map();socket.addEventListener("message",(event)=>{const message=JSON.parse(event.data);if(message.id){const request=pending.get(message.id);pending.delete(message.id);if(message.error)request.reject(new Error(message.error.message));else request.resolve(message.result);}else for(const handler of handlers.get(message.method)??[])handler(message.params);});return {send(method,params={}){const id=++sequence;socket.send(JSON.stringify({id,method,params}));return new Promise((resolveSend,rejectSend)=>pending.set(id,{resolve:resolveSend,reject:rejectSend}));},on(method,handler){if(!handlers.has(method))handlers.set(method,[]);handlers.get(method).push(handler);},close(){socket.close();}}; }
 async function evaluate(cdp, expression) { const result=await cdp.send("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description??result.exceptionDetails.text);return result.result.value; }
 async function waitFor(cdp, expression, timeoutMs=10000) { const started=Date.now();while(Date.now()-started<timeoutMs){if(await evaluate(cdp,`Boolean(${expression})`))return;await delay(50);}throw new Error(`Timed out waiting for: ${expression}`); }
+async function waitForValue(read, expected, timeoutMs=10000) { const started=Date.now();let actual;while(Date.now()-started<timeoutMs){actual=await read();if(actual===expected)return;await delay(50);}throw new Error(`Timed out waiting for ${JSON.stringify(expected)}; received ${JSON.stringify(actual)}`); }
 function delay(ms) { return new Promise((resolveDelay)=>setTimeout(resolveDelay,ms)); }
