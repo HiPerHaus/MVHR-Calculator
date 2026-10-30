@@ -50,6 +50,11 @@ try {
   assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "AER-DUC-DN160-1MSL").map((row) => [row.quantity, row.unit]), [["2", "ea"]]);
   assert.equal(supplierEvidence.some((row) => row.unit === "stock" && row.quantity === "Not set" && row.description.includes("DN150")), true);
   assert.equal(supplierEvidence.some((row) => row.unit === "m"), false);
+  const grilleEvidence = await evaluate(cdp, "window.__grilleEvidence");
+  assert.equal(grilleEvidence.arrowCount, 4);
+  assert.deepEqual(grilleEvidence.streams.sort(), ["exhaust", "exhaust", "intake", "intake"]);
+  assert.equal(grilleEvidence.fills.includes("#1769d2"), true);
+  assert.equal(grilleEvidence.fills.includes("#e2342f"), true);
   await evaluate(cdp, "document.querySelector('#download').click()");
   const downloaded = await waitForDownload(downloadDirectory);
   await mkdir(outputDirectory, { recursive: true });
@@ -58,8 +63,12 @@ try {
   await waitFor(cdp, "document.readyState === 'complete' && !document.querySelector('.app-shell')?.hidden && document.querySelector('#draft-status')?.textContent.includes('outline')", 20_000);
   assert.equal(await evaluate(cdp, "document.querySelector('#export-sheet-pdf')?.textContent"), "Export PDF");
   assert.equal(await evaluate(cdp, "document.querySelector('#print-sheet-preview')?.textContent"), "Print");
+  await evaluate(cdp, `(()=>{const form=document.querySelector('#project-details-form');form.elements.name.value='QA House';form.elements.drawingTitle.value='';form.elements.drawnBy.value='QA Designer';form.elements.checkedBy.value='';form.requestSubmit();})()`);
   await evaluate(cdp, "document.querySelector('#sheets-nav').click()");
   await waitFor(cdp, "!document.querySelector('#sheet-preview-panel')?.hidden && document.querySelectorAll('#sheet-preview-host .sheet-page').length >= 2");
+  const appSheetText = await evaluate(cdp, "document.querySelector('#sheet-preview-host .sheet-page')?.textContent");
+  assert.match(appSheetText, /QA House - Ground Floor - Ventilation Layout/);
+  assert.match(appSheetText, /DRAWN BY QA Designer · CHECKED BY —/);
   await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
   await waitForDownloadCount(downloadDirectory, 2);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
@@ -98,6 +107,7 @@ async function startQaServer() {
     project = domain.applyCommand(project,{type:"reference.addImage",asset:{id:"qa-plan-asset",kind:"image",fileName:"sheet-plan.png",mediaType:"image/png",byteLength:referenceBytes.length,sha256:await portable.sha256Hex(referenceBytes),widthPx:dimensions.widthPx,heightPx:dimensions.heightPx,dataUrl:portable.bytesToDataUrl(referenceBytes,"image/png")},reference:{id:"qa-plan-reference",floorId:"floor-ground",assetId:"qa-plan-asset",visible:true,locked:true,opacity:.7,transform:{translationMm:{x:0,y:0},rotationRad:0,scaleMmPerPixel:domain.knownMm(10,"QA scale")},calibration:null}});
     project = domain.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model:"q350-hrv",mounting:"vertical",handing:"left",layout:"unit-mounted-cw",cwSize:"320"},{id:"unit",floorId:"floor-ground",xMm:1000,yMm:1000})});
     for (const [index, catalogueItemId] of ["aerofresh-30-compact-decentralised","zehnder-comfospot-50-decentralised","zehnder-comfoair-70-decentralised","lunos-e2-60-decentralised"].entries()) project = domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id:\`decentralised-\${index}\`,floorId:"floor-ground",xMm:3000+index*600,yMm:2000})});
+    for (const [id,catalogueItemId,x,y,angleRad] of [["grille-combined","generic-external-grille-combined-dn160",5200,1200,0],["grille-intake","generic-external-grille-intake-dn160",5200,2300,Math.PI/2],["grille-exhaust","generic-external-grille-exhaust-dn160",5200,3100,Math.PI]]) { project=domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id,floorId:"floor-ground",xMm:x,yMm:y})}); if(angleRad) project=domain.applyCommand(project,{type:"component.rotateFloorZ",componentId:id,angleRad}); }
     const addRoute = (id, ductKind, stream, points, parallelRunCount=1) => { const family=routeFamilyForKind(ductKind); project=domain.applyCommand(project,{type:"route.add",route:{id,floorId:"floor-ground",system:"mvhr",stream,role:stream==="extract"?"Dwelling extract":stream==="intake"?"Outdoor intake":"Dwelling supply",ductKind,connectionInterface:family.connectionInterface,parallelRunCount,startAttachment:null,endAttachment:null,points:points.map(([x,y])=>({x,y,z:domain.unknownMm("QA route elevation not set")}))}}); };
     addRoute("qa-radial","semi-rigid-radial","supply",[[500,3500],[4500,3500]]);
     addRoute("qa-epp","epp-rigid-dn160","intake",[[500,4000],[1500,4000],[1500,4500]]);
@@ -106,6 +116,9 @@ async function startQaServer() {
     const seedLine = sheet.partsSchedule.componentLines[0];
     const longSheet = {...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:[...sheet.partsSchedule.componentLines,...Array.from({length:70},(_,index)=>({...seedLine,ref:\`QA\${index+1}\`,catalogueItemId:\`qa-item-\${index+1}\`,itemNumber:\`QA-\${index+1}\`,description:\`QA equipment line \${index+1} with a deliberately long description for wrapping and pagination\`}))]}};
     const pages = createSheetOutputPages(longSheet);
+    const drawingDocument = new DOMParser().parseFromString(pages[0].svg,"image/svg+xml");
+    const grilleArrows = [...drawingDocument.querySelectorAll('#drawing-content [data-part="airflow-arrow"]')];
+    window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill"))};
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
     window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});
@@ -171,7 +184,7 @@ async function waitForDownloadCount(directory, expected, timeoutMs = 30_000) {
 }
 
 async function reservePort() { const instance = createServer(); await new Promise((resolveListen) => instance.listen(0, "127.0.0.1", resolveListen)); const port = instance.address().port; await new Promise((resolveClose) => instance.close(resolveClose)); return port; }
-async function waitForDevTools(port) { for (let attempt = 0; attempt < 160; attempt += 1) { try { const response = await fetch(`http://127.0.0.1:${port}/json/version`); if (response.ok) return; } catch {} await delay(50); } throw new Error("Chrome DevTools endpoint did not become available"); }
+async function waitForDevTools(port) { for (let attempt = 0; attempt < 400; attempt += 1) { try { const response = await fetch(`http://127.0.0.1:${port}/json/version`); if (response.ok) return; } catch {} await delay(50); } throw new Error("Chrome DevTools endpoint did not become available"); }
 async function connectCdp(url) { const socket = new WebSocket(url); await new Promise((resolveOpen, reject) => { socket.addEventListener("open", resolveOpen, { once: true }); socket.addEventListener("error", reject, { once: true }); }); let sequence = 0; const pending = new Map(), handlers = new Map(); socket.addEventListener("message", (event) => { const message = JSON.parse(event.data); if (message.id) { const request = pending.get(message.id); pending.delete(message.id); if (message.error) request.reject(new Error(message.error.message)); else request.resolve(message.result); } else for (const handler of handlers.get(message.method) ?? []) handler(message.params); }); return { send(method, params = {}) { const id = ++sequence; socket.send(JSON.stringify({ id, method, params })); return new Promise((resolveSend, rejectSend) => pending.set(id, { resolve: resolveSend, reject: rejectSend })); }, on(method, handler) { if (!handlers.has(method)) handlers.set(method, []); handlers.get(method).push(handler); }, close() { socket.close(); } }; }
 async function evaluate(cdp, expression) { const result = await cdp.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text); return result.result.value; }
 async function waitFor(cdp, expression, timeoutMs = 10_000) { const started = Date.now(); while (Date.now() - started < timeoutMs) { if (await evaluate(cdp, `Boolean(${expression})`)) return; await delay(50); } throw new Error(`Timed out waiting for: ${expression}`); }

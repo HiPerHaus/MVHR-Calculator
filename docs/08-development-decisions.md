@@ -139,6 +139,10 @@ Numeric scale is computed only from canonical model millimetres, the actual prin
 
 The preview title block carries project, site, client and drawing identifiers, floor, explicit date, **Preliminary — not for construction**, `DRAFT` revision text, scale, blank Checked by and a legend built only from used symbols. Missing client/site details are shown as Not set rather than invented. Synthetic fixture names and their not-manufacturer-verified status remain visible. XML-invalid text is replaced, markup is escaped, long fields wrap or truncate with an ellipsis, and a legend that cannot fit is rejected rather than silently omitting used symbols.
 
+Project details now own the optional drawing title, Drawn by and Checked by values used by exports. A blank drawing title defaults to **[Project name] - [Floor] - Ventilation Layout**. New drawings use **Ground Floor**; the exact legacy development sentinel **Synthetic Ground Floor** is displayed as **Ground Floor** in the export title without rewriting the saved floor. Checked by is never inferred from the signed-in user, owner or Drawn by value and remains blank until a reviewer is deliberately recorded.
+
+External weather grilles use filled blue outdoor-intake and red outdoor-exhaust arrows derived from each typed port direction. Intake follows the component port direction; exhaust reverses it because the component port points toward the connected duct. Component rotation then rotates the complete symbol, keeping the airflow semantics stable without storing a second direction source.
+
 The SVG is a deterministic preview generated from that captured model, not an issued drawing or construction-ready output. PDF generation, print-driver behaviour, font substitution, physical-printer calibration, browser rendering, accessibility inspection, cryptographic artefact hashing, immutable design snapshots, authorised issue events and revision history remain separately gated. The localhost server allowlist adds only `src/sheets` to serve this module.
 
 ## DEV14 — Bounded synthetic ASCII DXF reference foundation

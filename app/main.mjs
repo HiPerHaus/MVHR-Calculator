@@ -2189,7 +2189,7 @@ function createInitialProject(projectId = PROJECT_ID) {
     type: "floor.add",
     floor: {
       id: "floor-ground",
-      name: "Synthetic Ground Floor",
+      name: "Ground Floor",
       transform: {
         translationMm: { x: 0, y: 0, z: knownMm(0, "synthetic local shell") },
         orientation: identityQuaternion(),
@@ -2452,7 +2452,7 @@ function projectTypeStatus(project) {
 function renderProjectWorkspace() {
   renderProjectLibrary();
   const details=history.present.projectDetails,form=document.querySelector("#project-details-form");
-  for(const key of ["name","address","clientName","projectReference"])form.elements.namedItem(key).value=details[key] || (key==="name"?currentProjectName:"");
+  for(const key of ["name","address","clientName","projectReference","drawingTitle","drawnBy","checkedBy"])form.elements.namedItem(key).value=details[key] || (key==="name"?currentProjectName:"");
   const project = history.present;
   projectVentilationTypeSelect.value=project.ventilationDesignType;
   applyProjectTypeBadge(currentProjectTypeElement,project.ventilationDesignType);
@@ -2736,14 +2736,14 @@ function openSheetPreview({ designStage = false } = {}) {
       company:cloudSession?.companyProfile?.details,
       companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,
       includeSchedule:false,
-      drawingTitle: `${floor.name} Manual MVHR Plan`,
+      drawingTitle: history.present.projectDetails.drawingTitle || defaultDrawingTitle(history.present.projectDetails.name || currentProjectName, floor.name),
       drawingId: `${history.present.projectDetails.projectReference || "V"}-01`,
       issueDate: new Date().toISOString().slice(0, 10),
       status: "Preliminary — not for construction",
       revision: "DRAFT",
       revisionText: "Working-draft preview",
-      drawnBy: "",
-      checkedBy: "",
+      drawnBy: history.present.projectDetails.drawnBy || "",
+      checkedBy: history.present.projectDetails.checkedBy || "",
     });
     const parser = new DOMParser();
     const pages = createSheetOutputPages(sheet);
@@ -2786,6 +2786,14 @@ function openSheetPreview({ designStage = false } = {}) {
     interactionMessage = `Sheet preview unavailable: ${error.message}`;
     updateStatus();
   }
+}
+
+function exportFloorName(name) {
+  return name === "Synthetic Ground Floor" ? "Ground Floor" : name;
+}
+
+function defaultDrawingTitle(projectName, floorName) {
+  return `${projectName || "Untitled project"} - ${exportFloorName(floorName)} - Ventilation Layout`;
 }
 
 function closeSheetPreview() {

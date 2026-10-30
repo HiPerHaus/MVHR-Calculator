@@ -98,9 +98,33 @@ test("placed combined grille swaps Left/Right without changing port identities a
  const exhaust=graphic.ports.find(p=>p.stream==="exhaust");
  assert.ok(Math.abs(hood.attributes.y+hood.attributes.height/2-exhaust.yMm)<1e-6);
  assert.equal(shapes.filter(s=>s.attributes["data-part"]==="rear-duct-neck").length,2);
+ const arrows=shapes.filter(s=>s.attributes["data-part"]==="airflow-arrow");
+ assert.deepEqual(arrows.map(s=>[s.attributes["data-stream"],s.attributes["data-flow-x"],s.attributes["data-flow-y"]]),[["intake",-1,0],["exhaust",1,0]]);
+ assert.deepEqual(arrows.map(s=>s.attributes.fill),["#1769d2","#e2342f"]);
  assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","ODA"]);
  const sheet=createA3SheetModel(history.present,{projectName:"Grille review",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-10-23",status:"Preliminary — not for construction",floorId:"floor-ground"});
- assert.match(renderA3SheetSvg(sheet),/data-external-grille-handing="right"/);
+ const svg=renderA3SheetSvg(sheet);
+ assert.match(svg,/data-external-grille-handing="right"/);
+ assert.equal((svg.match(/data-part="airflow-arrow"/g)||[]).length,4,"drawing and legend both retain two semantic airflow arrows");
+});
+
+test("single external grilles derive intake inward and exhaust outward airflow from typed ports through every quarter turn",()=>{
+ for(const [record,stream] of [["generic-external-grille-intake-dn160","intake"],["generic-external-grille-exhaust-dn160","exhaust"],["zehnder-external-grille-intake-dn160","intake"],["zehnder-external-grille-exhaust-dn160","exhaust"]]) {
+  for(const quarterTurns of [0,1,2,3]) {
+   let component=createCatalogueComponent(record,{id:`${stream}-${quarterTurns}`,floorId:"floor-ground",xMm:0,yMm:0});
+   for(let turn=0;turn<quarterTurns;turn++) {
+    let p=applyCommand(createProject(`rotation-${stream}-${quarterTurns}`),{type:"floor.add",floor:{id:"floor-ground",name:"Ground",transform:{translationMm:{x:0,y:0,z:knownMm(0,"test")},orientation:identityQuaternion()}}});
+    p=applyCommand(p,{type:"component.add",component});
+    p=applyCommand(p,{type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI/2});
+    component=p.components[0];
+   }
+   const graphic=deriveComponentPlanGraphic(component),arrow=externalGrilleShapes(graphic).find(s=>s.attributes["data-part"]==="airflow-arrow");
+   const port=graphic.ports.find(candidate=>candidate.stream===stream),sign=stream==="intake"?1:-1;
+   assert.deepEqual([arrow.attributes["data-stream"],arrow.attributes["data-flow-x"],arrow.attributes["data-flow-y"]],[stream,port.directionX*sign||0,port.directionY*sign||0]);
+   assert.ok(Math.abs(component.orientation.z-Math.sin(quarterTurns*Math.PI/4))<1e-9);
+   assert.ok(Math.abs(component.orientation.w-Math.cos(quarterTurns*Math.PI/4))<1e-9);
+  }
+ }
 });
 
 test("near-grille clicks do not force a box loop before a downward-facing connection",()=>{

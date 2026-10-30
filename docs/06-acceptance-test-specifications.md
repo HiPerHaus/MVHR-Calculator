@@ -146,6 +146,8 @@ The exported page is exactly 420 × 297 mm landscape with the reserved right sid
 
 At high zoom, designed geometry and text remain vector/selectable where specified. No toolbar, handle, current selection, snap marker, obsolete client detail, old product inset, or unverified badge appears. The title block includes revision, deliberate issue date, status, and a used-symbol legend. A Preliminary or Issued for review output is marked **not for construction**. Checked by remains blank without a separate recorded review.
 
+External intake and exhaust grilles carry visible, service-coloured airflow arrows in the canvas, Print and direct PDF output. The arrow follows the typed outdoor air path through every quarter-turn rotation: outdoor intake points from outside toward the system and outdoor exhaust points from the system to outside. Combined grilles retain two separate arrows. The symbol is a visual direction cue, not an installation-clearance or performance certification.
+
 Two exports from the same immutable design snapshot and template produce the same design content despite working-draft edits, screen zoom, hidden labels, or catalogue filters. Output metadata records snapshot, issue revision where applicable, template/preset/generator, and checksum.
 
 ## Workflow-boundary acceptance

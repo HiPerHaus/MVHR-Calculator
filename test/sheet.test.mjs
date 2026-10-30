@@ -547,4 +547,7 @@ test("outdoor legend distinguishes combined, intake and exhaust using the drawn 
   assert.match(svg,/Separate outdoor exhaust grille/);
   const drawing=svg.split('<g id="drawing-content"')[1].split('<text data-kind="draft-watermark"')[0];
   assert.doesNotMatch(drawing,/<text\b/);
+  assert.equal((drawing.match(/data-part="airflow-arrow"/g)||[]).length,4);
+  assert.match(drawing,/data-stream="intake" data-flow-x="-1" data-flow-y="0"/);
+  assert.match(drawing,/data-stream="exhaust" data-flow-x="1" data-flow-y="0"/);
 });

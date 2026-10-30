@@ -72,7 +72,7 @@ export function deriveComponentPlanGraphic(component) {
     const ports=component.ports??component.catalogueSnapshot?.ports??[];
     return deepFreeze({graphicId:EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,kind:"external-weather-grille",widthMm:symbol.widthMm,depthMm:symbol.heightMm,
       view:"plan",combined:ports.filter(p=>["intake","exhaust"].includes(p.stream)).length===2,handing:component.externalGrilleHanding??"left",
-      ports:ports.map(p=>({xMm:p.positionMm.x,yMm:p.positionMm.y,stream:p.stream,nominalSizeMm:p.interface?.nominalSizeMm??null})),
+      ports:ports.map(p=>({xMm:p.positionMm.x,yMm:p.positionMm.y,directionX:p.direction?.x??null,directionY:p.direction?.y??null,stream:p.stream,nominalSizeMm:p.interface?.nominalSizeMm??null})),
       evidenceBoundary:"Louvred weather hood drawing based on supplied Zehnder appearance; generic combined geometry remains schematic."});
   }
   const match = typeof recordId === "string" ? recordId.match(Q350_PROFILE_PATTERN) : null;
@@ -284,10 +284,11 @@ export function externalGrilleShapes(graphic) {
     const exhaust=graphic.ports.find(p=>p.stream==="exhaust");
     if(exhaust)push("rect",{x:front,y:exhaust.yMm-h*.135,width:thickness*1.6,height:h*.27,fill:"#d9e1e3",stroke:"#52656d","stroke-width":4,"data-part":"projecting-exhaust-hood"});
     for(const port of graphic.ports) {
-      const y=port.yMm,d=port.nominalSizeMm??Math.min(160,h*.35),colour=port.stream==="intake"?"#359a78":"#89617d";
+      const y=port.yMm,d=port.nominalSizeMm??Math.min(160,h*.35),colour=externalAirflowColour(port.stream);
       push("rect",{x:port.xMm,y:y-d/2,width:rear-port.xMm,height:d,fill:"#d1dadd",stroke:"#52656d","stroke-width":3,"data-part":"rear-duct-neck"});
       push("text",{x:rear+thickness/2,y:y+8,fill:colour,"font-size":20,"font-weight":750,"text-anchor":"middle"},port.stream==="intake"?"ODA":"EHA");
     }
+    appendExternalGrilleAirflowArrows(graphic,push);
     return shapes;
   }
   push("rect",{x:-w/2,y:-h/2,width:w,height:h,rx:8,fill:"#e1e5e6",stroke:"#52656d","stroke-width":4});
@@ -299,5 +300,38 @@ export function externalGrilleShapes(graphic) {
       push("line",{x1:-w*.42,y1:y+2,x2:w*.42,y2:y+2,stroke:"white","stroke-width":1});
     }
   }
+  appendExternalGrilleAirflowArrows(graphic,push);
   return shapes;
 }
+
+function appendExternalGrilleAirflowArrows(graphic,push) {
+  const length=graphic.combined?graphic.widthMm*.52:Math.min(180,graphic.widthMm*.62);
+  const shaftHalfWidth=Math.max(9,Math.min(20,graphic.depthMm*.055));
+  for(const port of graphic.ports.filter(port=>["intake","exhaust"].includes(port.stream))) {
+    const directionLength=Math.hypot(port.directionX??NaN,port.directionY??NaN);
+    if(!Number.isFinite(directionLength)||directionLength<=0)continue;
+    const portDirection={x:port.directionX/directionLength,y:port.directionY/directionLength};
+    const sign=port.stream==="intake"?1:-1;
+    const flow={x:portDirection.x*sign,y:portDirection.y*sign};
+    const centre=graphic.combined?{x:0,y:port.yMm}:{x:0,y:0};
+    push("path",{
+      d:filledAirflowArrowPath(centre,flow,length,shaftHalfWidth),
+      fill:externalAirflowColour(port.stream),stroke:"white","stroke-width":3,
+      "data-part":"airflow-arrow","data-stream":port.stream,
+      "data-flow-x":roundGraphicNumber(flow.x),"data-flow-y":roundGraphicNumber(flow.y),
+    });
+  }
+}
+
+function filledAirflowArrowPath(centre,direction,length,shaftHalfWidth) {
+  const half=length/2,headLength=Math.min(52,length*.3),headHalfWidth=shaftHalfWidth*1.65;
+  const tail={x:centre.x-direction.x*half,y:centre.y-direction.y*half};
+  const tip={x:centre.x+direction.x*half,y:centre.y+direction.y*half};
+  const shoulder={x:tip.x-direction.x*headLength,y:tip.y-direction.y*headLength};
+  const perpendicular={x:-direction.y,y:direction.x};
+  const point=(origin,side,offset)=>`${roundGraphicNumber(origin.x+perpendicular.x*side*offset)} ${roundGraphicNumber(origin.y+perpendicular.y*side*offset)}`;
+  return `M ${point(tail,1,shaftHalfWidth)} L ${point(shoulder,1,shaftHalfWidth)} L ${point(shoulder,1,headHalfWidth)} L ${roundGraphicNumber(tip.x)} ${roundGraphicNumber(tip.y)} L ${point(shoulder,-1,headHalfWidth)} L ${point(shoulder,-1,shaftHalfWidth)} L ${point(tail,-1,shaftHalfWidth)} Z`;
+}
+
+function externalAirflowColour(stream){return stream==="intake"?"#1769d2":"#e2342f";}
+function roundGraphicNumber(value){return Number(value.toFixed(3));}
