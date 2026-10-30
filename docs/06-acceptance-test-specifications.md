@@ -188,6 +188,12 @@ Remove the selected floor's outline and retain one current confirmed wall-face r
 
 Open a floor containing only an uncalibrated plan reference, or walls without a closed outline or confirmed room. Export shows **Floor area · Not set**. It does not use image bounds, drawing bounds or `0 m²` as a substitute.
 
+## Mixed drawing and parts-list print sizes
+
+Open Drawing & parts list for a short schedule and print or save to PDF. Page 1 is A3 landscape and every parts-list page is A4 portrait. Repeat with enough centralised and decentralised schedule rows to create multiple parts-list pages. Each row appears once, no table content is clipped or scaled below its authored A4 size, and there are no extra blank pages.
+
+The print stylesheet keeps named A3/A4 pages and also sets the first page to A3 with A4 as the following-page fallback. Browser print engines that ignore CSS paged-media sizes remain an explicit compatibility limit; designers must check the preview's reported paper sizes before issuing output.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

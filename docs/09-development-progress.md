@@ -364,3 +364,10 @@ Two unit tools replace the individual model variants in the drafting palette. Dr
 - Closed preliminary floor-area outlines take precedence. Confirmed wall-face rooms are an explicitly labelled fallback subtotal; zones are never added again.
 - Missing or unscaled plan-only geometry prints **Not set**, not a fabricated zero.
 - Added selected-floor, multi-floor, uncalibrated-reference, confirmed-room and A3/A4 rendering regression coverage, plus synthetic visual layout review.
+
+### 30 October 2026 — mixed A3 drawing and A4 parts-list printing
+
+- Kept the first drawing page at A3 landscape while making every following parts-list page A4 portrait, with named page rules plus a first/following-page fallback for print engines that ignore named pages.
+- The preview now states the intended `1 A3 drawing + n A4 parts-list pages` output before the browser print dialog opens.
+- Verified the actual PDF page boxes and full-page renders in Chromium for a six-page centralised schedule and a two-page decentralised schedule. Rows, notes, borders and page numbering remained visible with no extra blank pages.
+- Browser and operating-system print dialogs still own final CSS paged-media support; non-Chromium output remains a review requirement rather than a universal compatibility claim.

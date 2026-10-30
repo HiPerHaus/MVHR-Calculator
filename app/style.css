@@ -497,7 +497,8 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .sheet-preview-host svg { display: block; width: 100%; height: auto; }
 .sheet-preview-note { display: flex; align-items: center; justify-content: center; border-top: 1px solid #c5ced2; background: #f6f8f9; color: #65767d; font-size: 11px; }
 
-@page { margin: 0; }
+@page { size: A4 portrait; margin: 0; }
+@page :first { size: A3 landscape; margin: 0; }
 @page drawing { size: A3 landscape; margin: 0; }
 @page parts { size: A4 portrait; margin: 0; }
 @media print {
@@ -508,7 +509,7 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
   .sheet-preview-heading, .sheet-preview-note, .sheet-page-label { display: none !important; }
   .sheet-preview-stage { overflow: visible; padding: 0; }
   .sheet-preview-host { width:auto; height:auto; margin:0; }
-  .sheet-page { margin:0; box-shadow:none; break-inside:avoid; break-after:page; }
+  .sheet-page { box-sizing:border-box; margin:0; padding:0; overflow:hidden; box-shadow:none; break-inside:avoid; break-after:page; }
   .sheet-page:last-child { break-after:auto; }
   .sheet-page.sheet-a3 { page:drawing; width:420mm; height:297mm; }
   .sheet-page.sheet-a4 { page:parts; width:210mm; height:297mm; }

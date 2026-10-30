@@ -1001,3 +1001,9 @@ Project lists derive the type from the private saved project document. This avoi
 Drawing exports report area for the represented floor only. An explicit closed floor-area outline is the first basis and is labelled **Preliminary closed-plan outline**. If no outline exists, current confirmed wall-face rooms may provide a **Known room area** subtotal; zones are excluded because they partition a parent room and would double-count it. Unresolved rooms remain excluded and counted in the basis note.
 
 An image or CAD underlay, drawing bounds, walls without confirmed rooms, and missing or unresolved geometry never become an area value. The key states **Not set** instead of `0 m²`. Values convert canonical square millimetres to square metres at the sheet boundary and do not claim net, gross, regulatory or certified floor area.
+
+### 30 October 2026 — mixed print page-size fallback
+
+The drawing remains A3 landscape and parts-list pages remain A4 portrait. Named CSS pages retain the explicit drawing/parts distinction. A second standards-based fallback sets the first printed page to A3 and all following pages to A4 so a browser that ignores named pages does not inherit the user's A3 paper choice for the complete document. The preview reports the intended page sizes before opening the browser print dialog.
+
+Browser print engines still control whether CSS paged-media sizes are honoured. Studio does not silently rasterise, rescale or rebuild the authored SVG pages to work around a print engine. Output must be checked before issue.

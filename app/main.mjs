@@ -2752,7 +2752,7 @@ function openSheetPreview({ designStage = false } = {}) {
       element.append(label,document.importNode(documentSvg.documentElement,true));return element;
     });
     sheetPreviewHost.replaceChildren(...elements);
-    sheetPreviewStatus.textContent = `${partsPages.length+1} pages · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    sheetPreviewStatus.textContent = `1 A3 drawing + ${partsPages.length} A4 parts-list page${partsPages.length === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
