@@ -1,7 +1,8 @@
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
-import {createA4PartsListPages,renderA4PartsListSvg} from "../src/sheets/a4-parts-list.mjs";
+import { createSheetOutputPages, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
 import { getBootAccess } from "./auth-context.mjs";
@@ -533,8 +534,11 @@ const convertProjectSummary = document.querySelector("#convert-project-summary")
 const confirmProjectConversionButton = document.querySelector("#confirm-project-conversion");
 const sheetPreviewHost = document.querySelector("#sheet-preview-host");
 const sheetPreviewStatus = document.querySelector("#sheet-preview-status");
+const exportSheetPdfButton = document.querySelector("#export-sheet-pdf");
 const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
+let sheetPreviewPages = [];
+let sheetPreviewPdfMetadata = null;
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
@@ -1332,6 +1336,7 @@ threeDHost.addEventListener("pointerdown", startThreeDPointer);
 threeDHost.addEventListener("pointermove", moveThreeDPointer);
 threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
+exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 returnToCheckButton.addEventListener("click", returnToDesignCheck);
@@ -2741,9 +2746,7 @@ function openSheetPreview({ designStage = false } = {}) {
       checkedBy: "",
     });
     const parser = new DOMParser();
-    const partsPages=createA4PartsListPages(sheet);
-    const drawingSvg=renderA3SheetSvg(sheet).replace('</svg>',`<text x="12" y="293" font-size="2.3" fill="#687880">Page 1 of ${partsPages.length+1} · A3</text></svg>`);
-    const pages=[{svg:drawingSvg,className:"sheet-a3",label:"Page 1 · A3 drawing"},...partsPages.map(page=>({svg:renderA4PartsListSvg(sheet,page),className:"sheet-a4",label:`Page ${page.pageNumber} · A4 parts list`}))];
+    const pages = createSheetOutputPages(sheet);
     const elements=pages.map(page=>{
       const documentSvg=parser.parseFromString(page.svg,"image/svg+xml");
       if(documentSvg.querySelector("parsererror"))throw new TypeError("Generated sheet SVG could not be parsed");
@@ -2752,7 +2755,15 @@ function openSheetPreview({ designStage = false } = {}) {
       element.append(label,document.importNode(documentSvg.documentElement,true));return element;
     });
     sheetPreviewHost.replaceChildren(...elements);
-    sheetPreviewStatus.textContent = `1 A3 drawing + ${partsPages.length} A4 parts-list page${partsPages.length === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    sheetPreviewPages = pages;
+    sheetPreviewPdfMetadata = {
+      title: `${sheet.metadata.projectName} · ${sheet.metadata.drawingId}`,
+      subject: `${sheet.metadata.drawingTitle} · ${sheet.metadata.status}`,
+      author: sheet.metadata.company?.name || "HiPer Studio",
+      fileName: sheetPdfFileName(sheet.metadata.projectName, sheet.metadata.drawingId),
+    };
+    const partsPageCount = pages.length - 1;
+    sheetPreviewStatus.textContent = `1 A3 drawing + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -2786,6 +2797,24 @@ function closeSheetPreview() {
 function printSheetPreview() {
   if (sheetPreviewPanel.hidden) return;
   window.print();
+}
+
+async function exportSheetPreviewPdf() {
+  if (sheetPreviewPanel.hidden || !sheetPreviewPages.length || !sheetPreviewPdfMetadata) return;
+  const previousLabel = exportSheetPdfButton.textContent;
+  exportSheetPdfButton.disabled = true;
+  exportSheetPdfButton.textContent = "Creating PDF…";
+  try {
+    const blob = await createMixedPagePdfBlob(sheetPreviewPages, sheetPreviewPdfMetadata);
+    downloadPdfBlob(blob, sheetPreviewPdfMetadata.fileName);
+    interactionMessage = `Downloaded ${sheetPreviewPdfMetadata.fileName} with exact A3/A4 page sizes`;
+  } catch (error) {
+    interactionMessage = `PDF export failed: ${error.message}`;
+  } finally {
+    exportSheetPdfButton.disabled = false;
+    exportSheetPdfButton.textContent = previousLabel;
+    updateStatus();
+  }
 }
 
 function createStore() {

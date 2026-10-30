@@ -8,12 +8,14 @@
     "check:supabase-legacy-proposal": "node scripts/check-supabase-legacy-proposal.mjs",
     "dev": "node scripts/dev-server.mjs",
     "build": "node scripts/build.mjs",
-    "predev": "node scripts/build-auth.mjs"
+    "predev": "node scripts/build-vendors.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",
     "@vercel/functions": "3.6.1",
-    "pdfjs-dist": "6.4.299"
+    "jspdf": "4.2.1",
+    "pdfjs-dist": "6.4.299",
+    "svg2pdf.js": "2.9.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

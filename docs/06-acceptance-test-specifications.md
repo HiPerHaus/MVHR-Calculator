@@ -190,9 +190,9 @@ Open a floor containing only an uncalibrated plan reference, or walls without a 
 
 ## Mixed drawing and parts-list print sizes
 
-Open Drawing & parts list for a short schedule and print or save to PDF. Page 1 is A3 landscape and every parts-list page is A4 portrait. Repeat with enough centralised and decentralised schedule rows to create multiple parts-list pages. Each row appears once, no table content is clipped or scaled below its authored A4 size, and there are no extra blank pages.
+Open Drawing & parts list for a short schedule and choose **Export PDF**. Page 1 is physically 420 × 297 mm and every parts-list page is physically 210 × 297 mm. Repeat with enough centralised and decentralised schedule rows to create multiple parts-list pages and with an embedded plan image. Each row appears once, the reference remains visible, text remains extractable, no table content is clipped or scaled below its authored A4 size, and there are no extra blank pages.
 
-The print stylesheet keeps named A3/A4 pages and also sets the first page to A3 with A4 as the following-page fallback. Browser print engines that ignore CSS paged-media sizes remain an explicit compatibility limit; designers must check the preview's reported paper sizes before issuing output.
+Choose **Print** separately and confirm the browser dialog opens. The print stylesheet keeps named A3/A4 pages and also sets the first page to A3 with A4 as the following-page fallback. Browser print engines may still ignore those sizes; browser printing is a convenience path, not evidence of mixed physical pages. Designers must use direct PDF export or explicitly verify the browser-produced page boxes before issue.
 
 ## Future module-contract acceptance
 

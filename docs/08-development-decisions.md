@@ -1007,3 +1007,9 @@ An image or CAD underlay, drawing bounds, walls without confirmed rooms, and mis
 The drawing remains A3 landscape and parts-list pages remain A4 portrait. Named CSS pages retain the explicit drawing/parts distinction. A second standards-based fallback sets the first printed page to A3 and all following pages to A4 so a browser that ignores named pages does not inherit the user's A3 paper choice for the complete document. The preview reports the intended page sizes before opening the browser print dialog.
 
 Browser print engines still control whether CSS paged-media sizes are honoured. Studio does not silently rasterise, rescale or rebuild the authored SVG pages to work around a print engine. Output must be checked before issue.
+
+### 30 October 2026 — direct mixed-size PDF download
+
+The reported browser-saved PDF proved that Chromium can ignore mixed CSS page sizes and place the A3 drawing inside an A4 physical page. **Export PDF** therefore builds a downloadable document directly from the same captured A3/A4 SVG page set used by the preview. The PDF owns each physical page size: the drawing is 420 × 297 mm and every parts page is 210 × 297 mm. SVG text and line work remain vector content, while embedded plan images retain their existing raster payload. A separate **Print** action remains available but keeps the browser's mixed-paper limitation.
+
+The client-side exporter uses pinned `jspdf` and `svg2pdf.js` dependencies bundled with the application. It does not upload drawings, call an external conversion service, change project geometry, or create an issued revision. The output remains Preliminary/not for construction, and physical scale must still be checked before use.
