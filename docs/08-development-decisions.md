@@ -979,3 +979,11 @@ Room airflow presentation is Normal mode on the active floor only. Child zones r
 The internal-terminal catalogue exposes explicit Supply and Extract placement modes. Choosing either mode retains the current Round or Rectangle outlet product and keeps that typed placement armed after each successful outlet. Changing mode affects only subsequent placements; every outlet remains its own undoable component with its own saved supply/extract ports and room or zone association. Select, Pan, the visible tablet Cancel action and Escape all leave outlet placement.
 
 Single-finger and Apple Pencil taps place outlets. A two-finger camera gesture cancels only its transient pointer preview and suppresses the following click, so it cannot add an outlet. This is a touch interaction improvement, not an airflow, size or room-demand inference. Actual iPad acceptance remains required before production promotion.
+
+### 30 October 2026 — decentralised MVHR markup candidate
+
+The four current HiPer Haus decentralised product identities are placeable as schematic through-wall physical-unit markers. Aerofresh 30 Compact and Lunos e2-60 retain alternating operation and accept explicit pair/group and controller references. Zehnder ComfoSpot 50 and ComfoAir 70 retain continuous-balanced operation and do not require a companion marker. A pair/group or controller reference is an association, not another component quantity or an automatic compatibility claim.
+
+The plan marker is not to scale and is not a drilling template. Conflicting sleeve/core-opening evidence remains visible in the pinned catalogue record while the authoritative penetration diameter stays unknown. Placement does not establish wall suitability, installed projection, clearance, electrical design, wet-area suitability or compliance.
+
+Decentralised markers expose no central DN90/EPP ports and remain outside the central connection graph. Catalogue airflow levels remain reference evidence only and are excluded from room and project totals. Design Check reports missing associations and states that decentralised airflow is not calculated. The parts schedule counts physical markers once and reports unique pair/group and controller references separately without inferring purchase quantities.

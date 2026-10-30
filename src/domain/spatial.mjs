@@ -252,6 +252,7 @@ export function applyCommand(project, command, options = {}) {
       next.components.push(component);
       if (command.autoAssignTerminalSpace === true) {
         assignTerminalToContainingSpace(next, component);
+        assignDecentralisedToContainingSpace(next, component);
       }
       break;
     }
@@ -323,6 +324,7 @@ export function applyCommand(project, command, options = {}) {
       synchronizeAttachedRouteEndpoints(next, component.id);
       if (command.autoAssignTerminalSpace === true) {
         assignTerminalToContainingSpace(next, component);
+        assignDecentralisedToContainingSpace(next, component);
       }
       break;
     }
@@ -342,6 +344,34 @@ export function applyCommand(project, command, options = {}) {
       assertComponentIsNotAssemblyMember(next, component.id, "set elevation for");
       component.positionMm.z = normalizeMeasurement(command.elevationMm);
       synchronizeAttachedRouteEndpoints(next, component.id);
+      break;
+    }
+    case "component.setDecentralisedConfiguration": {
+      const component = requireEntity(next.components, command.componentId, "Decentralised component");
+      if (!component.decentralisedMvhr) throw new TypeError("Component is not a decentralised MVHR unit");
+      const roomId = nullableOpaqueId(command.roomId, "Decentralised room ID");
+      const zoneId = nullableOpaqueId(command.zoneId, "Decentralised zone ID");
+      if (roomId !== null && zoneId !== null) throw new TypeError("Choose a room or a zone, not both");
+      if (roomId !== null) {
+        const room = requireEntity(next.rooms, roomId, "Decentralised room");
+        if (room.floorId !== component.floorId) throw new TypeError("Decentralised room must share the component floor");
+        if (next.zones.some((zone) => zone.parentRoomId === room.id)) throw new TypeError("Assign the decentralised unit to a child zone instead of its partitioned parent room");
+      }
+      if (zoneId !== null) {
+        const zone = requireEntity(next.zones, zoneId, "Decentralised zone");
+        if (zone.floorId !== component.floorId) throw new TypeError("Decentralised zone must share the component floor");
+      }
+      const pairGroupId = nullableBoundedText(command.pairGroupId, "Decentralised pair/group reference", 80);
+      if (component.decentralisedMvhr.operatingMode === "continuous-balanced" && pairGroupId !== null) {
+        throw new TypeError("Continuous-balanced units do not require an alternating pair/group reference");
+      }
+      component.decentralisedMvhr = normalizeDecentralisedMvhrMetadata({
+        ...component.decentralisedMvhr,
+        roomId,
+        zoneId,
+        pairGroupId,
+        controllerReference: nullableBoundedText(command.controllerReference, "Decentralised controller reference", 120),
+      });
       break;
     }
     case "equipmentAssembly.moveBy": {
@@ -636,6 +666,9 @@ export function applyCommand(project, command, options = {}) {
           `Room removal is blocked by dependent zones: ${dependentZones.map((zone) => zone.id).join(", ")}`,
         );
       }
+      for (const component of next.components) {
+        if (component.decentralisedMvhr?.roomId === room.id) component.decentralisedMvhr.roomId = null;
+      }
       next.rooms = next.rooms.filter((candidate) => candidate.id !== room.id);
       break;
     }
@@ -663,6 +696,9 @@ export function applyCommand(project, command, options = {}) {
     }
     case "zone.remove": {
       const zone = requireEntity(next.zones, command.zoneId, "Zone");
+      for (const component of next.components) {
+        if (component.decentralisedMvhr?.zoneId === zone.id) component.decentralisedMvhr.zoneId = null;
+      }
       next.zones = next.zones.filter((candidate) => candidate.id !== zone.id);
       break;
     }
@@ -1537,6 +1573,28 @@ export function validateProject(project) {
       assignedTerminalEndpoints.set(key, zone.id);
     }
   });
+  for (const component of project.components) {
+    const metadata = component.decentralisedMvhr;
+    if (!metadata) continue;
+    if (metadata.roomId !== null && metadata.zoneId !== null) {
+      throw new TypeError(`Decentralised component cannot reference both a room and zone: ${component.id}`);
+    }
+    if (metadata.roomId !== null) {
+      const room = requireEntity(project.rooms, metadata.roomId, "Decentralised room");
+      if (room.floorId !== component.floorId) {
+        throw new TypeError(`Decentralised room must share the component floor: ${component.id}`);
+      }
+      if (project.zones.some((zone) => zone.parentRoomId === room.id)) {
+        throw new TypeError(`Decentralised component must reference a child zone instead of a partitioned parent room: ${component.id}`);
+      }
+    }
+    if (metadata.zoneId !== null) {
+      const zone = requireEntity(project.zones, metadata.zoneId, "Decentralised zone");
+      if (zone.floorId !== component.floorId) {
+        throw new TypeError(`Decentralised zone must share the component floor: ${component.id}`);
+      }
+    }
+  }
   if (project.referenceAssets.length > MAX_REFERENCE_ASSETS) {
     throw new RangeError(`Project exceeds the ${MAX_REFERENCE_ASSETS}-reference prototype limit`);
   }
@@ -2147,6 +2205,16 @@ function assignTerminalToContainingSpace(project, component) {
     portId: port.id,
     assignmentMethod: "spatial",
   });
+}
+
+function assignDecentralisedToContainingSpace(project, component) {
+  if (!component.decentralisedMvhr) return;
+  const target = terminalPlacementSpace(project, component.floorId, {
+    x: component.positionMm.x,
+    y: component.positionMm.y,
+  });
+  component.decentralisedMvhr.roomId = target?.kind === "room" ? target.space.id : null;
+  component.decentralisedMvhr.zoneId = target?.kind === "zone" ? target.space.id : null;
 }
 
 function terminalSpaceIsCompatible(space, port) {
@@ -3064,11 +3132,31 @@ function normalizeComponent(component) {
     positionMm: normalizePosition(component.positionMm),
     orientation: normalizeQuaternion(component.orientation),
     ports,
+    ...(component.decentralisedMvhr ? { decentralisedMvhr: normalizeDecentralisedMvhrMetadata(component.decentralisedMvhr) } : {}),
   };
   if (ductRunCount !== null && !assignableRoomTerminalPort(normalized)) {
     throw new TypeError("Duct run count is only valid for a single-port MVHR supply or extract terminal");
   }
   return normalized;
+}
+
+function normalizeDecentralisedMvhrMetadata(value) {
+  if (!value || typeof value !== "object") throw new TypeError("Decentralised MVHR metadata is required");
+  const systemKind = normalizeChoice(value.systemKind, ["decentralised-through-wall"], "Decentralised system kind");
+  const operatingMode = normalizeChoice(value.operatingMode, ["alternating-paired", "continuous-balanced"], "Decentralised operating mode");
+  const pairGroupId = nullableBoundedText(value.pairGroupId, "Decentralised pair/group reference", 80);
+  if (operatingMode === "continuous-balanced" && pairGroupId !== null) {
+    throw new TypeError("Continuous-balanced units cannot carry an alternating pair/group reference");
+  }
+  return {
+    systemKind,
+    operatingMode,
+    controllerReferenceRequired: value.controllerReferenceRequired === true,
+    pairGroupId,
+    controllerReference: nullableBoundedText(value.controllerReference, "Decentralised controller reference", 120),
+    roomId: nullableOpaqueId(value.roomId, "Decentralised room ID"),
+    zoneId: nullableOpaqueId(value.zoneId, "Decentralised zone ID"),
+  };
 }
 
 function isMvhrUnitComponent(component) {
@@ -3761,6 +3849,16 @@ function requireOpaqueId(value, label) {
     throw new TypeError(`${label} must be a non-empty opaque string`);
   }
   return value;
+}
+
+function nullableOpaqueId(value, label) {
+  if (value === null || value === undefined || value === "") return null;
+  return requireOpaqueId(value, label);
+}
+
+function nullableBoundedText(value, label, maximumLength) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return normalizeBoundedText(String(value), label, maximumLength);
 }
 
 function normalizeBoundedText(value, label, maximumLength) {

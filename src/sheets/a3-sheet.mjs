@@ -283,6 +283,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     yawRad: quaternionYaw(component.orientation),
     symbol: normalizeSymbol(component.displaySymbol),
     planGraphic: deriveComponentPlanGraphic(component),
+    decentralisedMvhr: component.decentralisedMvhr ? structuredClone(component.decentralisedMvhr) : null,
   }));
   let hasUncalibratedReference = false;
   const references = project.floorReferences.filter((reference) => reference.floorId === floorId && reference.visible).map((reference) => {
@@ -374,9 +375,9 @@ function buildLegend(scene) {
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
+    const key=component.decentralisedMvhr?`decentralised-${component.decentralisedMvhr.operatingMode}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
+    const label=key.startsWith('decentralised-')?`Decentralised MVHR — ${component.decentralisedMvhr.operatingMode==='alternating-paired'?'alternating physical unit':'continuous-balanced physical unit'} · schematic`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -557,6 +558,12 @@ function renderComponent(component, transform) {
   const x = mapX(component.positionMm.x, transform);
   const y = mapY(component.positionMm.y, transform);
   const angle = component.yawRad * 180 / Math.PI;
+  if (component.decentralisedMvhr) {
+    const width = component.symbol.widthMm * transform.scale;
+    const height = component.symbol.heightMm * transform.scale;
+    const glyph = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
+    return `<g data-kind="component" data-system="decentralised-mvhr" data-mode="${escapeXml(component.decentralisedMvhr.operatingMode)}" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><line x1="${formatNumber(-width/2-2)}" y1="${formatNumber(-height/2-1)}" x2="${formatNumber(width/2+2)}" y2="${formatNumber(-height/2-1)}" stroke="#5e7079" stroke-width="0.8"/><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#f4f8f7" stroke="#28745d" stroke-width="0.55"/><text x="0" y="-0.2" text-anchor="middle" fill="#154f3f" font-size="2.5" font-weight="700">${glyph}</text><text x="0" y="3" text-anchor="middle" fill="#29434d" font-size="2.2">${escapeXml(component.scheduleRef)}</text></g>`;
+  }
   if (component.planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID) {
     return renderQ350Component(component, transform, x, y, angle);
   }
@@ -826,6 +833,7 @@ function legendSwatch(key, x, y,item={}) {
     return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${g.paths.map(d=>`<path d="${d}"/>`).join('')}</g>`;
   }
   if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
+  if(key.startsWith('decentralised-'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">${key.endsWith('alternating-paired')?'ALT':'BAL'}</text></g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key.startsWith('external-grille-')) {
     const scale=Math.min(12/g.widthMm,8/g.depthMm);

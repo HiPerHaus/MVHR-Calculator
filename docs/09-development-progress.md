@@ -341,3 +341,11 @@ Two unit tools replace the individual model variants in the drafting palette. Dr
 - Added height-aware route-versus-obstacle and route-versus-route diagnostics. Known over/under separation clears a crossing; known overlap is an error; unknown route/obstacle height is a review warning. Intended shared endpoints are excluded from false positives.
 - Added plan, A3 and schematic-3D exclusion output without inventing a solid where height is unknown. Earlier schema projects migrate with empty routing coordination records.
 - Verified the build and all 376 tests across 143 modules. Isolated browser QA covered create/edit/cancel/remove/undo and 75 mm clear spacing, then regressed the responsive DN90/EPP actions. No customer drawing, file picker, BIM source, push or deployment was used.
+
+### 30 October 2026 — decentralised MVHR markup preview
+
+- Added four current decentralised product identities as persistent schematic through-wall markers, with unique IDs, repeat touch placement, selection, movement, rotation, room/zone association and save/reopen.
+- Added explicit alternating pair/group and controller references without inferring controller-per-pair quantities. Continuous-balanced products remain independent physical markers.
+- Kept all decentralised units outside central DN90/EPP routing and kept catalogue airflow references out of calculated room/project totals.
+- Added Design Check diagnostics, physical-unit/pair/controller schedule summaries and schematic A3/A4 output.
+- Focused tests and an isolated Chromium touch-browser fixture cover topology, persistent associations, rotation, central-route exclusion, schedule quantities and save/reopen. Actual iPad Safari and installation review remain required.

@@ -162,6 +162,14 @@ Remove an essential fitting curve, bore, or elevation. The affected engineering 
 
 Required, assigned, predicted, and measured airflows remain separate across editing, reports, and commissioning. Blank commissioning measurements stay blank.
 
+## Decentralised MVHR markup acceptance
+
+Place two alternating physical-unit markers, give both the same explicit pair/group and controller reference, rotate one, associate them with confirmed spaces, save and reopen. The project retains two physical units, one pair/group reference and one controller reference. It does not add a controller component, central duct port, route, delivered airflow or verified wall opening.
+
+Place a continuous-balanced marker beside a central MVHR system. It does not request a companion marker and is not treated as an unconnected central outlet or HRV root. Central network checks continue independently. Catalogue airflow references do not enter room or whole-project totals, and Design Check states decentralised airflow is not calculated.
+
+The parts list counts every physical marker once. Pair/group and controller references appear as associations rather than additional purchase quantities. A3/A4 output identifies schematic decentralised markers without claiming a drilling template, wall suitability, clearance, product compatibility or installation certification.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

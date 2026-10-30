@@ -317,6 +317,20 @@ const componentActions = document.querySelector("#component-actions");
 const rotateComponentButton = document.querySelector("#rotate-component");
 const componentRoomAssignment = document.querySelector("#component-room-assignment");
 const componentRoomDetail = document.querySelector("#component-room-detail");
+const componentRoomTerm = document.querySelector("#component-room-term");
+const componentRoomField = document.querySelector("#component-room-field");
+const componentRunTerm = document.querySelector("#component-run-term");
+const componentRunField = document.querySelector("#component-run-field");
+const decentralisedSystemTerm = document.querySelector("#decentralised-system-term");
+const decentralisedSystemField = document.querySelector("#decentralised-system-field");
+const decentralisedOperatingMode = document.querySelector("#decentralised-operating-mode");
+const decentralisedSpaceAssignment = document.querySelector("#decentralised-space-assignment");
+const decentralisedPairLabel = document.querySelector("#decentralised-pair-label");
+const decentralisedPairGroup = document.querySelector("#decentralised-pair-group");
+const decentralisedControllerLabel = document.querySelector("#decentralised-controller-label");
+const decentralisedControllerReference = document.querySelector("#decentralised-controller-reference");
+const applyDecentralisedConfigurationButton = document.querySelector("#apply-decentralised-configuration");
+const decentralisedConfigurationDetail = document.querySelector("#decentralised-configuration-detail");
 const singleComponentDuctRunButton = document.querySelector("#single-component-duct-run");
 const twinComponentDuctRunButton = document.querySelector("#twin-component-duct-run");
 const clearComponentDuctRunsButton = document.querySelector("#clear-component-duct-runs");
@@ -1204,6 +1218,7 @@ clearVentilationButton.addEventListener("click", openClearVentilationDialog);
 clearVentilationDialog.addEventListener("close", applyClearVentilationChoice);
 rotateComponentButton.addEventListener("click", rotateSelectedComponent);
 componentRoomAssignment.addEventListener("change", changeSelectedTerminalRoom);
+applyDecentralisedConfigurationButton.addEventListener("click", applySelectedDecentralisedConfiguration);
 singleComponentDuctRunButton.addEventListener("click", () => setSelectedTerminalDuctRuns(1));
 twinComponentDuctRunButton.addEventListener("click", () => setSelectedTerminalDuctRuns(2));
 clearComponentDuctRunsButton.addEventListener("click", clearSelectedTerminalDuctRuns);
@@ -3767,6 +3782,9 @@ function handleMechanicalClick(event, selectedHit = null) {
       if (returnToSelect) {
         setTool("select");
         interactionMessage = "MVHR unit placed and selected; move or rotate it with Select";
+        render();
+      } else if (catalogueItem.category === "decentralised-mvhr-unit") {
+        interactionMessage = `${catalogueItem.name} physical marker placed · tap again to place another · associations are set in the inspector`;
         render();
       }
     }
@@ -6356,6 +6374,7 @@ function renderComponent(component) {
     transform: `translate(${toView(position.x)} ${toView(position.y)}) rotate(${angleDegrees})`,
     class: `component-group${selected ? " selected" : ""}`,
     "data-component-id": component.id,
+    ...(component.decentralisedMvhr ? { "data-system": "decentralised-mvhr", "data-operating-mode": component.decentralisedMvhr.operatingMode } : {}),
   });
   const common = {
     class: "component-symbol",
@@ -6367,6 +6386,14 @@ function renderComponent(component) {
       componentId: component.id,
       primaryClass: common.class,
     });
+  } else if (component.decentralisedMvhr) {
+    const modeGlyph = svgElement("text", { x: 0, y: 4, class: "component-symbol-code", "text-anchor": "middle", "data-component-id": component.id });
+    modeGlyph.textContent = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
+    group.append(
+      svgElement("line", { x1: -toView(symbol.widthMm)/2-4, y1: -toView(symbol.heightMm)/2-3, x2: toView(symbol.widthMm)/2+4, y2: -toView(symbol.heightMm)/2-3, class: "component-wall-reference", "data-component-id": component.id }),
+      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 5, ...common }),
+      modeGlyph,
+    );
   } else if (symbol.shape === "circle") {
     group.append(svgElement("circle", {
       cx: 0,
@@ -6403,12 +6430,19 @@ function renderComponent(component) {
     (component.ports[0].stream === "supply" || component.ports[0].stream === "extract")
     ? component.ports[0]
     : null;
+  const decentralisedSpace = component.decentralisedMvhr?.zoneId
+    ? history.present.zones.find((zone) => zone.id === component.decentralisedMvhr.zoneId)
+    : component.decentralisedMvhr?.roomId
+      ? history.present.rooms.find((room) => room.id === component.decentralisedMvhr.roomId)
+      : null;
   label.textContent = planGraphic?.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID
     ? (component.displayName ?? "External grille")
     : [WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic?.graphicId)
     ? `${planGraphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID ? "Luna" : "Aerofresh"} ${planGraphic.stream}`
     : terminalPort
     ? `${assignedSpace?.name ?? "Unassigned"} · ${formatRoomChoice(terminalPort.stream)}`
+    : component.decentralisedMvhr
+      ? `${component.displayName ?? "Decentralised MVHR"} · ${decentralisedSpace?.name ?? "Unassigned"}${component.decentralisedMvhr.pairGroupId ? ` · ${component.decentralisedMvhr.pairGroupId}` : ""}`
     : planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID
       ? `${planGraphic.modelName ?? "ComfoAir Q350"}${planGraphic.mountedCw ? ` + CW${planGraphic.mountedCw.size}` : ""} · ${planGraphic.handingLabel}${planGraphic.mountedDimensions?.envelopeStatus === "schematic-layout-allowance" ? " · provisional envelope" : ""}`
       : planGraphic?.graphicId === CA200_GRAPHIC_ID
@@ -7483,7 +7517,13 @@ function renderCataloguePalette() {
           interactionMessage = `Click the plan to configure a ${item.mounting} MVHR · Shift/Ctrl repeats placement`;
           render();
         } else if (item.isAssemblyTemplate) setTool("place-assembly", { assemblyTemplateId: item.id });
-        else setTool("place-component", { catalogueItemId: item.id });
+        else {
+          setTool("place-component", { catalogueItemId: item.id });
+          if (item.category === "decentralised-mvhr-unit") {
+            interactionMessage = `${item.name} placement active · tap to place physical unit markers · Select, Pan, Cancel or Esc exits`;
+            render();
+          }
+        }
       });
     }
     const glyph = catalogueThumbnail(item);
@@ -7539,6 +7579,10 @@ function createTerminalServiceControls() {
 }
 
 function cataloguePlacementSummary(item) {
+  if (item.category === "decentralised-mvhr-unit") {
+    const mode = item.decentralisedSpecification?.operatingMode === "alternating-paired" ? "Alternating · pair/group required" : "Continuous balanced";
+    return `${mode} · schematic through-wall marker`;
+  }
   if (item.symbol?.shape === "luna-grille") return "Round grille · drawing symbol";
   if (item.symbol?.shape === "wall-grille") return "Wall / bulkhead · magnetic cover · drawing symbol";
   if (item.id === "synthetic-mvhr-placeholder") {
@@ -8301,6 +8345,7 @@ function catalogueGroupGlyph(groupName) {
   if (groupName === "Units") return "▣";
   if (groupName === "Terminals") return "●";
   if (groupName === "Attenuation & distribution") return "⋮";
+  if (groupName === "Decentralised MVHR") return "◫";
   if (groupName.includes("Duct")) return "⌁";
   return "◇";
 }
@@ -8308,6 +8353,7 @@ function catalogueGroupGlyph(groupName) {
 function compactGroupName(groupName) {
   if (groupName === "Attenuation & distribution") return "Distribution";
   if (groupName === "Ducts & fittings") return "Duct fittings";
+  if (groupName === "Decentralised MVHR") return "Decentralised";
   return groupName;
 }
 
@@ -8338,6 +8384,7 @@ function catalogueGlyphClass(item) {
 }
 
 function componentEvidenceLabel(component) {
+  if (component.decentralisedMvhr) return "schematic through-wall marker";
   if (component.displaySymbol?.cwProfile) return "source-sized CW drawing · provisional setout";
   if (component.catalogueStatus === "source-backed-symbol-profile-interface-pending") return "drawing symbol · connection pending";
   if (component.catalogueStatus === "synthetic-not-manufacturer-verified") return "generic test";
@@ -8348,6 +8395,7 @@ function componentEvidenceLabel(component) {
 }
 
 function componentEvidenceDescription(component) {
+  if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
   if (component.displaySymbol?.ca200Profile) return "Owner-selected CA200 manual dimensions and manufacturer handed role map · DN125 drawing ports · centred port setout interpretation and installation fit require review";
   if (component.displaySymbol?.cwProfile) return `${component.displaySymbol.cwProfile.generation} manufacturer module dimensions · assembled seating and branch-centre offsets provisional · installed elevation and acoustic selection require review`;
   if (component.catalogueStatus === "source-backed-owner-drawing-profile-installation-review-required") return component.catalogueSnapshot?.connectionSetout?.orientationConvention === "manufacturer" ? "Manufacturer orientation and manual port centres · owner-confirmed 160 mm EPP connections" : "Saved Aerofresh 450 drawing convention · schematic port centres · DN160 drawing snap targets";
@@ -8460,6 +8508,8 @@ function renderInspector() {
           const usage = portUsage(component.id, port.id);
           return `${port.role}${size} · ${usage.occupied ? "connected" : "free"}`;
         }).join(" · ")
+      : component.decentralisedMvhr
+        ? "Through-wall decentralised unit · intentionally excluded from central DN90 and EPP routing."
       : ["wall-grille", "luna-grille"].includes(component.displaySymbol?.shape)
         ? "Drawing symbol only; housing connection positions and sizes are not established."
         : "No routable ports. This branded body is setout-only while handed role evidence is pending; use Generic test MVHR unit for generic routing.";
@@ -8469,6 +8519,7 @@ function renderInspector() {
       : "");
     renderComponentRoomAssignment(component);
     renderComponentDuctRunControl(component);
+    renderDecentralisedConfiguration(component);
   }
   if (route) renderRouteInspector(route);
   if (floorArea) {
@@ -8620,6 +8671,57 @@ function renderComponentRoomAssignment(component) {
   componentRoomDetail.textContent = assignedSpace
     ? `${formatRoomChoice(port.stream)} terminal · ${assignment.assignmentMethod === "spatial" ? "positioned in" : "manually assigned to"} ${assignedSpace.name} · stable ${assignment.zoneId ? "zone" : "room"} ID ${assignedSpace.id} · no airflow inferred.`
     : `${formatRoomChoice(port.stream)} terminal · Unassigned because it is outside, on a boundary, ambiguous, or incompatible with the containing space · no airflow inferred.`;
+}
+
+function renderDecentralisedConfiguration(component) {
+  const metadata = component.decentralisedMvhr ?? null;
+  const visible = Boolean(metadata);
+  componentRoomTerm.hidden = visible;
+  componentRoomField.hidden = visible;
+  componentRunTerm.hidden = visible;
+  componentRunField.hidden = visible;
+  decentralisedSystemTerm.hidden = !visible;
+  decentralisedSystemField.hidden = !visible;
+  if (!metadata) return;
+  const alternating = metadata.operatingMode === "alternating-paired";
+  decentralisedOperatingMode.textContent = alternating
+    ? "Alternating unit · physical marker"
+    : "Continuous-balanced unit · physical marker";
+  decentralisedSpaceAssignment.replaceChildren(new Option("Unassigned", ""));
+  for (const room of history.present.rooms.filter((candidate) => (
+    candidate.floorId === component.floorId && !history.present.zones.some((zone) => zone.parentRoomId === candidate.id)
+  ))) {
+    decentralisedSpaceAssignment.append(new Option(`Room · ${room.name}`, `room:${room.id}`));
+  }
+  for (const zone of history.present.zones.filter((candidate) => candidate.floorId === component.floorId)) {
+    decentralisedSpaceAssignment.append(new Option(`Zone · ${zone.name}`, `zone:${zone.id}`));
+  }
+  decentralisedSpaceAssignment.value = metadata.zoneId
+    ? `zone:${metadata.zoneId}`
+    : metadata.roomId ? `room:${metadata.roomId}` : "";
+  decentralisedPairLabel.hidden = !alternating;
+  decentralisedPairGroup.value = metadata.pairGroupId ?? "";
+  decentralisedControllerLabel.hidden = !metadata.controllerReferenceRequired;
+  decentralisedControllerReference.value = metadata.controllerReference ?? "";
+  decentralisedConfigurationDetail.textContent = alternating
+    ? `Pair/group and ${metadata.controllerReferenceRequired ? "controller" : "control"} references are associations only. No controller quantity, compatibility or airflow is inferred.`
+    : "No companion unit is required. Catalogue airflow remains reference-only and is excluded from project totals.";
+}
+
+function applySelectedDecentralisedConfiguration() {
+  const componentId = mechanicalState.selectedComponentId;
+  const component = history.present.components.find((candidate) => candidate.id === componentId);
+  if (!component?.decentralisedMvhr) return;
+  const target = decentralisedSpaceAssignment.value;
+  const [kind = "", id = ""] = target.split(":", 2);
+  commitCommand({
+    type: "component.setDecentralisedConfiguration",
+    componentId,
+    roomId: kind === "room" ? id : null,
+    zoneId: kind === "zone" ? id : null,
+    pairGroupId: component.decentralisedMvhr.operatingMode === "alternating-paired" ? decentralisedPairGroup.value : null,
+    controllerReference: component.decentralisedMvhr.controllerReferenceRequired ? decentralisedControllerReference.value : null,
+  }, "Decentralised unit associations updated; airflow and installation suitability remain unassessed");
 }
 
 function renderStorageState() {

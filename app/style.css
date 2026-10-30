@@ -512,6 +512,14 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .component-room-field { display: grid; gap: 5px; }
 .component-room-field select { width: 100%; min-width: 0; border: 1px solid #b9c6cb; border-radius: 5px; padding: 6px; background: white; }
 .component-room-field small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.component-decentralised-field { display: grid; gap: 7px; }
+.component-decentralised-field label { display: grid; gap: 3px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.component-decentralised-field select,
+.component-decentralised-field input { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #b9c6cb; border-radius: 5px; padding: 6px; background: white; color: var(--ink); }
+.component-decentralised-field button { min-height: 32px; }
+.component-decentralised-field small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.component-wall-reference { stroke: #5e7079; stroke-width: 3; pointer-events: none; }
+.component-symbol-code { fill: #154f3f; font-size: 11px; font-weight: 800; pointer-events: none; }
 .evidence-callout { margin-top: 22px; padding: 12px; border-left: 3px solid var(--teal); background: #eaf5f4; color: #315654; font-size: 11px; line-height: 1.5; }
 .evidence-callout strong { font-size: 12px; }
 .evidence-callout p { margin: 5px 0 0; }

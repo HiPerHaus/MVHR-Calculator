@@ -1,6 +1,7 @@
 import { COMBINED_DN160_PORT_PITCH_MM } from "../domain/combined-grille-drawing-spacing.mjs";
 import { ca200Records } from "./ca200-profile.mjs";
 import { standaloneCwRecords } from "./standalone-cw.mjs";
+import { decentralisedMvhrRecords } from "./decentralised-mvhr.mjs";
 import { terminalDrawingPortDefinition } from "../domain/terminal-drawing-connections.mjs";
 import { EXTERNAL_GRILLE_EVIDENCE } from "./external-grille-evidence.mjs";
 import { AEROFRESH_MANUAL_EVIDENCE } from "./aerofresh-manual-evidence.mjs";
@@ -11,7 +12,7 @@ import {
 } from "./distribution-box-design.mjs";
 
 export const CATALOGUE_ID = "hiper-studio-component-catalogue";
-export const CATALOGUE_VERSION = "2026-10-24.1";
+export const CATALOGUE_VERSION = "2026-10-30.1";
 
 const INTERNAL_IDENTIFIER_SOURCE = Object.freeze({
   sourceId: "internal-product-identifiers-rev-6a",
@@ -293,6 +294,7 @@ const Q450_DE_BIM_CONNECTION = deepFreeze({
 export const COMPONENT_CATALOGUE = deepFreeze([
   ...ca200Records().map(componentRecord),
   ...standaloneCwRecords().map(componentRecord),
+  ...decentralisedMvhrRecords().map(componentRecord),
   componentRecord({
     id: "synthetic-mvhr-placeholder",
     versionId: "generic-mvhr-unit.v2",
@@ -586,6 +588,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
     connectionSetout: item.connectionSetout ?? null,
     manufacturerGeometryAsset: item.manufacturerGeometryAsset ?? null,
     ...(item.terminalSpecification ? { terminalSpecification: item.terminalSpecification } : {}),
+    ...(item.decentralisedSpecification ? { decentralisedSpecification: item.decentralisedSpecification } : {}),
   };
   return {
     id: placement.id,
@@ -620,6 +623,17 @@ export function createCatalogueComponent(catalogueItemId, placement) {
         ? "generic test fixture only"
         : "catalogue record snapshot",
     })),
+    ...(item.decentralisedSpecification ? {
+      decentralisedMvhr: {
+        systemKind: item.decentralisedSpecification.systemKind,
+        operatingMode: item.decentralisedSpecification.operatingMode,
+        controllerReferenceRequired: item.decentralisedSpecification.controller.referenceRequired,
+        pairGroupId: null,
+        controllerReference: null,
+        roomId: null,
+        zoneId: null,
+      },
+    } : {}),
   };
 }
 

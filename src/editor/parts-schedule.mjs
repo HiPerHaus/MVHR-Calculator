@@ -9,6 +9,7 @@ import {
   COMFOWELL_320_ARTICLE_EVIDENCE,
   routeFamilyForKind,
 } from "./component-catalogue.mjs";
+import { inspectDecentralisedMvhr } from "./decentralised-mvhr.mjs";
 
 const VERIFIED_REGIONAL_STATUSES = new Set([
   "manufacturer-catalogue-verified-regional-match",
@@ -51,6 +52,7 @@ export function createPartsSchedule(project, options = {}) {
   const eppUnitConnectionAllowances = deriveHrvEppConnectionAllowances(routes, components);
   const unresolved = unresolvedScheduleItems(componentLines, routeLines);
   const summary = scheduleSummary(componentLines, routeLines, assemblies);
+  const decentralisedSystems = inspectDecentralisedMvhr(project, floorId);
 
   return deepFreeze({
     kind: "drawing-parts-schedule",
@@ -67,8 +69,9 @@ export function createPartsSchedule(project, options = {}) {
     eppTakeoffPolicy: EPP_TAKEOFF_POLICY,
     unresolved,
     summary,
+    decentralisedSystems,
     lengthBasis: "Saved route control-polyline centreline in plan. Single multiplies by 1 and Twin by 2. Display sweeps, bends, fittings, allowances and waste are excluded.",
-    evidenceBoundary: "Placed quantities are exact model-record counts. Product identity, regional availability and compatibility remain provisional unless the line explicitly says verified regional catalogue match. This is not a price, order, fabrication or engineering schedule.",
+    evidenceBoundary: "Placed quantities are exact model-record counts. Decentralised physical units, pair/groups and controller references are reported separately; no controller quantity or delivered airflow is inferred. Product identity, regional availability and compatibility remain provisional unless the line explicitly says verified regional catalogue match. This is not a price, order, fabrication or engineering schedule.",
   });
 }
 
@@ -78,7 +81,8 @@ function componentScheduleLines(components, assemblyByComponentId) {
     const snapshot = component.catalogueSnapshot ?? null;
     const catalogueItem = COMPONENT_CATALOGUE.find(item => item.id === (snapshot?.recordId ?? component.catalogueItemId));
     const category = catalogueItem?.category;
-    const section = category?.startsWith("mvhr-unit") ? "mvhr"
+    const section = category === "decentralised-mvhr-unit" ? "decentralised"
+      : category?.startsWith("mvhr-unit") ? "mvhr"
       : ["terminal", "external-grille"].includes(category) ? "terminals" : "equipment";
     const combinedGrille = category === "external-grille" && component.ports.some(port => port.stream === "intake") && component.ports.some(port => port.stream === "exhaust");
     const handing = combinedGrille ? (component.externalGrilleHanding ?? "left") : null;

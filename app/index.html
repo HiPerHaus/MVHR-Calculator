@@ -303,15 +303,23 @@
             </dd>
             <dt>Assembly</dt><dd id="component-assembly"></dd>
             <dt>Ports</dt><dd id="component-ports"></dd>
-            <dt>Room / zone</dt><dd class="component-room-field">
+            <dt id="component-room-term">Room / zone</dt><dd id="component-room-field" class="component-room-field">
               <select id="component-room-assignment" aria-label="Assigned room or zone"></select>
               <small id="component-room-detail"></small>
             </dd>
-            <dt>Duct arrangement</dt><dd class="component-run-field">
+            <dt id="component-run-term">Duct arrangement</dt><dd id="component-run-field" class="component-run-field">
               <button id="single-component-duct-run" type="button">Single duct</button>
               <button id="twin-component-duct-run" type="button">Twin duct</button>
               <button id="clear-component-duct-runs" type="button">Clear</button>
               <small id="component-duct-run-detail">Choose a single or twin duct arrangement; no airflow is inferred.</small>
+            </dd>
+            <dt id="decentralised-system-term" hidden>Decentralised system</dt><dd id="decentralised-system-field" class="component-decentralised-field" hidden>
+              <strong id="decentralised-operating-mode"></strong>
+              <label>Room or zone<select id="decentralised-space-assignment" aria-label="Decentralised unit room or zone"></select></label>
+              <label id="decentralised-pair-label">Pair / group reference<input id="decentralised-pair-group" type="text" maxlength="80" autocomplete="off" placeholder="Example: Pair 1" /></label>
+              <label id="decentralised-controller-label">Controller reference<input id="decentralised-controller-reference" type="text" maxlength="120" autocomplete="off" placeholder="Example: sMove 1" /></label>
+              <button id="apply-decentralised-configuration" type="button">Apply associations</button>
+              <small id="decentralised-configuration-detail"></small>
             </dd>
             <dt>Evidence</dt><dd id="component-evidence"></dd>
           </dl>

@@ -2,6 +2,7 @@ import { inspectExternalGrilleSeparation } from "./external-grille-spacing.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { routeFamilyForKind } from "./component-catalogue.mjs";
 import { inspectRoutingCoordination } from "./routing-coordination.mjs";
+import { inspectDecentralisedMvhr, isDecentralisedMvhrComponent } from "./decentralised-mvhr.mjs";
 
 const REQUIRED_HRV_ROLES = Object.freeze(["Dwelling supply", "Dwelling extract"]);
 
@@ -25,12 +26,16 @@ export function auditVentilation(project, floorId) {
 
   const graph = createPortGraph(components, routes, connections);
   const diagnostics = [];
+  const decentralised = inspectDecentralisedMvhr(project, floorId);
+  const centralComponents = components.filter((component) => !isDecentralisedMvhrComponent(component));
   const unitComponents = components.filter(isHrvUnit);
   const unitPortsByRole = unitPortsForTopology(unitComponents);
   const distributionPortsByRole = distributionMainPortsByRole(components, assemblies, connections);
   const topologyCoverage = unitComponents.length > 0
     ? { status: "assessed-supported-typed-roots", unitComponentIds: unitComponents.map((component) => component.id) }
-    : { status: "not-assessed-no-supported-unit-root", unitComponentIds: [] };
+    : centralComponents.length === 0 && routes.length === 0
+      ? { status: "not-applicable-decentralised-only", unitComponentIds: [] }
+      : { status: "not-assessed-no-supported-unit-root", unitComponentIds: [] };
 
   inspectRoutes(routes, componentById, diagnostics);
   inspectDirectConnections(connections, componentById, diagnostics);
@@ -38,7 +43,17 @@ export function auditVentilation(project, floorId) {
   inspectUnitMainPaths(unitPortsByRole, distributionPortsByRole, graph, diagnostics);
   inspectAssemblyMainPaths(assemblies, distributionPortsByRole, unitPortsByRole, graph, diagnostics);
   inspectOutlets(components, unitPortsByRole, graph, diagnostics);
-  if (topologyCoverage.status === "not-assessed-no-supported-unit-root" && (components.length > 0 || routes.length > 0)) {
+  diagnostics.push(...decentralised.diagnostics);
+  if (decentralised.unitCount > 0) {
+    diagnostics.push(diagnostic(
+      "decentralised-airflow-not-calculated",
+      "info",
+      "Decentralised airflow is not calculated",
+      "Placed decentralised units are scheduled as physical markers only. Catalogue airflow references are excluded from room and whole-project totals.",
+      { componentId: decentralised.pairGroups[0]?.componentIds[0] ?? components.find(isDecentralisedMvhrComponent)?.id ?? null },
+    ));
+  }
+  if (topologyCoverage.status === "not-assessed-no-supported-unit-root" && (centralComponents.length > 0 || routes.length > 0)) {
     diagnostics.push(diagnostic(
       "topology-not-assessed",
       "info",
@@ -62,10 +77,11 @@ export function auditVentilation(project, floorId) {
     routes: summarizeRoutes(routes),
     spareBranches: summarizeSpareBranches(components, graph.externallyOccupied),
     topologyCoverage,
+    decentralised,
     externalGrilleSeparation,
     diagnostics: diagnostics.sort(compareDiagnostics),
     diagnosticCounts: countDiagnostics(diagnostics),
-    evidenceBoundary: "Drafting counts and connection topology only. No airflow, pressure, acoustic, product-fit, cap-installed, price or procurement claim is made.",
+    evidenceBoundary: "Drafting counts, explicit decentralised associations and central connection topology only. Decentralised catalogue ratings are excluded from project airflow totals. No airflow delivery, pressure, acoustic, product-fit, wall suitability, price or procurement claim is made.",
   });
 }
 
@@ -417,6 +433,7 @@ function assignableOutletPort(component) {
 }
 
 function isHrvUnit(component) {
+  if (isDecentralisedMvhrComponent(component)) return false;
   if (component.mvhrDesignIntent) return true;
   const category = component.catalogueSnapshot?.category ?? component.catalogueCategory ?? "";
   if (String(category).includes("mvhr-unit")) return true;
