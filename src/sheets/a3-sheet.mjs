@@ -25,6 +25,7 @@ import {
 } from "../editor/component-plan-graphics.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
 import { ventilationProjectTypeLabel } from "../domain/ventilation-project-type.mjs";
+import { floorAreaValueLabel, inspectSheetFloorArea } from "./floor-area-key.mjs";
 
 export const A3_DIMENSIONS_MM = Object.freeze({ short: 297, long: 420 });
 export const SHEET_TEMPLATE_ID = "hiper-a3-plan-sidebar-v3";
@@ -338,6 +339,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
   return deepFreeze({
     floorId,
     floorName: sanitizeXmlText(floor.name, "Floor name"),
+    floorArea: inspectSheetFloorArea(project, floorId),
     walls,
     floorAreas,
     routingExclusions,
@@ -799,9 +801,12 @@ function renderPartsSchedule(sheet) {
 function renderSheetLegend(sheet,bounds){
  const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds;
  const out=[`<g id="sheet-key"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/><text x="${x+w/2}" y="${y+8}" text-anchor="middle" font-size="4" font-weight="700">SYMBOL KEY</text>`];
- let cy=y+15;
+ const area=sheet.printScene.floorArea;
+ out.push(`<text data-kind="floor-area-key" x="${x+4}" y="${y+14.5}" font-size="2.8" font-weight="700" fill="#17242b">${escapeXml(area.heading)} · ${escapeXml(floorAreaValueLabel(area))}</text>`);
+ out.push(`<text data-kind="floor-area-basis" x="${x+4}" y="${y+18.3}" font-size="2.15" fill="#5d6d74">${escapeXml(wrapSheetText(area.basisLabel,48,1)[0])}</text>`);
+ let cy=y+22;
  const items=sheet.printScene.legend.length?sheet.printScene.legend:[{key:"empty",label:"No symbols placed"}];
- const rowHeight=Math.min(10,(h-20)/items.length),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
+ const rowHeight=Math.min(10,(h-27)/items.length),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
  for(const item of items){out.push(`<title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,35,2),glyphScale=Math.min(1,rowHeight/9),gx=x+w-15,gy=cy+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,x+4,cy+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));cy+=rowHeight;}
  out.push('</g>');return out.join('');
 }

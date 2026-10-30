@@ -357,3 +357,10 @@ Two unit tools replace the individual model variants in the drafting palette. Dr
 - Kept all decentralised units outside central DN90/EPP routing and kept catalogue airflow references out of calculated room/project totals.
 - Added Design Check diagnostics, physical-unit/pair/controller schedule summaries and schematic A3/A4 output.
 - Focused tests and an isolated Chromium touch-browser fixture cover topology, persistent associations, rotation, central-route exclusion, schedule quantities and save/reopen. Actual iPad Safari and installation review remain required.
+
+### 30 October 2026 — floor area in drawing keys
+
+- Added the represented floor's area and its measurement basis to the A3 symbol key and A4 parts-list header.
+- Closed preliminary floor-area outlines take precedence. Confirmed wall-face rooms are an explicitly labelled fallback subtotal; zones are never added again.
+- Missing or unscaled plan-only geometry prints **Not set**, not a fabricated zero.
+- Added selected-floor, multi-floor, uncalibrated-reference, confirmed-room and A3/A4 rendering regression coverage, plus synthetic visual layout review.

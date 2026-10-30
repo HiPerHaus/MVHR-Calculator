@@ -1,5 +1,6 @@
 import {quotedCode} from '../editor/quote-product-codes.mjs';
 import {escapeXml,wrapSheetText} from './a3-sheet.mjs';
+import {floorAreaValueLabel} from './floor-area-key.mjs';
 
 export function partsListRows(schedule){
  const rows=[],section=description=>rows.push({section:true,description,height:7});
@@ -71,6 +72,7 @@ export function renderA4PartsListSvg(sheet,page){
  for(const [i,line] of wrapSheetText(m.projectName,76,2).entries())out.push(text(14,29+i*4,line,3.5));
  for(const [i,line] of wrapSheetText(m.siteName,100,2).entries())out.push(text(14,39+i*3.5,line));
  out.push(text(14,51,`${m.drawingId} · ${m.issueDate} · ${sheet.printScene.floorName} · ${m.ventilationDesignTypeLabel}`));
+ out.push(text(14,55,`${sheet.printScene.floorArea.heading} · ${floorAreaValueLabel(sheet.printScene.floorArea)} · ${sheet.printScene.floorArea.basisLabel}`,2.2,'data-kind="floor-area-key" font-weight="700"'));
  out.push('<rect x="12" y="56" width="186" height="8" fill="#e8eef0"/>',text(14,61,'REF',2.7),text(30,61,'PART NUMBER',2.7),text(70,61,'NAME',2.7),text(181,61,'QTY',2.7,'text-anchor="end"'),text(195,61,'UNIT',2.7,'text-anchor="end"'));
  let y=65;
  for(const row of page.rows){

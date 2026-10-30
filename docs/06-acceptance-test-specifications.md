@@ -180,6 +180,14 @@ In a drawing with decentralised markers, choose Centralised. Studio warns before
 
 A Decentralised project opens the decentralised catalogue group first. A Centralised project opens central units first. Mixed keeps both catalogues and central routing available while decentralised markers remain outside the central connection graph and calculated airflow totals. Classification does not change `project.workflow.stage`, Plan → Place → Route → Check → Export state, pressure status or engineering evidence.
 
+## Drawing-key floor area acceptance
+
+Create different closed floor-area outlines on two floors and export each floor. The A3 symbol key and A4 parts-list header show only that drawing's area in m² and label the basis **Preliminary closed-plan outline**; the other floor is not included.
+
+Remove the selected floor's outline and retain one current confirmed wall-face room. The output changes to **Known room area**, reports the confirmed-room subtotal and does not add child zones. Make a room boundary unresolved and confirm the basis note identifies excluded unresolved rooms.
+
+Open a floor containing only an uncalibrated plan reference, or walls without a closed outline or confirmed room. Export shows **Floor area · Not set**. It does not use image bounds, drawing bounds or `0 m²` as a substitute.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

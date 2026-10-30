@@ -995,3 +995,9 @@ The authoritative project stores one explicit ventilation design type: `unclassi
 Changing type is an ordinary undoable project command and never deletes or converts components, routes, rooms, connections, associations or saved selections. A choice that differs from existing ventilation content opens a conflict review and offers Mixed. If the designer keeps the conflicting type, Studio retains the content and warning rather than hiding it.
 
 Project lists derive the type from the private saved project document. This avoids a production database schema change at the cost of reading each project document when the cloud list opens. Failed reads show `Type unavailable`, not `Unclassified`. Centralised and decentralised classifications only change catalogue ordering and guidance; they do not alter calculations or connectivity. Mixed exposes both authoring contexts while keeping their topology and airflow evidence separate.
+
+### 30 October 2026 — drawing-key floor-area basis
+
+Drawing exports report area for the represented floor only. An explicit closed floor-area outline is the first basis and is labelled **Preliminary closed-plan outline**. If no outline exists, current confirmed wall-face rooms may provide a **Known room area** subtotal; zones are excluded because they partition a parent room and would double-count it. Unresolved rooms remain excluded and counted in the basis note.
+
+An image or CAD underlay, drawing bounds, walls without confirmed rooms, and missing or unresolved geometry never become an area value. The key states **Not set** instead of `0 m²`. Values convert canonical square millimetres to square metres at the sheet boundary and do not claim net, gross, regulatory or certified floor area.
