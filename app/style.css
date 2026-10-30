@@ -609,6 +609,7 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 @media (max-width: 980px) { .routing-axis-row { grid-template-columns: 1fr; } .routing-axis-row small { grid-column: auto; } }
 
 .wall-grille-graphic .component-symbol, .wall-grille-graphic .component-ghost { fill: none; stroke: var(--grille-colour); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.wall-grille-graphic .luna-duct-mask { fill: #fff; stroke: none; }
 .component-group.selected .wall-grille-graphic { filter: drop-shadow(0 0 3px #d8875d); }
 .wall-grille-graphic.ghost { opacity: .58; }
 

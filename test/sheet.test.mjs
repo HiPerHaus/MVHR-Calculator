@@ -526,7 +526,10 @@ test("Luna symbol sits above radial duct with an opaque centre", () => {
   }});
   const svg = renderA3SheetSvg(createA3SheetModel(project, metadata()));
   assert.ok(svg.indexOf('data-id="luna-over-duct"') > svg.indexOf('data-id="duct-under-luna"'));
-  assert.match(svg.slice(svg.indexOf('data-id="luna-over-duct"')), /<path d="[^"]+" fill="white"/);
+  const placed=svg.slice(svg.indexOf('data-id="luna-over-duct"'));
+  assert.match(placed, /<circle data-part="luna-duct-mask"[^>]+fill="white"/);
+  assert.match(placed, /<path d="[^"]+" fill="white"/);
+  assert.match(svg, /data-kind="legend-terminal"[^>]*>[\s\S]*?<circle data-part="luna-duct-mask"[^>]+fill="white"/);
 });
 
 
@@ -546,7 +549,10 @@ test("outdoor legend distinguishes combined, intake and exhaust using the drawn 
   assert.match(svg,/Separate outdoor intake grille/);
   assert.match(svg,/Separate outdoor exhaust grille/);
   const drawing=svg.split('<g id="drawing-content"')[1].split('<text data-kind="draft-watermark"')[0];
-  assert.doesNotMatch(drawing,/<text\b/);
+  assert.equal((drawing.match(/data-part="airflow-label"/g)||[]).length,4);
+  assert.equal((drawing.match(/>Outside Air<\/text>/g)||[]).length,2);
+  assert.equal((drawing.match(/>Exhaust air out<\/text>/g)||[]).length,2);
+  assert.doesNotMatch(drawing,/>ODA<|>EHA<|>P\d+<\/text>/);
   assert.equal((drawing.match(/data-part="airflow-arrow"/g)||[]).length,4);
   assert.match(drawing,/data-stream="intake" data-flow-x="-1" data-flow-y="0"/);
   assert.match(drawing,/data-stream="exhaust" data-flow-x="1" data-flow-y="0"/);

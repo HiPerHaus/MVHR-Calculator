@@ -154,6 +154,9 @@ try {
 
   await click(cdp, "#ventilation-nav");
   await waitFor(cdp, `!document.querySelector("#mechanical-tools-section")?.hidden`);
+  const lunaMasks=await evaluate(cdp, `([...document.querySelectorAll('[data-plan-graphic="hiper-luna-grille-v1"] [data-part="luna-duct-mask"]')]).map(node=>getComputedStyle(node).fill)`);
+  assert.equal(lunaMasks.length,3,"Every visible Luna terminal should mask its connected duct at the centre");
+  assert.equal(lunaMasks.every(fill=>fill==="rgb(255, 255, 255)"),true,"Luna masks should be opaque white on canvas");
   const statusBeforeVisibility = await evaluate(cdp, `document.querySelector("#draft-status")?.textContent ?? ""`);
   await click(cdp, `[data-component-id="cw-browser"]`);
   assert.equal(await evaluate(cdp, `document.querySelector("#inspector-empty")?.hidden`), true, "Fixture distribution component should be selected");

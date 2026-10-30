@@ -438,7 +438,7 @@ function renderPrintScene(sheet) {
 }
 
 function withoutDrawingLabels(svg) {
-  return svg.replace(/<text\b[^>]*>[\s\S]*?<\/text>/g, "");
+  return svg.replace(/<text\b(?![^>]*data-keep-on-drawing="true")[^>]*>[\s\S]*?<\/text>/g, "");
 }
 
 function renderRoute(route, transform) {
@@ -590,7 +590,8 @@ function renderComponent(component, transform) {
   }
   if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId)) {
     const graphic = component.planGraphic;
-    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-service="${graphic.stream}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})" fill="none" stroke="${graphic.colour}" stroke-width="1.5" vector-effect="non-scaling-stroke">${graphic.paths.map((d, index) => `<path d="${d}" fill="${graphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID && index === 0 ? "white" : "none"}" stroke-width="${graphic.strokeWidths?.[index] ?? 1.5}" vector-effect="non-scaling-stroke"/>`).join("")}</g><text x="0" y="${formatNumber(graphic.depthMm * transform.scale / 2 + 3)}" text-anchor="middle" fill="#29434d" font-size="2.7">${escapeXml(component.scheduleRef)}</text></g>`;
+    const ductMask=graphic.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`<circle data-part="luna-duct-mask" cx="0" cy="0" r="${formatNumber(graphic.ductMaskRadiusMm)}" fill="white" stroke="none"/>`:"";
+    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-service="${graphic.stream}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})" fill="none" stroke="${graphic.colour}" stroke-width="1.5" vector-effect="non-scaling-stroke">${ductMask}${graphic.paths.map((d, index) => `<path d="${d}" fill="${graphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID && index === 0 ? "white" : "none"}" stroke-width="${graphic.strokeWidths?.[index] ?? 1.5}" vector-effect="non-scaling-stroke"/>`).join("")}</g><text x="0" y="${formatNumber(graphic.depthMm * transform.scale / 2 + 3)}" text-anchor="middle" fill="#29434d" font-size="2.7">${escapeXml(component.scheduleRef)}</text></g>`;
   }
   const width = component.symbol.widthMm * transform.scale;
   const height = component.symbol.heightMm * transform.scale;
@@ -836,15 +837,18 @@ function legendSwatch(key, x, y,item={}) {
   const g=item.graphic;
   if(key.startsWith('luna-')||key.startsWith('wall-grille-')){
     const scale=Math.min(11/g.widthMm,8/g.depthMm);
-    return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${g.paths.map(d=>`<path d="${d}"/>`).join('')}</g>`;
+    const ductMask=key.startsWith('luna-')?`<circle data-part="luna-duct-mask" cx="0" cy="0" r="${formatNumber(g.ductMaskRadiusMm)}" fill="white" stroke="none"/>`:"";
+    return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${ductMask}${g.paths.map((d,index)=>`<path d="${d}" fill="${key.startsWith('luna-')&&index===0?'white':'none'}"/>`).join('')}</g>`;
   }
   if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
   if(key.startsWith('decentralised-'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">${key.endsWith('alternating-paired')?'ALT':'BAL'}</text></g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key.startsWith('external-grille-')) {
-    const scale=Math.min(12/g.widthMm,8/g.depthMm);
-    const shapes=externalGrilleShapes(g).filter(shape=>shape.tag!=="text").map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}/>`).join("");
-    return `<g data-kind="legend-external-grille" data-grille-type="${g.combined?'combined':g.ports[0]?.stream??'individual'}" transform="translate(${x+3} ${y}) scale(${scale})">${shapes}</g>`;
+    const bounds=g.drawingBoundsMm??{minX:-g.widthMm/2,maxX:g.widthMm/2,minY:-g.depthMm/2,maxY:g.depthMm/2};
+    const scale=Math.min(12/(bounds.maxX-bounds.minX),8/(bounds.maxY-bounds.minY));
+    const centreX=(bounds.minX+bounds.maxX)/2,centreY=(bounds.minY+bounds.maxY)/2;
+    const shapes=externalGrilleShapes(g).filter(shape=>shape.tag!=="text"||shape.attributes["data-part"]==="airflow-label").map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}>${shape.text?escapeXml(shape.text):""}</${shape.tag}>`).join("");
+    return `<g data-kind="legend-external-grille" data-grille-type="${g.combined?'combined':g.ports[0]?.stream??'individual'}" transform="translate(${formatNumber(x+3-centreX*scale)} ${formatNumber(y-centreY*scale)}) scale(${scale})">${shapes}</g>`;
   }
 
   if(key==="building-area")return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#a77927" stroke-width=".4" stroke-dasharray="2 1"/>`;

@@ -6721,6 +6721,11 @@ function appendComponentPlanGraphic(group, graphic, options = {}) {
     drawing.append(svgElement("rect", { x: -graphic.widthMm/2, y: -graphic.depthMm/2,
       width: graphic.widthMm, height: graphic.depthMm, fill: "transparent", stroke: "none",
       ...(options.componentId ? { "data-component-id": options.componentId } : {}) }));
+    if (graphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID) drawing.append(svgElement("circle", {
+      cx: 0, cy: 0, r: graphic.ductMaskRadiusMm,
+      class: "luna-duct-mask", "data-part": "luna-duct-mask",
+      ...(options.componentId ? { "data-component-id": options.componentId } : {}),
+    }));
     for (const [index, d] of graphic.paths.entries()) drawing.append(svgElement("path", {
       ...(graphic.strokeWidths ? { style: `stroke-width: ${graphic.strokeWidths[index]}` } : {}),
       d, class: options.primaryClass ?? "component-symbol",

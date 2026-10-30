@@ -101,7 +101,10 @@ test("placed combined grille swaps Left/Right without changing port identities a
  const arrows=shapes.filter(s=>s.attributes["data-part"]==="airflow-arrow");
  assert.deepEqual(arrows.map(s=>[s.attributes["data-stream"],s.attributes["data-flow-x"],s.attributes["data-flow-y"]]),[["intake",-1,0],["exhaust",1,0]]);
  assert.deepEqual(arrows.map(s=>s.attributes.fill),["#1769d2","#e2342f"]);
- assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","ODA"]);
+ assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","Exhaust air out","ODA","Outside Air"]);
+ const labels=shapes.filter(s=>s.attributes["data-part"]==="airflow-label");
+ assert.deepEqual(labels.map(s=>[s.attributes["data-stream"],s.text]),[["intake","Outside Air"],["exhaust","Exhaust air out"]]);
+ assert.ok(graphic.drawingBoundsMm.minX<=-174&&graphic.drawingBoundsMm.maxX>=174,"larger arrows and labels are included in print fitting bounds");
  const sheet=createA3SheetModel(history.present,{projectName:"Grille review",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-10-23",status:"Preliminary — not for construction",floorId:"floor-ground"});
  const svg=renderA3SheetSvg(sheet);
  assert.match(svg,/data-external-grille-handing="right"/);
@@ -119,8 +122,11 @@ test("single external grilles derive intake inward and exhaust outward airflow f
     component=p.components[0];
    }
    const graphic=deriveComponentPlanGraphic(component),arrow=externalGrilleShapes(graphic).find(s=>s.attributes["data-part"]==="airflow-arrow");
+   const label=externalGrilleShapes(graphic).find(s=>s.attributes["data-part"]==="airflow-label");
    const port=graphic.ports.find(candidate=>candidate.stream===stream),sign=stream==="intake"?1:-1;
    assert.deepEqual([arrow.attributes["data-stream"],arrow.attributes["data-flow-x"],arrow.attributes["data-flow-y"]],[stream,port.directionX*sign||0,port.directionY*sign||0]);
+   assert.equal(label.text,stream==="intake"?"Outside Air":"Exhaust air out");
+   assert.equal(label.attributes["data-keep-on-drawing"],"true");
    assert.ok(Math.abs(component.orientation.z-Math.sin(quarterTurns*Math.PI/4))<1e-9);
    assert.ok(Math.abs(component.orientation.w-Math.cos(quarterTurns*Math.PI/4))<1e-9);
   }

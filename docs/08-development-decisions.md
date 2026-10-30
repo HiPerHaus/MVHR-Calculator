@@ -1023,3 +1023,9 @@ The client-side exporter uses pinned `jspdf` and `svg2pdf.js` dependencies bundl
 The parts-list pages are a supplier pricing schedule, not a route-length report. Known duct products are therefore listed as purchasable stock quantities: DN90 semi-rigid duct as 50 m coils and supported DN125/DN160 EPP as 1 m straight lengths with their supported elbow and sleeve quantities. Rounding occurs at the existing project purchasing boundary. Saved route lengths, streams, Single/Twin multipliers, allowances and pending evidence remain unchanged internally, but total metres and individual route lengths are not duplicate supplier line items.
 
 Where a drawn duct family has no verified matched stock size and order code, the schedule keeps one visible family/size row with **Not set** stock quantity. It does not convert design metres into an invented pack count or hide the unresolved material. A detailed route-length review belongs in a later Check view and is not introduced by this change.
+
+### 30 October 2026 — external airflow annotation and Luna duct masking
+
+External intake and exhaust grille symbols use larger typed airflow arrows labelled **Outside Air** and **Exhaust air out**. Arrow direction derives from the saved intake/exhaust port semantics and rotates with the placed grille; it does not infer direction from screen position. The arrow and label extent participates in drawing fitting so the annotation is not silently cropped.
+
+Luna terminal routes retain their existing authoritative rim connection and saved centreline length. Canvas, drawing and key render an opaque white terminal centre above the duct body so the connected duct visually stops at the grille edge rather than passing through its face. This is presentation masking only and does not move connection points, change quantities or alter pressure-model geometry.
