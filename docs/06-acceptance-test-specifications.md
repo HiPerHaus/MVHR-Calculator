@@ -194,6 +194,12 @@ Open Drawing & parts list for a short schedule and choose **Export PDF**. Page 1
 
 Choose **Print** separately and confirm the browser dialog opens. The print stylesheet keeps named A3/A4 pages and also sets the first page to A3 with A4 as the following-page fallback. Browser print engines may still ignore those sizes; browser printing is a convenience path, not evidence of mixed physical pages. Designers must use direct PDF export or explicitly verify the browser-produced page boxes before issue.
 
+## Supplier-facing duct quantities
+
+Generate Drawing & parts list for a project containing DN90 semi-rigid duct, DN125 and DN160 EPP, Twin runs, more than one stream and an unsupported or unmatched duct family. The supplier-facing parts pages contain one rounded order row per known stock item: DN90 as 50 m coils and EPP by nominal size as 1 m straight lengths plus supported elbows and sleeves. They do not repeat saved total metres or individual route lengths. The authoritative design-length totals remain unchanged inside the schedule model.
+
+An unmatched duct family remains visible once per family with quantity **Not set** and a clear stock-size/order-code blocker. Missing Single/Twin information remains pending rather than becoming an order quantity. Long supplier schedules paginate without lost or duplicated rows.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

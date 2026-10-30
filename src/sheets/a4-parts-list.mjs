@@ -24,26 +24,27 @@ export function partsListRows(schedule){
 
  const duct=accessories.duct90;
  if(duct.showOnThisFloor&&(duct.knownTotalLengthMm>0||duct.pendingCount)){
-  section('90 mm duct — project total');
-  add('90','Total 90 mm duct · drawn runs plus unused CW port stubs',`${metres(duct.knownTotalLengthMm)}${duct.pendingCount?' + pending':''}`,'m','','summary');
-  add('90','90 mm duct coil · 50 m per coil, rounded up',`${duct.coilQuantity}${duct.pendingCount?' + pending':''}`,'coil','ZEN-CT90-50M');
+  section('90 mm duct — supplier order quantity');
+  add('90','90 mm semi-rigid duct · 50 m coil · project quantity rounded up',orderQuantity(duct.coilQuantity,duct.pendingCount),'coil','ZEN-CT90-50M');
  }
  const otherRoutes=schedule.routeLines.filter(line=>line.ductKind!=='semi-rigid-radial'&&!line.ductKind.startsWith('epp-rigid-'));
- if(otherRoutes.length){section('Other drawn duct lengths');for(const line of otherRoutes)add(line.ref,`${line.description} · ${line.stream}${line.pendingParallelRunRouteCount?' · some Single/Twin choices pending':''}`,`${metres(line.knownMultipliedPlanMm)}${line.pendingParallelRunRouteCount?' + pending':''}`,'m','','summary');}
+ if(otherRoutes.length){
+  section('Other duct — supplier selection required');
+  for(const line of unresolvedDuctStockRows(otherRoutes))add('DUCT',line.description,'Not set','stock','', 'selection');
+ }
  if(duct.showOnThisFloor&&accessories.eppTotals.length){
-  section('EPP — project totals, including HRV-to-ceiling allowances');
+  section('EPP — supplier order quantities, including HRV-to-ceiling allowances');
   for(const line of accessories.eppTotals){
-   const size=line.nominalSizeMm,qty=value=>`${value}${line.pendingCount?' + pending':''}`;
-   add('EPP',`Total DN${size} EPP duct · all streams and floors`,qty(metres(line.knownTotalLengthMm)),'m','','summary');
-   add('EPP',`DN${size} EPP straight · 1 m stock length, rounded up from total · socket included`,qty(line.stockLengthQuantity),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
-   add('EPP',`DN${size} 90° elbow stock · includes halves for 45° bends`,qty(line.elbow90StockQuantity),'ea',quotedCode(`AER-DUC-DN${size}-B90`)??'');
-   add('EPP',`DN${size} additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
+   const size=line.nominalSizeMm,qty=value=>orderQuantity(value,line.pendingCount);
+   add('EPP',`DN${size} EPP rigid duct · 1 m stock length · project quantity rounded up · socket included`,qty(line.stockLengthQuantity),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
+   add('EPP',`DN${size} EPP 90° elbow stock · includes paired halves for 45° bends`,qty(line.elbow90StockQuantity),'ea',quotedCode(`AER-DUC-DN${size}-B90`)??'');
+   add('EPP',`DN${size} EPP additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
    if(line.otherBendQuantity)add('EPP',`DN${size} other bends · product selection required`,line.otherBendQuantity);
   }
  }
  const a=schedule.radialAccessories;
  if(a.capQuantity){section('Unused CW branch closures');
-  add('CW',`90 mm short pipe stub · unused CW branch${a.stubLengthMm===null?' · length to confirm':` · ${a.stubLengthMm} mm each · included in duct total`}`,a.stubQuantity,'ea','','cut-piece');
+  add('CW',`90 mm short pipe stub · unused CW branch${a.stubLengthMm===null?' · length to confirm':` · ${a.stubLengthMm} mm each · included in 50 m coil quantity`}`,a.stubQuantity,'ea','','cut-piece');
  }
  // Only purchasable parts belong in Local supply. Totals, assembly references,
  // cut pieces already in duct stock, and pending choices of listed products stay in context.
@@ -80,8 +81,21 @@ export function renderA4PartsListSvg(sheet,page){
   else{out.push(text(14,y+4.5,row.ref,2.6));for(const [i,line] of row.partNumberLines.entries())out.push(text(30,y+4.5+i*3.6,line,2.5));for(const [i,line] of row.lines.entries())out.push(text(70,y+4.5+i*3.6,line,2.7));out.push(text(181,y+4.5,row.quantity,2.8,'text-anchor="end"'),text(195,y+4.5,row.unit,2.7,'text-anchor="end"'),`<line x1="12" y1="${y+row.height}" x2="198" y2="${y+row.height}" stroke="#d7dfe2" stroke-width=".15"/>`);}
   y+=row.height;
  }
- const notes=['Lengths are saved plan centrelines × Single/Twin; unmeasured rises and waste are excluded.','EPP includes standard HRV port allowances; 45° bends use halves of 90° elbow stock.',a.stubLengthMm===null&&a.stubQuantity?'Unused CW ports: one O-ring, one short pipe stub and one cap each; stub length to confirm.':'CW branches require O-rings; unused branches use caps supplied with the 90 mm pipe.',`Job totals and packs: ${wrapSheetText(sheet.partsSchedule.projectAccessories.jobOwnerFloorName??'no ventilation placed',30,1)[0]} · selection and installation compatibility require review.`];
+ const notes=['Supplier pages show rounded stock items; saved design lengths remain in Studio and are not order lines.','EPP includes standard HRV port allowances; 45° bends use halves of 90° elbow stock.',a.stubLengthMm===null&&a.stubQuantity?'Unused CW ports: one O-ring, one short pipe stub and one cap each; stub length to confirm.':'CW branches require O-rings; unused branches use caps supplied with the 90 mm pipe.',`Job totals and packs: ${wrapSheetText(sheet.partsSchedule.projectAccessories.jobOwnerFloorName??'no ventilation placed',30,1)[0]} · selection and installation compatibility require review.`];
  notes.forEach((note,i)=>out.push(text(14,269+i*3.5,note,2.2)));
  out.push(text(14,291,m.status,2.5),text(196,291,`Page ${page.pageNumber} of ${page.totalPageCount} · A4`,2.5,'text-anchor="end"'),'</svg>');return out.join('');
 }
-function metres(mm){return (mm/1000).toFixed(2).replace(/\.00$/,'');}
+function orderQuantity(knownQuantity,pendingCount){return pendingCount?(knownQuantity>0?`${knownQuantity} + pending`:'Pending'):String(knownQuantity);}
+function unresolvedDuctStockRows(routeLines){
+ const groups=new Map();
+ for(const line of routeLines){
+  const key=line.ductKind;
+  const current=groups.get(key)??{description:line.description,nominalSizeMm:line.nominalSizeMm,routeCount:0,pendingParallelRunRouteCount:0};
+  current.routeCount+=line.routeCount;
+  current.pendingParallelRunRouteCount+=line.pendingParallelRunRouteCount;
+  groups.set(key,current);
+ }
+ return [...groups.values()].sort((left,right)=>left.description.localeCompare(right.description)).map(line=>({
+  description:`${line.description}${line.nominalSizeMm&&!line.description.includes(`DN${line.nominalSizeMm}`)?` · DN${line.nominalSizeMm}`:''} · stock length, pack size and matched order code not set · ${line.routeCount} drawn route${line.routeCount===1?'':'s'} retained in the design${line.pendingParallelRunRouteCount?' · Single/Twin choice pending':''}`,
+ }));
+}

@@ -19,8 +19,8 @@ test('all CW branches receive an O-ring; caps and stubs follow unused saved endp
 test('standalone CW capacity counts physical branches in either installation orientation',()=>{
  for(const orientation of ['vertical','horizontal']){let p=fixture();p={...p,components:[]};const c=createCatalogueComponent(`standalone-cw-220-supply-${orientation}-dn125`,{id:'cw220-test',floorId:'ground',xMm:1000,yMm:1000,allowAssemblyOnly:true});p=applyCommand(p,{type:'component.add',component:c});const a=deriveRadialAccessories(p,{floorId:'ground'});assert.equal(a.oRingQuantity,4);assert.equal(a.capQuantity,4);}
 });
-test('A4 page 2 prints equipment, route lengths and connection accessories without a shortened tail',()=>{
- const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=pages.map(page=>renderA4PartsListSvg(sheet,page)).join('');assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.ok(partsListRows(sheet.partsSchedule).some(row=>row.description.includes("100 mm each")));assert.match(svg,/Total 90 mm duct/);assert.match(svg,/50 m per coil, rounded up/);assert.match(svg,/Example project/);
+test('A4 page 2 prints equipment, supplier stock quantities and connection accessories without a shortened tail',()=>{
+ const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=pages.map(page=>renderA4PartsListSvg(sheet,page)).join('');assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.ok(partsListRows(sheet.partsSchedule).some(row=>row.description.includes("100 mm each")));assert.doesNotMatch(svg,/Total 90 mm duct/);assert.match(svg,/50 m coil/);assert.match(svg,/Supplier pages show rounded stock items/);assert.match(svg,/Example project/);
  const many={...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:Array.from({length:70},(_,i)=>({...sheet.partsSchedule.componentLines[0],ref:`P${i}`,description:`Equipment ${i} `+'long description '.repeat(14)}))}};
  const longPages=createA4PartsListPages(many);assert.ok(longPages.length>1);assert.equal(longPages.flatMap(page=>page.rows).length,partsListRows(many.partsSchedule).length);assert.ok(longPages.every(page=>65+page.rows.reduce((sum,row)=>sum+row.height,0)<=263));assert.equal(longPages.at(-1).pageNumber,longPages.at(-1).totalPageCount);
 });
@@ -68,7 +68,7 @@ test('unlisted purchasable parts move to the final Local supply section without 
  assert.equal(local.find(row=>row.description.includes('attenuator module')).quantity,'2');
  assert.equal(local.find(row=>row.description.includes('branch plate')).quantity,'2');
  assert.equal(local.find(row=>row.description.includes('mounting set')).quantity,'1');
- assert.ok(rows.slice(0,start).some(row=>row.description.startsWith('Total 90 mm duct')));
+ assert.ok(rows.slice(0,start).some(row=>row.description.includes('50 m coil')));
  assert.ok(rows.slice(0,start).some(row=>row.kind==='selection'&&row.description.includes('TVA-P')));
  assert.ok(rows.slice(0,start).some(row=>row.kind==='cut-piece'));
  assert.ok(rows.slice(0,start).some(row=>row.partNumber==='ZEN-Q350HRV'));

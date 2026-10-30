@@ -43,6 +43,13 @@ try {
   assert.equal(pagePlan[0].heightMm, 297);
   assert.ok(pagePlan.length >= 3, `Expected drawing plus multiple parts pages, got ${pagePlan.length}`);
   assert.equal(pagePlan.slice(1).every((page) => page.widthMm === 210 && page.heightMm === 297), true);
+  const supplierEvidence = await evaluate(cdp, "window.__supplierEvidence");
+  assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total 90 mm duct")), false);
+  assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total DN160 EPP")), false);
+  assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "ZEN-CT90-50M").map((row) => [row.quantity, row.unit]), [["1", "coil"]]);
+  assert.deepEqual(supplierEvidence.filter((row) => row.partNumber === "AER-DUC-DN160-1MSL").map((row) => [row.quantity, row.unit]), [["2", "ea"]]);
+  assert.equal(supplierEvidence.some((row) => row.unit === "stock" && row.quantity === "Not set" && row.description.includes("DN150")), true);
+  assert.equal(supplierEvidence.some((row) => row.unit === "m"), false);
   await evaluate(cdp, "document.querySelector('#download').click()");
   const downloaded = await waitForDownload(downloadDirectory);
   await mkdir(outputDirectory, { recursive: true });
@@ -78,9 +85,10 @@ async function startQaServer() {
   const page = `<!doctype html><meta charset="utf-8"><button id="download">Download</button><script type="module">
     import * as domain from "/src/domain/spatial.mjs";
     import { createConfiguredMvhrComponent } from "/src/editor/mvhr-placement.mjs";
-    import { createCatalogueComponent } from "/src/editor/component-catalogue.mjs";
+    import { createCatalogueComponent, routeFamilyForKind } from "/src/editor/component-catalogue.mjs";
     import * as portable from "/src/persistence/portable-project.mjs";
     import { createA3SheetModel } from "/src/sheets/a3-sheet.mjs";
+    import { partsListRows } from "/src/sheets/a4-parts-list.mjs";
     import { createSheetOutputPages } from "/src/sheets/sheet-output.mjs";
     import { createMixedPagePdfBlob, downloadPdfBlob } from "/app/sheet-pdf-export.mjs";
     let project = domain.applyCommand(domain.createProject("pdf-browser-qa"), { type:"floor.add", floor:{ id:"floor-ground", name:"Ground Floor", transform:{ translationMm:{x:0,y:0,z:domain.knownMm(0,"QA datum")}, orientation:domain.identityQuaternion() } } });
@@ -90,11 +98,16 @@ async function startQaServer() {
     project = domain.applyCommand(project,{type:"reference.addImage",asset:{id:"qa-plan-asset",kind:"image",fileName:"sheet-plan.png",mediaType:"image/png",byteLength:referenceBytes.length,sha256:await portable.sha256Hex(referenceBytes),widthPx:dimensions.widthPx,heightPx:dimensions.heightPx,dataUrl:portable.bytesToDataUrl(referenceBytes,"image/png")},reference:{id:"qa-plan-reference",floorId:"floor-ground",assetId:"qa-plan-asset",visible:true,locked:true,opacity:.7,transform:{translationMm:{x:0,y:0},rotationRad:0,scaleMmPerPixel:domain.knownMm(10,"QA scale")},calibration:null}});
     project = domain.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model:"q350-hrv",mounting:"vertical",handing:"left",layout:"unit-mounted-cw",cwSize:"320"},{id:"unit",floorId:"floor-ground",xMm:1000,yMm:1000})});
     for (const [index, catalogueItemId] of ["aerofresh-30-compact-decentralised","zehnder-comfospot-50-decentralised","zehnder-comfoair-70-decentralised","lunos-e2-60-decentralised"].entries()) project = domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id:\`decentralised-\${index}\`,floorId:"floor-ground",xMm:3000+index*600,yMm:2000})});
+    const addRoute = (id, ductKind, stream, points, parallelRunCount=1) => { const family=routeFamilyForKind(ductKind); project=domain.applyCommand(project,{type:"route.add",route:{id,floorId:"floor-ground",system:"mvhr",stream,role:stream==="extract"?"Dwelling extract":stream==="intake"?"Outdoor intake":"Dwelling supply",ductKind,connectionInterface:family.connectionInterface,parallelRunCount,startAttachment:null,endAttachment:null,points:points.map(([x,y])=>({x,y,z:domain.unknownMm("QA route elevation not set")}))}}); };
+    addRoute("qa-radial","semi-rigid-radial","supply",[[500,3500],[4500,3500]]);
+    addRoute("qa-epp","epp-rigid-dn160","intake",[[500,4000],[1500,4000],[1500,4500]]);
+    addRoute("qa-flex","flexible-round-dn150","supply",[[2000,4500],[4200,4500]]);
     const sheet = createA3SheetModel(project,{floorId:"floor-ground",orientation:"landscape",includeSchedule:false,projectName:"PDF browser QA",siteName:"Test address",issueDate:"2026-10-30",drawingTitle:"Ventilation",drawingId:"V-QA",status:"Preliminary — not for construction",revision:"A",revisionText:"Review"});
     const seedLine = sheet.partsSchedule.componentLines[0];
     const longSheet = {...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:[...sheet.partsSchedule.componentLines,...Array.from({length:70},(_,index)=>({...seedLine,ref:\`QA\${index+1}\`,catalogueItemId:\`qa-item-\${index+1}\`,itemNumber:\`QA-\${index+1}\`,description:\`QA equipment line \${index+1} with a deliberately long description for wrapping and pagination\`}))]}};
     const pages = createSheetOutputPages(longSheet);
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
+    window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});
     document.querySelector("#download").addEventListener("click",()=>downloadPdfBlob(blob,"pdf-browser-qa.pdf"));
     window.__pdfReady = true;

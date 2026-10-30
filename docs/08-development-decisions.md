@@ -1013,3 +1013,9 @@ Browser print engines still control whether CSS paged-media sizes are honoured. 
 The reported browser-saved PDF proved that Chromium can ignore mixed CSS page sizes and place the A3 drawing inside an A4 physical page. **Export PDF** therefore builds a downloadable document directly from the same captured A3/A4 SVG page set used by the preview. The PDF owns each physical page size: the drawing is 420 × 297 mm and every parts page is 210 × 297 mm. SVG text and line work remain vector content, while embedded plan images retain their existing raster payload. A separate **Print** action remains available but keeps the browser's mixed-paper limitation.
 
 The client-side exporter uses pinned `jspdf` and `svg2pdf.js` dependencies bundled with the application. It does not upload drawings, call an external conversion service, change project geometry, or create an issued revision. The output remains Preliminary/not for construction, and physical scale must still be checked before use.
+
+### 30 October 2026 — supplier-facing duct quantities
+
+The parts-list pages are a supplier pricing schedule, not a route-length report. Known duct products are therefore listed as purchasable stock quantities: DN90 semi-rigid duct as 50 m coils and supported DN125/DN160 EPP as 1 m straight lengths with their supported elbow and sleeve quantities. Rounding occurs at the existing project purchasing boundary. Saved route lengths, streams, Single/Twin multipliers, allowances and pending evidence remain unchanged internally, but total metres and individual route lengths are not duplicate supplier line items.
+
+Where a drawn duct family has no verified matched stock size and order code, the schedule keeps one visible family/size row with **Not set** stock quantity. It does not convert design metres into an invented pack count or hide the unresolved material. A detailed route-length review belongs in a later Check view and is not introduced by this change.
