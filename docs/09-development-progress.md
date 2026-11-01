@@ -2,7 +2,8 @@
 
 ## Explicit ventilation project types — 30 October 2026
 
-- Schema 22 adds an explicit `Centralised`, `Decentralised`, `Mixed`, or `Unclassified` ventilation design type. Schema-21 and earlier drawings migrate in memory to `Unclassified`; Studio does not infer or persist a type from incomplete geometry.
+- Schema 23 adds named, revisioned design options inside one project. Existing schema-22 and earlier drawings reopen as one active `Option A`; the active design is not duplicated in the payload. Selective duplication isolates editable geometry, rooms/airflow and MVHR markup while keeping imported background references and project/client details shared.
+- Schema 22 added an explicit `Centralised`, `Decentralised`, `Mixed`, or `Unclassified` ventilation design type. Schema-21 and earlier drawings migrate in memory to `Unclassified`; Studio does not infer or persist a type from incomplete geometry.
 - Project details, the current-project badge, cloud and legacy-device project lists, filters, portable backups, working recovery and A3/A4 output use the same saved project field. Cloud list classification is read from each private project document, so no production database column or migration is required.
 - A conflicting explicit choice opens a review dialog and offers `Mixed`. Keeping the chosen type remains possible, visibly warns, and never removes equipment, routes, rooms, associations or saved geometry. Mixed leaves centralised routing and decentralised markup available as separate systems.
 - Decentralised projects show the decentralised catalogue first; centralised projects show central units first. The other catalogue remains available for an explicit Mixed design. Project type remains separate from the commercial/design lifecycle and Plan → Place → Route → Check → Export navigation.

@@ -43,6 +43,13 @@ import {
   ROOM_VENTILATION_ROLES,
   roomBoundaryKey,
 } from "./rooms.mjs";
+import {
+  createInitialDesignOptionState,
+  duplicateDesignOption,
+  switchDesignOption,
+  updateDesignOption,
+  validateDesignOptions,
+} from "./design-options.mjs";
 
 /**
  * Renderer-independent spatial foundation for HiPer Studio.
@@ -52,7 +59,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -199,7 +206,7 @@ export function rotateVector(quaternion, vector) {
 
 export function createProject(id) {
   requireOpaqueId(id, "Project ID");
-  return {
+  const project = {
     schemaVersion: SCHEMA_VERSION,
     projectDetails:createProjectDetails(),
     ventilationDesignType:"unclassified",
@@ -227,6 +234,7 @@ export function createProject(id) {
     quoteSnapshots: [],
     engineeringInputs: createEngineeringInputs(),
   };
+  return { ...project, ...createInitialDesignOptionState(project) };
 }
 
 export function applyCommand(project, command, options = {}) {
@@ -894,6 +902,18 @@ export function applyCommand(project, command, options = {}) {
       next.ventilationDesignType=normalizeVentilationProjectType(command.ventilationDesignType);
       break;
     }
+    case "designOption.duplicate": {
+      Object.assign(next, duplicateDesignOption(next, command));
+      break;
+    }
+    case "designOption.switch": {
+      Object.assign(next, switchDesignOption(next, command.optionId));
+      break;
+    }
+    case "designOption.update": {
+      Object.assign(next, updateDesignOption(next, command));
+      break;
+    }
     case "quote.updateDraft": {
       next.quoteDraft = normalizeQuoteDraft(command.quoteDraft);
       break;
@@ -1364,11 +1384,16 @@ export function migrateProjectData(project) {
   if (migrated.schemaVersion === 19) migrated={...migrated,schemaVersion:20,projectDetails:createProjectDetails()};
   if (migrated.schemaVersion === 20) migrated={...migrated,schemaVersion:21,routingExclusions:[],routingClearanceSettings:[]};
   if (migrated.schemaVersion === 21) migrated={...migrated,schemaVersion:22,ventilationDesignType:"unclassified"};
+  if (migrated.schemaVersion === 22) migrated={...migrated,schemaVersion:23,...createInitialDesignOptionState(migrated)};
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
 
 export function validateProject(project) {
+  return validateProjectInternal(project, false);
+}
+
+function validateProjectInternal(project, skipDesignOptions) {
   if (!project || typeof project !== "object") {
     throw new TypeError("Project must be an object");
   }
@@ -1686,6 +1711,9 @@ export function validateProject(project) {
     }
     usedCadReferenceAssets.add(reference.assetId);
   });
+  if (!skipDesignOptions) {
+    validateDesignOptions(project, (candidate) => validateProjectInternal(candidate, true));
+  }
   return project;
 }
 

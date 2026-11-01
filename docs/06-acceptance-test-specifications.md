@@ -202,6 +202,14 @@ Generate Drawing & parts list for a project containing DN90 semi-rigid duct, DN1
 
 An unmatched duct family remains visible once per family with quantity **Not set** and a clear stock-size/order-code blocker. Missing Single/Twin information remains pending rather than becoming an order quantity. Long supplier schedules paginate without lost or duplicated rows.
 
+## Project design options
+
+Open a schema-22 single-design project. It reopens as **Option A** with the same geometry, identities, system type, parts and outputs. Save/reopen, device recovery and portable backup retain that option without creating a second job.
+
+Duplicate the option three ways: plan/outline only, plan plus rooms/airflow, and plan plus rooms plus MVHR markup. Imported background references remain shared. Every copied editable entity receives a new identity and its wall, room, component, port, route, connection, assembly and engineering references remain internally valid. Editing or deleting content in one option cannot change another. Switching options during an unfinished draw/place/route operation is blocked until the operation is finished or cancelled. Switching is one undoable command.
+
+Create a Centralised option and a Decentralised option in the same project. Each retains its own classification, equipment, routes, checks and supplier schedule. Export the selected option, then export all options. Each drawing and parts section names its option and revision; no BOM line, airflow target, route or engineering input is combined across options. Empty and partial options remain saveable and report their missing inputs honestly.
+
 ## Future module-contract acceptance
 
 ### Shared geometry without duplication

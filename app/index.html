@@ -421,6 +421,15 @@
                 <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
               </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
             </details>
+            <details class="project-home-options" open><summary>Design options</summary>
+              <div class="design-option-controls">
+                <label>Current option<select id="design-option-select"></select></label>
+                <label>Option name<input id="design-option-name" type="text" maxlength="80" /></label>
+                <label>Revision<input id="design-option-revision" type="text" maxlength="40" /></label>
+                <div class="project-library-actions"><button id="update-design-option" type="button">Update option</button><button id="duplicate-design-option" type="button">Duplicate / New option…</button></div>
+                <small>Client details and imported background plans stay with the job. Each option keeps independent editable geometry, rooms, equipment, ducts, quantities and system type.</small>
+              </div>
+            </details>
             <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button" hidden>Save As</button></div></details>
           </article>
           <article class="workflow-card workflow-card-wide">
@@ -643,6 +652,7 @@
           </div>
           <div class="sheet-preview-actions">
             <button id="export-sheet-pdf" type="button">Export PDF</button>
+            <button id="export-all-options-pdf" type="button">Export all options</button>
             <button id="print-sheet-preview" type="button">Print</button>
             <button id="close-sheet-preview" type="button">Return to plan</button>
           </div>
@@ -694,6 +704,21 @@
           <button id="keep-project-type" value="keep">Keep chosen type</button>
           <button value="mixed" class="primary-action">Use Mixed</button>
         </div>
+      </form>
+    </dialog>
+    <dialog id="duplicate-design-option-dialog" aria-labelledby="duplicate-design-option-title">
+      <form id="duplicate-design-option-form">
+        <h2 id="duplicate-design-option-title">Duplicate or create design option</h2>
+        <p>Choose exactly what the new option starts with. Imported background references and job details remain shared.</p>
+        <label>Option name<input id="duplicate-design-option-name" type="text" maxlength="80" required /></label>
+        <label>Revision<input id="duplicate-design-option-revision" type="text" maxlength="40" value="Working" required /></label>
+        <fieldset><legend>Copy into the new option</legend>
+          <label class="scope-choice"><input id="duplicate-option-plan" type="checkbox" checked /><span><strong>Floor plan and outline</strong><small>Editable walls, serviced outline and routing exclusions.</small></span></label>
+          <label class="scope-choice"><input id="duplicate-option-rooms" type="checkbox" checked /><span><strong>Rooms and airflow requirements</strong><small>Also keeps the supporting floor-plan geometry.</small></span></label>
+          <label class="scope-choice"><input id="duplicate-option-markup" type="checkbox" /><span><strong>Existing MVHR markup</strong><small>Equipment, ducts, typed connections and engineering inputs.</small></span></label>
+        </fieldset>
+        <p id="duplicate-design-option-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions"><button id="cancel-duplicate-design-option" type="button">Cancel</button><button type="submit" class="primary-action">Create and open option</button></div>
       </form>
     </dialog>
     <dialog id="convert-project-dialog" aria-labelledby="convert-project-title">

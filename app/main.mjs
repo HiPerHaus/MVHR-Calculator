@@ -56,6 +56,7 @@ import {
   inspectVentilationProjectType,
   ventilationProjectTypeLabel,
 } from "../src/domain/ventilation-project-type.mjs";
+import { designOptionProjects } from "../src/domain/design-options.mjs";
 import {
   bytesToDataUrl,
   exportPortableProject,
@@ -286,6 +287,19 @@ const currentProjectTypeElement = document.querySelector("#current-project-type"
 const projectVentilationTypeSelect = document.querySelector("#project-ventilation-type");
 const projectVentilationTypeStatus = document.querySelector("#project-ventilation-type-status");
 const projectTypeFilter = document.querySelector("#project-type-filter");
+const designOptionSelect = document.querySelector("#design-option-select");
+const designOptionNameInput = document.querySelector("#design-option-name");
+const designOptionRevisionInput = document.querySelector("#design-option-revision");
+const updateDesignOptionButton = document.querySelector("#update-design-option");
+const duplicateDesignOptionButton = document.querySelector("#duplicate-design-option");
+const duplicateDesignOptionDialog = document.querySelector("#duplicate-design-option-dialog");
+const duplicateDesignOptionForm = document.querySelector("#duplicate-design-option-form");
+const duplicateDesignOptionName = document.querySelector("#duplicate-design-option-name");
+const duplicateDesignOptionRevision = document.querySelector("#duplicate-design-option-revision");
+const duplicateOptionPlan = document.querySelector("#duplicate-option-plan");
+const duplicateOptionRooms = document.querySelector("#duplicate-option-rooms");
+const duplicateOptionMarkup = document.querySelector("#duplicate-option-markup");
+const duplicateDesignOptionError = document.querySelector("#duplicate-design-option-error");
 const ventilationProjectTypeContext = document.querySelector("#ventilation-project-type-context");
 const projectLibraryList = document.querySelector("#project-library-list");
 const deleteWallButton = document.querySelector("#delete-wall");
@@ -536,6 +550,7 @@ const confirmProjectConversionButton = document.querySelector("#confirm-project-
 const sheetPreviewHost = document.querySelector("#sheet-preview-host");
 const sheetPreviewStatus = document.querySelector("#sheet-preview-status");
 const exportSheetPdfButton = document.querySelector("#export-sheet-pdf");
+const exportAllOptionsPdfButton = document.querySelector("#export-all-options-pdf");
 const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 let sheetPreviewPages = [];
@@ -1192,6 +1207,12 @@ document.querySelector("#project-details-form").addEventListener("submit",event=
  catch(error){document.querySelector("#project-details-status").textContent=error.message;}
 });
 projectVentilationTypeSelect.addEventListener("change",()=>requestVentilationProjectType(projectVentilationTypeSelect.value));
+designOptionSelect.addEventListener("change",()=>switchToDesignOption(designOptionSelect.value));
+updateDesignOptionButton.addEventListener("click",updateCurrentDesignOption);
+duplicateDesignOptionButton.addEventListener("click",openDuplicateDesignOptionDialog);
+duplicateOptionRooms.addEventListener("change",()=>{if(duplicateOptionRooms.checked)duplicateOptionPlan.checked=true;});
+duplicateDesignOptionForm.addEventListener("submit",createDuplicateDesignOption);
+document.querySelector("#cancel-duplicate-design-option").addEventListener("click",()=>duplicateDesignOptionDialog.close("cancel"));
 projectTypeConflictDialog.addEventListener("close",()=>{
   const chosen=pendingProjectType;
   pendingProjectType=null;
@@ -1338,6 +1359,7 @@ threeDHost.addEventListener("pointermove", moveThreeDPointer);
 threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
+exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 returnToCheckButton.addEventListener("click", returnToDesignCheck);
@@ -2455,6 +2477,13 @@ function renderProjectWorkspace() {
   const details=history.present.projectDetails,form=document.querySelector("#project-details-form");
   for(const key of ["name","address","clientName","projectReference","drawingTitle","drawnBy","checkedBy"])form.elements.namedItem(key).value=details[key] || (key==="name"?currentProjectName:"");
   const project = history.present;
+  const activeOption=project.designOptions.find((option)=>option.id===project.activeDesignOptionId);
+  designOptionSelect.replaceChildren(...project.designOptions.map((option)=>{
+    const choice=document.createElement("option");choice.value=option.id;choice.textContent=`${option.name} · ${option.revision}`;return choice;
+  }));
+  designOptionSelect.value=project.activeDesignOptionId;
+  designOptionNameInput.value=activeOption?.name??"";
+  designOptionRevisionInput.value=activeOption?.revision??"";
   projectVentilationTypeSelect.value=project.ventilationDesignType;
   applyProjectTypeBadge(currentProjectTypeElement,project.ventilationDesignType);
   const typeStatus=projectTypeStatus(project);
@@ -2501,6 +2530,81 @@ function renderProjectWorkspace() {
     ["Changes from baseline", differenceText],
   ]);
   detailedDesignUnresolved.textContent = detailed.unresolvedRequirements.join(" ");
+}
+
+function optionTransitionAvailable() {
+  const drawingInProgress=draftPoints.length>0||floorAreaDraftPoints.length>0||Boolean(componentDragState)||Boolean(routePointDragState)||Boolean(dragState)||Boolean(floorAreaDragState);
+  if(drawingInProgress||["place-component","place-assembly","route","routing-exclusion","crop-reference","calibrate"].includes(activeTool)) {
+    interactionMessage="Finish or cancel the active drawing operation before changing design options.";
+    updateStatus();
+    renderProjectWorkspace();
+    return false;
+  }
+  return true;
+}
+
+function applyDesignOptionHistory(command,message) {
+  try {
+    const nextHistory=executeCommand(history,command);
+    applyHistoryChange(nextHistory,message);
+    componentIdentityCounter=nextComponentIdentityCounter(history.present);
+    equipmentAssemblyIdentityCounter=nextEquipmentAssemblyIdentityCounter(history.present);
+    routeIdentityCounter=nextRouteIdentityCounter(history.present);
+    roomIdentityCounter=nextRoomIdentityCounter(history.present);
+    zoneIdentityCounter=nextZoneIdentityCounter(history.present);
+    floorAreaIdentityCounter=nextFloorAreaIdentityCounter(history.present);
+    return true;
+  } catch(error) {
+    interactionMessage=`Design option change failed: ${error.message}`;
+    render();
+    return false;
+  }
+}
+
+function switchToDesignOption(optionId) {
+  if(optionId===history.present.activeDesignOptionId)return;
+  if(!optionTransitionAvailable())return;
+  const option=history.present.designOptions.find((candidate)=>candidate.id===optionId);
+  if(!option)return renderProjectWorkspace();
+  if(applyDesignOptionHistory({type:"designOption.switch",optionId},`Opened ${option.name} · ${option.revision}`)) {
+    initialCameraFit.arm();
+    renderProjectWorkspace();
+  }
+}
+
+function updateCurrentDesignOption() {
+  const option=history.present.designOptions.find((candidate)=>candidate.id===history.present.activeDesignOptionId);
+  if(!option)return;
+  applyDesignOptionHistory({type:"designOption.update",optionId:option.id,name:designOptionNameInput.value,revision:designOptionRevisionInput.value},"Design option name and revision updated");
+}
+
+function openDuplicateDesignOptionDialog() {
+  if(!optionTransitionAvailable())return;
+  const source=history.present.designOptions.find((option)=>option.id===history.present.activeDesignOptionId);
+  duplicateDesignOptionName.value=`${source?.name??"Option"} copy`;
+  duplicateDesignOptionRevision.value="Working";
+  duplicateOptionPlan.checked=true;duplicateOptionRooms.checked=true;duplicateOptionMarkup.checked=false;
+  duplicateDesignOptionError.textContent="";
+  duplicateDesignOptionDialog.showModal();
+  duplicateDesignOptionName.focus();
+}
+
+function createDuplicateDesignOption(event) {
+  event.preventDefault();
+  try {
+    const copyScopes=[];
+    if(duplicateOptionPlan.checked)copyScopes.push("plan");
+    if(duplicateOptionRooms.checked)copyScopes.push("rooms");
+    if(duplicateOptionMarkup.checked)copyScopes.push("markup");
+    const id=`design-option-${crypto.randomUUID()}`;
+    const name=duplicateDesignOptionName.value.trim();
+    const revision=duplicateDesignOptionRevision.value.trim();
+    if(applyDesignOptionHistory({type:"designOption.duplicate",id,name,revision,copyScopes,activate:true},`Created and opened ${name}`)) {
+      duplicateDesignOptionDialog.close("created");
+      initialCameraFit.arm();
+      renderProjectWorkspace();
+    }
+  } catch(error) { duplicateDesignOptionError.textContent=error.message; }
 }
 
 function renderProjectLibrary() {
@@ -2725,27 +2829,8 @@ function signedCount(value) {
 
 function openSheetPreview({ designStage = false } = {}) {
   try {
-    const floor = history.present.floors.find((candidate) => candidate.id === "floor-ground")
-      ?? history.present.floors[0];
-    if (!floor) throw new TypeError("The project has no floor to preview");
-    const sheet = createA3SheetModel(history.present, {
-      floorId: floor.id,
-      orientation: "landscape",
-      projectName: history.present.projectDetails.name || currentProjectName,
-      siteName: history.present.projectDetails.address || "Not set",
-      clientName: history.present.projectDetails.clientName || "Not set",
-      company:cloudSession?.companyProfile?.details,
-      companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,
-      includeSchedule:false,
-      drawingTitle: history.present.projectDetails.drawingTitle || defaultDrawingTitle(history.present.projectDetails.name || currentProjectName, floor.name),
-      drawingId: `${history.present.projectDetails.projectReference || "V"}-01`,
-      issueDate: new Date().toISOString().slice(0, 10),
-      status: "Preliminary — not for construction",
-      revision: "DRAFT",
-      revisionText: "Working-draft preview",
-      drawnBy: history.present.projectDetails.drawnBy || "",
-      checkedBy: history.present.projectDetails.checkedBy || "",
-    });
+    const activeOption=history.present.designOptions.find((option)=>option.id===history.present.activeDesignOptionId);
+    const sheet=createSheetForDesignOption(history.present,activeOption);
     const parser = new DOMParser();
     const pages = createSheetOutputPages(sheet);
     const elements=pages.map(page=>{
@@ -2763,8 +2848,9 @@ function openSheetPreview({ designStage = false } = {}) {
       author: sheet.metadata.company?.name || "HiPer Studio",
       fileName: sheetPdfFileName(sheet.metadata.projectName, sheet.metadata.drawingId),
     };
+    exportAllOptionsPdfButton.hidden=history.present.designOptions.length<2;
     const partsPageCount = pages.length - 1;
-    sheetPreviewStatus.textContent = `1 A3 drawing + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · 1 A3 drawing + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -2787,6 +2873,22 @@ function openSheetPreview({ designStage = false } = {}) {
     interactionMessage = `Sheet preview unavailable: ${error.message}`;
     updateStatus();
   }
+}
+
+function createSheetForDesignOption(project,option) {
+  const floor=project.floors.find((candidate)=>candidate.id==="floor-ground")??project.floors[0];
+  if(!floor)throw new TypeError("The project has no floor to preview");
+  const optionName=option?.name??"Option";
+  const optionRevision=option?.revision??"Working";
+  const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
+  return createA3SheetModel(project,{
+    floorId:floor.id,orientation:"landscape",projectName:project.projectDetails.name||currentProjectName,
+    siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
+    company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
+    drawingTitle:`${baseTitle} · ${optionName}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}`,
+    issueDate:new Date().toISOString().slice(0,10),status:"Preliminary — not for construction",revision:optionRevision,
+    revisionText:`${optionName} working-draft preview`,drawnBy:project.projectDetails.drawnBy||"",checkedBy:project.projectDetails.checkedBy||"",
+  });
 }
 
 function defaultDrawingTitle(projectName, floorName) {
@@ -2820,6 +2922,23 @@ async function exportSheetPreviewPdf() {
     exportSheetPdfButton.textContent = previousLabel;
     updateStatus();
   }
+}
+
+async function exportAllDesignOptionsPdf() {
+  if(history.present.designOptions.length<2){interactionMessage="Add another design option before exporting all options.";updateStatus();return;}
+  const previousLabel=exportAllOptionsPdfButton.textContent;
+  exportAllOptionsPdfButton.disabled=true;exportAllOptionsPdfButton.textContent="Creating all options…";
+  try {
+    const pages=[];
+    for(const {option,project} of designOptionProjects(history.present)) {
+      pages.push(...createSheetOutputPages(createSheetForDesignOption(project,option)));
+    }
+    const fileName=sheetPdfFileName(history.present.projectDetails.name||currentProjectName,"all-design-options");
+    const blob=await createMixedPagePdfBlob(pages,{title:`${history.present.projectDetails.name||currentProjectName} · all design options`,subject:"Independent ventilation design options · preliminary · not for construction",author:cloudSession?.companyProfile?.details?.name||"HiPer Studio",fileName});
+    downloadPdfBlob(blob,fileName);
+    interactionMessage=`Downloaded ${history.present.designOptions.length} independent design options without combining their parts lists`;
+  } catch(error) { interactionMessage=`All-options PDF export failed: ${error.message}`; }
+  finally {exportAllOptionsPdfButton.disabled=false;exportAllOptionsPdfButton.textContent=previousLabel;updateStatus();}
 }
 
 function createStore() {
