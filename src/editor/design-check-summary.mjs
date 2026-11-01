@@ -1,4 +1,4 @@
-export function createDesignCheckSummary(audit, airflow) {
+export function createDesignCheckSummary(audit, airflow, engineering = null) {
   const errors = [];
   const warnings = [];
   const notCalculated = [];
@@ -33,14 +33,31 @@ export function createDesignCheckSummary(audit, airflow) {
     }));
   }
 
-  notCalculated.push(Object.freeze({
-    id: "network-pressure:not-calculated",
-    code: "network-pressure-not-calculated",
-    severity: "info",
-    title: "Network pressure is not calculated",
-    detail: "The current milestone records evidence and explicit inputs only; it does not solve network pressure loss.",
-    target: null,
-  }));
+  if (!engineering || engineering.status === "not-configured") {
+    notCalculated.push(Object.freeze({
+      id: "network-pressure:not-calculated",
+      code: "network-pressure-not-calculated",
+      severity: "info",
+      title: "Network pressure is not calculated",
+      detail: "Create explicit terminal allocations and enter sourced network resistance inputs before evaluating pressure.",
+      target: null,
+    }));
+  } else if (engineering.status === "blocked") {
+    for (const item of engineering.diagnostics) {
+      const normalized = engineeringIssue(item);
+      if (isEngineeringTopologyError(item.code)) errors.push(normalized);
+      else notCalculated.push(normalized);
+    }
+  } else {
+    warnings.push(Object.freeze({
+      id: "network-pressure:preliminary-review",
+      code: "network-pressure-preliminary-review",
+      severity: "warning",
+      title: "Preliminary engineering result needs review",
+      detail: "Design-flow pressure and fan-duty results use the saved assumptions and evidence. They are not predicted delivery, compliance or commissioning results.",
+      target: null,
+    }));
+  }
 
   if (audit.parts.componentCount === 0 && audit.routes.routeCount === 0) {
     warnings.unshift(Object.freeze({
@@ -57,8 +74,36 @@ export function createDesignCheckSummary(audit, airflow) {
     groups: { errors, warnings, notCalculated },
     counts: { errors: errors.length, warnings: warnings.length, notCalculated: notCalculated.length },
     status: errors.length > 0 ? "errors" : warnings.length > 0 ? "warnings" : "review-only",
-    evidenceBoundary: "Grouped presentation of existing model audits and explicit room targets only. It is not a compliance, pressure, airflow-delivery, product-fit or installation verdict.",
+    evidenceBoundary: "Grouped presentation of existing model audits, explicit room targets and the saved deterministic engineering evaluation. It is not a compliance, achieved-airflow, product-fit, installation or commissioning verdict.",
   });
+}
+
+function engineeringIssue(item) {
+  const target = item.target?.routeId ? { kind: "route", id: item.target.routeId }
+    : item.target?.componentId ? { kind: "component", id: item.target.componentId }
+      : item.target?.spaceKind && item.target?.spaceId ? { kind: item.target.spaceKind, id: item.target.spaceId }
+        : null;
+  return Object.freeze({
+    id: `engineering:${item.code}:${JSON.stringify(item.target ?? {})}`,
+    code: item.code,
+    severity: isEngineeringTopologyError(item.code) ? "error" : "info",
+    title: item.code.replaceAll("-", " "),
+    detail: item.message,
+    target: target ? Object.freeze(target) : null,
+  });
+}
+
+function isEngineeringTopologyError(code) {
+  return new Set([
+    "unsupported-cycle",
+    "allocation-terminal-invalid",
+    "allocation-disconnected",
+    "root-count-invalid",
+    "boundary-unit-root-invalid",
+    "system-boundary-count-invalid",
+    "free-route-end",
+    "fan-duty-insufficient",
+  ]).has(code);
 }
 
 function normalizeAuditDiagnostic(item) {

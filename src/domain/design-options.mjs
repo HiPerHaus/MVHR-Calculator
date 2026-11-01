@@ -168,6 +168,15 @@ function remapSnapshotIdentities(snapshot, optionId) {
   const identities = new Set();
   for (const field of SNAPSHOT_COLLECTIONS) collectEntityIds(snapshot[field], identities);
   const remap = new Map([...identities].map((id, index) => [id, `${optionId}-copy-${index + 1}`]));
+  for (const component of snapshot.components) {
+    for (const port of component.ports ?? []) {
+      const mappedComponentId = remap.get(component.id);
+      const mappedPortId = remap.get(port.id);
+      if (mappedComponentId && mappedPortId) {
+        remap.set(`derived from ${component.id}/${port.id}`, `derived from ${mappedComponentId}/${mappedPortId}`);
+      }
+    }
+  }
   return replaceMappedStrings(snapshot, remap);
 }
 

@@ -30,3 +30,20 @@ test("an empty design is a warning rather than a green pass", () => {
   assert.equal(summary.status, "warnings");
   assert.equal(summary.groups.warnings[0].code, "ventilation-model-empty");
 });
+
+test("engineering topology faults are errors while missing evidence remains not calculated", () => {
+  const summary = createDesignCheckSummary({ parts: { componentCount: 1 }, routes: { routeCount: 1 }, diagnostics: [] }, {
+    lines: [], missingAssignedTargetSpaceIds: [], targetWithoutTerminalSpaceIds: [], terminalWithoutTargetSpaceIds: [], unassignedTerminals: [],
+  }, {
+    status: "blocked",
+    diagnostics: [
+      { code: "allocation-disconnected", severity: "error", message: "Terminal path is disconnected", target: { componentId: "terminal-1" } },
+      { code: "route-resistance-missing", severity: "error", message: "Resistance evidence is missing", target: { routeId: "route-1" } },
+      { code: "fan-duty-insufficient", severity: "error", message: "Fan duty is below the calculated requirement", target: {} },
+    ],
+  });
+  assert.equal(summary.groups.errors.some(item => item.code === "allocation-disconnected"), true);
+  assert.equal(summary.groups.errors.some(item => item.code === "fan-duty-insufficient"), true);
+  assert.equal(summary.groups.notCalculated.some(item => item.code === "route-resistance-missing"), true);
+  assert.deepEqual(summary.groups.notCalculated.find(item => item.code === "route-resistance-missing").target, { kind: "route", id: "route-1" });
+});

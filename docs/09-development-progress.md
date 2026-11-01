@@ -372,3 +372,9 @@ Two unit tools replace the individual model variants in the drafting palette. Dr
 - The preview now states the intended `1 A3 drawing + n A4 parts-list pages` output before the browser print dialog opens.
 - Verified the actual PDF page boxes and full-page renders in Chromium for a six-page centralised schedule and a two-page decentralised schedule. Rows, notes, borders and page numbering remained visible with no extra blank pages.
 - Browser and operating-system print dialogs still own final CSS paged-media support; non-Chromium output remains a review requirement rather than a universal compatibility claim.
+
+# Engineering engine local branch — 1 November 2026
+
+The `codex/engineering-engine-v1` branch adds schema 24 engineering inputs, explicit terminal allocations, typed route-graph flow propagation, internal-area velocity, evidenced route/component pressure calculations, outdoor boundary paths, critical-path/fan-duty evaluation, Low/Normal/Boost mode storage, Check-workspace setup/editing, and preliminary JSON report output. Results are option-scoped and migrate older projects without inventing values.
+
+Synthetic numerical fixtures cover L/s↔m³/h consistency, Single/Twin velocity, missing evidence, bounded fan-curve interpolation, outdoor boundary inclusion, branch accumulation, save/reopen and design-option isolation. These fixtures verify algorithms only; they do not validate a manufacturer product or real project. Production remains unchanged while engineering evidence and review gates are open.

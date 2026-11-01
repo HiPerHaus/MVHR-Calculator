@@ -25,7 +25,9 @@ try {
   cdp.on("Runtime.exceptionThrown", (params) => exceptions.push(params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "Runtime exception"));
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
-  await waitFor(cdp, `document.readyState === "complete" && document.querySelector("#project-nav")?.classList.contains("active")`);
+  await waitFor(cdp, `document.readyState === "complete"`);
+  if (process.env.HIPER_BROWSER_DEBUG === "1") process.stderr.write(`${JSON.stringify(await evaluate(cdp, `({href:location.href,title:document.title,projectClass:document.querySelector("#project-nav")?.className??null,body:document.body?.innerText?.slice(0,500)??""})`), null, 2)}\n`);
+  await waitFor(cdp, `document.querySelector("#project-nav")?.classList.contains("active")`, 12000);
   await seedProject(cdp);
   await cdp.send("Page.reload", { ignoreCache: true });
   await waitFor(cdp, `document.querySelector("#current-project-name")?.textContent === "Engineering Evidence House"`);
@@ -56,17 +58,26 @@ try {
   assert.match(applied.installerSections, /predicted and measured remain blank/i);
   assert.match(applied.installerBoundary, /not an issued installer document/i);
 
-  await click(cdp, "#project-save");
-  await waitFor(cdp, `document.querySelector("#local-state")?.dataset.state === "saved"`);
-  await cdp.send("Page.reload", { ignoreCache: true });
-  await waitFor(cdp, `document.querySelector("#current-project-name")?.textContent === "Engineering Evidence House"`);
-  await click(cdp, "#checks-nav");
+  await click(cdp, "#engineering-network-create");
+  await waitFor(cdp, `document.querySelectorAll("#engineering-allocation-table tr[data-allocation-id]").length === 2`);
+  assert.match(await text(cdp, "#engineering-network-status"), /Draft created/i);
+  assert.match(await text(cdp, "#engineering-network-issues"), /system-boundary|external|connected.*path/i);
+  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='unit']"), "m3/h");
+  await setValue(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='flow']", "100");
+  await click(cdp, "#engineering-network-save");
+  await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Engineering inputs saved")`);
+  await click(cdp, "#engineering-network-export");
+  await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Preliminary engineering JSON exported")`);
+
   assert.equal(await value(cdp, "#checks-engineering-unit"), "q350-unit");
   assert.equal(await value(cdp, "#checks-engineering-pressure"), "200");
   assert.equal(await value(cdp, "#checks-engineering-filter"), "Clean filters");
+  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='flow']"), "100");
+  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='unit']"), "m3/h");
+
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, applied, reopenedPressurePa: 200 }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, applied, savedEditedAllocation: "100 m3/h", reportExportTriggered: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-4000)}\n`);

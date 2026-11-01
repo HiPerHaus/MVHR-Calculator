@@ -179,8 +179,13 @@ import { transitionStudioDesignStage } from "../src/editor/studio-design-stages.
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   externalStaticPressureFromInput,
+  pressureInputFromPa,
   unresolvedExternalStaticPressure,
+  unresolvedPressureInput,
 } from "../src/domain/engineering-inputs.mjs";
+import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
+import { createEngineeringNetworkDraft } from "../src/editor/engineering-network-draft.mjs";
+import { createEngineeringReport } from "../src/editor/engineering-report.mjs";
 import { inspectSizingPressureEvidence } from "../src/editor/sizing-pressure-evidence.mjs";
 import { inspectProductCostingReadiness } from "../src/editor/product-costing.mjs";
 import { createInstallerDocumentFoundation } from "../src/editor/installer-document.mjs";
@@ -512,6 +517,25 @@ const checksEngineeringInputStatus = document.querySelector("#checks-engineering
 const checksEngineeringSummary = document.querySelector("#checks-engineering-summary");
 const checksEngineeringIssues = document.querySelector("#checks-engineering-issues");
 const checksEngineeringBoundary = document.querySelector("#checks-engineering-boundary");
+const engineeringNetworkMode = document.querySelector("#engineering-network-mode");
+const engineeringNetworkFactor = document.querySelector("#engineering-network-factor");
+const engineeringNetworkCreate = document.querySelector("#engineering-network-create");
+const engineeringNetworkSave = document.querySelector("#engineering-network-save");
+const engineeringNetworkExport = document.querySelector("#engineering-network-export");
+const engineeringNetworkClear = document.querySelector("#engineering-network-clear");
+const engineeringNetworkStatus = document.querySelector("#engineering-network-status");
+const engineeringOccupancy = document.querySelector("#engineering-occupancy");
+const engineeringDensity = document.querySelector("#engineering-density");
+const engineeringViscosity = document.querySelector("#engineering-viscosity");
+const engineeringFluidBasis = document.querySelector("#engineering-fluid-basis");
+const engineeringFluidSource = document.querySelector("#engineering-fluid-source");
+const engineeringAllocationTable = document.querySelector("#engineering-allocation-table");
+const engineeringRouteTable = document.querySelector("#engineering-route-table");
+const engineeringComponentTable = document.querySelector("#engineering-component-table");
+const engineeringFanTable = document.querySelector("#engineering-fan-table");
+const engineeringNetworkStreams = document.querySelector("#engineering-network-streams");
+const engineeringNetworkIssues = document.querySelector("#engineering-network-issues");
+const engineeringNetworkBoundary = document.querySelector("#engineering-network-boundary");
 const checksCostingSummary = document.querySelector("#checks-costing-summary");
 const checksCostingLines = document.querySelector("#checks-costing-lines");
 const checksCostingIssues = document.querySelector("#checks-costing-issues");
@@ -1348,6 +1372,11 @@ checksNavigationButton.addEventListener("click", () => selectDesignStage("check"
 checksReturnVentilationButton.addEventListener("click", () => selectDesignStage(lastCanvasDesignStage));
 checksEngineeringForm.addEventListener("submit", applyEngineeringDutyInput);
 checksEngineeringClear.addEventListener("click", clearEngineeringDutyInput);
+engineeringNetworkMode.addEventListener("change", () => renderChecksWorkspace());
+engineeringNetworkCreate.addEventListener("click", createEngineeringDraftFromRooms);
+engineeringNetworkSave.addEventListener("click", saveEngineeringNetworkEdits);
+engineeringNetworkExport.addEventListener("click", exportEngineeringNetworkReport);
+engineeringNetworkClear.addEventListener("click", clearEngineeringNetworkMode);
 sheetsNavigationButton.addEventListener("click", () => selectDesignStage("export"));
 threeDReturnButton.addEventListener("click", () => setTask("ventilation"));
 threeDHeightForm.addEventListener("submit", applyThreeDHeights);
@@ -8004,6 +8033,15 @@ function renderChecksWorkspace() {
     checksEngineeringSummary.textContent = "No duty or pressure evidence is available.";
     checksEngineeringIssues.replaceChildren();
     checksEngineeringBoundary.textContent = "No engineering conclusion is available.";
+    engineeringNetworkStatus.textContent = "No active floor.";
+    engineeringAllocationTable.replaceChildren();
+    engineeringRouteTable.replaceChildren();
+    engineeringComponentTable.replaceChildren();
+    engineeringFanTable.replaceChildren();
+    engineeringNetworkStreams.replaceChildren();
+    engineeringNetworkIssues.replaceChildren();
+    engineeringNetworkBoundary.textContent = "No engineering network result is available.";
+    for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkClear]) control.disabled = true;
     checksCostingSummary.textContent = "The project has no floor to cost.";
     checksCostingLines.replaceChildren();
     checksCostingIssues.replaceChildren();
@@ -8019,7 +8057,8 @@ function renderChecksWorkspace() {
   const schedule = createPartsSchedule(history.present, { floorId: floor.id });
   const connectionEvidence = inspectConnectionAccessoryEvidence(history.present, floor.id);
   const airflow = inspectAirflowBalance(history.present, floor.id);
-  const designCheck = createDesignCheckSummary(audit, airflow);
+  const engineering = evaluateEngineeringNetwork(history.present, floor.id, "normal");
+  const designCheck = createDesignCheckSummary(audit, airflow, engineering);
   const sizing = inspectSizingPressureEvidence(history.present, floor.id);
   const costing = inspectProductCostingReadiness(history.present, floor.id);
   const installer = createInstallerDocumentFoundation(history.present, floor.id);
@@ -8143,6 +8182,7 @@ function renderChecksWorkspace() {
 
   renderAirflowChecks(airflow);
   renderEngineeringChecks(sizing);
+  renderEngineeringNetwork(floor.id);
   renderCostingReadiness(costing);
   renderInstallerFoundation(installer);
 
@@ -8263,6 +8303,339 @@ function formatEngineeringPerformanceStatus(status) {
   if (status === "blocked-unit-not-selected") return "unit not selected";
   return formatRoomChoice(status);
 }
+
+function createEngineeringDraftFromRooms() {
+  const floor = currentFloor();
+  if (!floor) return;
+  try {
+    const mode = engineeringNetworkMode.value;
+    const factor = Number(engineeringNetworkFactor.value);
+    const draft = createEngineeringNetworkDraft(history.present, floor.id, mode, { normalTargetFactor: factor });
+    commitCommand({ type: "engineering.setNetworkDesign", design: draft.design }, `${formatRoomChoice(mode)} engineering allocation draft created for review`);
+    engineeringNetworkStatus.textContent = draft.unresolved.length === 0
+      ? "Draft created from explicit single-terminal room associations. Add resistance evidence before relying on pressure results."
+      : `Draft created with ${draft.unresolved.length} unresolved space ${draft.unresolved.length === 1 ? "item" : "items"}; no multiple-terminal split was inferred.`;
+  } catch (error) {
+    engineeringNetworkStatus.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function clearEngineeringNetworkMode() {
+  const floor = currentFloor();
+  if (!floor) return;
+  const mode = engineeringNetworkMode.value;
+  if (!history.present.engineeringInputs.networkDesigns.some(item => item.floorId === floor.id && item.mode === mode)) return;
+  commitCommand({ type: "engineering.clearNetworkDesign", floorId: floor.id, mode }, `${formatRoomChoice(mode)} engineering network cleared`);
+}
+
+function saveEngineeringNetworkEdits() {
+  const floor = currentFloor();
+  if (!floor) return;
+  const mode = engineeringNetworkMode.value;
+  const current = history.present.engineeringInputs.networkDesigns.find(item => item.floorId === floor.id && item.mode === mode);
+  if (!current) {
+    engineeringNetworkStatus.textContent = "Create a reviewed allocation draft before entering network evidence.";
+    return;
+  }
+  try {
+    const terminalAllocations = [...engineeringAllocationTable.querySelectorAll("tr[data-allocation-id]")].map(row => {
+      const existing = current.terminalAllocations.find(item => item.id === row.dataset.allocationId);
+      const flow = positiveFormNumber(row.querySelector("[data-field='flow']").value, "Terminal design target");
+      const inputUnit = row.querySelector("[data-field='unit']").value;
+      if (!["l/s", "m3/h"].includes(inputUnit)) throw new TypeError("Terminal design target unit must be L/s or m³/h");
+      const terminalLossValue = optionalNonNegativeFormNumber(row.querySelector("[data-field='terminal-loss']").value, "Terminal loss");
+      const basis = row.querySelector("[data-field='basis']").value.trim();
+      const source = row.querySelector("[data-field='source']").value.trim();
+      if (!basis || !source) throw new TypeError("Every terminal allocation requires a basis and source");
+      return {
+        ...existing,
+        inputValue: flow,
+        inputUnit,
+        valueLps: inputUnit === "l/s" ? flow : flow / 3.6,
+        basis,
+        source,
+        terminalPressureLoss: terminalLossValue === null
+          ? unresolvedPressureInput("terminal pressure loss not provided")
+          : pressureInputFromPa(terminalLossValue, basis, source),
+      };
+    });
+    const routeResistanceInputs = [...engineeringRouteTable.querySelectorAll("tr[data-route-id]")].flatMap(row => {
+      const values = ["diameter", "roughness", "k", "additional-loss"].map(field => row.querySelector(`[data-field='${field}']`).value.trim());
+      const basis = row.querySelector("[data-field='basis']").value.trim();
+      const source = row.querySelector("[data-field='source']").value.trim();
+      if (values.every(value => value === "") && !basis && !source) return [];
+      if (values.some(value => value === "") || !basis || !source) throw new TypeError(`Route ${row.dataset.routeId} needs diameter, roughness, ΣK, additional loss, basis and source together`);
+      return [{
+        routeId: row.dataset.routeId,
+        internalDiameterMm: positiveFormNumber(values[0], "Internal diameter"),
+        roughnessMm: nonNegativeFormNumber(values[1], "Roughness"),
+        fittingKTotal: nonNegativeFormNumber(values[2], "Fitting K total"),
+        additionalPressureLoss: pressureInputFromPa(nonNegativeFormNumber(values[3], "Additional route loss"), basis, source),
+        basis,
+        source,
+      }];
+    });
+    const componentResistanceInputs = [...engineeringComponentTable.querySelectorAll("tr[data-component-id]")].flatMap(row => {
+      const loss = row.querySelector("[data-field='component-loss']").value.trim();
+      const basis = row.querySelector("[data-field='basis']").value.trim();
+      const source = row.querySelector("[data-field='source']").value.trim();
+      if (!loss && !basis && !source) return [];
+      if (!loss || !basis || !source) throw new TypeError(`Component ${row.dataset.componentId} needs pressure loss, basis and source together`);
+      return [{ componentId: row.dataset.componentId, pressureLoss: pressureInputFromPa(nonNegativeFormNumber(loss, "Component loss"), basis, source), basis, source }];
+    });
+    const fanCurves = [...engineeringFanTable.querySelectorAll("tr[data-stream]")].map(row => {
+      const stream = row.dataset.stream;
+      const pointsText = row.querySelector("[data-field='points']").value.trim();
+      const unitComponentId = row.querySelector("[data-field='unit']").value;
+      const basis = row.querySelector("[data-field='basis']").value.trim();
+      const source = row.querySelector("[data-field='source']").value.trim();
+      const sourceVersion = row.querySelector("[data-field='version']").value.trim();
+      if (!pointsText && !unitComponentId && !basis && !source && !sourceVersion) return { state: "unresolved", stream, unitComponentId: null, points: [], basis: null, source: null, sourceVersion: null, reason: "verified article-specific fan curve not provided" };
+      if (!pointsText || !unitComponentId || !basis || !source || !sourceVersion) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs a unit, at least two points, basis, source and source version together`);
+      const points = pointsText.split(/[,;\n]+/u).filter(Boolean).map(token => {
+        const [flow, pressure, extra] = token.trim().split(/\s*:\s*/u);
+        if (extra !== undefined || flow === undefined || pressure === undefined) throw new TypeError(`Fan-curve point “${token.trim()}” must use m³/h:Pa`);
+        return { airflowM3h: positiveFormNumber(flow, "Fan-curve airflow"), externalStaticPressurePa: nonNegativeFormNumber(pressure, "Fan-curve pressure") };
+      });
+      if (points.length < 2) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs at least two verified points`);
+      return { state: "known", stream, unitComponentId, points, basis, source, sourceVersion, reason: null };
+    });
+    const occupancyText = engineeringOccupancy.value.trim();
+    const occupancy = occupancyText === ""
+      ? { state: "unresolved", persons: null, basis: null, source: null, reason: "project occupancy not entered for this engineering mode" }
+      : { state: "known", persons: nonNegativeIntegerFormNumber(occupancyText, "Occupancy"), basis: "Designer-entered project occupancy for this mode", source: "HiPer Studio engineering input", reason: null };
+    const fluidBasis = engineeringFluidBasis.value.trim();
+    const fluidSource = engineeringFluidSource.value.trim();
+    if (!fluidBasis || !fluidSource) throw new TypeError("Air-property assumptions require a basis and source");
+    const fluid = {
+      densityKgM3: positiveFormNumber(engineeringDensity.value, "Air density"),
+      dynamicViscosityPaS: positiveFormNumber(engineeringViscosity.value, "Dynamic viscosity"),
+      basis: fluidBasis,
+      source: fluidSource,
+    };
+    commitCommand({ type: "engineering.setNetworkDesign", design: { ...structuredClone(current), occupancy, fluid, terminalAllocations, routeResistanceInputs, componentResistanceInputs, fanCurves } }, `${formatRoomChoice(mode)} engineering inputs updated`);
+    engineeringNetworkStatus.textContent = "Engineering inputs saved. Results are preliminary and remain blocked wherever evidence is missing.";
+  } catch (error) {
+    engineeringNetworkStatus.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function exportEngineeringNetworkReport() {
+  const floor = currentFloor();
+  if (!floor) return;
+  const report = createEngineeringReport(history.present, floor.id, engineeringNetworkMode.value);
+  if (report.issue.calculationStatus === "not-configured") {
+    engineeringNetworkStatus.textContent = "Create a saved engineering network before exporting its report.";
+    return;
+  }
+  const payload = JSON.stringify({
+    title: `${history.present.projectDetails.name || "HiPer Studio project"} · ${floor.name} · ${formatRoomChoice(engineeringNetworkMode.value)} engineering review`,
+    issueStatus: "Preliminary · review required · not for construction",
+    generatedAtUtc: new Date().toISOString(),
+    designOptionId: history.present.activeDesignOptionId,
+    report,
+  }, null, 2);
+  const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${engineeringFileStem(history.present.projectDetails.name || history.present.id)}-${engineeringFileStem(floor.name)}-${engineeringNetworkMode.value}-engineering.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  engineeringNetworkStatus.textContent = "Preliminary engineering JSON exported. This is not a commissioning record or construction issue.";
+}
+
+function renderEngineeringNetwork(floorId) {
+  for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkClear]) control.disabled = false;
+  const mode = engineeringNetworkMode.value;
+  engineeringNetworkFactor.disabled = mode === "normal";
+  const design = history.present.engineeringInputs.networkDesigns.find(item => item.floorId === floorId && item.mode === mode) ?? null;
+  const evaluation = evaluateEngineeringNetwork(history.present, floorId, mode);
+  engineeringNetworkClear.disabled = design === null;
+  engineeringNetworkSave.disabled = design === null;
+  engineeringNetworkExport.disabled = design === null;
+  engineeringNetworkStatus.textContent = design === null
+    ? `No ${formatRoomChoice(mode)} network is saved. Create a draft; multi-terminal rooms will remain unresolved for explicit allocation.`
+    : `${formatRoomChoice(mode)} network saved · ${evaluation.status === "blocked" ? "blocked by missing or invalid evidence" : "preliminary calculation ready for technical review"}.`;
+  engineeringOccupancy.value = design?.occupancy.state === "known" ? String(design.occupancy.persons) : "";
+  engineeringDensity.value = design ? String(design.fluid.densityKgM3) : "";
+  engineeringViscosity.value = design ? String(design.fluid.dynamicViscosityPaS) : "";
+  engineeringFluidBasis.value = design?.fluid.basis ?? "";
+  engineeringFluidSource.value = design?.fluid.source ?? "";
+
+  engineeringAllocationTable.replaceChildren();
+  for (const allocation of design?.terminalAllocations ?? []) {
+    const component = history.present.components.find(item => item.id === allocation.componentId);
+    const spaces = allocation.spaceKind === "zone" ? history.present.zones : history.present.rooms;
+    const space = spaces.find(item => item.id === allocation.spaceId);
+    const row = document.createElement("tr");
+    row.dataset.allocationId = allocation.id;
+    row.append(
+      tableCell(`${space?.name ?? allocation.spaceId} · ${component?.catalogue?.name ?? component?.id ?? allocation.componentId}`),
+      tableCell(formatRoomChoice(evaluation.allocations.find(item => item.id === allocation.id)?.stream ?? "unknown")),
+      airflowInputCell(allocation.inputValue, allocation.inputUnit),
+      inputCell("terminal-loss", allocation.terminalPressureLoss.state === "known" ? allocation.terminalPressureLoss.valuePa : "", "Pa"),
+      evidenceCell(allocation.basis, allocation.source),
+    );
+    engineeringAllocationTable.append(row);
+  }
+  if (!design || design.terminalAllocations.length === 0) engineeringAllocationTable.append(emptyTableRow("No explicit terminal allocations are saved for this mode.", 5));
+
+  const routeInputById = new Map((design?.routeResistanceInputs ?? []).map(item => [item.routeId, item]));
+  const resultById = new Map(evaluation.routes.map(item => [item.routeId, item]));
+  engineeringRouteTable.replaceChildren();
+  for (const route of history.present.routes.filter(item => item.floorId === floorId)) {
+    const input = routeInputById.get(route.id);
+    const result = resultById.get(route.id);
+    const row = document.createElement("tr");
+    row.dataset.routeId = route.id;
+    row.append(
+      tableCell(`${route.id} · ${formatRoomChoice(route.stream)} · ${route.parallelRunCount === 2 ? "Twin" : route.parallelRunCount === 1 ? "Single" : "run count unset"}`),
+      tableCell(result?.flowLps > 0 ? `${formatNumberValue(result.flowLps)} L/s${result.velocityMps === null ? " · velocity unresolved" : ` · ${formatNumberValue(result.velocityMps)} m/s`}` : "No allocated design flow"),
+      inputCell("diameter", input?.internalDiameterMm ?? "", "mm"),
+      inputCell("roughness", input?.roughnessMm ?? "", "mm"),
+      inputCell("k", input?.fittingKTotal ?? "", ""),
+      inputCell("additional-loss", input?.additionalPressureLoss.state === "known" ? input.additionalPressureLoss.valuePa : "", "Pa"),
+      evidenceCell(input?.basis ?? "", input?.source ?? ""),
+    );
+    engineeringRouteTable.append(row);
+  }
+  if (history.present.routes.every(item => item.floorId !== floorId)) engineeringRouteTable.append(emptyTableRow("No routes are modelled on this floor.", 7));
+
+  const componentInputById = new Map((design?.componentResistanceInputs ?? []).map(item => [item.componentId, item]));
+  engineeringComponentTable.replaceChildren();
+  const resistanceComponents = engineeringResistanceComponents(history.present, floorId);
+  for (const component of resistanceComponents) {
+    const input = componentInputById.get(component.id);
+    const row = document.createElement("tr");
+    row.dataset.componentId = component.id;
+    row.append(
+      tableCell(component.catalogue?.name ?? component.id),
+      inputCell("component-loss", input?.pressureLoss.state === "known" ? input.pressureLoss.valuePa : "", "Pa"),
+      evidenceCell(input?.basis ?? "", input?.source ?? ""),
+    );
+    engineeringComponentTable.append(row);
+  }
+  if (resistanceComponents.length === 0) engineeringComponentTable.append(emptyTableRow("No inline multi-port components or external terminals need separate evidence on this floor.", 3));
+
+  const fanUnits = engineeringFanUnits(history.present, floorId);
+  const fanCurveByStream = new Map((design?.fanCurves ?? []).map(item => [item.stream, item]));
+  engineeringFanTable.replaceChildren();
+  for (const stream of ["supply", "extract"]) {
+    const curve = fanCurveByStream.get(stream);
+    const row = document.createElement("tr");
+    row.dataset.stream = stream;
+    const unitCell = document.createElement("td");
+    const select = document.createElement("select");
+    select.dataset.field = "unit";
+    select.setAttribute("aria-label", `${formatRoomChoice(stream)} fan-curve unit`);
+    select.append(new Option("Not selected", ""));
+    for (const unit of fanUnits) select.append(new Option(unit.catalogue?.name ?? unit.id, unit.id));
+    select.value = curve?.unitComponentId ?? "";
+    unitCell.append(select);
+    const pointsCell = document.createElement("td");
+    const points = document.createElement("textarea");
+    points.dataset.field = "points";
+    points.rows = 2;
+    points.placeholder = "m³/h:Pa, e.g. 100:180, 200:120";
+    points.value = curve?.state === "known" ? curve.points.map(point => `${point.airflowM3h}:${point.externalStaticPressurePa}`).join(", ") : "";
+    pointsCell.append(points);
+    const evidence = fanEvidenceCell(curve);
+    row.append(tableCell(formatRoomChoice(stream)), unitCell, pointsCell, evidence);
+    engineeringFanTable.append(row);
+  }
+
+  engineeringNetworkStreams.replaceChildren();
+  for (const stream of Object.values(evaluation.streams)) engineeringNetworkStreams.append(checksListRow(
+    `${formatRoomChoice(stream.stream)} · ${formatNumberValue(stream.designFlowLps)} L/s (${formatNumberValue(stream.designFlowM3h)} m³/h)`,
+    stream.requiredExternalStaticPressurePa === null
+      ? "Required external static pressure not calculated"
+      : `${formatNumberValue(stream.requiredExternalStaticPressurePa)} Pa critical path · fan ${stream.fanDuty.state.replaceAll("-", " ")}`,
+  ));
+  engineeringNetworkIssues.replaceChildren();
+  for (const item of evaluation.diagnostics) engineeringNetworkIssues.append(airflowIssue(item.severity === "error" ? "Blocked" : "Review", item.message));
+  if (evaluation.diagnostics.length === 0) engineeringNetworkIssues.append(htmlText("div", "No calculation blockers in the saved inputs; technical review is still required.", "checks-diagnostic-empty"));
+  engineeringNetworkBoundary.textContent = evaluation.evidenceBoundary;
+}
+
+function inputCell(field, value, suffix) {
+  const cell = document.createElement("td");
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "0";
+  input.step = "any";
+  input.inputMode = "decimal";
+  input.value = value;
+  input.dataset.field = field;
+  input.setAttribute("aria-label", field.replaceAll("-", " "));
+  cell.append(input, suffix ? document.createTextNode(` ${suffix}`) : document.createTextNode(""));
+  return cell;
+}
+
+function airflowInputCell(value, unit) {
+  const cell = document.createElement("td");
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "0.01";
+  input.step = "any";
+  input.inputMode = "decimal";
+  input.value = value;
+  input.dataset.field = "flow";
+  input.setAttribute("aria-label", "Terminal design target");
+  const select = document.createElement("select");
+  select.dataset.field = "unit";
+  select.setAttribute("aria-label", "Terminal design target unit");
+  select.append(new Option("L/s", "l/s"), new Option("m³/h", "m3/h"));
+  select.value = unit;
+  cell.append(input, select);
+  return cell;
+}
+
+function evidenceCell(basis, source) {
+  const cell = document.createElement("td");
+  for (const [field, value, placeholder] of [["basis", basis, "Basis"], ["source", source, "Source"]]) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 500;
+    input.value = value;
+    input.placeholder = placeholder;
+    input.dataset.field = field;
+    input.setAttribute("aria-label", placeholder);
+    cell.append(input);
+  }
+  return cell;
+}
+
+function fanEvidenceCell(curve) {
+  const cell = evidenceCell(curve?.state === "known" ? curve.basis : "", curve?.state === "known" ? curve.source : "");
+  const version = document.createElement("input");
+  version.type = "text";
+  version.maxLength = 120;
+  version.value = curve?.state === "known" ? curve.sourceVersion : "";
+  version.placeholder = "Source version";
+  version.dataset.field = "version";
+  version.setAttribute("aria-label", "Fan-curve source version");
+  cell.append(version);
+  return cell;
+}
+
+function engineeringFanUnits(project, floorId) {
+  return project.components.filter(component => component.floorId === floorId && ["Dwelling supply", "Dwelling extract"].every(role => component.ports.some(port => port.role === role)));
+}
+
+function engineeringResistanceComponents(project, floorId) {
+  const unitIds = new Set(engineeringFanUnits(project, floorId).map(item => item.id));
+  return project.components.filter(component => component.floorId === floorId && !unitIds.has(component.id) && (
+    component.ports.length > 1 || component.ports.some(port => ["Outdoor intake", "Outdoor exhaust"].includes(port.role))
+  ));
+}
+
+function tableCell(value) { const cell = document.createElement("td"); cell.textContent = value; return cell; }
+function emptyTableRow(message, columns) { const row = document.createElement("tr"); const cell = tableCell(message); cell.colSpan = columns; row.append(cell); return row; }
+function positiveFormNumber(value, label) { const number = Number(value); if (!Number.isFinite(number) || number <= 0) throw new TypeError(`${label} must be a positive number`); return number; }
+function nonNegativeFormNumber(value, label) { const number = Number(value); if (!Number.isFinite(number) || number < 0) throw new TypeError(`${label} must be zero or greater`); return number; }
+function optionalNonNegativeFormNumber(value, label) { return value.trim() === "" ? null : nonNegativeFormNumber(value, label); }
+function nonNegativeIntegerFormNumber(value, label) { const number = nonNegativeFormNumber(value, label); if (!Number.isInteger(number)) throw new TypeError(`${label} must be a whole number`); return number; }
+function engineeringFileStem(value) { return String(value).normalize("NFKD").replace(/[^a-z0-9]+/giu, "-").replace(/^-+|-+$/gu, "").slice(0, 80) || "engineering"; }
 
 function renderCostingReadiness(costing) {
   checksCostingSummary.textContent = `${costing.summary.lineCount} model-derived ${costing.summary.lineCount === 1 ? "line" : "lines"} · 0 priced · total unresolved.`;

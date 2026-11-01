@@ -292,7 +292,13 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .checks-engineering-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; align-items: end; margin: 12px 0; padding: 12px; border: 1px solid #d4dee2; border-radius: 8px; background: #f7fafb; }
 .checks-engineering-form label { display: grid; gap: 4px; font-size: 10px; color: #40565f; }
 .engineering-pressure-input { display: grid; grid-template-columns: 1fr auto; gap: 7px; align-items: center; }
-.checks-engineering-actions { display: flex; gap: 8px; align-items: center; }
+.checks-engineering-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.checks-engineering-actions label { display: grid; gap: 4px; color: #40565f; font-size: 10px; }
+#engineering-allocation-table input, #engineering-allocation-table select, #engineering-route-table input, #engineering-component-table input, #engineering-fan-table input, #engineering-fan-table select, #engineering-fan-table textarea { box-sizing: border-box; width: 100%; min-width: 82px; padding: 6px; border: 1px solid #c4d0d5; border-radius: 5px; font: inherit; }
+#engineering-allocation-table [data-field="unit"] { margin-top: 5px; }
+#engineering-allocation-table td:last-child, #engineering-route-table td:last-child, #engineering-component-table td:last-child, #engineering-fan-table td:last-child { min-width: 190px; }
+#engineering-allocation-table td:last-child input + input, #engineering-route-table td:last-child input + input, #engineering-component-table td:last-child input + input, #engineering-fan-table td:last-child input + input { margin-top: 5px; }
+#engineering-fan-table strong { display: block; margin-bottom: 5px; }
 .diagnostic-focus { padding: 6px 9px; color: #315654; font-size: 10px; white-space: nowrap; }
 .canvas-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line); background: #fbfcfc; }
 .canvas-heading div:first-child { display: flex; align-items: baseline; gap: 10px; }

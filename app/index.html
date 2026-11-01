@@ -576,6 +576,43 @@
             <p id="checks-engineering-boundary" class="checks-boundary"></p>
           </article>
           <article class="checks-card checks-card-wide">
+            <h2>Engineering network · preliminary</h2>
+            <p>Evaluate explicit terminal design allocations through typed routes. This does not predict achieved airflow or certify a design.</p>
+            <div class="checks-engineering-actions">
+              <label>Mode
+                <select id="engineering-network-mode"><option value="normal">Normal</option><option value="low">Low</option><option value="boost">Boost</option></select>
+              </label>
+              <label>Designer-entered target factor
+                <input id="engineering-network-factor" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Required for Low / Boost" />
+              </label>
+              <button id="engineering-network-create" type="button">Create reviewed allocation draft</button>
+              <button id="engineering-network-save" type="button">Save edited inputs</button>
+              <button id="engineering-network-export" type="button">Export engineering JSON</button>
+              <button id="engineering-network-clear" type="button">Clear mode</button>
+            </div>
+            <p id="engineering-network-status" class="checks-summary"></p>
+            <details><summary>Mode and air-property assumptions</summary>
+              <div class="checks-engineering-form">
+                <label>Occupancy persons<input id="engineering-occupancy" type="number" min="0" step="1" inputmode="numeric" placeholder="Unresolved" /></label>
+                <label>Air density<input id="engineering-density" type="number" min="0.001" step="any" inputmode="decimal" /> kg/m³</label>
+                <label>Dynamic viscosity<input id="engineering-viscosity" type="number" min="0.000000001" step="any" inputmode="decimal" /> Pa·s</label>
+                <label>Assumption basis<input id="engineering-fluid-basis" maxlength="500" /></label>
+                <label>Assumption source<input id="engineering-fluid-source" maxlength="500" /></label>
+              </div>
+            </details>
+            <h3>Terminal allocations</h3>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Space / terminal</th><th>Service</th><th>Design target</th><th>Terminal loss</th><th>Evidence</th></tr></thead><tbody id="engineering-allocation-table"></tbody></table></div>
+            <h3>Route resistance inputs and calculated design-flow results</h3>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Route</th><th>Flow / velocity</th><th>Internal Ø</th><th>Roughness</th><th>ΣK</th><th>Additional loss</th><th>Evidence</th></tr></thead><tbody id="engineering-route-table"></tbody></table></div>
+            <h3>Inline component and external terminal losses</h3>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Component</th><th>Pressure loss</th><th>Evidence</th></tr></thead><tbody id="engineering-component-table"></tbody></table></div>
+            <h3>Verified unit fan curves</h3>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Stream</th><th>Unit</th><th>Points</th><th>Evidence / version</th></tr></thead><tbody id="engineering-fan-table"></tbody></table></div>
+            <div id="engineering-network-streams" class="checks-list"></div>
+            <div id="engineering-network-issues" class="checks-diagnostics"></div>
+            <p id="engineering-network-boundary" class="checks-boundary"></p>
+          </article>
+          <article class="checks-card checks-card-wide">
             <h2>Product costing readiness</h2>
             <p id="checks-costing-summary" class="checks-summary"></p>
             <div id="checks-costing-lines" class="checks-list"></div>

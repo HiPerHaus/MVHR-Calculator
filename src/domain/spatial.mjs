@@ -30,8 +30,10 @@ import {
 } from "./design-workflow.mjs";
 import {
   createEngineeringInputs,
+  migrateEngineeringInputs,
   normalizeEngineeringInputs,
   normalizeFloorDuty,
+  normalizeNetworkDesign,
 } from "./engineering-inputs.mjs";
 import {
   deriveRoomBoundaries,
@@ -59,7 +61,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -467,6 +469,15 @@ export function applyCommand(project, command, options = {}) {
           duty.unitComponentId = null;
         }
       }
+      next.engineeringInputs.networkDesigns = next.engineeringInputs.networkDesigns.map((design) => ({
+        ...design,
+        terminalAllocations: design.terminalAllocations.filter((item) => !componentIds.has(item.componentId)),
+        componentResistanceInputs: design.componentResistanceInputs.filter((item) => !componentIds.has(item.componentId)),
+        routeResistanceInputs: design.routeResistanceInputs.filter((item) => !routeIds.has(item.routeId)),
+        fanCurves: design.fanCurves.map((curve) => curve.unitComponentId !== null && componentIds.has(curve.unitComponentId)
+          ? {state:"unresolved",stream:curve.stream,unitComponentId:null,points:[],basis:null,source:null,sourceVersion:null,reason:"selected fan unit was deleted"}
+          : curve),
+      }));
       break;
     }
     case "ventilation.clearFloor": {
@@ -497,6 +508,9 @@ export function applyCommand(project, command, options = {}) {
           duty.unitComponentId = null;
         }
       }
+      next.engineeringInputs.networkDesigns = next.engineeringInputs.networkDesigns.filter(
+        (design) => design.floorId !== floorId,
+      );
       break;
     }
     case "route.add": {
@@ -563,6 +577,10 @@ export function applyCommand(project, command, options = {}) {
     case "route.delete": {
       requireEntity(next.routes, command.routeId, "Route");
       next.routes = next.routes.filter(route => route.id !== command.routeId);
+      next.engineeringInputs.networkDesigns = next.engineeringInputs.networkDesigns.map((design) => ({
+        ...design,
+        routeResistanceInputs: design.routeResistanceInputs.filter((item) => item.routeId !== command.routeId),
+      }));
       break;
     }
     case "route.setParallelRunCount": {
@@ -931,15 +949,33 @@ export function applyCommand(project, command, options = {}) {
         }
       }
       next.engineeringInputs.floorDuties = next.engineeringInputs.floorDuties.filter(
-        (candidate) => candidate.floorId !== duty.floorId,
+        (candidate) => candidate.floorId !== duty.floorId || candidate.mode !== duty.mode,
       );
       next.engineeringInputs.floorDuties.push(duty);
       break;
     }
     case "engineering.clearFloorDuty": {
       requireEntity(next.floors, command.floorId, "Engineering duty floor");
+      const mode = command.mode ?? "normal";
       next.engineeringInputs.floorDuties = next.engineeringInputs.floorDuties.filter(
-        (candidate) => candidate.floorId !== command.floorId,
+        (candidate) => candidate.floorId !== command.floorId || candidate.mode !== mode,
+      );
+      break;
+    }
+    case "engineering.setNetworkDesign": {
+      const design = normalizeNetworkDesign(command.design);
+      validateNetworkDesignReferences(next, design);
+      next.engineeringInputs.networkDesigns = next.engineeringInputs.networkDesigns.filter(
+        (candidate) => candidate.floorId !== design.floorId || candidate.mode !== design.mode,
+      );
+      next.engineeringInputs.networkDesigns.push(design);
+      break;
+    }
+    case "engineering.clearNetworkDesign": {
+      requireEntity(next.floors, command.floorId, "Engineering network floor");
+      const mode = command.mode ?? "normal";
+      next.engineeringInputs.networkDesigns = next.engineeringInputs.networkDesigns.filter(
+        (candidate) => candidate.floorId !== command.floorId || candidate.mode !== mode,
       );
       break;
     }
@@ -1188,6 +1224,36 @@ export function serializeProject(project) {
   return canonicalStringify(validateProject(project));
 }
 
+function validateNetworkDesignReferences(project, design) {
+  requireEntity(project.floors, design.floorId, "Engineering network floor");
+  for (const allocation of design.terminalAllocations) {
+    const component = requireEntity(project.components, allocation.componentId, "Engineering terminal component");
+    if (component.floorId !== design.floorId) throw new TypeError("Engineering terminal must be on the selected floor");
+    const port = requireEntity(component.ports, allocation.portId, "Engineering terminal port");
+    if (!["supply", "extract"].includes(port.stream)) throw new TypeError("Engineering terminal allocation must use a supply or extract port");
+    const spaces = allocation.spaceKind === "room" ? project.rooms : project.zones;
+    const space = requireEntity(spaces, allocation.spaceId, `Engineering ${allocation.spaceKind}`);
+    if (space.floorId !== design.floorId) throw new TypeError("Engineering allocation space must be on the selected floor");
+    if (!space.terminalAssociations.some((association) => association.componentId === component.id && association.portId === port.id)) {
+      throw new TypeError(`Engineering terminal is not associated with ${allocation.spaceKind}: ${allocation.id}`);
+    }
+  }
+  for (const input of design.routeResistanceInputs) {
+    const route = requireEntity(project.routes, input.routeId, "Engineering resistance route");
+    if (route.floorId !== design.floorId) throw new TypeError("Engineering resistance route must be on the selected floor");
+  }
+  for (const input of design.componentResistanceInputs) {
+    const component = requireEntity(project.components, input.componentId, "Engineering resistance component");
+    if (component.floorId !== design.floorId) throw new TypeError("Engineering resistance component must be on the selected floor");
+  }
+  for (const curve of design.fanCurves) {
+    if (curve.state === "unresolved") continue;
+    const component = requireEntity(project.components, curve.unitComponentId, "Engineering fan-curve unit");
+    if (component.floorId !== design.floorId) throw new TypeError("Engineering fan-curve unit must be on the selected floor");
+    if (!isMvhrUnitComponent(component)) throw new TypeError("Engineering fan curve must reference an MVHR unit component");
+  }
+}
+
 export function deserializeProject(json) {
   if (typeof json !== "string") {
     throw new TypeError("Serialized project must be a string");
@@ -1385,6 +1451,20 @@ export function migrateProjectData(project) {
   if (migrated.schemaVersion === 20) migrated={...migrated,schemaVersion:21,routingExclusions:[],routingClearanceSettings:[]};
   if (migrated.schemaVersion === 21) migrated={...migrated,schemaVersion:22,ventilationDesignType:"unclassified"};
   if (migrated.schemaVersion === 22) migrated={...migrated,schemaVersion:23,...createInitialDesignOptionState(migrated)};
+  if (migrated.schemaVersion === 23) {
+    migrated = {
+      ...migrated,
+      schemaVersion: 24,
+      engineeringInputs: migrateEngineeringInputs(migrated.engineeringInputs),
+      designOptions: migrated.designOptions.map((option) => ({
+        ...option,
+        snapshot: option.snapshot === null ? null : {
+          ...option.snapshot,
+          engineeringInputs: migrateEngineeringInputs(option.snapshot.engineeringInputs),
+        },
+      })),
+    };
+  }
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -1475,6 +1555,7 @@ function validateProjectInternal(project, skipDesignOptions) {
       throw new TypeError("Engineering duty selection must reference an MVHR unit component");
     }
   }
+  for (const design of engineeringInputs.networkDesigns) validateNetworkDesignReferences(project, design);
   const occupiedEndpoints = new Set();
   project.routes.forEach((route) => {
     for (const field of ["role", "startAttachment", "endAttachment", "ductKind", "parallelRunCount"]) {
