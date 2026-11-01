@@ -343,6 +343,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
       port("main", -360, 0, -1, 0, "supply", "Dwelling supply", EPP_160),
       ...radialPorts("branch", 360, "supply", "Dwelling supply"),
     ],
+    engineeringPassages: starEngineeringPassages("main", radialPortKeys("branch"), "Explicit generic manifold main-to-branch topology"),
     note: "One independently placeable supply-side fixture; no automatic count or pairing.",
   }),
   componentRecord({
@@ -361,6 +362,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
       port("main", -360, 0, -1, 0, "extract", "Dwelling extract", EPP_160),
       ...radialPorts("branch", 360, "extract", "Dwelling extract"),
     ],
+    engineeringPassages: starEngineeringPassages("main", radialPortKeys("branch"), "Explicit generic manifold main-to-branch topology"),
     note: "One independently placeable extract-side fixture; no automatic count or pairing.",
   }),
   ...["hrv", "erv"].flatMap(type => ["left", "right"].map(handing => aerofresh450Record(type, handing))),
@@ -416,6 +418,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
       port("a", -160, 0, -1, 0, "supply", "Dwelling supply", EPP_160),
       port("b", 160, 0, 1, 0, "supply", "Dwelling supply", EPP_160),
     ],
+    engineeringPassages: seriesEngineeringPassage("a", "b", "Explicit generic inline-fitting passage topology"),
     note: "Generic connectivity fixture; it is not a branded sleeve, elbow or adapter.",
   }),
   componentRecord({
@@ -434,6 +437,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
       port("a", -160, 0, -1, 0, "extract", "Dwelling extract", EPP_160),
       port("b", 160, 0, 1, 0, "extract", "Dwelling extract", EPP_160),
     ],
+    engineeringPassages: seriesEngineeringPassage("a", "b", "Explicit generic inline-fitting passage topology"),
     note: "Generic connectivity fixture; it is not a branded sleeve, elbow or adapter.",
   }),
 ]);
@@ -585,6 +589,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
     dimensions: item.dimensions,
     symbol: item.symbol,
     ports: item.ports,
+    engineeringPassages: item.engineeringPassages ?? [],
     connectionSetout: item.connectionSetout ?? null,
     manufacturerGeometryAsset: item.manufacturerGeometryAsset ?? null,
     ...(item.terminalSpecification ? { terminalSpecification: item.terminalSpecification } : {}),
@@ -622,6 +627,12 @@ export function createCatalogueComponent(catalogueItemId, placement) {
       evidence: item.status === "synthetic-not-manufacturer-verified"
         ? "generic test fixture only"
         : "catalogue record snapshot",
+    })),
+    engineeringPassages: (item.engineeringPassages ?? []).map((passage, index) => ({
+      id: `${placement.id}-engineering-passage-${index + 1}`,
+      fromPortId: `${placement.id}-port-${passage.fromPortKey}`,
+      toPortId: `${placement.id}-port-${passage.toPortKey}`,
+      basis: passage.basis,
     })),
     ...(item.decentralisedSpecification ? {
       decentralisedMvhr: {
@@ -1117,6 +1128,7 @@ function remoteAssemblyRecords(stream, role) {
         port("epp", -25.5, 0, -1, 0, stream, role, EPP_160),
         port("module", 25.5, 0, 1, 0, stream, role, GENERIC_CW_320),
       ],
+      engineeringPassages: seriesEngineeringPassage("epp", "module", "Explicit generic end-plate passage topology"),
       note: "Assembly-only generic end plate using the official CW-P 320 51 × 336 mm projection/envelope for drawing scale. Its centre, EPP mating and local SKU remain synthetic/unverified; it is not a CW-P product claim.",
     }),
     componentRecord({
@@ -1139,6 +1151,7 @@ function remoteAssemblyRecords(stream, role) {
         port("in", -250, 0, -1, 0, stream, role, GENERIC_CW_320),
         port("out", 250, 0, 1, 0, stream, role, GENERIC_CW_320),
       ],
+      engineeringPassages: seriesEngineeringPassage("in", "out", "Explicit generic attenuator passage topology"),
       note: "Assembly-only generic attenuator using the official CW-S 320 500 × 320 mm plan body for drawing scale. It is not a CW-S SKU, acoustic selection or verified mating claim.",
     }),
     componentRecord({
@@ -1161,6 +1174,7 @@ function remoteAssemblyRecords(stream, role) {
         port("module", -20.5, 0, -1, 0, stream, role, GENERIC_CW_320),
         ...radialPorts("branch", 20.5, stream, role),
       ],
+      engineeringPassages: starEngineeringPassages("module", radialPortKeys("branch"), "Explicit generic radial-plate main-to-branch topology"),
       note: "Assembly-only generic six-port plate using the official CW-M 320 41 × 336 mm projection/envelope for drawing scale. Branch centres stay synthetic because absolute offsets and installation orientation remain unresolved; it is not a CW-M product or capacity claim.",
     }),
   ];
@@ -1285,6 +1299,18 @@ function radialPorts(prefix, x, stream, role) {
   return [-120, -72, -24, 24, 72, 120].map((y, index) => (
     port(`${prefix}-${index + 1}`, x, y, 1, 0, stream, role, SEMI_RIGID_90)
   ));
+}
+
+function radialPortKeys(prefix) {
+  return [1, 2, 3, 4, 5, 6].map(index => `${prefix}-${index}`);
+}
+
+function starEngineeringPassages(mainPortKey, branchPortKeys, basis) {
+  return branchPortKeys.map(toPortKey => ({ fromPortKey: mainPortKey, toPortKey, basis }));
+}
+
+function seriesEngineeringPassage(fromPortKey, toPortKey, basis) {
+  return [{ fromPortKey, toPortKey, basis }];
 }
 
 function port(key, x, y, directionX, directionY, stream, role, interfaceValue) {

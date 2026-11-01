@@ -1,4 +1,4 @@
-export const ENGINEERING_INPUT_VERSION = "mvhr-engineering-inputs.v2";
+export const ENGINEERING_INPUT_VERSION = "mvhr-engineering-inputs.v3";
 export const ENGINEERING_MODES = Object.freeze(["low", "normal", "boost"]);
 
 export function createEngineeringInputs() {
@@ -7,6 +7,31 @@ export function createEngineeringInputs() {
 
 export function migrateEngineeringInputs(value) {
   if (value?.version === ENGINEERING_INPUT_VERSION) return structuredClone(value);
+  if (value?.version === "mvhr-engineering-inputs.v2" && Array.isArray(value.floorDuties) && Array.isArray(value.networkDesigns)) {
+    return {
+      version: ENGINEERING_INPUT_VERSION,
+      floorDuties: structuredClone(value.floorDuties),
+      networkDesigns: value.networkDesigns.map(design => ({
+        ...structuredClone(design),
+        routeResistanceInputs: design.routeResistanceInputs.map(input => ({
+          ...structuredClone(input),
+          crossSection: input.crossSection ?? { shape: "circular", internalDiameterMm: input.internalDiameterMm },
+          routeGeometryFingerprint: input.routeGeometryFingerprint ?? null,
+        })),
+        componentResistanceInputs: design.componentResistanceInputs.map(input => ({
+          ...structuredClone(input),
+          passageId: input.passageId ?? null,
+          componentConfigurationFingerprint: input.componentConfigurationFingerprint ?? null,
+        })),
+        fanCurves: design.fanCurves.map(curve => ({
+          ...structuredClone(curve),
+          unitConfigurationFingerprint: curve.unitConfigurationFingerprint ?? null,
+          pressureConvention: curve.pressureConvention ?? null,
+          filterCondition: curve.filterCondition ?? null,
+        })),
+      })),
+    };
+  }
   if (value?.version === "mvhr-engineering-inputs.v1" && Array.isArray(value.floorDuties)) {
     return { version: ENGINEERING_INPUT_VERSION, floorDuties: structuredClone(value.floorDuties), networkDesigns: [] };
   }
@@ -63,7 +88,7 @@ export function normalizeNetworkDesign(value) {
     fluid: normalizeFluidProperties(value.fluid),
     terminalAllocations,
     routeResistanceInputs: uniqueBy(value.routeResistanceInputs, normalizeRouteResistanceInput, item => item.routeId, "route resistance input"),
-    componentResistanceInputs: uniqueBy(value.componentResistanceInputs, normalizeComponentResistanceInput, item => item.componentId, "component resistance input"),
+    componentResistanceInputs: uniqueBy(value.componentResistanceInputs, normalizeComponentResistanceInput, item => `${item.componentId}\u0000${item.passageId ?? ""}`, "component resistance input"),
     fanCurves: uniqueBy(value.fanCurves, normalizeFanCurve, item => item.stream, "fan curve"),
   };
 }
@@ -114,7 +139,12 @@ function normalizeRouteResistanceInput(value) {
   if (fittingKTotal < 0) throw new RangeError("Route fitting K total must not be negative");
   return {
     routeId: opaqueId(value.routeId, "Route resistance route ID"),
-    internalDiameterMm: positive(value.internalDiameterMm, "Route internal hydraulic diameter"),
+    crossSection: normalizeRouteCrossSection(value.crossSection ?? {
+      shape: "circular",
+      internalDiameterMm: value.internalDiameterMm,
+    }),
+    parallelFlowAssumption: oneOf(value.parallelFlowAssumption ?? "not-declared", ["not-declared", "not-applicable", "equal-split-declared"], "Route parallel-flow assumption"),
+    routeGeometryFingerprint: nullableBoundedText(value.routeGeometryFingerprint ?? null, "Route geometry fingerprint", 120),
     roughnessMm: nonNegative(value.roughnessMm, "Route roughness"),
     fittingKTotal,
     additionalPressureLoss: normalizePressureInput(value.additionalPressureLoss, "Route additional pressure loss"),
@@ -123,10 +153,29 @@ function normalizeRouteResistanceInput(value) {
   };
 }
 
+function normalizeRouteCrossSection(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Route internal cross-section input must be an object");
+  const shape = oneOf(value.shape, ["circular", "rectangular"], "Route internal cross-section shape");
+  if (shape === "circular") return {
+    shape,
+    internalDiameterMm: positive(value.internalDiameterMm, "Route internal diameter"),
+    internalWidthMm: null,
+    internalHeightMm: null,
+  };
+  return {
+    shape,
+    internalDiameterMm: null,
+    internalWidthMm: positive(value.internalWidthMm, "Route internal width"),
+    internalHeightMm: positive(value.internalHeightMm, "Route internal height"),
+  };
+}
+
 function normalizeComponentResistanceInput(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Component resistance input must be an object");
   return {
     componentId: opaqueId(value.componentId, "Component resistance component ID"),
+    passageId: value.passageId === null || value.passageId === undefined ? null : opaqueId(value.passageId, "Component resistance passage ID"),
+    componentConfigurationFingerprint: nullableBoundedText(value.componentConfigurationFingerprint ?? null, "Component configuration fingerprint", 120),
     pressureLoss: normalizePressureInput(value.pressureLoss, "Component pressure loss"),
     basis: boundedText(value.basis, "Component resistance basis", 500),
     source: boundedText(value.source, "Component resistance source", 500),
@@ -137,11 +186,44 @@ function normalizeFanCurve(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Fan curve input is required");
   const state = oneOf(value.state, ["unresolved", "known"], "Fan curve state");
   const stream = oneOf(value.stream, ["supply", "extract"], "Fan curve stream");
-  if (state === "unresolved") return { state, stream, unitComponentId: null, points: [], basis: null, source: null, sourceVersion: null, reason: boundedText(value.reason, "Fan curve unresolved reason", 240) };
+  if (state === "unresolved") return { state, stream, unitComponentId: null, unitConfigurationFingerprint: null, pressureConvention: null, filterCondition: null, points: [], basis: null, source: null, sourceVersion: null, reason: boundedText(value.reason, "Fan curve unresolved reason", 240) };
   if (!Array.isArray(value.points) || value.points.length < 2) throw new TypeError("Known fan curve requires at least two points");
   const points = value.points.map(point => ({ airflowM3h: positive(point?.airflowM3h, "Fan-curve airflow"), externalStaticPressurePa: nonNegative(point?.externalStaticPressurePa, "Fan-curve pressure") })).sort((a, b) => a.airflowM3h - b.airflowM3h);
   for (let index = 1; index < points.length; index += 1) if (points[index].airflowM3h <= points[index - 1].airflowM3h) throw new TypeError("Fan-curve airflow points must be unique");
-  return { state, stream, unitComponentId: opaqueId(value.unitComponentId, "Fan-curve unit component ID"), points, basis: boundedText(value.basis, "Fan-curve basis", 500), source: boundedText(value.source, "Fan-curve source", 500), sourceVersion: boundedText(value.sourceVersion, "Fan-curve source version", 120), reason: null };
+  const pressureConvention = value.pressureConvention === null || value.pressureConvention === undefined ? null : oneOf(value.pressureConvention, ["external-static"], "Fan-curve pressure convention");
+  return { state, stream, unitComponentId: opaqueId(value.unitComponentId, "Fan-curve unit component ID"), unitConfigurationFingerprint: nullableBoundedText(value.unitConfigurationFingerprint ?? null, "Fan-curve unit configuration fingerprint", 120), pressureConvention, filterCondition: nullableBoundedText(value.filterCondition ?? null, "Fan-curve filter condition", 240), points, basis: boundedText(value.basis, "Fan-curve basis", 500), source: boundedText(value.source, "Fan-curve source", 500), sourceVersion: boundedText(value.sourceVersion, "Fan-curve source version", 120), reason: null };
+}
+
+export function engineeringRouteFingerprint(route) {
+  if (!route || typeof route !== "object") throw new TypeError("Route is required for an engineering fingerprint");
+  return revisionFingerprint("route-geometry.v1", {
+    id: route.id, ductKind: route.ductKind ?? null, stream: route.stream ?? null, role: route.role ?? null,
+    parallelRunCount: route.parallelRunCount ?? null, startAttachment: route.startAttachment ?? null,
+    endAttachment: route.endAttachment ?? null, connectionInterface: route.connectionInterface ?? null,
+    points: route.points ?? [],
+  });
+}
+
+export function engineeringComponentFingerprint(component) {
+  if (!component || typeof component !== "object") throw new TypeError("Component is required for an engineering fingerprint");
+  return revisionFingerprint("component-configuration.v1", {
+    id: component.id, catalogueItemId: component.catalogueItemId ?? null,
+    catalogueRecordVersionId: component.catalogueRecordVersionId ?? null, productId: component.productId ?? null,
+    manufacturerArticle: component.catalogueSnapshot?.manufacturerArticle ?? null,
+    handing: component.catalogueSnapshot?.handing ?? null, ports: component.ports ?? [],
+    engineeringPassages: component.engineeringPassages ?? [],
+  });
+}
+
+function revisionFingerprint(prefix, value) {
+  const text = JSON.stringify(value);
+  let left = 0x811c9dc5, right = 0x9e3779b9;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    left = Math.imul(left ^ code, 0x01000193) >>> 0;
+    right = Math.imul(right ^ (code + index), 0x85ebca6b) >>> 0;
+  }
+  return `${prefix}:${left.toString(16).padStart(8, "0")}${right.toString(16).padStart(8, "0")}`;
 }
 
 export function normalizeExternalStaticPressure(value) {
@@ -176,6 +258,7 @@ function uniqueBy(values, normalizer, key, label) {
 
 function opaqueId(value, label) { if (typeof value !== "string" || value.trim().length === 0 || value.length > 240 || /[\u0000-\u001f]/u.test(value)) throw new TypeError(`${label} must be non-empty bounded text`); return value; }
 function boundedText(value, label, maximum) { if (typeof value !== "string" || value.trim().length === 0 || value.trim().length > maximum) throw new TypeError(`${label} must be non-empty text up to ${maximum} characters`); return value.trim(); }
+function nullableBoundedText(value, label, maximum) { return value === null ? null : boundedText(value, label, maximum); }
 function finite(value, label) { if (!Number.isFinite(value)) throw new TypeError(`${label} must be finite`); return value; }
 function positive(value, label) { const number = finite(value, label); if (number <= 0) throw new RangeError(`${label} must be positive`); return number; }
 function nonNegative(value, label) { const number = finite(value, label); if (number < 0) throw new RangeError(`${label} must not be negative`); return number; }

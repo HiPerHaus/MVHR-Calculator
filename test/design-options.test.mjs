@@ -14,6 +14,7 @@ import { createCommandHistory, executeCommand, undoCommand } from "../src/domain
 import { designOptionProjects } from "../src/domain/design-options.mjs";
 import { createCatalogueComponent } from "../src/editor/component-catalogue.mjs";
 import { createA3SheetModel } from "../src/sheets/a3-sheet.mjs";
+import { unresolvedExternalStaticPressure } from "../src/domain/engineering-inputs.mjs";
 
 test("legacy single-option projects reopen as Option A without changing their design", () => {
   const current=fixture();
@@ -66,6 +67,14 @@ test("markup duplication remaps identities and remains independently editable", 
   project=applyCommand(project,{type:"designOption.switch",optionId:originalOptionId});
   assert.equal(project.components[0].positionMm.x,1800);
   assert.equal(project.components[0].positionMm.y,1600);
+});
+
+test("markup-only duplication does not copy engineering inputs whose room references were omitted", () => {
+  let project = fixture();
+  project = applyCommand(project, { type: "engineering.setFloorDuty", duty: { floorId: "floor-ground", mode: "normal", unitComponentId: null, externalStaticPressure: unresolvedExternalStaticPressure("test duty unresolved") } });
+  project = applyCommand(project,{type:"designOption.duplicate",id:"option-markup-no-rooms",name:"Markup only",revision:"Working",copyScopes:["plan","markup"],activate:true});
+  assert.deepEqual(project.engineeringInputs.floorDuties, []);
+  assert.deepEqual(project.engineeringInputs.networkDesigns, []);
 });
 
 test("switching options is one undoable command and survives save/reopen", () => {

@@ -178,6 +178,8 @@ import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs
 import { transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
+  engineeringComponentFingerprint,
+  engineeringRouteFingerprint,
   externalStaticPressureFromInput,
   pressureInputFromPa,
   unresolvedExternalStaticPressure,
@@ -186,6 +188,7 @@ import {
 import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
 import { createEngineeringNetworkDraft } from "../src/editor/engineering-network-draft.mjs";
 import { createEngineeringReport } from "../src/editor/engineering-report.mjs";
+import { createEngineeringReportHtml } from "../src/editor/engineering-report-html.mjs";
 import { inspectSizingPressureEvidence } from "../src/editor/sizing-pressure-evidence.mjs";
 import { inspectProductCostingReadiness } from "../src/editor/product-costing.mjs";
 import { createInstallerDocumentFoundation } from "../src/editor/installer-document.mjs";
@@ -522,6 +525,7 @@ const engineeringNetworkFactor = document.querySelector("#engineering-network-fa
 const engineeringNetworkCreate = document.querySelector("#engineering-network-create");
 const engineeringNetworkSave = document.querySelector("#engineering-network-save");
 const engineeringNetworkExport = document.querySelector("#engineering-network-export");
+const engineeringNetworkExportJson = document.querySelector("#engineering-network-export-json");
 const engineeringNetworkClear = document.querySelector("#engineering-network-clear");
 const engineeringNetworkStatus = document.querySelector("#engineering-network-status");
 const engineeringOccupancy = document.querySelector("#engineering-occupancy");
@@ -1376,6 +1380,7 @@ engineeringNetworkMode.addEventListener("change", () => renderChecksWorkspace())
 engineeringNetworkCreate.addEventListener("click", createEngineeringDraftFromRooms);
 engineeringNetworkSave.addEventListener("click", saveEngineeringNetworkEdits);
 engineeringNetworkExport.addEventListener("click", exportEngineeringNetworkReport);
+engineeringNetworkExportJson.addEventListener("click", exportEngineeringNetworkJson);
 engineeringNetworkClear.addEventListener("click", clearEngineeringNetworkMode);
 sheetsNavigationButton.addEventListener("click", () => selectDesignStage("export"));
 threeDReturnButton.addEventListener("click", () => setTask("ventilation"));
@@ -8041,7 +8046,7 @@ function renderChecksWorkspace() {
     engineeringNetworkStreams.replaceChildren();
     engineeringNetworkIssues.replaceChildren();
     engineeringNetworkBoundary.textContent = "No engineering network result is available.";
-    for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkClear]) control.disabled = true;
+    for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkExportJson, engineeringNetworkClear]) control.disabled = true;
     checksCostingSummary.textContent = "The project has no floor to cost.";
     checksCostingLines.replaceChildren();
     checksCostingIssues.replaceChildren();
@@ -8282,7 +8287,7 @@ function renderEngineeringChecks(sizing) {
       ? `${formatNumberValue(pressure.valuePa)} Pa external static · ${pressure.filterCondition} · source: ${pressure.source}`
       : `External static pressure unresolved — ${pressure.reason}`;
   const flow = sizing.assignedFlow.unitDutyAirflowM3h;
-  checksEngineeringSummary.textContent = `${sizing.unitPerformance.unit?.name ?? "Unit not selected"} · ${flow === null ? "manual room-target screening input unresolved" : `${formatNumberValue(flow)} m³/h manual assigned room-target total for screening`} · ${formatEngineeringPerformanceStatus(sizing.unitPerformance.status)}. Network pressure result: not calculated.`;
+  checksEngineeringSummary.textContent = `Legacy exact-point unit evidence screen · ${sizing.unitPerformance.unit?.name ?? "Unit not selected"} · ${flow === null ? "manual room-target screening input unresolved" : `${formatNumberValue(flow)} m³/h manual assigned room-target total for screening`} · ${formatEngineeringPerformanceStatus(sizing.unitPerformance.status)}. This screen does not calculate network pressure; use the preliminary network engineering review below.`;
   checksEngineeringIssues.replaceChildren();
   for (const blocker of sizing.blockers) {
     checksEngineeringIssues.append(airflowIssue("Blocked / review required", blocker));
@@ -8349,6 +8354,11 @@ function saveEngineeringNetworkEdits() {
       if (!basis || !source) throw new TypeError("Every terminal allocation requires a basis and source");
       return {
         ...existing,
+        id: existing?.id ?? `engineering-${mode}-${row.dataset.componentId}-${row.dataset.portId}`,
+        componentId: existing?.componentId ?? row.dataset.componentId,
+        portId: existing?.portId ?? row.dataset.portId,
+        spaceKind: existing?.spaceKind ?? row.dataset.spaceKind,
+        spaceId: existing?.spaceId ?? row.dataset.spaceId,
         inputValue: flow,
         inputUnit,
         valueLps: inputUnit === "l/s" ? flow : flow / 3.6,
@@ -8360,17 +8370,27 @@ function saveEngineeringNetworkEdits() {
       };
     });
     const routeResistanceInputs = [...engineeringRouteTable.querySelectorAll("tr[data-route-id]")].flatMap(row => {
-      const values = ["diameter", "roughness", "k", "additional-loss"].map(field => row.querySelector(`[data-field='${field}']`).value.trim());
+      const shape = row.querySelector("[data-field='section-shape']").value;
+      const diameter = row.querySelector("[data-field='diameter']").value.trim();
+      const width = row.querySelector("[data-field='width']").value.trim();
+      const height = row.querySelector("[data-field='height']").value.trim();
+      const values = ["roughness", "k", "additional-loss"].map(field => row.querySelector(`[data-field='${field}']`).value.trim());
       const basis = row.querySelector("[data-field='basis']").value.trim();
       const source = row.querySelector("[data-field='source']").value.trim();
-      if (values.every(value => value === "") && !basis && !source) return [];
-      if (values.some(value => value === "") || !basis || !source) throw new TypeError(`Route ${row.dataset.routeId} needs diameter, roughness, ΣK, additional loss, basis and source together`);
+      const noGeometry = !diameter && !width && !height;
+      if (values.every(value => value === "") && noGeometry && !basis && !source) return [];
+      if (values.some(value => value === "") || !basis || !source) throw new TypeError(`Route ${row.dataset.routeId} needs internal geometry, roughness, ΣK, additional loss, basis and source together`);
+      const crossSection = shape === "circular"
+        ? { shape, internalDiameterMm: positiveFormNumber(diameter, "Internal diameter") }
+        : { shape, internalWidthMm: positiveFormNumber(width, "Internal width"), internalHeightMm: positiveFormNumber(height, "Internal height") };
       return [{
         routeId: row.dataset.routeId,
-        internalDiameterMm: positiveFormNumber(values[0], "Internal diameter"),
-        roughnessMm: nonNegativeFormNumber(values[1], "Roughness"),
-        fittingKTotal: nonNegativeFormNumber(values[2], "Fitting K total"),
-        additionalPressureLoss: pressureInputFromPa(nonNegativeFormNumber(values[3], "Additional route loss"), basis, source),
+        routeGeometryFingerprint: engineeringRouteFingerprint(history.present.routes.find(route => route.id === row.dataset.routeId)),
+        crossSection,
+        parallelFlowAssumption: row.querySelector("[data-field='parallel-flow']").value,
+        roughnessMm: nonNegativeFormNumber(values[0], "Roughness"),
+        fittingKTotal: nonNegativeFormNumber(values[1], "Fitting K total"),
+        additionalPressureLoss: pressureInputFromPa(nonNegativeFormNumber(values[2], "Additional route loss"), basis, source),
         basis,
         source,
       }];
@@ -8381,7 +8401,8 @@ function saveEngineeringNetworkEdits() {
       const source = row.querySelector("[data-field='source']").value.trim();
       if (!loss && !basis && !source) return [];
       if (!loss || !basis || !source) throw new TypeError(`Component ${row.dataset.componentId} needs pressure loss, basis and source together`);
-      return [{ componentId: row.dataset.componentId, pressureLoss: pressureInputFromPa(nonNegativeFormNumber(loss, "Component loss"), basis, source), basis, source }];
+      const component = history.present.components.find(item => item.id === row.dataset.componentId);
+      return [{ componentId: row.dataset.componentId, passageId: row.dataset.passageId || null, componentConfigurationFingerprint: engineeringComponentFingerprint(component), pressureLoss: pressureInputFromPa(nonNegativeFormNumber(loss, "Component loss"), basis, source), basis, source }];
     });
     const fanCurves = [...engineeringFanTable.querySelectorAll("tr[data-stream]")].map(row => {
       const stream = row.dataset.stream;
@@ -8390,15 +8411,17 @@ function saveEngineeringNetworkEdits() {
       const basis = row.querySelector("[data-field='basis']").value.trim();
       const source = row.querySelector("[data-field='source']").value.trim();
       const sourceVersion = row.querySelector("[data-field='version']").value.trim();
-      if (!pointsText && !unitComponentId && !basis && !source && !sourceVersion) return { state: "unresolved", stream, unitComponentId: null, points: [], basis: null, source: null, sourceVersion: null, reason: "verified article-specific fan curve not provided" };
-      if (!pointsText || !unitComponentId || !basis || !source || !sourceVersion) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs a unit, at least two points, basis, source and source version together`);
+      const filterCondition = row.querySelector("[data-field='filter-condition']").value.trim();
+      if (!pointsText && !unitComponentId && !basis && !source && !sourceVersion && !filterCondition) return { state: "unresolved", stream, unitComponentId: null, unitConfigurationFingerprint: null, pressureConvention: null, filterCondition: null, points: [], basis: null, source: null, sourceVersion: null, reason: "verified article-specific fan curve not provided" };
+      if (!pointsText || !unitComponentId || !basis || !source || !sourceVersion || !filterCondition) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs a unit, at least two points, external-static filter condition, basis, source and source version together`);
       const points = pointsText.split(/[,;\n]+/u).filter(Boolean).map(token => {
         const [flow, pressure, extra] = token.trim().split(/\s*:\s*/u);
         if (extra !== undefined || flow === undefined || pressure === undefined) throw new TypeError(`Fan-curve point “${token.trim()}” must use m³/h:Pa`);
         return { airflowM3h: positiveFormNumber(flow, "Fan-curve airflow"), externalStaticPressurePa: nonNegativeFormNumber(pressure, "Fan-curve pressure") };
       });
       if (points.length < 2) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs at least two verified points`);
-      return { state: "known", stream, unitComponentId, points, basis, source, sourceVersion, reason: null };
+      const unit = history.present.components.find(component => component.id === unitComponentId);
+      return { state: "known", stream, unitComponentId, unitConfigurationFingerprint: engineeringComponentFingerprint(unit), pressureConvention: "external-static", filterCondition, points, basis, source, sourceVersion, reason: null };
     });
     const occupancyText = engineeringOccupancy.value.trim();
     const occupancy = occupancyText === ""
@@ -8428,6 +8451,19 @@ function exportEngineeringNetworkReport() {
     engineeringNetworkStatus.textContent = "Create a saved engineering network before exporting its report.";
     return;
   }
+  const html = createEngineeringReportHtml(history.present, floor.id, engineeringNetworkMode.value);
+  downloadEngineeringBlob(html, "text/html", "engineering-report.html");
+  engineeringNetworkStatus.textContent = "Readable preliminary engineering report exported. This is not a commissioning record or construction issue.";
+}
+
+function exportEngineeringNetworkJson() {
+  const floor = currentFloor();
+  if (!floor) return;
+  const report = createEngineeringReport(history.present, floor.id, engineeringNetworkMode.value);
+  if (report.issue.calculationStatus === "not-configured") {
+    engineeringNetworkStatus.textContent = "Create a saved engineering network before exporting its data.";
+    return;
+  }
   const payload = JSON.stringify({
     title: `${history.present.projectDetails.name || "HiPer Studio project"} · ${floor.name} · ${formatRoomChoice(engineeringNetworkMode.value)} engineering review`,
     issueStatus: "Preliminary · review required · not for construction",
@@ -8435,17 +8471,22 @@ function exportEngineeringNetworkReport() {
     designOptionId: history.present.activeDesignOptionId,
     report,
   }, null, 2);
-  const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+  downloadEngineeringBlob(payload, "application/json", "engineering.json");
+  engineeringNetworkStatus.textContent = "Engineering data JSON exported. This is not a commissioning record or construction issue.";
+}
+
+function downloadEngineeringBlob(payload, type, suffix) {
+  const floor = currentFloor();
+  const url = URL.createObjectURL(new Blob([payload], { type }));
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${engineeringFileStem(history.present.projectDetails.name || history.present.id)}-${engineeringFileStem(floor.name)}-${engineeringNetworkMode.value}-engineering.json`;
+  anchor.download = `${engineeringFileStem(history.present.projectDetails.name || history.present.id)}-${engineeringFileStem(floor?.name ?? "floor")}-${engineeringNetworkMode.value}-${suffix}`;
   anchor.click();
   URL.revokeObjectURL(url);
-  engineeringNetworkStatus.textContent = "Preliminary engineering JSON exported. This is not a commissioning record or construction issue.";
 }
 
 function renderEngineeringNetwork(floorId) {
-  for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkClear]) control.disabled = false;
+  for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkExportJson, engineeringNetworkClear]) control.disabled = false;
   const mode = engineeringNetworkMode.value;
   engineeringNetworkFactor.disabled = mode === "normal";
   const design = history.present.engineeringInputs.networkDesigns.find(item => item.floorId === floorId && item.mode === mode) ?? null;
@@ -8453,6 +8494,7 @@ function renderEngineeringNetwork(floorId) {
   engineeringNetworkClear.disabled = design === null;
   engineeringNetworkSave.disabled = design === null;
   engineeringNetworkExport.disabled = design === null;
+  engineeringNetworkExportJson.disabled = design === null;
   engineeringNetworkStatus.textContent = design === null
     ? `No ${formatRoomChoice(mode)} network is saved. Create a draft; multi-terminal rooms will remain unresolved for explicit allocation.`
     : `${formatRoomChoice(mode)} network saved · ${evaluation.status === "blocked" ? "blocked by missing or invalid evidence" : "preliminary calculation ready for technical review"}.`;
@@ -8463,22 +8505,27 @@ function renderEngineeringNetwork(floorId) {
   engineeringFluidSource.value = design?.fluid.source ?? "";
 
   engineeringAllocationTable.replaceChildren();
-  for (const allocation of design?.terminalAllocations ?? []) {
+  const allocationRows = engineeringAllocationRows(history.present, floorId, design);
+  for (const allocation of allocationRows) {
     const component = history.present.components.find(item => item.id === allocation.componentId);
     const spaces = allocation.spaceKind === "zone" ? history.present.zones : history.present.rooms;
     const space = spaces.find(item => item.id === allocation.spaceId);
     const row = document.createElement("tr");
     row.dataset.allocationId = allocation.id;
+    row.dataset.componentId = allocation.componentId;
+    row.dataset.portId = allocation.portId;
+    row.dataset.spaceKind = allocation.spaceKind;
+    row.dataset.spaceId = allocation.spaceId;
     row.append(
       tableCell(`${space?.name ?? allocation.spaceId} · ${component?.catalogue?.name ?? component?.id ?? allocation.componentId}`),
       tableCell(formatRoomChoice(evaluation.allocations.find(item => item.id === allocation.id)?.stream ?? "unknown")),
-      airflowInputCell(allocation.inputValue, allocation.inputUnit),
+      airflowInputCell(allocation.inputValue ?? "", allocation.inputUnit ?? "l/s"),
       inputCell("terminal-loss", allocation.terminalPressureLoss.state === "known" ? allocation.terminalPressureLoss.valuePa : "", "Pa"),
       evidenceCell(allocation.basis, allocation.source),
     );
     engineeringAllocationTable.append(row);
   }
-  if (!design || design.terminalAllocations.length === 0) engineeringAllocationTable.append(emptyTableRow("No explicit terminal allocations are saved for this mode.", 5));
+  if (!design || allocationRows.length === 0) engineeringAllocationTable.append(emptyTableRow("No associated typed terminals are available for allocation on this floor.", 5));
 
   const routeInputById = new Map((design?.routeResistanceInputs ?? []).map(item => [item.routeId, item]));
   const resultById = new Map(evaluation.routes.map(item => [item.routeId, item]));
@@ -8491,7 +8538,8 @@ function renderEngineeringNetwork(floorId) {
     row.append(
       tableCell(`${route.id} · ${formatRoomChoice(route.stream)} · ${route.parallelRunCount === 2 ? "Twin" : route.parallelRunCount === 1 ? "Single" : "run count unset"}`),
       tableCell(result?.flowLps > 0 ? `${formatNumberValue(result.flowLps)} L/s${result.velocityMps === null ? " · velocity unresolved" : ` · ${formatNumberValue(result.velocityMps)} m/s`}` : "No allocated design flow"),
-      inputCell("diameter", input?.internalDiameterMm ?? "", "mm"),
+      routeGeometryCell(input?.crossSection ?? null),
+      parallelFlowCell(route.parallelRunCount, input?.parallelFlowAssumption ?? "not-declared"),
       inputCell("roughness", input?.roughnessMm ?? "", "mm"),
       inputCell("k", input?.fittingKTotal ?? "", ""),
       inputCell("additional-loss", input?.additionalPressureLoss.state === "known" ? input.additionalPressureLoss.valuePa : "", "Pa"),
@@ -8499,17 +8547,19 @@ function renderEngineeringNetwork(floorId) {
     );
     engineeringRouteTable.append(row);
   }
-  if (history.present.routes.every(item => item.floorId !== floorId)) engineeringRouteTable.append(emptyTableRow("No routes are modelled on this floor.", 7));
+  if (history.present.routes.every(item => item.floorId !== floorId)) engineeringRouteTable.append(emptyTableRow("No routes are modelled on this floor.", 8));
 
-  const componentInputById = new Map((design?.componentResistanceInputs ?? []).map(item => [item.componentId, item]));
+  const componentInputById = new Map((design?.componentResistanceInputs ?? []).map(item => [`${item.componentId}\u0000${item.passageId ?? ""}`, item]));
   engineeringComponentTable.replaceChildren();
   const resistanceComponents = engineeringResistanceComponents(history.present, floorId);
-  for (const component of resistanceComponents) {
-    const input = componentInputById.get(component.id);
+  for (const target of resistanceComponents) {
+    const component = target.component;
+    const input = componentInputById.get(`${component.id}\u0000${target.passageId ?? ""}`);
     const row = document.createElement("tr");
     row.dataset.componentId = component.id;
+    row.dataset.passageId = target.passageId ?? "";
     row.append(
-      tableCell(component.catalogue?.name ?? component.id),
+      tableCell(target.label),
       inputCell("component-loss", input?.pressureLoss.state === "known" ? input.pressureLoss.valuePa : "", "Pa"),
       evidenceCell(input?.basis ?? "", input?.source ?? ""),
     );
@@ -8590,6 +8640,53 @@ function airflowInputCell(value, unit) {
   return cell;
 }
 
+function routeGeometryCell(section) {
+  const cell = document.createElement("td");
+  const shape = document.createElement("select");
+  shape.dataset.field = "section-shape";
+  shape.setAttribute("aria-label", "Internal cross-section shape");
+  shape.append(new Option("Circular", "circular"), new Option("Rectangular", "rectangular"));
+  shape.value = section?.shape ?? "circular";
+  const diameter = engineeringNumberInput("diameter", section?.shape === "circular" ? section.internalDiameterMm : "", "Internal diameter mm");
+  const width = engineeringNumberInput("width", section?.shape === "rectangular" ? section.internalWidthMm : "", "Internal width mm");
+  const height = engineeringNumberInput("height", section?.shape === "rectangular" ? section.internalHeightMm : "", "Internal height mm");
+  const sync = () => { const circular = shape.value === "circular"; diameter.hidden = !circular; width.hidden = circular; height.hidden = circular; };
+  shape.addEventListener("change", sync);
+  sync();
+  cell.append(shape, diameter, width, height);
+  return cell;
+}
+
+function parallelFlowCell(runCount, assumption) {
+  const cell = document.createElement("td");
+  const select = document.createElement("select");
+  select.dataset.field = "parallel-flow";
+  select.setAttribute("aria-label", "Parallel flow assumption");
+  if (runCount === 2) {
+    select.append(new Option("Not declared", "not-declared"), new Option("Equal split — declared", "equal-split-declared"));
+    select.value = assumption === "equal-split-declared" ? assumption : "not-declared";
+  } else {
+    select.append(new Option("Single run", "not-applicable"));
+    select.value = "not-applicable";
+    select.disabled = true;
+  }
+  cell.append(select);
+  return cell;
+}
+
+function engineeringNumberInput(field, value, label) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "0";
+  input.step = "any";
+  input.inputMode = "decimal";
+  input.value = value;
+  input.dataset.field = field;
+  input.placeholder = label;
+  input.setAttribute("aria-label", label);
+  return input;
+}
+
 function evidenceCell(basis, source) {
   const cell = document.createElement("td");
   for (const [field, value, placeholder] of [["basis", basis, "Basis"], ["source", source, "Source"]]) {
@@ -8607,6 +8704,13 @@ function evidenceCell(basis, source) {
 
 function fanEvidenceCell(curve) {
   const cell = evidenceCell(curve?.state === "known" ? curve.basis : "", curve?.state === "known" ? curve.source : "");
+  const condition = document.createElement("input");
+  condition.type = "text";
+  condition.maxLength = 240;
+  condition.value = curve?.state === "known" ? curve.filterCondition ?? "" : "";
+  condition.placeholder = "External-static filter condition";
+  condition.dataset.field = "filter-condition";
+  condition.setAttribute("aria-label", "Fan-curve external-static filter condition");
   const version = document.createElement("input");
   version.type = "text";
   version.maxLength = 120;
@@ -8614,7 +8718,7 @@ function fanEvidenceCell(curve) {
   version.placeholder = "Source version";
   version.dataset.field = "version";
   version.setAttribute("aria-label", "Fan-curve source version");
-  cell.append(version);
+  cell.append(condition, version);
   return cell;
 }
 
@@ -8624,9 +8728,42 @@ function engineeringFanUnits(project, floorId) {
 
 function engineeringResistanceComponents(project, floorId) {
   const unitIds = new Set(engineeringFanUnits(project, floorId).map(item => item.id));
-  return project.components.filter(component => component.floorId === floorId && !unitIds.has(component.id) && (
-    component.ports.length > 1 || component.ports.some(port => ["Outdoor intake", "Outdoor exhaust"].includes(port.role))
-  ));
+  return project.components.filter(component => component.floorId === floorId && !unitIds.has(component.id)).flatMap(component => {
+    const name = component.catalogue?.name ?? component.displayName ?? component.id;
+    if (component.engineeringPassages.length > 0) return component.engineeringPassages.map(passage => ({ component, passageId: passage.id, label: `${name} · ${passage.fromPortId} → ${passage.toPortId}` }));
+    return component.ports.some(port => ["Outdoor intake", "Outdoor exhaust"].includes(port.role)) ? [{ component, passageId: null, label: name }] : [];
+  });
+}
+
+function engineeringAllocationRows(project, floorId, design) {
+  if (!design) return [];
+  const rows = new Map(design.terminalAllocations.map(allocation => [`${allocation.componentId}\u0000${allocation.portId}`, allocation]));
+  const spaces = project.rooms.filter(room => room.floorId === floorId).flatMap(room => {
+    const zones = project.zones.filter(zone => zone.parentRoomId === room.id);
+    return zones.length ? zones.map(space => ({ kind: "zone", space })) : [{ kind: "room", space: room }];
+  });
+  for (const { kind, space } of spaces) {
+    if (!["supply", "extract"].includes(space.ventilationRole)) continue;
+    for (const association of space.terminalAssociations) {
+      const component = project.components.find(item => item.id === association.componentId);
+      const port = component?.ports.find(item => item.id === association.portId);
+      if (component?.floorId !== floorId || port?.stream !== space.ventilationRole) continue;
+      const key = `${association.componentId}\u0000${association.portId}`;
+      if (!rows.has(key)) rows.set(key, {
+        id: `engineering-${design.mode}-${association.componentId}-${association.portId}`,
+        componentId: association.componentId,
+        portId: association.portId,
+        spaceKind: kind,
+        spaceId: space.id,
+        inputValue: null,
+        inputUnit: "l/s",
+        terminalPressureLoss: unresolvedPressureInput("terminal pressure loss not provided"),
+        basis: "",
+        source: "",
+      });
+    }
+  }
+  return [...rows.values()];
 }
 
 function tableCell(value) { const cell = document.createElement("td"); cell.textContent = value; return cell; }

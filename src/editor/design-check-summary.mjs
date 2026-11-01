@@ -95,12 +95,17 @@ function engineeringIssue(item) {
 
 function isEngineeringTopologyError(code) {
   return new Set([
-    "unsupported-cycle",
     "allocation-terminal-invalid",
     "allocation-disconnected",
+    "allocation-path-ambiguous",
+    "allocation-space-invalid",
     "root-count-invalid",
     "boundary-unit-root-invalid",
     "system-boundary-count-invalid",
+    "system-boundary-disconnected",
+    "system-boundary-path-ambiguous",
+    "component-passage-invalid",
+    "component-passage-topology-unresolved",
     "free-route-end",
     "fan-duty-insufficient",
   ]).has(code);

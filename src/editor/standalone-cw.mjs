@@ -35,6 +35,7 @@ export function standaloneCwRecords() {
       source:{sourceId:p.source,title:`ComfoWell ${size} · ${p.generation}`,sourceKind:"owner-uploaded-manufacturer-sheet",locator:`pages ${p.pages}`,verificationStatus:"module-dimensions-verified-assembled-setout-provisional"},
       dimensions:{unit:"mm",body:{width,depth,height:vertical?totalLength:p.depth},evidenceStatus:"provisional-assembly-projection",manufacturerModule:{length:p.length,width:p.casingWidth??p.width,depth:p.depth},note:"Drawing envelope sums separate module and connector projections; assembled seating and mounting brackets require installation review."},
       symbol:{shape:"box",widthMm:width,heightMm:depth,cwProfile:{size,stream,orientation,mainSize,...p}},ports,
+      engineeringPassages:ports.filter(port=>port.key.startsWith("branch-")).map(port=>({fromPortKey:"main",toPortKey:port.key,basis:"Explicit standalone ComfoWell main-to-branch topology"})),
       note:"One remote attenuator with round end plate and radial plate. Branch centres are centred drawing setout; source generation is retained. Relative branch row heights are preserved; installed elevation remains unknown. No acoustic performance, fitting compatibility or pressure loss is inferred."};
   }))));
 }

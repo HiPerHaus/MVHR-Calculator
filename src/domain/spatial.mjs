@@ -61,7 +61,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -1245,6 +1245,7 @@ function validateNetworkDesignReferences(project, design) {
   for (const input of design.componentResistanceInputs) {
     const component = requireEntity(project.components, input.componentId, "Engineering resistance component");
     if (component.floorId !== design.floorId) throw new TypeError("Engineering resistance component must be on the selected floor");
+    if (input.passageId !== null && !component.engineeringPassages.some(passage => passage.id === input.passageId)) throw new TypeError("Engineering resistance passage must exist on the selected component configuration");
   }
   for (const curve of design.fanCurves) {
     if (curve.state === "unresolved") continue;
@@ -1460,6 +1461,28 @@ export function migrateProjectData(project) {
         ...option,
         snapshot: option.snapshot === null ? null : {
           ...option.snapshot,
+          engineeringInputs: migrateEngineeringInputs(option.snapshot.engineeringInputs),
+        },
+      })),
+    };
+  }
+  if (migrated.schemaVersion === 24) {
+    migrated = {
+      ...migrated,
+      schemaVersion: 25,
+      components: migrated.components.map(component => ({
+        ...component,
+        engineeringPassages: component.engineeringPassages ?? [],
+      })),
+      engineeringInputs: migrateEngineeringInputs(migrated.engineeringInputs),
+      designOptions: migrated.designOptions.map(option => ({
+        ...option,
+        snapshot: option.snapshot === null ? null : {
+          ...option.snapshot,
+          components: option.snapshot.components.map(component => ({
+            ...component,
+            engineeringPassages: component.engineeringPassages ?? [],
+          })),
           engineeringInputs: migrateEngineeringInputs(option.snapshot.engineeringInputs),
         },
       })),
@@ -3252,6 +3275,8 @@ function normalizeComponent(component) {
   }
   assertUniqueIds(component.ports, "ports");
   const ports = component.ports.map(normalizePort);
+  const portIds = new Set(ports.map(port => port.id));
+  const engineeringPassages = normalizeEngineeringPassages(component.engineeringPassages ?? [], portIds);
   const ductRunCount = normalizeDuctRunCount(component.ductRunCount ?? null);
   const normalized = {
     ...structuredClone(component),
@@ -3259,12 +3284,33 @@ function normalizeComponent(component) {
     positionMm: normalizePosition(component.positionMm),
     orientation: normalizeQuaternion(component.orientation),
     ports,
+    engineeringPassages,
     ...(component.decentralisedMvhr ? { decentralisedMvhr: normalizeDecentralisedMvhrMetadata(component.decentralisedMvhr) } : {}),
   };
   if (ductRunCount !== null && !assignableRoomTerminalPort(normalized)) {
     throw new TypeError("Duct run count is only valid for a single-port MVHR supply or extract terminal");
   }
   return normalized;
+}
+
+function normalizeEngineeringPassages(passages, portIds) {
+  if (!Array.isArray(passages)) throw new TypeError("Component engineering passages must be an array");
+  const identities = new Set();
+  return passages.map((passage, index) => {
+    if (!passage || typeof passage !== "object" || Array.isArray(passage)) throw new TypeError("Component engineering passage must be an object");
+    const fromPortId = requireOpaqueId(passage.fromPortId, "Engineering passage from-port ID");
+    const toPortId = requireOpaqueId(passage.toPortId, "Engineering passage to-port ID");
+    if (fromPortId === toPortId || !portIds.has(fromPortId) || !portIds.has(toPortId)) throw new TypeError("Component engineering passage must join two distinct existing ports");
+    const identity = [fromPortId, toPortId].sort().join("\u0000");
+    if (identities.has(identity)) throw new TypeError(`Component repeats engineering passage: ${identity}`);
+    identities.add(identity);
+    return {
+      id: requireOpaqueId(passage.id ?? `passage-${index + 1}`, "Engineering passage ID"),
+      fromPortId,
+      toPortId,
+      basis: normalizeBoundedText(passage.basis, "Engineering passage basis", 500),
+    };
+  });
 }
 
 function normalizeDecentralisedMvhrMetadata(value) {

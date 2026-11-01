@@ -229,6 +229,17 @@ async function completeCurrentProject() {
 function toSchemaVersion(current, schemaVersion) {
   const legacy = structuredClone(current);
   legacy.schemaVersion = schemaVersion;
+  if (schemaVersion < 25) {
+    for (const component of legacy.components) delete component.engineeringPassages;
+    if (legacy.engineeringInputs?.version === "mvhr-engineering-inputs.v3") {
+      legacy.engineeringInputs.version = "mvhr-engineering-inputs.v2";
+    }
+    for (const option of legacy.designOptions ?? []) {
+      if (!option.snapshot) continue;
+      for (const component of option.snapshot.components) delete component.engineeringPassages;
+      if (option.snapshot.engineeringInputs?.version === "mvhr-engineering-inputs.v3") option.snapshot.engineeringInputs.version = "mvhr-engineering-inputs.v2";
+    }
+  }
   if (schemaVersion < 22) delete legacy.ventilationDesignType;
   if (schemaVersion < 20) delete legacy.projectDetails;
   if (schemaVersion < 19) {

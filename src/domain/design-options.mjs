@@ -152,7 +152,7 @@ function duplicateSnapshot(source, scopes, optionId) {
     for (const field of ["components", "equipmentAssemblies", "routes", "connections"]) {
       snapshot[field] = structuredClone(source[field]);
     }
-    snapshot.engineeringInputs = structuredClone(source.engineeringInputs);
+    snapshot.engineeringInputs = copyRooms ? structuredClone(source.engineeringInputs) : createEngineeringInputs();
   }
   return remapSnapshotIdentities(snapshot, optionId);
 }

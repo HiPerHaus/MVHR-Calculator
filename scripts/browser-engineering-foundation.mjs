@@ -47,37 +47,54 @@ try {
   const applied = await snapshot(cdp);
   assert.match(applied.engineeringInput, /200 Pa external static.*Clean filters.*Engineer note P-01/);
   assert.match(applied.engineeringSummary, /350 m³\/h manual assigned room-target total for screening/);
-  assert.match(applied.engineeringSummary, /Network pressure result: not calculated/);
+  assert.match(applied.engineeringSummary, /Legacy exact-point unit evidence screen/);
+  assert.match(applied.engineeringSummary, /does not calculate network pressure.*preliminary network engineering review/i);
   assert.match(applied.engineeringIssues, /aligns with one source statement.*not measured performance.*whole-network suitability/i);
-  assert.match(applied.engineeringIssues, /No connected route network exists/i);
+  assert.match(applied.engineeringIssues, /current topology audit has unresolved connection issues/i);
   assert.match(applied.engineeringBoundary, /cannot interpolate a fan curve/i);
   assert.match(applied.costingSummary, /0 priced.*total unresolved/i);
   assert.match(applied.costingLines, /ComfoAir Q350 TR.*unpriced/s);
   assert.match(applied.costingBoundary, /Unknown prices remain null, not zero/i);
-  assert.match(applied.installerSummary, /working draft only.*2 blank commissioning rows/i);
+  assert.match(applied.installerSummary, /working draft only.*3 blank commissioning rows/i);
   assert.match(applied.installerSections, /predicted and measured remain blank/i);
   assert.match(applied.installerBoundary, /not an issued installer document/i);
 
   await click(cdp, "#engineering-network-create");
-  await waitFor(cdp, `document.querySelectorAll("#engineering-allocation-table tr[data-allocation-id]").length === 2`);
+  await waitFor(cdp, `document.querySelectorAll("#engineering-allocation-table tr[data-allocation-id]").length === 3`);
   assert.match(await text(cdp, "#engineering-network-status"), /Draft created/i);
   assert.match(await text(cdp, "#engineering-network-issues"), /system-boundary|external|connected.*path/i);
-  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='unit']"), "m3/h");
-  await setValue(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='flow']", "100");
+  for (const componentId of ["supply-terminal", "supply-terminal-2"]) {
+    const selector = `#engineering-allocation-table tr[data-component-id='${componentId}']`;
+    await setValue(cdp, `${selector} [data-field='flow']`, "175");
+    await setValue(cdp, `${selector} [data-field='unit']`, "m3/h");
+    await setValue(cdp, `${selector} [data-field='terminal-loss']`, "0");
+    await setValue(cdp, `${selector} [data-field='basis']`, "Explicit two-terminal allocation");
+    await setValue(cdp, `${selector} [data-field='source']`, "Browser engineering fixture");
+  }
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='section-shape']", "rectangular");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='width']", "100");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='height']", "50");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='roughness']", "0.1");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='k']", "0");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='additional-loss']", "0");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='basis']", "Synthetic rectangular UI evidence");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='source']", "Browser engineering fixture");
   await click(cdp, "#engineering-network-save");
   await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Engineering inputs saved")`);
   await click(cdp, "#engineering-network-export");
-  await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Preliminary engineering JSON exported")`);
+  await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Readable preliminary engineering report exported")`);
 
   assert.equal(await value(cdp, "#checks-engineering-unit"), "q350-unit");
   assert.equal(await value(cdp, "#checks-engineering-pressure"), "200");
   assert.equal(await value(cdp, "#checks-engineering-filter"), "Clean filters");
-  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='flow']"), "100");
-  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-allocation-id] [data-field='unit']"), "m3/h");
+  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-component-id='supply-terminal'] [data-field='flow']"), "175");
+  assert.equal(await value(cdp, "#engineering-allocation-table tr[data-component-id='supply-terminal-2'] [data-field='unit']"), "m3/h");
+  assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='section-shape']"), "rectangular");
+  assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='width']"), "100");
 
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, applied, savedEditedAllocation: "100 m3/h", reportExportTriggered: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, applied, savedEditedAllocations: "2 × 175 m3/h", reportExportTriggered: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-4000)}\n`);
@@ -139,12 +156,23 @@ async function seedProject(cdp) {
     ) });
     for (const [id, catalogueId, xMm] of [
       ["supply-terminal", "synthetic-supply-terminal", 2000],
+      ["supply-terminal-2", "synthetic-supply-terminal", 3000],
       ["extract-terminal", "synthetic-extract-terminal", 6000],
     ]) {
       project = domain.applyCommand(project, { type: "component.add", component: synthetic.createSyntheticComponent(
         catalogueId, { id, floorId: "floor-ground", xMm, yMm: 2000 },
       ), autoAssignTerminalSpace: true });
     }
+    const family = catalogue.routeFamilyForKind("semi-rigid-radial");
+    project = domain.applyCommand(project, { type: "route.add", route: {
+      id: "qa-review-route", floorId: "floor-ground", system: "mvhr", stream: "supply", role: "Dwelling supply",
+      ductKind: family.id, connectionInterface: family.connectionInterface, parallelRunCount: 1,
+      startAttachment: null, endAttachment: null,
+      points: [
+        { x: 1000, y: 500, z: domain.knownMm(2400, "browser engineering fixture") },
+        { x: 3000, y: 500, z: domain.knownMm(2400, "browser engineering fixture") },
+      ],
+    } });
     const saved = library.createLocalProjectLibrary(localStorage).saveProject(project, "Engineering Evidence House");
     if (!saved.ok) throw new Error("Engineering fixture could not be saved");
     return true;
