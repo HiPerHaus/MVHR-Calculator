@@ -41,6 +41,10 @@ try {
   await click(cdp, "#checks-nav");
   await waitFor(cdp, `!document.querySelector("#checks-workspace")?.hidden`);
 
+  assert.match(await text(cdp, "article:has(#engineering-network-create)"), /active design option, selected floor and selected mode/i);
+  assert.match(await text(cdp, "article:has(#engineering-network-create)"), /Room requirements are currently editable for Normal only/i);
+  assert.match(await text(cdp, "article:has(#engineering-network-create) .scope-note"), /does not derive this curve from the drawn route network/i);
+
   assert.match(await text(cdp, "#checks-engineering-input-status"), /No saved Normal-mode engineering duty/);
   assert.match(await text(cdp, "#checks-engineering-unit"), /ComfoAir Q350 TR.*471502110/s);
   await setValue(cdp, "#checks-engineering-unit", "q350-unit");

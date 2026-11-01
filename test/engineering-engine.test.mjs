@@ -405,7 +405,11 @@ test("draft creation copies one explicit terminal target and requires a user fac
   assert.equal(normal.design.terminalAllocations.every(item => item.terminalPressureLoss.state === "unresolved"), true);
   const boost = createEngineeringNetworkDraft(project, "floor-ground", "boost", { normalTargetFactor: 1.3 });
   assert.deepEqual(boost.design.terminalAllocations.map(item => item.valueLps), [13, 13]);
+  assert.equal(boost.design.terminalAllocations.every(item => item.basis.includes("1.3")), true);
+  assert.equal(boost.design.terminalAllocations.every(item => item.source === "Test fixture"), true);
   assert.match(boost.evidenceBoundary, /does not infer.*product resistance.*achieved airflow/i);
+  const low = createEngineeringNetworkDraft(project, "floor-ground", "low", { normalTargetFactor: 0.7 });
+  assert.deepEqual(low.design.terminalAllocations.map(item => item.valueLps), [7, 7]);
   assert.throws(() => createEngineeringNetworkDraft(project, "floor-ground", "low"), /positive number/);
 });
 
@@ -417,14 +421,26 @@ test("engineering report is option-scoped, preliminary and distinct from commiss
   assert.equal(report.issue.purpose, "preliminary-engineering-review");
   assert.equal(report.issue.constructionStatus, "not-for-construction");
   assert.equal(report.issue.commissioningStatus, "not-commissioned");
+  assert.deepEqual(report.scope, {
+    designOptionId: project.activeDesignOptionId,
+    floorId: "floor-ground",
+    mode: "normal",
+    aggregation: "single-active-option-selected-floor-selected-mode",
+    crossFloorTotal: false,
+    crossOptionTotal: false,
+  });
   assert.equal(report.routeResults.length, 2);
   assert.match(report.evidenceBoundary, /not predicted delivery/i);
+  assert.match(report.evidenceBoundary, /no cross-floor or cross-option total/i);
+  assert.match(report.evidenceBoundary, /not derived from drawn routes/i);
   const html = createEngineeringReportHtml(project, "floor-ground", "normal");
   assert.match(html, /PRELIMINARY · REVIEW REQUIRED · NOT FOR CONSTRUCTION/);
   assert.match(html, /Terminal design allocations/);
   assert.match(html, /Assigned design-flow balance/);
   assert.match(html, /Arithmetic equality only; no compliance tolerance inferred/);
   assert.match(html, /critical path and fan-duty screening/i);
+  assert.match(html, /One active design option, the selected floor and the selected Normal mode only/);
+  assert.match(html, /does not derive it from the drawn route network/i);
   assert.match(html, /do not predict achieved airflow/i);
 });
 

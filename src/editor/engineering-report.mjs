@@ -17,6 +17,14 @@ export function createEngineeringReport(project, floorId, mode = "normal") {
     },
     floor: { id: floor.id, name: floor.name },
     mode,
+    scope: {
+      designOptionId: project.activeDesignOptionId,
+      floorId,
+      mode,
+      aggregation: "single-active-option-selected-floor-selected-mode",
+      crossFloorTotal: false,
+      crossOptionTotal: false,
+    },
     issue: {
       purpose: "preliminary-engineering-review",
       constructionStatus: "not-for-construction",

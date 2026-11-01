@@ -577,12 +577,12 @@
           </article>
           <article class="checks-card checks-card-wide">
             <h2>Engineering network · preliminary</h2>
-            <p>Evaluate explicit terminal design allocations through typed routes. This does not predict achieved airflow or certify a design.</p>
+            <p>Evaluate explicit terminal design allocations through typed routes for the active design option, selected floor and selected mode. Room requirements are currently editable for Normal only. Low and Boost drafts start from a designer-entered factor and remain editable terminal allocations. This does not predict achieved airflow or certify a design.</p>
             <div class="checks-engineering-actions">
               <label>Mode
                 <select id="engineering-network-mode"><option value="normal">Normal</option><option value="low">Low</option><option value="boost">Boost</option></select>
               </label>
-              <label>Designer-entered target factor
+              <label>Low / Boost draft factor from assigned Normal target
                 <input id="engineering-network-factor" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Required for Low / Boost" />
               </label>
               <button id="engineering-network-create" type="button">Create reviewed allocation draft</button>
@@ -611,7 +611,7 @@
             <h3>Verified unit fan curves</h3>
             <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Unit / stream</th><th>Points</th><th>Condition and evidence</th></tr></thead><tbody id="engineering-fan-table"></tbody></table></div>
             <h3>Optional evidenced operating-point curves</h3>
-            <p class="scope-note">Separate from design-flow pressure. Enter a verified whole-system pressure curve in L/s:Pa only when its topology and test basis match the selected unit/system.</p>
+            <p class="scope-note">Separate from design-flow pressure. Studio does not derive this curve from the drawn route network. Enter an externally calculated or tested, evidenced whole-system pressure curve in L/s:Pa only when its topology and test basis match the selected unit/system.</p>
             <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Unit / stream</th><th>System points</th><th>Evidence / version</th></tr></thead><tbody id="engineering-operating-table"></tbody></table></div>
             <div id="engineering-network-streams" class="checks-list"></div>
             <div id="engineering-network-issues" class="checks-diagnostics"></div>
