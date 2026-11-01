@@ -307,8 +307,11 @@ export function externalGrilleShapes(graphic) {
 }
 
 function appendExternalGrilleAirflowArrows(graphic,push) {
-  const length=graphic.combined?Math.max(420,Math.min(540,graphic.widthMm*1.25)):Math.max(320,Math.min(440,graphic.widthMm*1.15));
-  const shaftHalfWidth=Math.max(18,Math.min(30,graphic.depthMm*.075));
+  const annotationScale=2;
+  const baseLength=graphic.combined?Math.max(420,Math.min(540,graphic.widthMm*1.25)):Math.max(320,Math.min(440,graphic.widthMm*1.15));
+  const length=baseLength*annotationScale;
+  const baseShaftHalfWidth=Math.max(18,Math.min(30,graphic.depthMm*.075));
+  const shaftHalfWidth=baseShaftHalfWidth*annotationScale;
   const annotationGapMm=Math.max(120,Math.min(180,graphic.depthMm*.35));
   for(const port of graphic.ports.filter(port=>["intake","exhaust"].includes(port.stream))) {
     const directionLength=Math.hypot(port.directionX??NaN,port.directionY??NaN);
@@ -329,19 +332,22 @@ function appendExternalGrilleAirflowArrows(graphic,push) {
       "data-part":"airflow-arrow","data-stream":port.stream,
       "data-flow-x":roundGraphicNumber(flow.x),"data-flow-y":roundGraphicNumber(flow.y),
       "data-grille-clearance-mm":roundGraphicNumber(annotationGapMm),
+      "data-annotation-scale":annotationScale,"data-arrow-length-mm":roundGraphicNumber(length),
     });
     const label=port.stream==="intake"?"Outside Air":"Exhaust air out";
     const labelNormal=airflowLabelNormal(flow);
-    // Keep these installation-critical labels readable at ordinary 1:75 and
-    // 1:100 sheet scales.  This is model-space text, so 150 mm renders at
-    // 2 mm on a 1:75 drawing instead of the previous near-illegible 1 mm.
-    const fontSize=150,labelOffset=shaftHalfWidth*1.65+fontSize*.62;
+    // Keep these installation-critical labels readable at ordinary sheet
+    // scales. This is model-space text; 300 mm is exactly twice the released
+    // 150 mm annotation and renders at 4 mm on a 1:75 drawing.
+    const fontSize=300,labelOffset=shaftHalfWidth*1.65+fontSize*.62;
+    const pairSpreadMm=graphic.combined?Math.sign(port.yMm||0)*fontSize*.12:0;
     push("text",{
       x:roundGraphicNumber(centre.x+labelNormal.x*labelOffset),
-      y:roundGraphicNumber(centre.y+labelNormal.y*labelOffset+fontSize*.32),
+      y:roundGraphicNumber(centre.y+labelNormal.y*labelOffset+pairSpreadMm+fontSize*.32),
       fill:"#1d343d",stroke:"none",
       "font-size":fontSize,"font-weight":800,"text-anchor":"middle",
       "data-part":"airflow-label","data-stream":port.stream,"data-keep-on-drawing":"true",
+      "data-annotation-scale":annotationScale,"data-label-font-size-mm":fontSize,
     },label);
   }
 }

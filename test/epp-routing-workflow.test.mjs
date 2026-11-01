@@ -109,7 +109,9 @@ test("placed combined grille swaps Left/Right without changing port identities a
  assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","Exhaust air out","ODA","Outside Air"]);
  const labels=shapes.filter(s=>s.attributes["data-part"]==="airflow-label");
  assert.deepEqual(labels.map(s=>[s.attributes["data-stream"],s.text]),[["intake","Outside Air"],["exhaust","Exhaust air out"]]);
- assert.ok(labels.every(label=>label.attributes["font-size"]>=150),"external airflow labels remain legible at normal sheet scales");
+ assert.ok(arrows.every(arrow=>arrow.attributes["data-annotation-scale"]===2&&arrow.attributes["data-arrow-length-mm"]>=640),"external airflow arrows are exactly doubled from the released baseline");
+ assert.ok(labels.every(label=>label.attributes["font-size"]===300&&label.attributes["data-annotation-scale"]===2),"external airflow labels are exactly doubled from the 150 mm released baseline");
+ assert.ok(Math.abs(labels[0].attributes.y-labels[1].attributes.y)>300,"combined-grille labels spread apart after doubling instead of overlapping");
  assert.ok(graphic.drawingBoundsMm.minX<=-174&&graphic.drawingBoundsMm.maxX>=700,"offset arrows and labels are included in print fitting bounds");
  const sheet=createA3SheetModel(history.present,{projectName:"Grille review",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-10-23",status:"Preliminary — not for construction",floorId:"floor-ground"});
  const svg=renderA3SheetSvg(sheet);
