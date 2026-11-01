@@ -70,7 +70,7 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const capQuantity=radial.reduce((sum,a)=>sum+a.capQuantity,0);
  const filterBagQuantity=Math.ceil(extractPoints.length/10),oRingPackQuantity=Math.ceil(oRingQuantity/10);
  const jobLines=owner?.id===floorId?[
-  {code:'ZEN-C90-CSET',description:'ComfoSet 90 · three per job',quantity:3,unit:'ea'},
+  {code:'ZEN-C90-CSET',description:'ComfoSet 90',quantity:3,unit:'ea'},
   ...(filterBagQuantity?[{code:'AER-GR-FILT-DN125',description:`Extract vent filters · ${extractPoints.length} ${extractPoints.length===1?'point':'points'}, 10 filters per bag`,quantity:filterBagQuantity,unit:'bag'}]:[]),
   ...(oRingPackQuantity||pendingORings?[{code:'ZEN-OR90',description:`90 mm O-rings · ${oRingQuantity} required${pendingORings?' + pending connections':''}, 10 per pack`,quantity:pendingORings?`${oRingPackQuantity} + pending`:oRingPackQuantity,unit:'pack'}]:[]),
  ]:[];

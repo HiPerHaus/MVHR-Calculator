@@ -57,7 +57,7 @@ test("DN90 and DN160 automatic routes detour around full-width exclusions and re
   const blocked = applyCommand(project, { type: "routingExclusion.update", exclusionId: "beam-centre", changes: { geometry: { shape: "rectangle", x: 4400, y: 80, width: 1200, height: 5840 } } });
   const unresolved = inspectAutomaticRadialRouting(blocked, "ground", { gridSpacingMm: 160 });
   assert.equal(unresolved.proposals.length, 0);
-  assert.match(unresolved.unresolved[0].reason, /No full-width DN90 route/);
+  assert.match(unresolved.unresolved[0].reason, /No full-width DN90 route could avoid the marked routing exclusions/);
 });
 
 test("coordination warnings distinguish height-separated crossings, collisions and unknown heights", () => {

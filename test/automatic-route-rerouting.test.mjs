@@ -78,7 +78,7 @@ test("selective replacement preserves manual routes and fails closed for custom 
   project = add(project, createCatalogueComponent("luna-supply", { id: "outlet-a", floorId: "ground", xMm: 7000, yMm: 1600 }));
   project = add(project, createCatalogueComponent("luna-supply", { id: "outlet-b", floorId: "ground", xMm: 7000, yMm: 3600 }));
   const initial = inspectAutomaticRadialRouting(project, "ground").proposals;
-  project = applyCommand(project, { type: "route.addBatch", routes: initial.map((proposal, index) => radialRoute(proposal, `route-${index + 1}`)) });
+  project = applyCommand(project, { type: "route.addBatch", routes: initial.map((proposal, index) => radialRoute(proposal, `route-${index + 1}`)), terminalEntrySelections: initial.flatMap((proposal) => proposal.terminalEntrySelections) });
   project = applyCommand(project, { type: "route.add", route: {
     id: "manual-unattached", floorId: "ground", system: "mvhr", stream: "supply", role: null,
     ductKind: "generic-duct", parallelRunCount: 1, startAttachment: null, endAttachment: null,

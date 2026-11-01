@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import {
   a3PageBounds,
   createA3SheetModel,
+  draftWatermarkLayout,
   escapeXml,
   renderA3SheetSvg,
   wrapSheetText,
@@ -41,6 +42,17 @@ test("A3 page bounds are exact for landscape and portrait", () => {
     orientation: "portrait",
   });
   assert.throws(() => a3PageBounds("square"), /landscape or portrait/);
+});
+
+test("A3 output hides the legacy synthetic floor sentinel without rewriting saved floor data", () => {
+  const base = projectWithWall(4000);
+  const project = { ...base, floors: base.floors.map((floor) => ({ ...floor, name: "Synthetic Ground Floor" })) };
+  const sheet = createA3SheetModel(project, metadata({ projectName: "Customer project" }));
+  const svg = renderA3SheetSvg(sheet);
+  assert.equal(sheet.printScene.floorName, "Ground Floor");
+  assert.equal(project.floors[0].name, "Synthetic Ground Floor");
+  assert.doesNotMatch(svg, /Synthetic Ground Floor/);
+  assert.match(svg, /Ground Floor/);
 });
 
 test("a known ten-metre wall derives a numeric 1:40 sheet scale from model millimetres", () => {
@@ -303,6 +315,14 @@ test("the sheet is clipped, visibly draft, and contains no editor overlay state"
   assert.match(svg, /Preliminary — not for construction/);
   assert.doesNotMatch(svg, /selected|pointer|snap-marker|toolbar|draft-layer/);
   assert.match(svg, /CHECKED BY/);
+  const watermark = draftWatermarkLayout(sheet.drawingBounds);
+  assert.ok(watermark.fontSize < 17, "draft wording is smaller than the clipped legacy watermark");
+  assert.ok(watermark.estimatedRotatedWidthMm <= sheet.drawingBounds.widthMm - 12 + 1e-9);
+  assert.ok(watermark.estimatedRotatedHeightMm <= sheet.drawingBounds.heightMm - 12 + 1e-9);
+  const portrait = createA3SheetModel(projectWithWall(5000), metadata({ orientation: "portrait" }));
+  const portraitWatermark = draftWatermarkLayout(portrait.drawingBounds);
+  assert.ok(portraitWatermark.estimatedRotatedWidthMm <= portrait.drawingBounds.widthMm - 12 + 1e-9);
+  assert.ok(portraitWatermark.estimatedRotatedHeightMm <= portrait.drawingBounds.heightMm - 12 + 1e-9);
 });
 
 test("captured print scenes render deterministically despite later working-project edits", () => {

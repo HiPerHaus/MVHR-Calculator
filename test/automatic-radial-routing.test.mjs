@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createCommandHistory, executeCommand, undoCommand } from "../src/domain/history.mjs";
-import { applyCommand, createProject, deserializeProject, identityQuaternion, knownMm, serializeProject, unknownMm } from "../src/domain/spatial.mjs";
+import { applyCommand, createProject, deserializeProject, floorPortTransform, identityQuaternion, knownMm, serializeProject, unknownMm } from "../src/domain/spatial.mjs";
 import { createCatalogueComponent, routeFamilyForKind } from "../src/editor/component-catalogue.mjs";
 import { inspectAutomaticRadialRouting, suggestBuildingAxis, validateDuctPathInsideOutline } from "../src/editor/automatic-radial-routing.mjs";
+import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs";
 import { standaloneCwRecordId } from "../src/editor/standalone-cw.mjs";
 
 test("automatic DN90 routing keeps its swept full-width path inside a concave scaled outline", () => {
@@ -60,7 +61,8 @@ test("batch application is one undo step, preserves existing routes and rejects 
   const preview = inspectAutomaticRadialRouting(project, "ground");
   assert.equal(preview.proposals.length, 2);
   const routes = preview.proposals.map((proposal, index) => routeFromProposal(proposal, `auto-${index + 1}`));
-  const history = executeCommand(createCommandHistory(project), { type: "route.addBatch", routes });
+  const terminalEntrySelections = preview.proposals.flatMap((proposal) => proposal.terminalEntrySelections);
+  const history = executeCommand(createCommandHistory(project), { type: "route.addBatch", routes, terminalEntrySelections });
   assert.equal(history.present.routes.length, 3);
   assert.deepEqual(history.present.routes[0], manualRoute);
   assert.deepEqual(undoCommand(history).present, project);
@@ -73,8 +75,52 @@ test("batch application is one undo step, preserves existing routes and rejects 
   const duplicate = structuredClone(routes[1]);
   duplicate.id = "auto-duplicate";
   duplicate.startAttachment = structuredClone(routes[0].startAttachment);
-  assert.throws(() => applyCommand(project, { type: "route.addBatch", routes: [routes[0], duplicate] }), /Port is already occupied/);
+  assert.throws(() => applyCommand(project, { type: "route.addBatch", routes: [routes[0], duplicate], terminalEntrySelections }), /Port is already occupied/);
   assert.deepEqual(project.routes, [manualRoute]);
+});
+
+test("dense Q350 fan-out routes every inside Luna outlet while preserving full-width spacing", () => {
+  const outline = denseOutline();
+  let project = scaledFixture(outline);
+  project = add(project, createConfiguredMvhrComponent(
+    { model: "q350-hrv", mounting: "vertical", handing: "right", layout: "unit-mounted-cw", cwSize: "320" },
+    { id: "unit-dense", floorId: "ground", xMm: 1500, yMm: 4000 },
+  ));
+  const positions = [[5000,800],[7000,800],[9000,800],[11000,800],[5000,2500],[8000,2500],[5000,5500],[8000,5500],[5000,7200],[7000,7200],[9000,7200],[11000,7200]];
+  for (const [index, [xMm, yMm]] of positions.entries()) {
+    project = add(project, createCatalogueComponent(`luna-${index < 6 ? "supply" : "extract"}`, { id: `outlet-dense-${index + 1}`, floorId: "ground", xMm, yMm }));
+  }
+  project = applyCommand(project, { type: "routingClearance.set", floorId: "ground", clearSpacingMm: knownMm(75, "coordination test") });
+  const preview = inspectAutomaticRadialRouting(project, "ground", { gridSpacingMm: 120 });
+  assert.equal(preview.status, "ready");
+  assert.equal(preview.proposals.length, 12);
+  assert.equal(preview.unresolved.length, 0);
+  assert.equal(new Set(preview.proposals.map((proposal) => proposal.source.portId)).size, 12);
+  assert.ok(preview.proposals.every((proposal) => validateDuctPathInsideOutline(proposal.points, outline)));
+  const routes = preview.proposals.map((proposal, index) => routeFromProposal(proposal, `dense-auto-${index + 1}`));
+  const connected = applyCommand(project, { type: "route.addBatch", routes, terminalEntrySelections: preview.proposals.flatMap((proposal) => proposal.terminalEntrySelections) });
+  assert.equal(connected.routes.length, 12);
+  assert.equal(inspectAutomaticRadialRouting(connected, "ground").status, "nothing-to-route");
+});
+
+test("near-boundary Luna routing selects an inward rim without weakening outline containment", () => {
+  const outline = rectangleOutline();
+  let project = scaledFixture(outline);
+  project = add(project, createCatalogueComponent(standaloneCwRecordId({ size: "320", orientation: "vertical", stream: "supply" }), {
+    id: "cw-near-boundary", floorId: "ground", xMm: 1000, yMm: 2000, allowAssemblyOnly: true,
+  }));
+  project = add(project, createCatalogueComponent("luna-supply", { id: "outlet-near-boundary", floorId: "ground", xMm: 5900, yMm: 2000 }));
+  const preview = inspectAutomaticRadialRouting(project, "ground", { gridSpacingMm: 100 });
+  assert.equal(preview.proposals.length, 1);
+  assert.equal(preview.unresolved.length, 0);
+  assert.notEqual(preview.proposals[0].terminalEntrySelections[0].entryId, "rim-0");
+  assert.equal(validateDuctPathInsideOutline(preview.proposals[0].points, outline), true);
+  const route = routeFromProposal(preview.proposals[0], "near-boundary-auto");
+  const history = executeCommand(createCommandHistory(project), { type: "route.addBatch", routes: [route], terminalEntrySelections: preview.proposals[0].terminalEntrySelections });
+  const terminal = history.present.components.find((component) => component.id === "outlet-near-boundary");
+  assert.equal(terminal.ports[0].drawingEntryId, preview.proposals[0].terminalEntrySelections[0].entryId);
+  assert.deepEqual(history.present.routes[0].points.at(-1), floorPortTransform(history.present, terminal.id, terminal.ports[0].id).positionMm);
+  assert.deepEqual(undoCommand(history).present, project);
 });
 
 test("Building-aligned DN90 routes follow a confirmed rotated building axis without changing topology", () => {
@@ -153,5 +199,6 @@ function baseFixture(points) {
 }
 
 function rectangleOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 0, y: 4000 }]; }
+function denseOutline() { return [{ x: 0, y: 0 }, { x: 12000, y: 0 }, { x: 12000, y: 8000 }, { x: 0, y: 8000 }]; }
 function concaveOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 3500, y: 4000 }, { x: 3500, y: 1500 }, { x: 2500, y: 1500 }, { x: 2500, y: 4000 }, { x: 0, y: 4000 }]; }
 function rotate(point, angleRad) { return { x: point.x * Math.cos(angleRad) - point.y * Math.sin(angleRad), y: point.x * Math.sin(angleRad) + point.y * Math.cos(angleRad) }; }

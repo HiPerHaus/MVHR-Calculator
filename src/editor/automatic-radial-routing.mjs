@@ -1,5 +1,6 @@
 import { floorPortTransform } from "../domain/spatial.mjs";
 import { inspectFloorAreaOutline } from "../domain/floor-area.mjs";
+import { terminalDrawingAnchors } from "../domain/terminal-drawing-connections.mjs";
 import { deriveSweptCentreline } from "./duct-body-geometry.mjs";
 import { routingCoordinationInputs } from "./routing-coordination.mjs";
 
@@ -61,10 +62,12 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
 
   const candidates = [];
   for (const destination of destinations) {
-    for (const source of sources) {
-      if (!compatible(source, destination)) continue;
-      const path = findContainedDuctPath(source.positionMm, destination.positionMm, polygon, AUTOMATIC_RADIAL_DIAMETER_MM, coordinationOptions(options, coordination, source, destination));
-      if (path) candidates.push({ source, destination, path, lengthMm: pathLength(path) });
+    for (const destinationEntry of terminalEndpointVariants(destination)) {
+      for (const source of sources) {
+        if (!compatible(source, destinationEntry)) continue;
+        const path = findContainedDuctPath(source.positionMm, destinationEntry.positionMm, polygon, AUTOMATIC_RADIAL_DIAMETER_MM, coordinationOptions(options, coordination, source, destinationEntry));
+        if (path) candidates.push({ source, destination: destinationEntry, path, lengthMm: pathLength(path) });
+      }
     }
   }
   candidates.sort((left, right) => left.lengthMm - right.lengthMm || candidateKey(left).localeCompare(candidateKey(right)));
@@ -73,7 +76,16 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
   const proposals = [];
   for (const candidate of candidates) {
     if (usedSources.has(candidate.source.key) || usedDestinations.has(candidate.destination.key)) continue;
-    const reserved = proposals.flatMap((proposal) => proposal.points.slice(1).map((point, index) => ({ start: proposal.points[index], end: point, radiusMm: AUTOMATIC_RADIAL_CLEARANCE_MM, routeId: `proposal-${proposal.destination.componentId}`, endpointComponentIds: [] })));
+    const reserved = proposals.flatMap((proposal) => proposal.points.slice(1).map((point, index) => ({
+      start: proposal.points[index],
+      end: point,
+      radiusMm: AUTOMATIC_RADIAL_CLEARANCE_MM,
+      routeId: `proposal-${proposal.destination.componentId}`,
+      endpointComponentIds: [
+        ...(index === 0 ? [proposal.source.componentId] : []),
+        ...(index === proposal.points.length - 2 ? [proposal.destination.componentId] : []),
+      ],
+    })));
     const rerouted = findContainedDuctPath(candidate.source.positionMm, candidate.destination.positionMm, polygon, AUTOMATIC_RADIAL_DIAMETER_MM,
       coordinationOptions(options, { ...coordination, blockedSegments: [...coordination.blockedSegments, ...reserved] }, candidate.source, candidate.destination));
     if (!rerouted) continue;
@@ -91,13 +103,12 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
       buildingAxisRad: context.buildingAxisRad,
       lengthMm: pathLength(rerouted),
       points: Object.freeze(rerouted.map((point) => Object.freeze({ x: point.x, y: point.y }))),
+      terminalEntrySelections: Object.freeze(candidate.destination.terminalEntrySelection ? [Object.freeze(structuredClone(candidate.destination.terminalEntrySelection))] : []),
     }));
   }
   const unresolvedEntries = destinations
     .filter((entry) => !usedDestinations.has(entry.key))
-    .map((entry) => unresolved(entry, compatibleSources(entry, sources).length === 0
-      ? "No compatible free DN90 distribution port is available."
-      : "No full-width DN90 route could avoid the building boundary, marked exclusions and modelled duct clearances."));
+    .map((entry) => unresolved(entry, automaticRouteFailureReason(entry, sources, usedSources, polygon, options, coordination)));
   return Object.freeze({
     status: proposals.length === 0 ? "partial" : unresolvedEntries.length ? "partial" : "ready",
     prerequisites: Object.freeze(context),
@@ -105,6 +116,57 @@ export function inspectAutomaticRadialRouting(project, floorId, options = {}) {
     unresolved: Object.freeze(unresolvedEntries),
     notes: notes(),
   });
+}
+
+function automaticRouteFailureReason(destination, sources, usedSources, polygon, options, coordination) {
+  const compatibleEntries = compatibleSources(destination, sources);
+  if (compatibleEntries.length === 0) return "No compatible free DN90 distribution port is available.";
+  const destinationEntries = terminalEndpointVariants(destination);
+  const boundaryOnly = { ...options, forbiddenPolygons: [], blockedSegments: [], clearSpacingMm: 0 };
+  if (!destinationEntries.some((entry) => validCentre(entry.positionMm, polygon, AUTOMATIC_RADIAL_CLEARANCE_MM, boundaryOnly))) {
+    return "The outlet DN90 connection point is outside or within 45 mm of the confirmed building boundary. Move the outlet inward or choose an inward-facing connection point.";
+  }
+  if (compatibleEntries.every((source) => !validCentre(source.positionMm, polygon, AUTOMATIC_RADIAL_CLEARANCE_MM, boundaryOnly))) {
+    return "Every compatible distribution connection point is outside or within 45 mm of the confirmed building boundary. Move the equipment or revise the confirmed outline.";
+  }
+  const canRouteWith = (coordinationInputs) => destinationEntries.some((destinationEntry) => compatibleEntries.some((source) => findContainedDuctPath(
+    source.positionMm,
+    destinationEntry.positionMm,
+    polygon,
+    AUTOMATIC_RADIAL_DIAMETER_MM,
+    coordinationOptions(options, coordinationInputs, source, destinationEntry),
+  )));
+  if (!canRouteWith({ ...coordination, forbiddenPolygons: [], blockedSegments: [], clearSpacingMm: 0 })) {
+    return "No full-width DN90 route could remain inside the confirmed building boundary.";
+  }
+  if (!canRouteWith({ ...coordination, blockedSegments: [], clearSpacingMm: 0 })) {
+    return "No full-width DN90 route could avoid the marked routing exclusions.";
+  }
+  if (!canRouteWith(coordination)) {
+    const spacing = coordination.clearSpacingMm > 0 ? ` and the configured ${coordination.clearSpacingMm} mm clear spacing` : "";
+    return `No full-width DN90 route could avoid the existing modelled ducts${spacing}.`;
+  }
+  if (compatibleEntries.every((source) => usedSources.has(source.key))) {
+    return "Every compatible free distribution port was assigned to another outlet in this preview. Apply the available routes, then preview the remainder.";
+  }
+  const spacing = coordination.clearSpacingMm > 0 ? `${coordination.clearSpacingMm} mm configured clear spacing` : "the modelled duct widths";
+  return `An individual route is feasible, but this preview could not maintain ${spacing} between all proposed routes. Apply the available routes, then preview the remainder.`;
+}
+
+function terminalEndpointVariants(destination) {
+  const symbol = destination.component.displaySymbol ?? destination.component.catalogueSnapshot?.symbol;
+  if (symbol?.shape !== "luna-grille" || destination.port.drawingEntryId !== "rim-0" || !destination.port.drawingEntries?.length) {
+    return [destination];
+  }
+  return terminalDrawingAnchors(destination.component, destination.port).map((entry) => ({
+    ...destination,
+    positionMm: { ...destination.positionMm, x: entry.positionMm.x, y: entry.positionMm.y },
+    terminalEntrySelection: {
+      componentId: destination.component.id,
+      portId: destination.port.id,
+      entryId: entry.id,
+    },
+  }));
 }
 
 function coordinationOptions(options, coordination, source, destination) {
@@ -426,7 +488,7 @@ function compatible(source, destination) {
 function compatibleSources(destination, sources) { return sources.filter((source) => compatible(source, destination)); }
 function endpoint(entry) { return { componentId: entry.component.id, portId: entry.port.id, displayName: entry.component.displayName ?? entry.component.id }; }
 function unresolved(entry, reason) { return Object.freeze({ ...endpoint(entry), stream: entry.port.stream, reason }); }
-function candidateKey(candidate) { return `${candidate.destination.key}|${candidate.source.key}`; }
+function candidateKey(candidate) { return `${candidate.destination.key}|${candidate.destination.terminalEntrySelection?.entryId ?? "saved-entry"}|${candidate.source.key}`; }
 function planPoint(point) { return { x: point.x, y: point.y }; }
 function pathLength(points) { return points.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - points[index].x, point.y - points[index].y), 0); }
 function scaleEvidenceForFloor(project, floorId) {

@@ -64,6 +64,7 @@ test("complete synthetic MVHR system stays consistent from typed 2D routing thro
   const radialFamily = routeFamilyForKind("semi-rigid-radial");
   project = applyCommand(project, {
     type: "route.addBatch",
+    terminalEntrySelections: preview.proposals.flatMap((proposal) => proposal.terminalEntrySelections),
     routes: preview.proposals.map((proposal, index) => ({
       id: `radial-${index + 1}`,
       floorId: "ground",

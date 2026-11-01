@@ -507,6 +507,16 @@ export function applyCommand(project, command, options = {}) {
       if (!Array.isArray(command.routes) || command.routes.length === 0) {
         throw new TypeError("Route batch requires at least one route");
       }
+      const selectedTerminals = new Set();
+      for (const selection of command.terminalEntrySelections ?? []) {
+        if (!command.routes.some((route) => [route.startAttachment, route.endAttachment].some((endpoint) => endpoint?.componentId === selection.componentId && endpoint.portId === selection.portId))) {
+          throw new TypeError("Terminal entry must belong to a route batch endpoint");
+        }
+        const key = `${selection.componentId}/${selection.portId}`;
+        if (selectedTerminals.has(key)) throw new TypeError("Route batch cannot select more than one entry for the same terminal");
+        selectedTerminals.add(key);
+        selectTerminalDrawingEntry(next, selection);
+      }
       const incomingIds = new Set();
       for (const routeValue of command.routes) {
         const route = normalizeRoute(routeValue);

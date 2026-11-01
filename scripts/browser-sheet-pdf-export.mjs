@@ -45,6 +45,9 @@ try {
   assert.equal(pagePlan[0].heightMm, 297);
   assert.ok(pagePlan.length >= 3, `Expected drawing plus multiple parts pages, got ${pagePlan.length}`);
   assert.equal(pagePlan.slice(1).every((page) => page.widthMm === 210 && page.heightMm === 297), true);
+  const outputText = await evaluate(cdp, "window.__outputText");
+  assert.doesNotMatch(outputText, /Synthetic Ground Floor|three per job|Supplier pages show rounded stock items|EPP includes standard HRV port allowances|CW branches require O-rings|Job totals and packs/i);
+  assert.match(outputText, /Ground Floor/);
   const supplierEvidence = await evaluate(cdp, "window.__supplierEvidence");
   assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total 90 mm duct")), false);
   assert.equal(supplierEvidence.some((row) => row.description.startsWith("Total DN160 EPP")), false);
@@ -61,6 +64,7 @@ try {
   assert.equal(grilleEvidence.largeArrows, true);
   assert.equal(grilleEvidence.offsetArrows, true);
   assert.equal(grilleEvidence.readableLabels, true);
+  assert.ok(grilleEvidence.watermarkFontSize > 0 && grilleEvidence.watermarkFontSize <= 14, "draft watermark should fit inside the drawing clip");
   assert.equal(grilleEvidence.lunaMasks, 2,"placed Luna and key should both retain opaque duct masks");
   await evaluate(cdp, "document.querySelector('#download').click()");
   const downloaded = await waitForDownload(downloadDirectory);
@@ -120,7 +124,7 @@ async function startQaServer() {
     import { createWorkingSessionStore, workingTabId } from "/src/persistence/working-session.mjs";
     import { setBootAccess } from "/app/auth-context.mjs";
     import { createMixedPagePdfBlob, downloadPdfBlob } from "/app/sheet-pdf-export.mjs";
-    let project = domain.applyCommand(domain.createProject("pdf-browser-qa"), { type:"floor.add", floor:{ id:"floor-ground", name:"Ground Floor", transform:{ translationMm:{x:0,y:0,z:domain.knownMm(0,"QA datum")}, orientation:domain.identityQuaternion() } } });
+    let project = domain.applyCommand(domain.createProject("pdf-browser-qa"), { type:"floor.add", floor:{ id:"floor-ground", name:"Synthetic Ground Floor", transform:{ translationMm:{x:0,y:0,z:domain.knownMm(0,"QA datum")}, orientation:domain.identityQuaternion() } } });
     project = domain.applyCommand(project,{type:"project.setVentilationDesignType",ventilationDesignType:"mixed"});
     const referenceBytes = new Uint8Array(await (await fetch("/qa/sheet-plan.png")).arrayBuffer());
     const dimensions = portable.pngDimensions(referenceBytes);
@@ -138,10 +142,12 @@ async function startQaServer() {
     const seedLine = sheet.partsSchedule.componentLines[0];
     const longSheet = {...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:[...sheet.partsSchedule.componentLines,...Array.from({length:70},(_,index)=>({...seedLine,ref:\`QA\${index+1}\`,catalogueItemId:\`qa-item-\${index+1}\`,itemNumber:\`QA-\${index+1}\`,description:\`QA equipment line \${index+1} with a deliberately long description for wrapping and pagination\`}))]}};
     const pages = createSheetOutputPages(longSheet);
+    window.__outputText = pages.map(page=>new DOMParser().parseFromString(page.svg,"image/svg+xml").documentElement.textContent).join(" ");
     const drawingDocument = new DOMParser().parseFromString(pages[0].svg,"image/svg+xml");
     const grilleArrows = [...drawingDocument.querySelectorAll('#drawing-content [data-part="airflow-arrow"]')];
     const grilleLabels=[...drawingDocument.querySelectorAll('#drawing-content [data-part="airflow-label"]')];
-    window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>{const values=(node.getAttribute("d").match(/-?\\d+(?:\\.\\d+)?/g)||[]).map(Number);return Math.max(...values.filter((_,index)=>index%2===0))-Math.min(...values.filter((_,index)=>index%2===0))>=320;}),offsetArrows:grilleArrows.every(node=>Number(node.getAttribute("data-grille-clearance-mm"))>=120),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))>=70),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
+    const watermark=drawingDocument.querySelector('[data-kind="draft-watermark"]');
+    window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>{const values=(node.getAttribute("d").match(/-?\\d+(?:\\.\\d+)?/g)||[]).map(Number);return Math.max(...values.filter((_,index)=>index%2===0))-Math.min(...values.filter((_,index)=>index%2===0))>=320;}),offsetArrows:grilleArrows.every(node=>Number(node.getAttribute("data-grille-clearance-mm"))>=120),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))>=150),watermarkFontSize:Number(watermark?.getAttribute("font-size")),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
     window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});

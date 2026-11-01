@@ -34,6 +34,10 @@ export const ISSUE_STATUSES = Object.freeze([
   "Issued for review — not for construction",
 ]);
 
+export function reportFloorName(name) {
+  return name === "Synthetic Ground Floor" ? "Ground Floor" : name;
+}
+
 const XML_NAMESPACE = "http://www.w3.org/2000/svg";
 const PAGE_MARGIN_MM = 10;
 const TITLE_BLOCK_WIDTH_MM = 75;
@@ -338,7 +342,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
   ].filter(Boolean);
   return deepFreeze({
     floorId,
-    floorName: sanitizeXmlText(floor.name, "Floor name"),
+    floorName: sanitizeXmlText(reportFloorName(floor.name), "Floor name"),
     floorArea: inspectSheetFloorArea(project, floorId),
     walls,
     floorAreas,
@@ -710,10 +714,29 @@ function genericCwSheetPartLabel(partType) {
 }
 
 function renderWatermark(sheet) {
-  const drawing = sheet.drawingBounds;
-  const centerX = drawing.xMm + drawing.widthMm / 2;
-  const centerY = drawing.yMm + drawing.heightMm / 2;
-  return `<text data-kind="draft-watermark" clip-path="url(#drawing-clip)" x="${formatNumber(centerX)}" y="${formatNumber(centerY)}" text-anchor="middle" transform="rotate(-28 ${formatNumber(centerX)} ${formatNumber(centerY)})" fill="#c34d35" fill-opacity="0.11" font-size="17" font-weight="700">DRAFT PREVIEW · NOT FOR CONSTRUCTION</text>`;
+  const layout = draftWatermarkLayout(sheet.drawingBounds);
+  return `<text data-kind="draft-watermark" clip-path="url(#drawing-clip)" x="${formatNumber(layout.centerX)}" y="${formatNumber(layout.centerY)}" text-anchor="middle" transform="rotate(${layout.angleDeg} ${formatNumber(layout.centerX)} ${formatNumber(layout.centerY)})" fill="#c34d35" fill-opacity="0.11" font-size="${formatNumber(layout.fontSize)}" font-weight="700">${layout.text}</text>`;
+}
+
+export function draftWatermarkLayout(drawingBounds) {
+  const text = "DRAFT PREVIEW · NOT FOR CONSTRUCTION";
+  const angleDeg = -28;
+  const radians = Math.abs(angleDeg) * Math.PI / 180;
+  const characterWidthEm = 0.62;
+  const horizontalFactor = text.length * characterWidthEm * Math.cos(radians) + Math.sin(radians);
+  const verticalFactor = text.length * characterWidthEm * Math.sin(radians) + Math.cos(radians);
+  const safeWidthMm = Math.max(1, drawingBounds.widthMm - 12);
+  const safeHeightMm = Math.max(1, drawingBounds.heightMm - 12);
+  const fontSize = Math.max(3, Math.min(14, safeWidthMm / horizontalFactor, safeHeightMm / verticalFactor));
+  return Object.freeze({
+    text,
+    angleDeg,
+    fontSize,
+    centerX: drawingBounds.xMm + drawingBounds.widthMm / 2,
+    centerY: drawingBounds.yMm + drawingBounds.heightMm / 2,
+    estimatedRotatedWidthMm: fontSize * horizontalFactor,
+    estimatedRotatedHeightMm: fontSize * verticalFactor,
+  });
 }
 
 function renderPartsSchedule(sheet) {

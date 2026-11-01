@@ -153,6 +153,7 @@ import {
 } from "../src/import/dxf-reference.mjs";
 import {
   createA3SheetModel,
+  reportFloorName,
   renderA3SheetSvg,
 } from "../src/sheets/a3-sheet.mjs";
 import { createDefaultThreeDView, createThreeDDrawingScene, renderThreeDDrawingSvg } from "../src/sheets/three-d-drawing.mjs";
@@ -2788,12 +2789,8 @@ function openSheetPreview({ designStage = false } = {}) {
   }
 }
 
-function exportFloorName(name) {
-  return name === "Synthetic Ground Floor" ? "Ground Floor" : name;
-}
-
 function defaultDrawingTitle(projectName, floorName) {
-  return `${projectName || "Untitled project"} - ${exportFloorName(floorName)} - Ventilation Layout`;
+  return `${projectName || "Untitled project"} - ${reportFloorName(floorName)} - Ventilation Layout`;
 }
 
 function closeSheetPreview() {
@@ -3453,7 +3450,8 @@ function applyAutomaticRadialPreview() {
     endAttachment: { componentId: proposal.destination.componentId, portId: proposal.destination.portId },
     points: proposal.points.map((point) => ({ ...point, z: unknownMm("automatic DN90 route elevation not set") })),
   }));
-  const committed = commitCommand({ type: "route.addBatch", routes }, `${routes.length} automatic DN90 route${routes.length === 1 ? "" : "s"} applied in one undoable action`);
+  const terminalEntrySelections = proposals.flatMap((proposal) => proposal.terminalEntrySelections ?? []);
+  const committed = commitCommand({ type: "route.addBatch", routes, terminalEntrySelections }, `${routes.length} automatic DN90 route${routes.length === 1 ? "" : "s"} applied in one undoable action`);
   if (!committed) return;
   routeIdentityCounter += routes.length;
   automaticRadialPreview = null;

@@ -15,7 +15,7 @@ test('Q350 and Aerofresh receive drain/surge; Q controls never get added to Aero
 });
 test('filter bags and three-per-job ComfoSet round once across floors, not per unit or floor',()=>{
  let p=addUnit(addUnit(base()));for(let i=0;i<11;i++)p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('luna-extract',{id:`extract-${i}`,floorId:i<5?'ground':'upper',xMm:2000+i*100,yMm:2000})});
- const ground=deriveProjectAccessories(p,{floorId:'ground'}),upper=deriveProjectAccessories(p,{floorId:'upper'});assert.equal(ground.extractPointQuantity,11);assert.equal(ground.filterBagQuantity,2);assert.equal(ground.jobLines.find(l=>l.code==='ZEN-C90-CSET').quantity,3);assert.equal(upper.jobLines.length,0);assert.equal(ground.unitLines.find(l=>l.code==='HRV-DRAIN').quantity,2);
+ const ground=deriveProjectAccessories(p,{floorId:'ground'}),upper=deriveProjectAccessories(p,{floorId:'upper'});assert.equal(ground.extractPointQuantity,11);assert.equal(ground.filterBagQuantity,2);const comfoSet=ground.jobLines.find(l=>l.code==='ZEN-C90-CSET');assert.equal(comfoSet.quantity,3);assert.equal(comfoSet.description,'ComfoSet 90');assert.equal(upper.jobLines.length,0);assert.equal(ground.unitLines.find(l=>l.code==='HRV-DRAIN').quantity,2);
  p.components.pop();assert.equal(deriveProjectAccessories(p,{floorId:'ground'}).filterBagQuantity,1);
 });
 test('90 mm design totals stay internal while supplier rows round 50 m coils upward exactly',()=>{

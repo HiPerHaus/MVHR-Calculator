@@ -65,7 +65,7 @@ export function createA4PartsListPages(sheet){
  return pages.map((rows,index)=>({kind:'a4-parts-list',widthMm:210,heightMm:297,pageNumber:index+2,totalPageCount:pages.length+1,rows}));
 }
 export function renderA4PartsListSvg(sheet,page){
- const m=sheet.metadata,a=sheet.partsSchedule.radialAccessories,out=[`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" role="img" aria-label="A4 parts list page ${page.pageNumber}"><rect width="210" height="297" fill="white"/><rect x="10" y="10" width="190" height="277" fill="none" stroke="#5e7079" stroke-width=".3"/>`];
+ const m=sheet.metadata,out=[`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" role="img" aria-label="A4 parts list page ${page.pageNumber}"><rect width="210" height="297" fill="white"/><rect x="10" y="10" width="190" height="277" fill="none" stroke="#5e7079" stroke-width=".3"/>`];
  const text=(x,y,value,size=2.8,extra='')=>`<text x="${x}" y="${y}" font-family="Arial,sans-serif" font-size="${size}" fill="#20343e" ${extra}>${escapeXml(String(value))}</text>`;
  out.push(text(14,20,'PARTS LIST',5,'font-weight="700"'));
  if(m.companyLogoDataUrl)out.push(`<image href="${m.companyLogoDataUrl}" x="145" y="13" width="50" height="17" preserveAspectRatio="xMidYMid meet"/>`);
@@ -81,8 +81,6 @@ export function renderA4PartsListSvg(sheet,page){
   else{out.push(text(14,y+4.5,row.ref,2.6));for(const [i,line] of row.partNumberLines.entries())out.push(text(30,y+4.5+i*3.6,line,2.5));for(const [i,line] of row.lines.entries())out.push(text(70,y+4.5+i*3.6,line,2.7));out.push(text(181,y+4.5,row.quantity,2.8,'text-anchor="end"'),text(195,y+4.5,row.unit,2.7,'text-anchor="end"'),`<line x1="12" y1="${y+row.height}" x2="198" y2="${y+row.height}" stroke="#d7dfe2" stroke-width=".15"/>`);}
   y+=row.height;
  }
- const notes=['Supplier pages show rounded stock items; saved design lengths remain in Studio and are not order lines.','EPP includes standard HRV port allowances; 45° bends use halves of 90° elbow stock.',a.stubLengthMm===null&&a.stubQuantity?'Unused CW ports: one O-ring, one short pipe stub and one cap each; stub length to confirm.':'CW branches require O-rings; unused branches use caps supplied with the 90 mm pipe.',`Job totals and packs: ${wrapSheetText(sheet.partsSchedule.projectAccessories.jobOwnerFloorName??'no ventilation placed',30,1)[0]} · selection and installation compatibility require review.`];
- notes.forEach((note,i)=>out.push(text(14,269+i*3.5,note,2.2)));
  out.push(text(14,291,m.status,2.5),text(196,291,`Page ${page.pageNumber} of ${page.totalPageCount} · A4`,2.5,'text-anchor="end"'),'</svg>');return out.join('');
 }
 function orderQuantity(knownQuantity,pendingCount){return pendingCount?(knownQuantity>0?`${knownQuantity} + pending`:'Pending'):String(knownQuantity);}

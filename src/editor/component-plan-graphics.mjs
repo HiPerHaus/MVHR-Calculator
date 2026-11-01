@@ -332,7 +332,10 @@ function appendExternalGrilleAirflowArrows(graphic,push) {
     });
     const label=port.stream==="intake"?"Outside Air":"Exhaust air out";
     const labelNormal=airflowLabelNormal(flow);
-    const fontSize=76,labelOffset=shaftHalfWidth*1.65+fontSize*.62;
+    // Keep these installation-critical labels readable at ordinary 1:75 and
+    // 1:100 sheet scales.  This is model-space text, so 150 mm renders at
+    // 2 mm on a 1:75 drawing instead of the previous near-illegible 1 mm.
+    const fontSize=150,labelOffset=shaftHalfWidth*1.65+fontSize*.62;
     push("text",{
       x:roundGraphicNumber(centre.x+labelNormal.x*labelOffset),
       y:roundGraphicNumber(centre.y+labelNormal.y*labelOffset+fontSize*.32),
