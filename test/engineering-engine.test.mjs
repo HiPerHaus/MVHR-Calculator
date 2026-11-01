@@ -7,11 +7,12 @@ import {
   createProject,
   deserializeProject,
   identityQuaternion,
+  inspectComponentDeletion,
   knownMm,
   serializeProject,
   unknownMm,
 } from "../src/domain/spatial.mjs";
-import { engineeringComponentFingerprint, engineeringRouteFingerprint, pressureInputFromPa, unresolvedPressureInput } from "../src/domain/engineering-inputs.mjs";
+import { engineeringComponentFingerprint, engineeringRouteFingerprint, engineeringSystemFingerprint, pressureInputFromPa, unresolvedPressureInput } from "../src/domain/engineering-inputs.mjs";
 import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
 import { createEngineeringNetworkDraft } from "../src/editor/engineering-network-draft.mjs";
 import { createEngineeringReport } from "../src/editor/engineering-report.mjs";
@@ -39,6 +40,7 @@ test("m³/h inputs convert exactly to canonical L/s while retaining their declar
   const design = baseDesign();
   design.terminalAllocations[0] = { ...design.terminalAllocations[0], inputValue: 36, inputUnit: "m3/h", valueLps: 10 };
   project = setNetworkDesign(project, design);
+  project = deserializeProject(serializeProject(project));
   const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
   const allocation = result.design.terminalAllocations.find(item => item.id === "allocation-supply");
   assert.equal(allocation.inputValue, 36);
@@ -64,12 +66,69 @@ test("velocity uses internal area and twin runs divide physical flow without cha
 
 test("Twin routes remain unresolved until equal flow is explicitly declared", () => {
   let project = engineeringFixture({ supplyRuns: 2 });
-  project = setNetworkDesign(project, baseDesign());
+  const design = baseDesign();
+  design.routeResistanceInputs = design.routeResistanceInputs.map(input => input.routeId === "route-supply" ? { ...input, parallelFlowAssumption: "not-declared" } : input);
+  project = setNetworkDesign(project, design);
   const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
   const route = result.routes.find(item => item.routeId === "route-supply");
   assert.equal(route.pressureLossPa, null);
   assert.equal(route.velocityMps, null);
   assert.equal(result.diagnostics.some(item => item.code === "parallel-flow-assumption-missing"), true);
+});
+
+test("Twin routes solve unequal evidenced branch resistance without changing terminal targets", () => {
+  let project = engineeringFixture({ supplyRuns: 2 });
+  const design = baseDesign();
+  design.routeResistanceInputs = design.routeResistanceInputs.map(input => input.routeId === "route-supply" ? {
+    ...input,
+    parallelFlowAssumption: "unequal-resistance-model",
+    roughnessMm: null,
+    fittingKTotal: null,
+    additionalPressureLoss: null,
+    parallelResistanceModel: {
+      scope: "complete-branch-pressure-loss",
+      branches: [
+        { id: "run-a", points: [{ flowLps: 0, pressureLossPa: 0 }, { flowLps: 10, pressureLossPa: 100 }], basis: "Linear analytic branch", source: "Synthetic fixture", sourceVersion: "1" },
+        { id: "run-b", points: [{ flowLps: 0, pressureLossPa: 0 }, { flowLps: 10, pressureLossPa: 200 }], basis: "Linear analytic branch", source: "Synthetic fixture", sourceVersion: "1" },
+      ],
+    },
+  } : input);
+  project = setNetworkDesign(project, design);
+  project = deserializeProject(serializeProject(project));
+  const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
+  const route = result.routes.find(item => item.routeId === "route-supply");
+  assert.equal(route.state, "calculated-design-flow-unequal-parallel");
+  assert.equal(route.flowLps, 10);
+  assert.ok(Math.abs(route.branchResults[0].flowLps - 20 / 3) < 1e-6);
+  assert.ok(Math.abs(route.branchResults[1].flowLps - 10 / 3) < 1e-6);
+  assert.ok(route.pressureResidualPa < 1e-6);
+  assert.equal(route.parallelResistanceModel.scope, "complete-branch-pressure-loss");
+  assert.equal(result.design.terminalAllocations.find(item => item.id === "allocation-supply").valueLps, 10);
+});
+
+test("parallel branch evidence is rejected on a Single route and malformed portable data", () => {
+  let project = engineeringFixture();
+  const design = baseDesign();
+  design.routeResistanceInputs[0] = {
+    ...design.routeResistanceInputs[0],
+    parallelFlowAssumption: "unequal-resistance-model",
+    roughnessMm: null,
+    fittingKTotal: null,
+    additionalPressureLoss: null,
+    parallelResistanceModel: {
+      scope: "complete-branch-pressure-loss",
+      branches: [
+        { id: "a", points: [{ flowLps: 0, pressureLossPa: 0 }, { flowLps: 10, pressureLossPa: 20 }], basis: "Fixture", source: "Test", sourceVersion: "1" },
+        { id: "b", points: [{ flowLps: 0, pressureLossPa: 0 }, { flowLps: 10, pressureLossPa: 30 }], basis: "Fixture", source: "Test", sourceVersion: "1" },
+      ],
+    },
+  };
+  assert.throws(() => setNetworkDesign(project, design), /requires a Twin route/);
+  project = setNetworkDesign(project, baseDesign());
+  const forged = structuredClone(project);
+  const input = forged.engineeringInputs.networkDesigns[0].routeResistanceInputs.find(item => item.routeId === "route-supply");
+  Object.assign(input, design.routeResistanceInputs[0]);
+  assert.throws(() => deserializeProject(JSON.stringify(forged)), /requires a Twin route/);
 });
 
 test("rectangular velocity uses true internal area and hydraulic diameter only for friction", () => {
@@ -172,6 +231,31 @@ test("non-MVHR free routes do not contaminate the MVHR engineering graph", () =>
   const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
   assert.equal(result.routes.some(item => item.routeId === "makeup-air-draft"), false);
   assert.equal(result.diagnostics.some(item => item.target?.routeId === "makeup-air-draft"), false);
+});
+
+test("system evidence fingerprints ignore an unrelated disconnected unit", () => {
+  let project = engineeringFixture();
+  const before = engineeringSystemFingerprint(project, "floor-ground", "unit", "supply");
+  project = add(project, secondUnit());
+  const after = engineeringSystemFingerprint(project, "floor-ground", "unit", "supply");
+  assert.equal(after, before);
+});
+
+test("route elevation changes stale route and connected-system evidence fingerprints", () => {
+  let project = engineeringFixture();
+  const routeBefore = engineeringRouteFingerprint(project.routes.find(route => route.id === "route-supply"));
+  const systemBefore = engineeringSystemFingerprint(project, "floor-ground", "unit", "supply");
+  project = applyCommand(project, { type: "route.setRoutingElevation", routeId: "route-supply", elevationMm: knownMm(2800, "revised coordination height") });
+  assert.notEqual(engineeringRouteFingerprint(project.routes.find(route => route.id === "route-supply")), routeBefore);
+  assert.notEqual(engineeringSystemFingerprint(project, "floor-ground", "unit", "supply"), systemBefore);
+});
+
+test("engineering evidence fingerprints are stable through canonical portable ordering", () => {
+  const project = engineeringFixture();
+  const reopened = deserializeProject(serializeProject(project));
+  assert.equal(engineeringComponentFingerprint(project.components.find(component => component.id === "unit")), engineeringComponentFingerprint(reopened.components.find(component => component.id === "unit")));
+  assert.equal(engineeringRouteFingerprint(project.routes.find(route => route.id === "route-supply")), engineeringRouteFingerprint(reopened.routes.find(route => route.id === "route-supply")));
+  assert.equal(engineeringSystemFingerprint(project, "floor-ground", "unit", "supply"), engineeringSystemFingerprint(reopened, "floor-ground", "unit", "supply"));
 });
 
 test("fan evidence is bound to the evaluated unit and declared external-static condition", () => {
@@ -283,9 +367,9 @@ test("schema 23 engineering duties migrate without inventing network results in 
   }
 
   const migrated = deserializeProject(JSON.stringify(legacy));
-  assert.equal(migrated.schemaVersion, 25);
-  assert.deepEqual(migrated.engineeringInputs, { version: "mvhr-engineering-inputs.v3", floorDuties: [], networkDesigns: [] });
-  assert.equal(migrated.designOptions.filter(option => option.snapshot).every(option => option.snapshot.engineeringInputs.version === "mvhr-engineering-inputs.v3"), true);
+  assert.equal(migrated.schemaVersion, 26);
+  assert.deepEqual(migrated.engineeringInputs, { version: "mvhr-engineering-inputs.v4", floorDuties: [], networkDesigns: [] });
+  assert.equal(migrated.designOptions.filter(option => option.snapshot).every(option => option.snapshot.engineeringInputs.version === "mvhr-engineering-inputs.v4"), true);
   assert.equal(migrated.designOptions.filter(option => option.snapshot).every(option => option.snapshot.engineeringInputs.networkDesigns.length === 0), true);
 });
 
@@ -306,8 +390,8 @@ test("schema 24 route inputs reopen into v3 without dereferencing the old diamet
     delete curve.unitConfigurationFingerprint; delete curve.pressureConvention; delete curve.filterCondition;
   }
   const reopened = deserializeProject(JSON.stringify(legacy));
-  assert.equal(reopened.schemaVersion, 25);
-  assert.equal(reopened.engineeringInputs.version, "mvhr-engineering-inputs.v3");
+  assert.equal(reopened.schemaVersion, 26);
+  assert.equal(reopened.engineeringInputs.version, "mvhr-engineering-inputs.v4");
   assert.equal(reopened.engineeringInputs.networkDesigns[0].routeResistanceInputs[0].crossSection.shape, "circular");
   const result = evaluateEngineeringNetwork(reopened, "floor-ground", "normal");
   assert.equal(result.status, "blocked");
@@ -340,8 +424,8 @@ test("engineering report is option-scoped, preliminary and distinct from commiss
   assert.match(html, /Terminal design allocations/);
   assert.match(html, /Assigned design-flow balance/);
   assert.match(html, /Arithmetic equality only; no compliance tolerance inferred/);
-  assert.match(html, /Critical path and fan-duty screening/);
-  assert.match(html, /not solve achieved airflow/i);
+  assert.match(html, /critical path and fan-duty screening/i);
+  assert.match(html, /do not predict achieved airflow/i);
 });
 
 test("critical paths include each explicit outdoor system boundary once", () => {
@@ -362,6 +446,38 @@ test("critical paths include each explicit outdoor system boundary once", () => 
   assert.equal(result.routes.find(item => item.routeId === "route-intake").flowLps, 10);
   assert.ok(result.streams.supply.requiredExternalStaticPressurePa > result.routes.find(item => item.routeId === "route-supply").pressureLossPa);
   assert.notEqual(result.streams.supply.fanDuty.marginPa, null);
+});
+
+test("evidenced fan and system curves produce a separate bounded operating point", () => {
+  let project = engineeringFixture();
+  project = add(project, terminal("outside-intake", "intake", "Outdoor intake", 0, 1000));
+  project = add(project, terminal("outside-exhaust", "exhaust", "Outdoor exhaust", 0, 3000));
+  project = addBoundaryRoute(project, "route-intake", "unit-intake", "outside-intake", "outside-intake-port", "intake", "Outdoor intake", 1000);
+  project = addBoundaryRoute(project, "route-exhaust", "unit-exhaust", "outside-exhaust", "outside-exhaust-port", "exhaust", "Outdoor exhaust", 3000);
+  const design = baseDesign();
+  design.routeResistanceInputs.push(routeInput("route-intake"), routeInput("route-exhaust"));
+  design.componentResistanceInputs.push(componentLoss("outside-intake", 0), componentLoss("outside-exhaust", 0));
+  design.fanCurves = [knownCurve("supply", [[18, 100], [54, 0]]), knownCurve("extract", [[18, 100], [54, 0]])];
+  design.operatingPointModels = ["supply", "extract"].map(stream => ({
+    stream, unitComponentId: "unit", unitConfigurationFingerprint: null,
+    systemPressurePoints: [{ flowLps: 5, pressureLossPa: 0 }, { flowLps: 15, pressureLossPa: 100 }],
+    basis: "Linear analytic whole-system fixture", source: "Independent hand calculation", sourceVersion: "1",
+  }));
+  project = setNetworkDesign(project, design);
+  project = deserializeProject(serializeProject(project));
+  const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
+  for (const operating of Object.values(result.units.unit.operatingPoints)) {
+    assert.equal(operating.state, "solved-evidenced-curve-intersection");
+    assert.ok(Math.abs(operating.airflowLps - 10) < 1e-7);
+    assert.ok(Math.abs(operating.pressurePa - 50) < 1e-6);
+    assert.ok(operating.residualPa < 1e-6);
+  }
+  assert.equal(result.streams.supply.designFlowLps, 10);
+  assert.equal(result.units.unit.streams.supply.requiredExternalStaticPressurePa !== null, true);
+  project = applyCommand(project, { type: "route.insertPoint", routeId: "route-supply", segmentIndex: 0, point: { x: 5000, y: 2200, z: knownMm(2500, "test") } });
+  const stale = evaluateEngineeringNetwork(project, "floor-ground", "normal");
+  assert.equal(stale.units.unit.operatingPoints.supply.state, "unresolved");
+  assert.equal(stale.diagnostics.some(item => item.code === "operating-point-model-stale"), true);
 });
 
 test("terminal losses are not double-counted as inline component losses", () => {
@@ -440,18 +556,90 @@ test("branches accumulate explicit terminal flows while shared sections are coun
   assert.equal(result.paths.filter(item => item.stream === "supply").every(item => new Set(item.routeIds).size === item.routeIds.length), true);
 });
 
-test("multiple unit roots fail closed while a different floor remains independently not configured", () => {
+test("an unconnected second unit is reported separately while the connected unit keeps its own duty", () => {
   let project = engineeringFixture();
   project = add(project, secondUnit());
   project = setNetworkDesign(project, baseDesign());
   const ground = evaluateEngineeringNetwork(project, "floor-ground", "normal");
   assert.equal(ground.status, "blocked");
-  assert.equal(ground.diagnostics.some(item => item.code === "root-count-invalid" && /multi-unit/i.test(item.message)), true);
+  assert.equal(Object.keys(ground.units).length, 2);
+  assert.equal(ground.units.unit.streams.supply.designFlowLps, 10);
+  assert.equal(ground.units["unit-second"].streams.supply.designFlowLps, 0);
+  assert.equal(ground.diagnostics.some(item => item.code === "stream-no-paths" && item.target.unitComponentId === "unit-second"), true);
 
   project = applyCommand(project, { type: "floor.add", floor: { id: "floor-upper", name: "Upper Floor", transform: { translationMm: { x: 0, y: 0, z: knownMm(3000, "test") }, orientation: identityQuaternion() } } });
   const upper = evaluateEngineeringNetwork(project, "floor-upper", "normal");
   assert.equal(upper.status, "not-configured");
   assert.equal(upper.routes.length, 0);
+});
+
+test("two disconnected unit systems keep independent boundaries, paths and fan duties", () => {
+  let project = engineeringFixture();
+  project = add(project, secondUnit());
+  project = add(project, terminal("terminal-supply-2", "supply", "Dwelling supply", 7000, 1500));
+  project = add(project, terminal("terminal-extract-2", "extract", "Dwelling extract", 7000, 3500));
+  project = applyCommand(project, { type: "terminal.assignRoom", roomId: "room-supply", componentId: "terminal-supply-2", portId: "terminal-supply-2-port" });
+  project = applyCommand(project, { type: "terminal.assignRoom", roomId: "room-extract", componentId: "terminal-extract-2", portId: "terminal-extract-2-port" });
+  project = connectRoute(project, "route-supply-2", "unit-second", "unit-second-supply", "terminal-supply-2", "terminal-supply-2-port", "supply", "Dwelling supply", [[2000, 1000], [7000, 1500]]);
+  project = connectRoute(project, "route-extract-2", "unit-second", "unit-second-extract", "terminal-extract-2", "terminal-extract-2-port", "extract", "Dwelling extract", [[2000, 3000], [7000, 3500]]);
+  for (const [id, stream, role, y] of [["outside-intake-1", "intake", "Outdoor intake", 500], ["outside-exhaust-1", "exhaust", "Outdoor exhaust", 4500], ["outside-intake-2", "intake", "Outdoor intake", 700], ["outside-exhaust-2", "exhaust", "Outdoor exhaust", 4300]]) project = add(project, terminal(id, stream, role, 0, y));
+  project = connectRoute(project, "route-intake-1", "unit", "unit-intake", "outside-intake-1", "outside-intake-1-port", "intake", "Outdoor intake", [[800, 1000], [0, 500]]);
+  project = connectRoute(project, "route-exhaust-1", "unit", "unit-exhaust", "outside-exhaust-1", "outside-exhaust-1-port", "exhaust", "Outdoor exhaust", [[800, 3000], [0, 4500]]);
+  project = connectRoute(project, "route-intake-2", "unit-second", "unit-second-intake", "outside-intake-2", "outside-intake-2-port", "intake", "Outdoor intake", [[1800, 1000], [0, 700]]);
+  project = connectRoute(project, "route-exhaust-2", "unit-second", "unit-second-exhaust", "outside-exhaust-2", "outside-exhaust-2-port", "exhaust", "Outdoor exhaust", [[1800, 3000], [0, 4300]]);
+  const design = baseDesign();
+  design.terminalAllocations = [
+    { ...allocation("allocation-supply", "terminal-supply", "terminal-supply-port", "room-supply"), inputValue: 8, valueLps: 8 },
+    { ...allocation("allocation-supply-2", "terminal-supply-2", "terminal-supply-2-port", "room-supply"), inputValue: 6, valueLps: 6 },
+    { ...allocation("allocation-extract", "terminal-extract", "terminal-extract-port", "room-extract"), inputValue: 6, valueLps: 6 },
+    { ...allocation("allocation-extract-2", "terminal-extract-2", "terminal-extract-2-port", "room-extract"), inputValue: 8, valueLps: 8 },
+  ];
+  design.routeResistanceInputs = ["route-supply", "route-extract", "route-supply-2", "route-extract-2", "route-intake-1", "route-exhaust-1", "route-intake-2", "route-exhaust-2"].map(routeInput);
+  design.componentResistanceInputs = ["outside-intake-1", "outside-exhaust-1", "outside-intake-2", "outside-exhaust-2"].map(id => componentLoss(id, 0));
+  design.fanCurves = ["unit", "unit-second"].flatMap(unitComponentId => ["supply", "extract"].map(stream => ({ ...knownCurve(stream, [[10, 100], [30, 50]]), unitComponentId })));
+  project = setNetworkDesign(project, design);
+
+  const result = evaluateEngineeringNetwork(project, "floor-ground", "normal");
+  assert.deepEqual(Object.keys(result.units).sort(), ["unit", "unit-second"]);
+  for (const unitResult of Object.values(result.units)) {
+    assert.notEqual(unitResult.streams.supply.requiredExternalStaticPressurePa, null);
+    assert.notEqual(unitResult.streams.supply.fanDuty.marginPa, null);
+  }
+  assert.equal(result.units.unit.balance.differenceLps, 2);
+  assert.equal(result.units["unit-second"].balance.differenceLps, -2);
+  assert.equal(result.streams.supply.designFlowLps, 14);
+  assert.equal(result.balance.state, "arithmetically-balanced");
+  assert.equal(result.streams.supply.requiredExternalStaticPressurePa, null);
+  assert.equal(result.streams.supply.fanDuty.state, "per-unit-only");
+  assert.equal(Object.values(result.boundaries).filter(item => item.state === "connected-unique-path").length, 4);
+  const balanceDiagnostics = result.diagnostics.filter(item => item.code === "design-flow-imbalance");
+  assert.deepEqual(balanceDiagnostics.map(item => item.target.unitComponentId).sort(), ["unit", "unit-second"]);
+  const html = createEngineeringReportHtml(project, "floor-ground", "normal");
+  assert.match(html, /Per-unit assigned design-flow balance/);
+  assert.match(html, /unit-second/);
+});
+
+test("deleting a unit cleans its fan and operating-point evidence", () => {
+  let project = engineeringFixture();
+  const design = baseDesign();
+  design.fanCurves = [knownCurve("supply", [[18, 100], [54, 0]]), knownCurve("extract", [[18, 100], [54, 0]])];
+  design.operatingPointModels = ["supply", "extract"].map(stream => ({
+    stream,
+    unitComponentId: "unit",
+    systemPressurePoints: [{ flowLps: 5, pressureLossPa: 0 }, { flowLps: 15, pressureLossPa: 100 }],
+    basis: "Deletion fixture",
+    source: "Test",
+    sourceVersion: "1",
+  }));
+  project = setNetworkDesign(project, design);
+  project = applyCommand(project, {
+    type: "component.delete",
+    componentId: "unit",
+    confirmedScope: inspectComponentDeletion(project, "unit"),
+  });
+  const saved = project.engineeringInputs.networkDesigns.find(item => item.floorId === "floor-ground" && item.mode === "normal");
+  assert.deepEqual(saved.fanCurves, []);
+  assert.deepEqual(saved.operatingPointModels, []);
 });
 
 test("a side-loop is warned without blocking an independently unique terminal path", () => {
@@ -525,6 +713,7 @@ function setNetworkDesign(project, design) {
   hydrated.routeResistanceInputs = hydrated.routeResistanceInputs.map(input => ({ ...input, routeGeometryFingerprint: engineeringRouteFingerprint(project.routes.find(route => route.id === input.routeId)) }));
   hydrated.componentResistanceInputs = hydrated.componentResistanceInputs.map(input => ({ ...input, componentConfigurationFingerprint: engineeringComponentFingerprint(project.components.find(component => component.id === input.componentId)) }));
   hydrated.fanCurves = hydrated.fanCurves.map(curve => curve.state === "known" ? ({ ...curve, unitConfigurationFingerprint: engineeringComponentFingerprint(project.components.find(component => component.id === curve.unitComponentId)) }) : curve);
+  hydrated.operatingPointModels = (hydrated.operatingPointModels ?? []).map(model => ({ ...model, unitConfigurationFingerprint: engineeringComponentFingerprint(project.components.find(component => component.id === model.unitComponentId)), networkConfigurationFingerprint: engineeringSystemFingerprint(project, hydrated.floorId, model.unitComponentId, model.stream) }));
   return applyCommand(project, { type: "engineering.setNetworkDesign", design: hydrated });
 }
 function targets(value) { return { normal: { required: airflowTargetFromInput(value, "l/s", "Synthetic target", "Test fixture"), assigned: airflowTargetFromInput(value, "l/s", "Synthetic assignment", "Test fixture") } }; }

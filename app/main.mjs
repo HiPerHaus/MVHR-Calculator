@@ -180,6 +180,7 @@ import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   engineeringComponentFingerprint,
   engineeringRouteFingerprint,
+  engineeringSystemFingerprint,
   externalStaticPressureFromInput,
   pressureInputFromPa,
   unresolvedExternalStaticPressure,
@@ -537,6 +538,7 @@ const engineeringAllocationTable = document.querySelector("#engineering-allocati
 const engineeringRouteTable = document.querySelector("#engineering-route-table");
 const engineeringComponentTable = document.querySelector("#engineering-component-table");
 const engineeringFanTable = document.querySelector("#engineering-fan-table");
+const engineeringOperatingTable = document.querySelector("#engineering-operating-table");
 const engineeringNetworkStreams = document.querySelector("#engineering-network-streams");
 const engineeringNetworkIssues = document.querySelector("#engineering-network-issues");
 const engineeringNetworkBoundary = document.querySelector("#engineering-network-boundary");
@@ -8375,22 +8377,29 @@ function saveEngineeringNetworkEdits() {
       const width = row.querySelector("[data-field='width']").value.trim();
       const height = row.querySelector("[data-field='height']").value.trim();
       const values = ["roughness", "k", "additional-loss"].map(field => row.querySelector(`[data-field='${field}']`).value.trim());
+      const parallelFlowAssumption = row.querySelector("[data-field='parallel-flow']").value;
+      const usesCompleteBranchCurves = parallelFlowAssumption === "unequal-resistance-model";
       const basis = row.querySelector("[data-field='basis']").value.trim();
       const source = row.querySelector("[data-field='source']").value.trim();
       const noGeometry = !diameter && !width && !height;
       if (values.every(value => value === "") && noGeometry && !basis && !source) return [];
-      if (values.some(value => value === "") || !basis || !source) throw new TypeError(`Route ${row.dataset.routeId} needs internal geometry, roughness, ΣK, additional loss, basis and source together`);
+      if (!basis || !source) throw new TypeError(`Route ${row.dataset.routeId} needs internal geometry, basis and source together`);
+      if (!usesCompleteBranchCurves && values.some(value => value === "")) throw new TypeError(`Route ${row.dataset.routeId} needs roughness, ΣK and additional loss unless complete evidenced Twin branch curves are selected`);
       const crossSection = shape === "circular"
         ? { shape, internalDiameterMm: positiveFormNumber(diameter, "Internal diameter") }
         : { shape, internalWidthMm: positiveFormNumber(width, "Internal width"), internalHeightMm: positiveFormNumber(height, "Internal height") };
+      const parallelResistanceModel = usesCompleteBranchCurves
+        ? parseParallelResistanceModel(row.querySelector("[data-field='parallel-model']").value, basis, source)
+        : null;
       return [{
         routeId: row.dataset.routeId,
         routeGeometryFingerprint: engineeringRouteFingerprint(history.present.routes.find(route => route.id === row.dataset.routeId)),
         crossSection,
-        parallelFlowAssumption: row.querySelector("[data-field='parallel-flow']").value,
-        roughnessMm: nonNegativeFormNumber(values[0], "Roughness"),
-        fittingKTotal: nonNegativeFormNumber(values[1], "Fitting K total"),
-        additionalPressureLoss: pressureInputFromPa(nonNegativeFormNumber(values[2], "Additional route loss"), basis, source),
+        parallelFlowAssumption,
+        parallelResistanceModel,
+        roughnessMm: usesCompleteBranchCurves ? null : nonNegativeFormNumber(values[0], "Roughness"),
+        fittingKTotal: usesCompleteBranchCurves ? null : nonNegativeFormNumber(values[1], "Fitting K total"),
+        additionalPressureLoss: usesCompleteBranchCurves ? null : pressureInputFromPa(nonNegativeFormNumber(values[2], "Additional route loss"), basis, source),
         basis,
         source,
       }];
@@ -8404,15 +8413,15 @@ function saveEngineeringNetworkEdits() {
       const component = history.present.components.find(item => item.id === row.dataset.componentId);
       return [{ componentId: row.dataset.componentId, passageId: row.dataset.passageId || null, componentConfigurationFingerprint: engineeringComponentFingerprint(component), pressureLoss: pressureInputFromPa(nonNegativeFormNumber(loss, "Component loss"), basis, source), basis, source }];
     });
-    const fanCurves = [...engineeringFanTable.querySelectorAll("tr[data-stream]")].map(row => {
+    const fanCurves = [...engineeringFanTable.querySelectorAll("tr[data-stream]")].flatMap(row => {
       const stream = row.dataset.stream;
       const pointsText = row.querySelector("[data-field='points']").value.trim();
-      const unitComponentId = row.querySelector("[data-field='unit']").value;
+      const unitComponentId = row.dataset.unitComponentId;
       const basis = row.querySelector("[data-field='basis']").value.trim();
       const source = row.querySelector("[data-field='source']").value.trim();
       const sourceVersion = row.querySelector("[data-field='version']").value.trim();
       const filterCondition = row.querySelector("[data-field='filter-condition']").value.trim();
-      if (!pointsText && !unitComponentId && !basis && !source && !sourceVersion && !filterCondition) return { state: "unresolved", stream, unitComponentId: null, unitConfigurationFingerprint: null, pressureConvention: null, filterCondition: null, points: [], basis: null, source: null, sourceVersion: null, reason: "verified article-specific fan curve not provided" };
+      if (!pointsText && !basis && !source && !sourceVersion && !filterCondition) return [];
       if (!pointsText || !unitComponentId || !basis || !source || !sourceVersion || !filterCondition) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs a unit, at least two points, external-static filter condition, basis, source and source version together`);
       const points = pointsText.split(/[,;\n]+/u).filter(Boolean).map(token => {
         const [flow, pressure, extra] = token.trim().split(/\s*:\s*/u);
@@ -8421,7 +8430,20 @@ function saveEngineeringNetworkEdits() {
       });
       if (points.length < 2) throw new TypeError(`${formatRoomChoice(stream)} fan curve needs at least two verified points`);
       const unit = history.present.components.find(component => component.id === unitComponentId);
-      return { state: "known", stream, unitComponentId, unitConfigurationFingerprint: engineeringComponentFingerprint(unit), pressureConvention: "external-static", filterCondition, points, basis, source, sourceVersion, reason: null };
+      return [{ state: "known", stream, unitComponentId, unitConfigurationFingerprint: engineeringComponentFingerprint(unit), pressureConvention: "external-static", filterCondition, points, basis, source, sourceVersion, reason: null }];
+    });
+    const operatingPointModels = [...engineeringOperatingTable.querySelectorAll("tr[data-stream]")].flatMap(row => {
+      const stream = row.dataset.stream;
+      const unitComponentId = row.dataset.unitComponentId;
+      const pointsText = row.querySelector("[data-field='system-points']").value.trim();
+      const basis = row.querySelector("[data-field='basis']").value.trim();
+      const source = row.querySelector("[data-field='source']").value.trim();
+      const sourceVersion = row.querySelector("[data-field='version']").value.trim();
+      if (!pointsText && !basis && !source && !sourceVersion) return [];
+      if (!pointsText || !basis || !source || !sourceVersion) throw new TypeError(`${formatRoomChoice(stream)} operating-point model for ${unitComponentId} needs system points, basis, source and source version together`);
+      const systemPressurePoints = parsePressureCurve(pointsText, "System pressure curve");
+      const unit = history.present.components.find(component => component.id === unitComponentId);
+      return [{ stream, unitComponentId, unitConfigurationFingerprint: engineeringComponentFingerprint(unit), networkConfigurationFingerprint: engineeringSystemFingerprint(history.present, floor.id, unitComponentId, stream), systemPressurePoints, basis, source, sourceVersion }];
     });
     const occupancyText = engineeringOccupancy.value.trim();
     const occupancy = occupancyText === ""
@@ -8436,7 +8458,7 @@ function saveEngineeringNetworkEdits() {
       basis: fluidBasis,
       source: fluidSource,
     };
-    commitCommand({ type: "engineering.setNetworkDesign", design: { ...structuredClone(current), occupancy, fluid, terminalAllocations, routeResistanceInputs, componentResistanceInputs, fanCurves } }, `${formatRoomChoice(mode)} engineering inputs updated`);
+    commitCommand({ type: "engineering.setNetworkDesign", design: { ...structuredClone(current), occupancy, fluid, terminalAllocations, routeResistanceInputs, componentResistanceInputs, fanCurves, operatingPointModels } }, `${formatRoomChoice(mode)} engineering inputs updated`);
     engineeringNetworkStatus.textContent = "Engineering inputs saved. Results are preliminary and remain blocked wherever evidence is missing.";
   } catch (error) {
     engineeringNetworkStatus.textContent = error instanceof Error ? error.message : String(error);
@@ -8539,13 +8561,14 @@ function renderEngineeringNetwork(floorId) {
       tableCell(`${route.id} · ${formatRoomChoice(route.stream)} · ${route.parallelRunCount === 2 ? "Twin" : route.parallelRunCount === 1 ? "Single" : "run count unset"}`),
       tableCell(result?.flowLps > 0 ? `${formatNumberValue(result.flowLps)} L/s${result.velocityMps === null ? " · velocity unresolved" : ` · ${formatNumberValue(result.velocityMps)} m/s`}` : "No allocated design flow"),
       routeGeometryCell(input?.crossSection ?? null),
-      parallelFlowCell(route.parallelRunCount, input?.parallelFlowAssumption ?? "not-declared"),
+      parallelFlowCell(route.parallelRunCount, input?.parallelFlowAssumption ?? "not-declared", input?.parallelResistanceModel ?? null),
       inputCell("roughness", input?.roughnessMm ?? "", "mm"),
       inputCell("k", input?.fittingKTotal ?? "", ""),
-      inputCell("additional-loss", input?.additionalPressureLoss.state === "known" ? input.additionalPressureLoss.valuePa : "", "Pa"),
+      inputCell("additional-loss", input?.additionalPressureLoss?.state === "known" ? input.additionalPressureLoss.valuePa : "", "Pa"),
       evidenceCell(input?.basis ?? "", input?.source ?? ""),
     );
     engineeringRouteTable.append(row);
+    syncParallelRouteRow(row);
   }
   if (history.present.routes.every(item => item.floorId !== floorId)) engineeringRouteTable.append(emptyTableRow("No routes are modelled on this floor.", 8));
 
@@ -8568,20 +8591,13 @@ function renderEngineeringNetwork(floorId) {
   if (resistanceComponents.length === 0) engineeringComponentTable.append(emptyTableRow("No inline multi-port components or external terminals need separate evidence on this floor.", 3));
 
   const fanUnits = engineeringFanUnits(history.present, floorId);
-  const fanCurveByStream = new Map((design?.fanCurves ?? []).map(item => [item.stream, item]));
+  const fanCurveByUnitStream = new Map((design?.fanCurves ?? []).filter(item => item.state === "known").map(item => [`${item.unitComponentId}\u0000${item.stream}`, item]));
   engineeringFanTable.replaceChildren();
-  for (const stream of ["supply", "extract"]) {
-    const curve = fanCurveByStream.get(stream);
+  for (const unit of fanUnits) for (const stream of ["supply", "extract"]) {
+    const curve = fanCurveByUnitStream.get(`${unit.id}\u0000${stream}`);
     const row = document.createElement("tr");
     row.dataset.stream = stream;
-    const unitCell = document.createElement("td");
-    const select = document.createElement("select");
-    select.dataset.field = "unit";
-    select.setAttribute("aria-label", `${formatRoomChoice(stream)} fan-curve unit`);
-    select.append(new Option("Not selected", ""));
-    for (const unit of fanUnits) select.append(new Option(unit.catalogue?.name ?? unit.id, unit.id));
-    select.value = curve?.unitComponentId ?? "";
-    unitCell.append(select);
+    row.dataset.unitComponentId = unit.id;
     const pointsCell = document.createElement("td");
     const points = document.createElement("textarea");
     points.dataset.field = "points";
@@ -8590,17 +8606,38 @@ function renderEngineeringNetwork(floorId) {
     points.value = curve?.state === "known" ? curve.points.map(point => `${point.airflowM3h}:${point.externalStaticPressurePa}`).join(", ") : "";
     pointsCell.append(points);
     const evidence = fanEvidenceCell(curve);
-    row.append(tableCell(formatRoomChoice(stream)), unitCell, pointsCell, evidence);
+    row.append(tableCell(`${unit.catalogue?.name ?? unit.id} · ${formatRoomChoice(stream)}`), pointsCell, evidence);
     engineeringFanTable.append(row);
   }
+  if (fanUnits.length === 0) engineeringFanTable.append(emptyTableRow("No supported MVHR units are placed on this floor.", 3));
+
+  const operatingByUnitStream = new Map((design?.operatingPointModels ?? []).map(item => [`${item.unitComponentId}\u0000${item.stream}`, item]));
+  engineeringOperatingTable.replaceChildren();
+  for (const unit of fanUnits) for (const stream of ["supply", "extract"]) {
+    const model = operatingByUnitStream.get(`${unit.id}\u0000${stream}`);
+    const row = document.createElement("tr");
+    row.dataset.stream = stream;
+    row.dataset.unitComponentId = unit.id;
+    const pointsCell = document.createElement("td");
+    const points = document.createElement("textarea");
+    points.dataset.field = "system-points";
+    points.rows = 2;
+    points.placeholder = "L/s:Pa, e.g. 0:0, 25:60, 50:180";
+    points.value = model ? model.systemPressurePoints.map(point => `${point.flowLps}:${point.pressureLossPa}`).join(", ") : "";
+    pointsCell.append(points);
+    row.append(tableCell(`${unit.catalogue?.name ?? unit.id} · ${formatRoomChoice(stream)}`), pointsCell, operatingEvidenceCell(model));
+    engineeringOperatingTable.append(row);
+  }
+  if (fanUnits.length === 0) engineeringOperatingTable.append(emptyTableRow("No supported MVHR units are placed on this floor.", 3));
 
   engineeringNetworkStreams.replaceChildren();
-  for (const stream of Object.values(evaluation.streams)) engineeringNetworkStreams.append(checksListRow(
-    `${formatRoomChoice(stream.stream)} · ${formatNumberValue(stream.designFlowLps)} L/s (${formatNumberValue(stream.designFlowM3h)} m³/h)`,
-    stream.requiredExternalStaticPressurePa === null
-      ? "Required external static pressure not calculated"
-      : `${formatNumberValue(stream.requiredExternalStaticPressurePa)} Pa critical path · fan ${stream.fanDuty.state.replaceAll("-", " ")}`,
-  ));
+  for (const unit of Object.values(evaluation.units ?? {})) for (const stream of Object.values(unit.streams)) {
+    const operating = unit.operatingPoints[stream.stream];
+    engineeringNetworkStreams.append(checksListRow(
+      `${history.present.components.find(component => component.id === unit.unitComponentId)?.catalogue?.name ?? unit.unitComponentId} · ${formatRoomChoice(stream.stream)} · ${formatNumberValue(stream.designFlowLps)} L/s (${formatNumberValue(stream.designFlowM3h)} m³/h)`,
+      `${stream.requiredExternalStaticPressurePa === null ? "Design-flow external static pressure not calculated" : `${formatNumberValue(stream.requiredExternalStaticPressurePa)} Pa design-flow critical path · fan ${stream.fanDuty.state.replaceAll("-", " ")}`} · operating point ${operating.state === "solved-evidenced-curve-intersection" ? `${formatNumberValue(operating.airflowM3h)} m³/h at ${formatNumberValue(operating.pressurePa)} Pa` : operating.state.replaceAll("-", " ")}`,
+    ));
+  }
   engineeringNetworkIssues.replaceChildren();
   for (const item of evaluation.diagnostics) engineeringNetworkIssues.append(airflowIssue(item.severity === "error" ? "Blocked" : "Review", item.message));
   if (evaluation.diagnostics.length === 0) engineeringNetworkIssues.append(htmlText("div", "No calculation blockers in the saved inputs; technical review is still required.", "checks-diagnostic-empty"));
@@ -8657,21 +8694,67 @@ function routeGeometryCell(section) {
   return cell;
 }
 
-function parallelFlowCell(runCount, assumption) {
+function parallelFlowCell(runCount, assumption, model) {
   const cell = document.createElement("td");
   const select = document.createElement("select");
   select.dataset.field = "parallel-flow";
   select.setAttribute("aria-label", "Parallel flow assumption");
+  const modelInput = document.createElement("textarea");
+  modelInput.dataset.field = "parallel-model";
+  modelInput.rows = 2;
+  modelInput.placeholder = "Complete branch losses: run-a|v1|0:0,10:20; run-b|v1|0:0,10:30";
+  modelInput.setAttribute("aria-label", "Two complete evidenced parallel branch pressure-loss curves");
   if (runCount === 2) {
-    select.append(new Option("Not declared", "not-declared"), new Option("Equal split — declared", "equal-split-declared"));
-    select.value = assumption === "equal-split-declared" ? assumption : "not-declared";
+    select.append(new Option("Not declared", "not-declared"), new Option("Equal split — declared", "equal-split-declared"), new Option("Unequal — complete evidenced curves", "unequal-resistance-model"));
+    select.value = ["equal-split-declared", "unequal-resistance-model"].includes(assumption) ? assumption : "not-declared";
+    modelInput.value = model?.branches.map(branch => `${branch.id}|${branch.sourceVersion}|${branch.points.map(point => `${point.flowLps}:${point.pressureLossPa}`).join(",")}`).join("; ") ?? "";
   } else {
     select.append(new Option("Single run", "not-applicable"));
     select.value = "not-applicable";
     select.disabled = true;
   }
-  cell.append(select);
+  const sync = () => {
+    modelInput.hidden = select.value !== "unequal-resistance-model";
+    if (cell.parentElement) syncParallelRouteRow(cell.parentElement);
+  };
+  select.addEventListener("change", sync);
+  sync();
+  cell.append(select, modelInput);
   return cell;
+}
+
+function syncParallelRouteRow(row) {
+  const usesCompleteBranchCurves = row.querySelector("[data-field='parallel-flow']")?.value === "unequal-resistance-model";
+  for (const field of ["roughness", "k", "additional-loss"]) {
+    const input = row.querySelector(`[data-field='${field}']`);
+    if (!input) continue;
+    input.disabled = usesCompleteBranchCurves;
+    if (usesCompleteBranchCurves) input.setAttribute("aria-describedby", "engineering-parallel-curve-note");
+    else input.removeAttribute("aria-describedby");
+  }
+}
+
+function parseParallelResistanceModel(text, basis, source) {
+  const branchTokens = text.split(/\s*;\s*/u).filter(Boolean);
+  if (branchTokens.length !== 2) throw new TypeError("Unequal Twin flow needs exactly two branch curves separated by a semicolon");
+  return {
+    scope: "complete-branch-pressure-loss",
+    branches: branchTokens.map(token => {
+      const [id, sourceVersion, pointsText, extra] = token.split("|");
+      if (extra !== undefined || !id?.trim() || !sourceVersion?.trim() || !pointsText?.trim()) throw new TypeError("Each parallel branch must use branch-id|source-version|L/s:Pa,L/s:Pa");
+      return { id: id.trim(), sourceVersion: sourceVersion.trim(), points: parsePressureCurve(pointsText, `Parallel branch ${id.trim()}`), basis, source };
+    }),
+  };
+}
+
+function parsePressureCurve(text, label) {
+  const points = text.split(/[,\n]+/u).filter(Boolean).map(token => {
+    const [flow, pressure, extra] = token.trim().split(/\s*:\s*/u);
+    if (extra !== undefined || flow === undefined || pressure === undefined) throw new TypeError(`${label} point “${token.trim()}” must use L/s:Pa`);
+    return { flowLps: nonNegativeFormNumber(flow, `${label} flow`), pressureLossPa: nonNegativeFormNumber(pressure, `${label} pressure`) };
+  });
+  if (points.length < 2) throw new TypeError(`${label} needs at least two verified points`);
+  return points;
 }
 
 function engineeringNumberInput(field, value, label) {
@@ -8719,6 +8802,19 @@ function fanEvidenceCell(curve) {
   version.dataset.field = "version";
   version.setAttribute("aria-label", "Fan-curve source version");
   cell.append(condition, version);
+  return cell;
+}
+
+function operatingEvidenceCell(model) {
+  const cell = evidenceCell(model?.basis ?? "", model?.source ?? "");
+  const version = document.createElement("input");
+  version.type = "text";
+  version.maxLength = 120;
+  version.value = model?.sourceVersion ?? "";
+  version.placeholder = "Source version";
+  version.dataset.field = "version";
+  version.setAttribute("aria-label", "System pressure curve source version");
+  cell.append(version);
   return cell;
 }
 

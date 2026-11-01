@@ -61,7 +61,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -474,9 +474,8 @@ export function applyCommand(project, command, options = {}) {
         terminalAllocations: design.terminalAllocations.filter((item) => !componentIds.has(item.componentId)),
         componentResistanceInputs: design.componentResistanceInputs.filter((item) => !componentIds.has(item.componentId)),
         routeResistanceInputs: design.routeResistanceInputs.filter((item) => !routeIds.has(item.routeId)),
-        fanCurves: design.fanCurves.map((curve) => curve.unitComponentId !== null && componentIds.has(curve.unitComponentId)
-          ? {state:"unresolved",stream:curve.stream,unitComponentId:null,points:[],basis:null,source:null,sourceVersion:null,reason:"selected fan unit was deleted"}
-          : curve),
+        fanCurves: design.fanCurves.filter((curve) => curve.unitComponentId === null || !componentIds.has(curve.unitComponentId)),
+        operatingPointModels: design.operatingPointModels.filter((model) => !componentIds.has(model.unitComponentId)),
       }));
       break;
     }
@@ -1241,6 +1240,8 @@ function validateNetworkDesignReferences(project, design) {
   for (const input of design.routeResistanceInputs) {
     const route = requireEntity(project.routes, input.routeId, "Engineering resistance route");
     if (route.floorId !== design.floorId) throw new TypeError("Engineering resistance route must be on the selected floor");
+    if (route.parallelRunCount === 2 && input.parallelFlowAssumption === "not-applicable") throw new TypeError("Twin engineering resistance routes cannot use a Single-run flow assumption");
+    if (route.parallelRunCount !== 2 && ["equal-split-declared", "unequal-resistance-model"].includes(input.parallelFlowAssumption)) throw new TypeError("Parallel-flow engineering evidence requires a Twin route");
   }
   for (const input of design.componentResistanceInputs) {
     const component = requireEntity(project.components, input.componentId, "Engineering resistance component");
@@ -1252,6 +1253,11 @@ function validateNetworkDesignReferences(project, design) {
     const component = requireEntity(project.components, curve.unitComponentId, "Engineering fan-curve unit");
     if (component.floorId !== design.floorId) throw new TypeError("Engineering fan-curve unit must be on the selected floor");
     if (!isMvhrUnitComponent(component)) throw new TypeError("Engineering fan curve must reference an MVHR unit component");
+  }
+  for (const model of design.operatingPointModels) {
+    const component = requireEntity(project.components, model.unitComponentId, "Engineering operating-point unit");
+    if (component.floorId !== design.floorId) throw new TypeError("Engineering operating-point unit must be on the selected floor");
+    if (!isMvhrUnitComponent(component)) throw new TypeError("Engineering operating-point model must reference an MVHR unit component");
   }
 }
 
@@ -1483,6 +1489,20 @@ export function migrateProjectData(project) {
             ...component,
             engineeringPassages: component.engineeringPassages ?? [],
           })),
+          engineeringInputs: migrateEngineeringInputs(option.snapshot.engineeringInputs),
+        },
+      })),
+    };
+  }
+  if (migrated.schemaVersion === 25) {
+    migrated = {
+      ...migrated,
+      schemaVersion: 26,
+      engineeringInputs: migrateEngineeringInputs(migrated.engineeringInputs),
+      designOptions: migrated.designOptions.map(option => ({
+        ...option,
+        snapshot: option.snapshot === null ? null : {
+          ...option.snapshot,
           engineeringInputs: migrateEngineeringInputs(option.snapshot.engineeringInputs),
         },
       })),

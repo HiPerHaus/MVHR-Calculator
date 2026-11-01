@@ -29,6 +29,7 @@ export function createEngineeringReport(project, floorId, mode = "normal") {
     routeResults: evaluation.routes,
     systemBoundaries: evaluation.boundaries,
     pathResults: evaluation.paths,
+    unitEngineering: evaluation.units,
     criticalPathAndFanDuty: evaluation.streams,
     designFlowBalance: evaluation.balance,
     blockersAndWarnings: evaluation.diagnostics,

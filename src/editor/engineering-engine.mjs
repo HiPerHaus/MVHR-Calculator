@@ -1,5 +1,6 @@
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
-import { engineeringComponentFingerprint, engineeringRouteFingerprint } from "../domain/engineering-inputs.mjs";
+import { engineeringComponentFingerprint, engineeringRouteFingerprint, engineeringSystemFingerprint } from "../domain/engineering-inputs.mjs";
+import { solveOperatingPoint, solveParallelBranchFlows } from "./engineering-solvers.mjs";
 
 const EPSILON = 1e-9;
 const ROOT_ROLES = Object.freeze({ supply: "Dwelling supply", extract: "Dwelling extract" });
@@ -23,18 +24,29 @@ export function evaluateEngineeringNetwork(project, floorId, mode = "normal") {
   if (cycleComponents.length > 0) diagnostics.push(diagnostic("unsupported-cycle-present", "warning", `The MVHR graph contains ${cycleComponents.length} connected cyclic region${cycleComponents.length === 1 ? "" : "s"}. Only allocations with a unique simple path are evaluated; ambiguous paths are blocked.`, { cycleComponentCount: cycleComponents.length }));
 
   const allocations = design.terminalAllocations.map(allocation => evaluateAllocation(allocation, componentById, roots, graph, diagnostics));
-  const boundaries = Object.fromEntries(["supply", "extract"].map(stream => [stream, evaluateSystemBoundary(stream, components, roots, graph)]));
+  const boundaries = Object.fromEntries(["supply", "extract"].flatMap(stream => evaluateSystemBoundaries(stream, components, roots, graph)).map(boundary => [unitStreamKey(boundary.unitComponentId, boundary.stream), boundary]));
   for (const boundary of Object.values(boundaries)) diagnostics.push(...boundary.diagnostics);
   const routeFlows = accumulateRouteFlows(allocations, boundaries);
   const routeInputs = new Map(design.routeResistanceInputs.map(input => [input.routeId, input]));
   const routeResults = routes.map(route => evaluateRoute(route, routeFlows.get(route.id) ?? 0, routeInputs.get(route.id) ?? null, design.fluid));
   const routeResultById = new Map(routeResults.map(result => [result.routeId, result]));
   const componentInputs = new Map(design.componentResistanceInputs.map(input => [componentInputKey(input.componentId, input.passageId), input]));
-  const paths = allocations.map(allocation => evaluatePath(allocation, boundaries[allocation.stream], componentById, routeResultById, componentInputs));
+  const paths = allocations.map(allocation => evaluatePath(allocation, boundaries[unitStreamKey(allocation.root?.componentId, allocation.stream)], componentById, routeResultById, componentInputs));
   const spaceChecks = inspectSpaceAllocation(project, floorId, mode, design.terminalAllocations);
   diagnostics.push(...spaceChecks.diagnostics);
-  const streams = Object.fromEntries(["supply", "extract"].map(stream => [stream, evaluateStream(stream, allocations, paths, design.fanCurves, roots[stream] ?? [], componentById)]));
-  for (const stream of Object.values(streams)) diagnostics.push(...stream.diagnostics);
+  const unitIds = [...new Set(Object.values(roots).flat().map(root => root.componentId))].sort();
+  if (unitIds.length === 0) diagnostics.push(diagnostic("unit-root-missing", "error", "No supported MVHR unit with dwelling supply and extract roots is available on this floor.", { floorId }));
+  const units = Object.fromEntries(unitIds.map(unitComponentId => {
+    const unitStreams = Object.fromEntries(["supply", "extract"].map(stream => [stream, evaluateUnitStream(stream, unitComponentId, allocations, paths, design.fanCurves, componentById)]));
+    const operatingPoints = Object.fromEntries(["supply", "extract"].map(stream => [stream, evaluateOperatingPointModel(stream, unitComponentId, unitStreams[stream], design, componentById, project)]));
+    return [unitComponentId, { unitComponentId, streams: unitStreams, balance: evaluateDesignBalance(unitStreams, unitComponentId), operatingPoints }];
+  }));
+  for (const unit of Object.values(units)) {
+    for (const stream of Object.values(unit.streams)) diagnostics.push(...stream.diagnostics);
+    diagnostics.push(...unit.balance.diagnostics);
+    for (const operatingPoint of Object.values(unit.operatingPoints)) diagnostics.push(...operatingPoint.diagnostics);
+  }
+  const streams = Object.fromEntries(["supply", "extract"].map(stream => [stream, aggregateUnitStreams(stream, units)]));
   const balance = evaluateDesignBalance(streams);
   diagnostics.push(...balance.diagnostics);
   for (const result of routeResults) diagnostics.push(...result.diagnostics);
@@ -52,6 +64,7 @@ export function evaluateEngineeringNetwork(project, floorId, mode = "normal") {
     routes: routeResults,
     paths,
     boundaries,
+    units,
     streams,
     balance,
     diagnostics: uniqueDiagnostics(diagnostics),
@@ -62,7 +75,7 @@ export function evaluateEngineeringNetwork(project, floorId, mode = "normal") {
       source: design.fluid.source,
       elevationStaticHeadApplied: false,
     },
-    evidenceBoundary: "Design-target evaluation only. Flows come from explicit terminal allocations, not predicted delivery. Pressure uses only saved internal cross-sections, roughness, fitting K values and explicit component/terminal losses. Twin routes require a declared equal-flow assumption; Studio does not solve unequal parallel resistance. Transitional Reynolds-number routes remain unresolved. Missing evidence blocks a complete path. Elevation is used for developed length only and does not create a static-head penalty in the closed air circuit. Fan curves are interpolated only within saved verified points and screened at the assigned design flow; this is not an operating-point intersection and curves are never extrapolated.",
+    evidenceBoundary: "Design-target evaluation only. Flows come from explicit terminal allocations, not predicted delivery. Each connected unit is evaluated separately; independent fan duties are never summed. Pressure uses only saved internal geometry and explicit resistance evidence. Twin routes require either a declared equal split or two evidenced monotonic branch curves; solved unequal branches conserve flow and equal pressure without changing terminal targets. Transitional Reynolds-number routes remain unresolved. Elevation affects developed length only. Fan-duty screening remains separate from an optional evidenced fan/system curve intersection; neither curve is extrapolated and unsupported topology stays unresolved.",
   });
 }
 
@@ -126,40 +139,43 @@ function rootEndpoints(components) {
   return Object.fromEntries(["supply", "extract"].map(stream => [stream, unitComponents.flatMap(component => component.ports.filter(port => port.role === ROOT_ROLES[stream]).map(port => ({ componentId: component.id, portId: port.id, key: endpointKey(component.id, port.id) })))]));
 }
 
-function evaluateSystemBoundary(stream, components, roots, graph) {
-  const diagnostics = [];
+function evaluateSystemBoundaries(stream, components, roots, graph) {
   const role = stream === "supply" ? "Outdoor intake" : "Outdoor exhaust";
   const unitRoots = roots[stream] ?? [];
-  if (unitRoots.length !== 1) {
-    diagnostics.push(diagnostic("boundary-unit-root-invalid", "error", `${stream} system-boundary evaluation requires exactly one supported unit root; multi-unit systems need explicit system grouping, which is not implemented in this milestone.`, { stream }));
-    return { stream, role, state: "unresolved", routeIds: [], componentIds: [], componentPassages: [], diagnostics };
+  const unitComponentIds = new Set(unitRoots.map(root => root.componentId));
+  const outsidePorts = components.filter(item => !unitComponentIds.has(item.id)).flatMap(component => component.ports.filter(port => port.role === role).map(port => ({ componentId: component.id, portId: port.id, key: endpointKey(component.id, port.id) })));
+  const results = [...unitComponentIds].map(unitComponentId => {
+    const diagnostics = [];
+    const rootPorts = unitRoots.filter(root => root.componentId === unitComponentId);
+    const unit = components.find(component => component.id === unitComponentId);
+    const unitBoundaryPorts = unit?.ports.filter(port => port.role === role).map(port => ({ componentId: unit.id, portId: port.id, key: endpointKey(unit.id, port.id) })) ?? [];
+    const resolvedCandidates = rootPorts.length === 1 && unitBoundaryPorts.length === 1
+      ? outsidePorts.map(port => ({ port, resolved: resolveUniquePath(unitBoundaryPorts[0].key, port.key, graph.adjacency) }))
+      : [];
+    const unique = resolvedCandidates.filter(candidate => candidate.resolved.state === "unique");
+    const ambiguous = resolvedCandidates.filter(candidate => candidate.resolved.state === "ambiguous");
+    if (rootPorts.length !== 1 || unitBoundaryPorts.length !== 1 || unique.length !== 1 || ambiguous.length > 0) {
+      diagnostics.push(diagnostic("system-boundary-count-invalid", "error", `${stream} unit ${unitComponentId} requires one dwelling root, one ${role} unit port and one unique external terminal path; found ${rootPorts.length} root ports, ${unitBoundaryPorts.length} boundary ports, ${unique.length} unique external path${unique.length === 1 ? "" : "s"} and ${ambiguous.length} ambiguous path${ambiguous.length === 1 ? "" : "s"}.`, { stream, role, unitComponentId }));
+      return { unitComponentId, stream, role, state: "unresolved", externalComponentId: null, routeIds: [], componentIds: [], componentPassages: [], diagnostics };
+    }
+    const selected = unique[0], path = selected.resolved.path;
+    return {
+      unitComponentId, stream, role, state: "connected-unique-path", externalComponentId: selected.port.componentId,
+      routeIds: path.filter(edge => edge.kind === "route").map(edge => edge.routeId),
+      componentIds: [...new Set(path.flatMap(edge => [graph.componentByEndpoint.get(edge.from), graph.componentByEndpoint.get(edge.to)]).filter(componentId => componentId && componentId !== unitComponentId))],
+      componentPassages: path.filter(edge => edge.kind === "internal").map(edge => ({ componentId: edge.componentId, passageId: edge.passageId })), diagnostics,
+    };
+  });
+  const externalUse = new Map();
+  for (const result of results.filter(item => item.state === "connected-unique-path")) {
+    if (!externalUse.has(result.externalComponentId)) externalUse.set(result.externalComponentId, []);
+    externalUse.get(result.externalComponentId).push(result);
   }
-  const unitComponentId = unitRoots[0].componentId;
-  const unitBoundaryPorts = components.filter(item => item.id === unitComponentId).flatMap(component => component.ports.filter(port => port.role === role).map(port => ({ componentId: component.id, portId: port.id, key: endpointKey(component.id, port.id) })));
-  const outsidePorts = components.filter(item => item.id !== unitComponentId).flatMap(component => component.ports.filter(port => port.role === role).map(port => ({ componentId: component.id, portId: port.id, key: endpointKey(component.id, port.id) })));
-  if (unitBoundaryPorts.length !== 1 || outsidePorts.length !== 1) {
-    diagnostics.push(diagnostic("system-boundary-count-invalid", "error", `${stream} pressure evaluation requires one unit ${role} port and one explicit external ${role} terminal; found ${unitBoundaryPorts.length} unit and ${outsidePorts.length} external.`, { stream, role }));
-    return { stream, role, state: "unresolved", routeIds: [], componentIds: [], componentPassages: [], diagnostics };
+  for (const duplicate of [...externalUse.values()].filter(items => items.length > 1)) for (const result of duplicate) {
+    result.state = "unresolved";
+    result.diagnostics.push(diagnostic("system-boundary-shared-between-units", "error", `${role} terminal ${result.externalComponentId} is connected to more than one unit; independent unit boundaries cannot be inferred.`, { stream, role, unitComponentId: result.unitComponentId, componentId: result.externalComponentId }));
   }
-  const resolved = resolveUniquePath(unitBoundaryPorts[0].key, outsidePorts[0].key, graph.adjacency);
-  if (resolved.state === "disconnected") {
-    diagnostics.push(diagnostic("system-boundary-disconnected", "error", `${role} is not connected to the selected unit, so the ${stream} fan path is incomplete.`, { stream, componentId: outsidePorts[0].componentId }));
-    return { stream, role, state: "unresolved", routeIds: [], componentIds: [outsidePorts[0].componentId], componentPassages: [], diagnostics };
-  }
-  if (resolved.state === "ambiguous") {
-    diagnostics.push(diagnostic("system-boundary-path-ambiguous", "error", `${role} has more than one simple path to the selected unit. Loop flow cannot be inferred.`, { stream, componentId: outsidePorts[0].componentId }));
-    return { stream, role, state: "unresolved", routeIds: [], componentIds: [outsidePorts[0].componentId], componentPassages: [], diagnostics };
-  }
-  const path = resolved.path;
-  return {
-    stream,
-    role,
-    state: "connected-unique-path",
-    routeIds: path.filter(edge => edge.kind === "route").map(edge => edge.routeId),
-    componentIds: [...new Set(path.flatMap(edge => [graph.componentByEndpoint.get(edge.from), graph.componentByEndpoint.get(edge.to)]).filter(componentId => componentId && componentId !== unitComponentId))],
-    componentPassages: path.filter(edge => edge.kind === "internal").map(edge => ({ componentId: edge.componentId, passageId: edge.passageId })),
-    diagnostics,
-  };
+  return results;
 }
 
 function evaluateAllocation(allocation, componentById, roots, graph, diagnostics) {
@@ -171,28 +187,25 @@ function evaluateAllocation(allocation, componentById, roots, graph, diagnostics
     diagnostics.push(diagnostic("allocation-terminal-invalid", "error", `Allocation ${allocation.id} does not reference one typed supply/extract terminal port.`, { allocationId: allocation.id }));
     return result;
   }
-  const candidates = roots[stream] ?? [];
-  if (candidates.length !== 1) {
-    diagnostics.push(diagnostic("root-count-invalid", "error", `${stream} engineering evaluation requires exactly one supported unit root; found ${candidates.length}. Multi-unit systems need explicit system grouping and are not assessed.`, { allocationId: allocation.id, stream }));
-    return result;
-  }
-  const resolved = resolveUniquePath(result.endpointKey, candidates[0].key, graph.adjacency);
-  if (resolved.state === "disconnected") {
+  const candidates = (roots[stream] ?? []).map(root => ({ root, resolved: resolveUniquePath(result.endpointKey, root.key, graph.adjacency) }));
+  const unique = candidates.filter(candidate => candidate.resolved.state === "unique");
+  const ambiguous = candidates.filter(candidate => candidate.resolved.state === "ambiguous");
+  if (unique.length === 0 && ambiguous.length === 0) {
     diagnostics.push(diagnostic("allocation-disconnected", "error", `Allocation ${allocation.id} has no connected ${stream} path to the selected unit root.`, { allocationId: allocation.id, componentId: allocation.componentId }));
     return result;
   }
-  if (resolved.state === "ambiguous") {
-    diagnostics.push(diagnostic("allocation-path-ambiguous", "error", `Allocation ${allocation.id} has more than one simple ${stream} path to the unit. Loop flow cannot be inferred.`, { allocationId: allocation.id, componentId: allocation.componentId }));
+  if (unique.length !== 1 || ambiguous.length > 0) {
+    diagnostics.push(diagnostic("allocation-path-ambiguous", "error", `Allocation ${allocation.id} does not resolve to exactly one unit: ${unique.length} unique and ${ambiguous.length} ambiguous ${stream} root paths were found.`, { allocationId: allocation.id, componentId: allocation.componentId }));
     return result;
   }
-  const path = resolved.path;
+  const selected = unique[0], path = selected.resolved.path;
   result.routeIds = path.filter(edge => edge.kind === "route").map(edge => edge.routeId);
   result.componentIds = [...new Set(path.flatMap(edge => [
     graph.componentByEndpoint.get(edge.from),
     graph.componentByEndpoint.get(edge.to),
   ]).filter(Boolean))];
   result.componentPassages = path.filter(edge => edge.kind === "internal").map(edge => ({ componentId: edge.componentId, passageId: edge.passageId }));
-  result.root = structuredClone(candidates[0]);
+  result.root = structuredClone(selected.root);
   result.graphStatus = "connected-unique-path";
   return result;
 }
@@ -200,10 +213,9 @@ function evaluateAllocation(allocation, componentById, roots, graph, diagnostics
 function accumulateRouteFlows(allocations, boundaries) {
   const totals = new Map();
   for (const allocation of allocations) if (allocation.graphStatus === "connected-unique-path") for (const routeId of allocation.routeIds) totals.set(routeId, (totals.get(routeId) ?? 0) + allocation.valueLps);
-  for (const stream of ["supply", "extract"]) {
-    const boundary = boundaries[stream];
+  for (const boundary of Object.values(boundaries)) {
     if (boundary?.state !== "connected-unique-path") continue;
-    const flowLps = allocations.filter(allocation => allocation.stream === stream && allocation.graphStatus === "connected-unique-path").reduce((sum, allocation) => sum + allocation.valueLps, 0);
+    const flowLps = allocations.filter(allocation => allocation.stream === boundary.stream && allocation.root?.componentId === boundary.unitComponentId && allocation.graphStatus === "connected-unique-path").reduce((sum, allocation) => sum + allocation.valueLps, 0);
     for (const routeId of boundary.routeIds) totals.set(routeId, (totals.get(routeId) ?? 0) + flowLps);
   }
   return totals;
@@ -227,16 +239,45 @@ function evaluateRoute(route, flowLps, input, fluid) {
     return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
   }
   if (parallelRunCount === 2 && input.parallelFlowAssumption !== "equal-split-declared") {
-    diagnostics.push(diagnostic("parallel-flow-assumption-missing", "error", `Twin route ${route.id} needs an explicit equal-flow assumption or a future unequal-resistance solution before velocity and pressure can be calculated.`, { routeId: route.id }));
-    return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
+    if (input.parallelFlowAssumption !== "unequal-resistance-model") {
+      diagnostics.push(diagnostic("parallel-flow-assumption-missing", "error", `Twin route ${route.id} needs an explicit equal-flow assumption or two evidenced unequal branch resistance curves before velocity and pressure can be calculated.`, { routeId: route.id }));
+      return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
+    }
   }
-  if (input.additionalPressureLoss.state !== "known") diagnostics.push(diagnostic("route-additional-loss-missing", "error", `Route ${route.id} additional fitting/product loss is unresolved; enter an evidenced value, including an explicit sourced 0 Pa when genuinely none applies.`, { routeId: route.id }));
-  const flowPerRunM3s = flowLps / 1000 / parallelRunCount;
   const section = routeSectionGeometry(input.crossSection);
   if (![section.hydraulicDiameterMm, section.areaMm2].every(finitePositive)) {
     diagnostics.push(diagnostic("route-calculation-out-of-range", "error", `Route ${route.id} internal geometry is outside the finite calculation range.`, { routeId: route.id }));
     return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
   }
+  if (parallelRunCount === 2 && input.parallelFlowAssumption === "unequal-resistance-model") {
+    const split = solveParallelBranchFlows(flowLps, input.parallelResistanceModel?.branches);
+    diagnostics.push(...split.diagnostics.map(item => ({ ...item, target: { routeId: route.id } })));
+    if (split.state !== "solved") return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
+    const areaPerRunM2 = section.areaMm2 / 1_000_000;
+    const branchResults = split.branchResults.map(branch => ({
+      ...branch,
+      velocityMps: branch.flowLps / 1000 / areaPerRunM2,
+    }));
+    if (branchResults.some(branch => !finiteNonNegative(branch.velocityMps)) || !finiteNonNegative(split.pressureLossPa)) {
+      diagnostics.push(diagnostic("route-calculation-out-of-range", "error", `Twin route ${route.id} unequal branch result is outside the finite calculation range.`, { routeId: route.id }));
+      return unresolvedRouteResult(route, flowLps, parallelRunCount, length.developedMm, diagnostics);
+    }
+    return {
+      routeId: route.id, stream: route.stream, state: "calculated-design-flow-unequal-parallel", flowLps,
+      flowPerRunLps: null, parallelRunCount, parallelFlowAssumption: input.parallelFlowAssumption,
+      parallelResistanceModel: structuredClone(input.parallelResistanceModel), branchResults,
+      flowResidualLps: split.flowResidualLps, pressureResidualPa: split.pressureResidualPa,
+      residualTolerancePa: split.residualTolerancePa,
+      developedLengthMm: length.developedMm, crossSection: structuredClone(input.crossSection),
+      hydraulicDiameterMm: section.hydraulicDiameterMm, areaPerRunM2,
+      velocityMps: null, reynoldsNumber: null, frictionRegime: "evidenced-branch-curves",
+      frictionFactor: null, dynamicPressurePa: null, straightLossPa: null, fittingLossPa: null,
+      additionalLossPa: null, pressureLossPa: split.pressureLossPa,
+      basis: input.basis, source: input.source, diagnostics,
+    };
+  }
+  if (input.additionalPressureLoss.state !== "known") diagnostics.push(diagnostic("route-additional-loss-missing", "error", `Route ${route.id} additional fitting/product loss is unresolved; enter an evidenced value, including an explicit sourced 0 Pa when genuinely none applies.`, { routeId: route.id }));
+  const flowPerRunM3s = flowLps / 1000 / parallelRunCount;
   const diameterM = section.hydraulicDiameterMm / 1000;
   const areaM2 = section.areaMm2 / 1_000_000;
   const velocityMps = flowPerRunM3s / areaM2;
@@ -338,32 +379,82 @@ function inspectSpaceAllocation(project, floorId, mode, allocations) {
   return { lines, diagnostics };
 }
 
-function evaluateStream(stream, allocations, paths, fanCurves, roots, componentById) {
+function evaluateUnitStream(stream, unitComponentId, allocations, paths, fanCurves, componentById) {
   const diagnostics = [];
-  const streamAllocations = allocations.filter(allocation => allocation.stream === stream);
+  const streamAllocations = allocations.filter(allocation => allocation.stream === stream && allocation.root?.componentId === unitComponentId);
   const designFlowLps = streamAllocations.reduce((sum, allocation) => sum + allocation.valueLps, 0);
-  const streamPaths = paths.filter(path => path.stream === stream);
+  const allocationIds = new Set(streamAllocations.map(allocation => allocation.id));
+  const streamPaths = paths.filter(path => allocationIds.has(path.allocationId));
   const unresolvedPathCount = streamPaths.filter(path => path.pressureLossPa === null).length;
   const knownCritical = streamPaths.filter(path => path.pressureLossPa !== null).sort((a, b) => b.pressureLossPa - a.pressureLossPa)[0] ?? null;
   const requiredExternalStaticPressurePa = unresolvedPathCount === 0 && streamPaths.length > 0 ? knownCritical.pressureLossPa : null;
-  if (streamPaths.length === 0) diagnostics.push(diagnostic("stream-no-paths", "error", `No connected ${stream} terminal path is available.`, { stream }));
-  if (unresolvedPathCount > 0) diagnostics.push(diagnostic("stream-paths-unresolved", "error", `${unresolvedPathCount} ${stream} path${unresolvedPathCount === 1 ? " is" : "s are"} unresolved, so required fan pressure is not calculated.`, { stream }));
-  if (!Number.isFinite(designFlowLps)) diagnostics.push(diagnostic("stream-flow-out-of-range", "error", `${stream} terminal allocations exceed the finite calculation range.`, { stream }));
-  const fanCurve = fanCurves.find(curve => curve.stream === stream) ?? null;
-  const rootComponentId = roots.length === 1 ? roots[0].componentId : null;
-  const fanDuty = evaluateFanDuty(fanCurve, Number.isFinite(designFlowLps) ? designFlowLps * 3.6 : null, requiredExternalStaticPressurePa, rootComponentId, componentById.get(rootComponentId));
+  if (streamPaths.length === 0) diagnostics.push(diagnostic("stream-no-paths", "error", `Unit ${unitComponentId} has no connected ${stream} terminal path.`, { stream, unitComponentId }));
+  if (unresolvedPathCount > 0) diagnostics.push(diagnostic("stream-paths-unresolved", "error", `${unresolvedPathCount} ${stream} path${unresolvedPathCount === 1 ? " is" : "s are"} unresolved for unit ${unitComponentId}, so required fan pressure is not calculated.`, { stream, unitComponentId }));
+  if (!Number.isFinite(designFlowLps)) diagnostics.push(diagnostic("stream-flow-out-of-range", "error", `${stream} terminal allocations exceed the finite calculation range for unit ${unitComponentId}.`, { stream, unitComponentId }));
+  const fanCurve = fanCurves.find(curve => curve.stream === stream && curve.unitComponentId === unitComponentId)
+    ?? fanCurves.find(curve => curve.stream === stream)
+    ?? null;
+  const fanDuty = evaluateFanDuty(fanCurve, Number.isFinite(designFlowLps) ? designFlowLps * 3.6 : null, requiredExternalStaticPressurePa, unitComponentId, componentById.get(unitComponentId));
   diagnostics.push(...fanDuty.diagnostics);
-  return { stream, designFlowLps, designFlowM3h: designFlowLps * 3.6, pathCount: streamPaths.length, unresolvedPathCount, criticalPathAllocationId: requiredExternalStaticPressurePa === null ? null : knownCritical.allocationId, requiredExternalStaticPressurePa, fanDuty, diagnostics };
+  return { unitComponentId, stream, designFlowLps, designFlowM3h: designFlowLps * 3.6, pathCount: streamPaths.length, unresolvedPathCount, criticalPathAllocationId: requiredExternalStaticPressurePa === null ? null : knownCritical.allocationId, requiredExternalStaticPressurePa, fanDuty, diagnostics };
 }
 
-function evaluateDesignBalance(streams) {
+function aggregateUnitStreams(stream, units) {
+  const results = Object.values(units).map(unit => unit.streams[stream]);
+  const designFlowLps = results.reduce((sum, result) => sum + result.designFlowLps, 0);
+  const pathCount = results.reduce((sum, result) => sum + result.pathCount, 0);
+  const unresolvedPathCount = results.reduce((sum, result) => sum + result.unresolvedPathCount, 0);
+  if (results.length === 1) return { ...structuredClone(results[0]), unitCount: 1, unitResults: structuredClone(results) };
+  return {
+    stream, unitCount: results.length, designFlowLps, designFlowM3h: designFlowLps * 3.6,
+    pathCount, unresolvedPathCount, criticalPathAllocationId: null, requiredExternalStaticPressurePa: null,
+    fanDuty: { state: "per-unit-only", availableExternalStaticPressurePa: null, marginPa: null, diagnostics: [] },
+    unitResults: structuredClone(results), diagnostics: [],
+  };
+}
+
+function evaluateOperatingPointModel(stream, unitComponentId, unitStream, design, componentById, project) {
+  const model = (design.operatingPointModels ?? []).find(item => item.stream === stream && item.unitComponentId === unitComponentId) ?? null;
+  if (!model) return { unitComponentId, stream, state: "not-configured", airflowLps: null, airflowM3h: null, pressurePa: null, diagnostics: [] };
+  const diagnostics = [];
+  const unit = componentById.get(unitComponentId);
+  if (!unit || model.unitConfigurationFingerprint !== engineeringComponentFingerprint(unit) || model.networkConfigurationFingerprint !== engineeringSystemFingerprint(project, design.floorId, unitComponentId, stream)) {
+    diagnostics.push(diagnostic("operating-point-model-stale", "error", `The ${stream} system-pressure curve is not bound to the current unit and network configuration for ${unitComponentId}.`, { stream, unitComponentId }));
+    return { unitComponentId, stream, state: "unresolved", airflowLps: null, airflowM3h: null, pressurePa: null, diagnostics };
+  }
+  if (unitStream.pathCount === 0 || unitStream.unresolvedPathCount > 0) {
+    diagnostics.push(diagnostic("operating-point-topology-unresolved", "error", `Operating-point solving for unit ${unitComponentId} ${stream} requires complete, uniquely connected design-flow paths.`, { stream, unitComponentId }));
+    return { unitComponentId, stream, state: "unresolved", airflowLps: null, airflowM3h: null, pressurePa: null, diagnostics };
+  }
+  const fanCurve = design.fanCurves.find(curve => curve.state === "known" && curve.stream === stream && curve.unitComponentId === unitComponentId) ?? null;
+  if (!fanCurve || fanCurve.unitConfigurationFingerprint !== engineeringComponentFingerprint(unit) || fanCurve.pressureConvention !== "external-static" || !fanCurve.filterCondition) {
+    diagnostics.push(diagnostic("operating-point-fan-evidence-unresolved", "error", `Operating-point solving for unit ${unitComponentId} ${stream} requires a current externally-rated fan curve and explicit filter condition.`, { stream, unitComponentId }));
+    return { unitComponentId, stream, state: "unresolved", airflowLps: null, airflowM3h: null, pressurePa: null, diagnostics };
+  }
+  const solved = solveOperatingPoint(
+    fanCurve.points.map(point => ({ flowLps: point.airflowM3h / 3.6, pressureLossPa: point.externalStaticPressurePa })),
+    model.systemPressurePoints,
+  );
+  diagnostics.push(...solved.diagnostics.map(item => ({ ...item, target: { stream, unitComponentId } })));
+  return {
+    unitComponentId, stream, state: solved.state,
+    airflowLps: solved.airflowLps ?? null, airflowM3h: solved.airflowM3h ?? null, pressurePa: solved.pressurePa ?? null,
+    residualPa: solved.residualPa ?? null, residualTolerancePa: solved.residualTolerancePa ?? null, iterations: solved.iterations ?? null,
+    fanCurve: { filterCondition: fanCurve.filterCondition, basis: fanCurve.basis, source: fanCurve.source, sourceVersion: fanCurve.sourceVersion },
+    systemCurve: { basis: model.basis, source: model.source, sourceVersion: model.sourceVersion }, diagnostics,
+  };
+}
+
+function evaluateDesignBalance(streams, unitComponentId = null) {
   const supplyLps = streams.supply?.designFlowLps ?? null, extractLps = streams.extract?.designFlowLps ?? null;
-  if (![supplyLps, extractLps].every(Number.isFinite)) return { state: "unresolved", supplyLps, extractLps, differenceLps: null, diagnostics: [diagnostic("design-balance-unresolved", "error", "Supply/extract design-flow balance is outside the finite calculation range.", {})] };
+  const target = unitComponentId === null ? { scope: "floor-option" } : { unitComponentId };
+  const subject = unitComponentId === null ? "Floor/option" : `Unit ${unitComponentId}`;
+  if (![supplyLps, extractLps].every(Number.isFinite)) return { state: "unresolved", supplyLps, extractLps, differenceLps: null, diagnostics: [diagnostic("design-balance-unresolved", "error", `${subject} supply/extract design-flow balance is outside the finite calculation range.`, target)] };
   const differenceLps = supplyLps - extractLps;
   return {
     state: Math.abs(differenceLps) <= EPSILON ? "arithmetically-balanced" : "imbalance-review-required",
     supplyLps, extractLps, differenceLps,
-    diagnostics: Math.abs(differenceLps) <= EPSILON ? [] : [diagnostic("design-flow-imbalance", "warning", `Assigned supply and extract design flows differ by ${formatNumber(differenceLps)} L/s. No compliance tolerance is inferred; review the intended balance.`, {})],
+    diagnostics: Math.abs(differenceLps) <= EPSILON ? [] : [diagnostic("design-flow-imbalance", "warning", `${subject} assigned supply and extract design flows differ by ${formatNumber(differenceLps)} L/s. No compliance tolerance is inferred; review the intended balance.`, target)],
   };
 }
 
@@ -451,6 +542,7 @@ function resolveUniquePath(start, target, adjacency) {
 }
 
 function emptyResult(floorId, mode, message) { return deepFreeze({ kind: "mvhr-engineering-evaluation.v1", floorId, mode, status: "not-configured", design: null, allocations: [], spaceChecks: { lines: [], diagnostics: [] }, routes: [], paths: [], streams: {}, diagnostics: [diagnostic("network-design-missing", "error", message, {})], assumptions: null, evidenceBoundary: "No engineering result is available without explicit sourced inputs." }); }
+function unitStreamKey(unitComponentId, stream) { return `${unitComponentId ?? "unresolved"}\u0000${stream}`; }
 function endpointKey(componentId, portId) { return JSON.stringify([componentId, portId]); }
 function diagnostic(code, severity, message, target) { return { code, severity, message, target }; }
 function uniqueDiagnostics(items) { const seen = new Set(); return items.filter(item => { const key = JSON.stringify(item); if (seen.has(key)) return false; seen.add(key); return true; }); }

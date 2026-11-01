@@ -12,6 +12,9 @@ export function createEngineeringReportHtml(project, floorId, mode = "normal") {
     numberOrNotSet(route.pressureLossPa),
     route.crossSection ? formatSection(route.crossSection) : "Not set",
     route.frictionRegime ?? "Not set",
+    route.branchResults
+      ? `${route.branchResults.map(branch => `${branch.id}: ${formatNumber(branch.flowLps)} L/s at ${formatNumber(branch.pressureLossPa)} Pa`).join("; ")}${route.parallelResistanceModel?.scope === "complete-branch-pressure-loss" ? " · complete branch curves" : ""}`
+      : (route.parallelRunCount === 2 ? route.parallelFlowAssumption : "Single run"),
   ])).join("");
   const allocationRows = report.terminalAllocations.map(allocation => row([
     allocation.id,
@@ -21,14 +24,20 @@ export function createEngineeringReportHtml(project, floorId, mode = "normal") {
     allocation.basis,
     allocation.source,
   ])).join("");
-  const streamRows = Object.values(report.criticalPathAndFanDuty).map(stream => row([
+  const streamRows = Object.values(report.unitEngineering ?? {}).flatMap(unit => Object.values(unit.streams).map(stream => row([
+    unit.unitComponentId,
     titleCase(stream.stream),
     `${formatNumber(stream.designFlowLps)} L/s`,
     `${formatNumber(stream.designFlowM3h)} m³/h`,
     numberOrNotSet(stream.requiredExternalStaticPressurePa),
     stream.fanDuty.state.replaceAll("-", " "),
     numberOrNotSet(stream.fanDuty.marginPa),
-  ])).join("");
+  ]))).join("");
+  const operatingRows = Object.values(report.unitEngineering ?? {}).flatMap(unit => Object.values(unit.operatingPoints).map(result => row([
+    unit.unitComponentId, titleCase(result.stream), result.state.replaceAll("-", " "),
+    numberOrNotSet(result.airflowLps), numberOrNotSet(result.airflowM3h), numberOrNotSet(result.pressurePa),
+    numberOrNotSet(result.residualPa), result.systemCurve?.basis ?? "Not configured", result.systemCurve?.source ?? "Not configured",
+  ]))).join("");
   const balance = report.designFlowBalance ?? {};
   const balanceRows = row([
     titleCase(balance.state ?? "unresolved"),
@@ -39,8 +48,16 @@ export function createEngineeringReportHtml(project, floorId, mode = "normal") {
       ? "Arithmetic equality only; no compliance tolerance inferred"
       : "Review required; no compliance tolerance inferred",
   ]);
+  const unitBalanceRows = Object.values(report.unitEngineering ?? {}).map(unit => row([
+    unit.unitComponentId,
+    titleCase(unit.balance.state),
+    numberOrNotSet(unit.balance.supplyLps),
+    numberOrNotSet(unit.balance.extractLps),
+    numberOrNotSet(unit.balance.differenceLps),
+    unit.balance.state === "arithmetically-balanced" ? "Arithmetic equality only" : "Review required",
+  ])).join("");
   const boundaryRows = Object.values(report.systemBoundaries ?? {}).map(boundary => row([
-    titleCase(boundary.stream), boundary.role, boundary.state,
+    boundary.unitComponentId, titleCase(boundary.stream), boundary.role, boundary.state,
     boundary.routeIds.join(", ") || "Not resolved", boundary.componentIds.join(", ") || "None",
   ])).join("");
   const pathRows = (report.pathResults ?? []).map(path => row([
@@ -53,7 +70,7 @@ export function createEngineeringReportHtml(project, floorId, mode = "normal") {
     input.componentConfigurationFingerprint ?? "Not bound — review required",
   ])).join("");
   const fanRows = (report.designInputs?.fanCurves ?? []).map(curve => row([
-    titleCase(curve.stream), curve.state, curve.unitComponentId ?? "Not set",
+    curve.unitComponentId ?? "Not set", titleCase(curve.stream), curve.state,
     curve.pressureConvention ?? "Not set", curve.filterCondition ?? "Not set",
     curve.points.map(point => `${formatNumber(point.airflowM3h)} m³/h : ${formatNumber(point.externalStaticPressurePa)} Pa`).join("; ") || "No verified points",
     curve.basis ?? curve.reason, curve.source ?? "Not set",
@@ -71,16 +88,18 @@ export function createEngineeringReportHtml(project, floorId, mode = "normal") {
 <h2>Calculation scope</h2><p>Mode: ${escapeHtml(titleCase(mode))}. Status: ${escapeHtml(report.issue.calculationStatus.replaceAll("-", " "))}.</p><p class="boundary">${escapeHtml(report.evidenceBoundary)}</p>
 <p>Network basis: ${escapeHtml(report.designInputs?.basis ?? "Not set")} · source: ${escapeHtml(report.designInputs?.source ?? "Not set")} · version: ${escapeHtml(report.designInputs?.sourceVersion ?? "Not set")}.</p>
 <h2>Terminal design allocations</h2><table><thead>${row(["Allocation", "Stream", "Declared input", "Canonical", "Basis", "Source"], "th")}</thead><tbody>${allocationRows || row(["No explicit allocations", "", "", "", "", ""])}</tbody></table>
-<h2>Route design-flow results</h2><table><thead>${row(["Route", "Stream", "State", "Flow L/s", "Velocity m/s", "Loss Pa", "Cross-section", "Regime"], "th")}</thead><tbody>${routeRows || row(["No routes", "", "", "", "", "", "", ""])}</tbody></table>
+<h2>Route design-flow results</h2><table><thead>${row(["Route", "Stream", "State", "Flow L/s", "Velocity m/s", "Loss Pa", "Cross-section", "Regime", "Parallel detail"], "th")}</thead><tbody>${routeRows || row(["No routes", "", "", "", "", "", "", "", ""])}</tbody></table>
 <h2>Assigned design-flow balance</h2><table><thead>${row(["State", "Supply L/s", "Extract L/s", "Difference L/s", "Interpretation"], "th")}</thead><tbody>${balanceRows}</tbody></table>
-<h2>Critical path and fan-duty screening</h2><table><thead>${row(["Stream", "Flow L/s", "Flow m³/h", "Required Pa", "Fan screening", "Margin Pa"], "th")}</thead><tbody>${streamRows || row(["Not calculated", "", "", "", "", ""])}</tbody></table>
-<h2>Outdoor system boundaries</h2><table><thead>${row(["Stream", "Boundary", "State", "Routes", "Components"], "th")}</thead><tbody>${boundaryRows || row(["Not calculated", "", "", "", ""])}</tbody></table>
+<h2>Per-unit assigned design-flow balance</h2><table><thead>${row(["Unit", "State", "Supply L/s", "Extract L/s", "Difference L/s", "Interpretation"], "th")}</thead><tbody>${unitBalanceRows || row(["No unit groups", "", "", "", "", ""])}</tbody></table>
+<h2>Per-unit critical path and fan-duty screening</h2><table><thead>${row(["Unit", "Stream", "Flow L/s", "Flow m³/h", "Required Pa", "Fan screening", "Margin Pa"], "th")}</thead><tbody>${streamRows || row(["Not calculated", "", "", "", "", "", ""])}</tbody></table>
+<h2>Optional evidenced operating-point intersection</h2><p>This is separate from the prescribed design-flow evaluation. It is calculated only from current unit-bound fan evidence and a separately evidenced whole-system pressure curve with a shared bounded domain.</p><table><thead>${row(["Unit", "Stream", "State", "Flow L/s", "Flow m³/h", "Pressure Pa", "Residual Pa", "System basis", "System source"], "th")}</thead><tbody>${operatingRows || row(["Not configured", "", "", "", "", "", "", "", ""])}</tbody></table>
+<h2>Outdoor system boundaries</h2><table><thead>${row(["Unit", "Stream", "Boundary", "State", "Routes", "Components"], "th")}</thead><tbody>${boundaryRows || row(["Not calculated", "", "", "", "", ""])}</tbody></table>
 <h2>Path composition</h2><table><thead>${row(["Allocation", "Stream", "State", "Routes counted once", "Inline components", "Loss Pa"], "th")}</thead><tbody>${pathRows || row(["Not calculated", "", "", "", "", ""])}</tbody></table>
 <h2>Component loss evidence</h2><table><thead>${row(["Component", "Loss Pa", "Basis", "Source", "Configuration binding"], "th")}</thead><tbody>${componentRows || row(["No component-loss inputs", "", "", "", ""])}</tbody></table>
-<h2>Fan evidence</h2><table><thead>${row(["Stream", "State", "Unit", "Convention", "Filter condition", "Verified points", "Basis", "Source"], "th")}</thead><tbody>${fanRows || row(["No fan evidence", "", "", "", "", "", "", ""])}</tbody></table>
+<h2>Fan evidence</h2><table><thead>${row(["Unit", "Stream", "State", "Convention", "Filter condition", "Verified points", "Basis", "Source"], "th")}</thead><tbody>${fanRows || row(["No fan evidence", "", "", "", "", "", "", ""])}</tbody></table>
 <h2>Assumptions</h2><p>Air density: ${numberOrNotSet(report.assumptions?.densityKgM3)} kg/m³. Dynamic viscosity: ${numberOrNotSet(report.assumptions?.dynamicViscosityPaS)} Pa·s.</p><p>${escapeHtml(report.assumptions?.basis ?? "Not set")} · source: ${escapeHtml(report.assumptions?.source ?? "Not set")}</p>
 <h2>Blocking unknowns and review items</h2>${blockers}
-<footer>Generated from the current working project state, which may include unsaved draft edits. This report evaluates assigned design flows only. It does not solve achieved airflow, a nonlinear fan/network operating point, compliance or commissioning.</footer>
+<footer>Generated from the current working project state, which may include unsaved draft edits. Prescribed design-flow results do not predict achieved airflow. Any separately shown operating point is only the bounded intersection of the stated evidenced fan and whole-system curves; it is not terminal-flow prediction, compliance or commissioning.</footer>
 </body></html>`;
 }
 

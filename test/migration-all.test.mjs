@@ -229,6 +229,10 @@ async function completeCurrentProject() {
 function toSchemaVersion(current, schemaVersion) {
   const legacy = structuredClone(current);
   legacy.schemaVersion = schemaVersion;
+  if (schemaVersion < 26) {
+    downgradeEngineeringV4(legacy.engineeringInputs);
+    for (const option of legacy.designOptions ?? []) if (option.snapshot) downgradeEngineeringV4(option.snapshot.engineeringInputs);
+  }
   if (schemaVersion < 25) {
     for (const component of legacy.components) delete component.engineeringPassages;
     if (legacy.engineeringInputs?.version === "mvhr-engineering-inputs.v3") {
@@ -292,6 +296,15 @@ function toSchemaVersion(current, schemaVersion) {
     delete legacy.floorReferences;
   }
   return legacy;
+}
+
+function downgradeEngineeringV4(inputs) {
+  if (inputs?.version !== "mvhr-engineering-inputs.v4") return;
+  inputs.version = "mvhr-engineering-inputs.v3";
+  for (const design of inputs.networkDesigns) {
+    for (const route of design.routeResistanceInputs) delete route.parallelResistanceModel;
+    delete design.operatingPointModels;
+  }
 }
 
 function syntheticPngHeader(widthPx, heightPx) {

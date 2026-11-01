@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const APP_URL = process.argv[2] ?? "http://127.0.0.1:4196/app/";
+import { isPathInside, resolveStaticRequestPath } from "../src/dev/static-path.mjs";
+
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const qaIdentity = { userId: "qa-engineering-user", workspaceId: "qa-engineering-workspace" };
+const qaServer = process.argv[2] ? null : await startQaServer();
+const APP_URL = process.argv[2] ?? `http://127.0.0.1:${qaServer.address().port}/app/`;
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-studio-engineering-foundation-"));
 const browser = spawn(CHROME, [
@@ -79,6 +86,19 @@ try {
   await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='additional-loss']", "0");
   await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='basis']", "Synthetic rectangular UI evidence");
   await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='source']", "Browser engineering fixture");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='parallel-flow']", "unequal-resistance-model");
+  await setValue(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='parallel-model']", "run-a|1|0:0,10:20; run-b|1|0:0,10:30");
+  const supplyFan = "#engineering-fan-table tr[data-unit-component-id='q350-unit'][data-stream='supply']";
+  await setValue(cdp, `${supplyFan} [data-field='points']`, "20:200, 400:20");
+  await setValue(cdp, `${supplyFan} [data-field='filter-condition']`, "Synthetic clean-filter browser condition");
+  await setValue(cdp, `${supplyFan} [data-field='basis']`, "Synthetic browser fan evidence");
+  await setValue(cdp, `${supplyFan} [data-field='source']`, "Browser engineering fixture");
+  await setValue(cdp, `${supplyFan} [data-field='version']`, "1");
+  const supplyOperating = "#engineering-operating-table tr[data-unit-component-id='q350-unit'][data-stream='supply']";
+  await setValue(cdp, `${supplyOperating} [data-field='system-points']`, "5:10, 100:200");
+  await setValue(cdp, `${supplyOperating} [data-field='basis']`, "Synthetic whole-system browser curve");
+  await setValue(cdp, `${supplyOperating} [data-field='source']`, "Browser engineering fixture");
+  await setValue(cdp, `${supplyOperating} [data-field='version']`, "1");
   await click(cdp, "#engineering-network-save");
   await waitFor(cdp, `document.querySelector("#engineering-network-status")?.textContent.includes("Engineering inputs saved")`);
   await click(cdp, "#engineering-network-export");
@@ -91,10 +111,16 @@ try {
   assert.equal(await value(cdp, "#engineering-allocation-table tr[data-component-id='supply-terminal-2'] [data-field='unit']"), "m3/h");
   assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='section-shape']"), "rectangular");
   assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='width']"), "100");
+  assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='parallel-flow']"), "unequal-resistance-model");
+  assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='parallel-model']"), "run-a|1|0:0,10:20; run-b|1|0:0,10:30");
+  assert.equal(await evaluate(cdp, `document.querySelector("#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='roughness']")?.disabled`), true);
+  assert.equal(await value(cdp, "#engineering-route-table tr[data-route-id='qa-review-route'] [data-field='roughness']"), "");
+  assert.equal(await value(cdp, `${supplyFan} [data-field='filter-condition']`), "Synthetic clean-filter browser condition");
+  assert.equal(await value(cdp, `${supplyOperating} [data-field='system-points']`), "5:10, 100:200");
 
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, applied, savedEditedAllocations: "2 × 175 m3/h", reportExportTriggered: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, applied, savedEditedAllocations: "2 × 175 m3/h", savedFanAndOperatingEvidence: true, reportExportTriggered: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-4000)}\n`);
@@ -104,6 +130,7 @@ try {
   browser.kill("SIGTERM");
   await Promise.race([exited, delay(2000)]);
   await rm(profileDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  if (qaServer) await new Promise((resolveClose) => qaServer.close(resolveClose));
 }
 
 async function seedProject(cdp) {
@@ -166,7 +193,7 @@ async function seedProject(cdp) {
     const family = catalogue.routeFamilyForKind("semi-rigid-radial");
     project = domain.applyCommand(project, { type: "route.add", route: {
       id: "qa-review-route", floorId: "floor-ground", system: "mvhr", stream: "supply", role: "Dwelling supply",
-      ductKind: family.id, connectionInterface: family.connectionInterface, parallelRunCount: 1,
+      ductKind: family.id, connectionInterface: family.connectionInterface, parallelRunCount: 2,
       startAttachment: null, endAttachment: null,
       points: [
         { x: 1000, y: 500, z: domain.knownMm(2400, "browser engineering fixture") },
@@ -192,6 +219,35 @@ async function snapshot(cdp) {
     installerSections: document.querySelector("#checks-installer-sections")?.textContent ?? "",
     installerBoundary: document.querySelector("#checks-installer-boundary")?.textContent ?? "",
   }))()`);
+}
+
+async function startQaServer() {
+  const index = await readFile(resolve(root, "app/index.html"), "utf8");
+  const qaBootstrap = `<script type="module">\nimport { setBootAccess } from "./auth-context.mjs";\nsetBootAccess({ state: "approved", user: { id: "${qaIdentity.userId}", email: "qa@example.test" }, memberships: [{ role: "owner", status: "active", workspace: { id: "${qaIdentity.workspaceId}", name: "Isolated QA" } }] });\ndocument.querySelector("#app-auth-status").hidden = true;\ndocument.querySelector(".app-shell").hidden = false;\nawait import("./main.mjs");\n</script>`;
+  const qaIndex = index.replace('<script type="module" src="./bootstrap.mjs"></script>', qaBootstrap);
+  const contentTypes = new Map([[".css", "text/css"], [".html", "text/html"], [".js", "text/javascript"], [".mjs", "text/javascript"], [".json", "application/json"], [".svg", "image/svg+xml"]]);
+  const instance = createServer(async (request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/app/" || url.pathname === "/app/index.html") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        response.end(qaIndex);
+        return;
+      }
+      const resolved = resolveStaticRequestPath(root, url.pathname);
+      const filePath = await realpath(resolved.filePath);
+      const allowedRoot = await realpath(resolved.allowedRoot);
+      if (!isPathInside(filePath, allowedRoot) || !(await stat(filePath)).isFile()) throw new Error("Not found");
+      const bytes = await readFile(filePath);
+      response.writeHead(200, { "Content-Type": contentTypes.get(extname(filePath)) ?? "application/octet-stream", "Cache-Control": "no-store" });
+      response.end(bytes);
+    } catch {
+      response.writeHead(404, { "Content-Type": "text/plain" });
+      response.end("Not found");
+    }
+  });
+  await new Promise((resolveListen) => instance.listen(0, "127.0.0.1", resolveListen));
+  return instance;
 }
 
 async function readDevToolsPort(directory) {

@@ -604,11 +604,15 @@
             <h3>Terminal allocations</h3>
             <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Space / terminal</th><th>Service</th><th>Design target</th><th>Terminal loss</th><th>Evidence</th></tr></thead><tbody id="engineering-allocation-table"></tbody></table></div>
             <h3>Route resistance inputs and calculated design-flow results</h3>
-            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Route</th><th>Flow / velocity</th><th>Internal cross-section</th><th>Parallel flow</th><th>Roughness</th><th>ΣK</th><th>Additional loss</th><th>Evidence</th></tr></thead><tbody id="engineering-route-table"></tbody></table></div>
+            <p id="engineering-parallel-curve-note" class="checks-boundary">For unequal Twin runs, each saved curve is the complete per-branch pressure loss over its verified flow range. Roughness, ΣK and additional-loss fields are not combined with those curves.</p>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Route</th><th>Flow / velocity</th><th>Internal cross-section</th><th>Parallel flow</th><th>Roughness (single/equal)</th><th>ΣK (single/equal)</th><th>Additional loss (single/equal)</th><th>Evidence</th></tr></thead><tbody id="engineering-route-table"></tbody></table></div>
             <h3>Inline component and external terminal losses</h3>
             <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Component</th><th>Pressure loss</th><th>Evidence</th></tr></thead><tbody id="engineering-component-table"></tbody></table></div>
             <h3>Verified unit fan curves</h3>
-            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Stream</th><th>Unit</th><th>Points</th><th>Evidence / version</th></tr></thead><tbody id="engineering-fan-table"></tbody></table></div>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Unit / stream</th><th>Points</th><th>Condition and evidence</th></tr></thead><tbody id="engineering-fan-table"></tbody></table></div>
+            <h3>Optional evidenced operating-point curves</h3>
+            <p class="scope-note">Separate from design-flow pressure. Enter a verified whole-system pressure curve in L/s:Pa only when its topology and test basis match the selected unit/system.</p>
+            <div class="checks-table-scroll"><table class="checks-airflow-table"><thead><tr><th>Unit / stream</th><th>System points</th><th>Evidence / version</th></tr></thead><tbody id="engineering-operating-table"></tbody></table></div>
             <div id="engineering-network-streams" class="checks-list"></div>
             <div id="engineering-network-issues" class="checks-diagnostics"></div>
             <p id="engineering-network-boundary" class="checks-boundary"></p>
