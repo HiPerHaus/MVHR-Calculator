@@ -95,7 +95,7 @@ export function decentralisedControllerRecords() {
       compatibilityStatus: "verified-product-family-head-limit",
       topologyStatus: "verified-synchronised-pairs",
       cableEvidenceStatus: "candidate-manual-mirror",
-      defaultCableSpecification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded", source: "INST-AEROFRESH30 V1 (7/26) p21 manual mirror; original host unavailable" },
+      defaultCableSpecification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² or equivalent", source: "INST-AEROFRESH30 V1 (7/26) p21 manual mirror; original host unavailable" },
       sourceRevision: "Fantech Trade product page + candidate manual mirror INST-AEROFRESH30 V1 (7/26)",
       powerSupplyRequirement: "Wired sMove arrangement; exact AU installation and run limits unresolved.",
       electricalConnection: {
@@ -293,6 +293,13 @@ export function decentralisedControllerTypeLabel(component) {
 export function decentralisedCableTypeLabel(cable) {
   const label = cable?.specification?.label;
   return typeof label === "string" && label.trim() ? label.trim() : "Type unverified/manual required";
+}
+
+export function decentralisedConnectionCableTypeLabel(cable, controller, unit) {
+  const isAeroFreshSmove = controller?.catalogueItemId === "aerofresh-smove-controller-decentralised"
+    && unit?.catalogueItemId === "aerofresh-30-compact-decentralised";
+  if (isAeroFreshSmove) return "LiYY 3 × 0.75 mm² or equivalent";
+  return decentralisedCableTypeLabel(cable);
 }
 
 export function decentralisedControllerElectricalConnection(component) {

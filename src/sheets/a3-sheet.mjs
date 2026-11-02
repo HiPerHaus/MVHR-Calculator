@@ -25,7 +25,7 @@ import {
 } from "../editor/component-plan-graphics.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
 import {
-  decentralisedCableTypeLabel,
+  decentralisedConnectionCableTypeLabel,
   decentralisedControllerElectricalConnection,
   decentralisedControllerTypeLabel,
   decentralisedUnitTypeLabel,
@@ -397,9 +397,14 @@ function buildLegend(scene) {
       legend.push({ key: `service-${stream}`, label });
     }
   }
+  const componentsById = new Map(scene.components.map((component) => [component.id, component]));
   const cableTypes = new Map();
   for (const cable of scene.decentralisedCables ?? []) {
-    const type = decentralisedCableTypeLabel(cable);
+    const type = decentralisedConnectionCableTypeLabel(
+      cable,
+      componentsById.get(cable.controllerId),
+      componentsById.get(cable.unitComponentId),
+    );
     if (!cableTypes.has(type)) cableTypes.set(type, cable);
   }
   for (const [type, cable] of cableTypes) legend.push({ key: `decentralised-cable:${cable.id}`, label: `Controller Cable - ${type}` });
@@ -435,7 +440,7 @@ function buildElectricalConnections(scene) {
     const unit = components.get(cable.unitComponentId);
     if (!controller?.decentralisedController || !unit?.decentralisedMvhr) continue;
     connectedUnitIds.add(unit.id);
-    const cableType = decentralisedCableTypeLabel(cable);
+    const cableType = decentralisedConnectionCableTypeLabel(cable, controller, unit);
     const controllerType = decentralisedControllerTypeLabel(controller);
     const unitType = decentralisedUnitTypeLabel(unit);
     const key = `${controller.id}\u0000${cableType}\u0000${unitType}`;
@@ -913,46 +918,41 @@ function renderPartsSchedule(sheet) {
 
 function renderSheetLegend(sheet,bounds){
  const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds;
- const out=[`<g id="sheet-key"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/><text x="${x+w/2}" y="${y+8}" text-anchor="middle" font-size="4" font-weight="700">SYMBOL KEY</text>`];
+ const out=[`<g id="sheet-key" data-layout="single-column"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white" stroke="#687880" stroke-width="0.3"/><text x="${x+w/2}" y="${y+8}" text-anchor="middle" font-size="4" font-weight="700">SYMBOL KEY</text>`];
  const area=sheet.printScene.floorArea;
  out.push(`<text data-kind="floor-area-key" x="${x+4}" y="${y+14.5}" font-size="2.8" font-weight="700" fill="#17242b">${escapeXml(area.heading)} · ${escapeXml(floorAreaValueLabel(area))}</text>`);
  out.push(`<text data-kind="floor-area-basis" x="${x+4}" y="${y+18.3}" font-size="2.15" fill="#5d6d74">${escapeXml(wrapSheetText(area.basisLabel,48,1)[0])}</text>`);
  let cy=y+22;
  const items=sheet.printScene.legend.length?sheet.printScene.legend:[{key:"empty",label:"No symbols placed"}];
- const electrical=sheet.printScene.electricalConnections??[];
- const electricalHeight=electrical.length?Math.min(h-42,12+electrical.reduce((sum,entry)=>sum+(entry.controllerId?22:7),0)):0;
- const columnCount=electrical.length?2:1,columnWidth=w/columnCount,rowCount=Math.ceil(items.length/columnCount);
- const rowHeight=Math.min(10,(h-27-electricalHeight)/rowCount),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
- for(const [index,item] of items.entries()){const column=columnCount===1?0:Math.floor(index/rowCount),row=columnCount===1?index:index%rowCount,itemX=x+column*columnWidth,itemY=cy+row*rowHeight;out.push(`<title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,columnCount===1?35:24,2),glyphScale=Math.min(1,rowHeight/9),gx=itemX+columnWidth-11,gy=itemY+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,itemX+3,itemY+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));}
+ const electrical=(sheet.printScene.electricalConnections??[]).filter((entry)=>entry.controllerId);
+ const electricalHeight=electrical.length?Math.min(h-42,10+electrical.length*10):0;
+ const availableHeight=h-27-electricalHeight,rowHeight=Math.min(10,availableHeight/items.length);
+ const fontSize=Math.min(2.55,Math.max(1.8,rowHeight*.38)),lineHeight=fontSize*1.15;
+ for(const [index,item] of items.entries()){const itemX=x,itemY=cy+index*rowHeight;out.push(`<g data-kind="legend-item" data-legend-index="${index}"><title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,48,rowHeight>=6?2:1),glyphScale=Math.min(1,rowHeight/9),gx=itemX+w-11,gy=itemY+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,itemX+3,itemY+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));out.push(`</g>`);}
  if(electrical.length)out.push(renderElectricalConnectionNotes(electrical,{x,y:y+h-electricalHeight,width:w,height:electricalHeight}));
  out.push('</g>');return out.join('');
 }
 
 function renderElectricalConnectionNotes(connections,bounds){
  const {x,y,width,height}=bounds;
- const out=[`<g id="electrical-connection-notes" data-evidence-boundary="preliminary-model-specific-not-installation-approval"><rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fffdf7" stroke="#687880" stroke-width="0.25"/><text x="${x+3}" y="${y+5}" font-size="2.7" font-weight="700" fill="#17242b">ELECTRICAL CONNECTION · PRELIMINARY</text><text x="${x+3}" y="${y+8.5}" font-size="1.7" fill="#8a4d28">Electrician to verify current supplied manual and AU requirements</text>`];
- const weights=connections.map(entry=>entry.controllerId?22:7),weightTotal=weights.reduce((sum,value)=>sum+value,0);
- let consumed=0;
+ const out=[`<g id="electrical-connection-notes" data-evidence-boundary="preliminary-model-specific-not-installation-approval"><rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fffdf7" stroke="#687880" stroke-width="0.25"/><text x="${x+3}" y="${y+4.5}" font-size="2.6" font-weight="700" fill="#17242b">ELECTRICAL CONNECTION · PRELIMINARY</text><text x="${x+3}" y="${y+7.5}" font-size="1.6" fill="#8a4d28">Verify current supplied manual and AU requirements</text>`];
+ const entryHeight=(height-9)/connections.length;
  connections.forEach((entry,index)=>{
-  const top=y+11+(height-11)*(consumed/weightTotal),entryHeight=(height-11)*(weights[index]/weightTotal);consumed+=weights[index];
+  const top=y+9+index*entryHeight;
   if(index)out.push(`<line x1="${x+3}" y1="${top}" x2="${x+width-3}" y2="${top}" stroke="#d7d0c1" stroke-width="0.18"/>`);
-  const relationship=`${entry.controllerMarkupId} ${entry.controllerType} → ${entry.unitMarkupIds.join(", ")} ${entry.unitType}`;
-  const source=[entry.cableSource,entry.sourceRevision].filter(Boolean).join(" · ");
-  const lines=(entry.controllerId?[
-   relationship,
-   `Controller Cable - ${entry.cableType}`,
-   `LV/control - ${entry.lowVoltage}`,
-   `Mains/PSU - ${entry.mains}`,
-   `Topology - ${entry.topology}`,
-   ...(entry.terminals?[`Terminals - ${entry.terminals}`]:[]),
-   `Evidence - cable ${entry.cableEvidenceStatus}; connection ${entry.evidenceStatus}`,
-   `Source - ${source}`,
-   `Limit - ${entry.limitations}`,
-  ]:[relationship,"Connection not marked · controller cable and current manual required",`Source - ${entry.sourceRevision}`]).map(line=>wrapSheetText(line,58,1)[0]);
-  const lineHeight=Math.min(2.15,(entryHeight-1)/lines.length),fontSize=Math.min(1.75,lineHeight*.83);
-  out.push(`<g data-kind="electrical-connection" data-controller-id="${escapeXml(entry.controllerId??"")}" data-evidence-status="${escapeXml(entry.evidenceStatus)}"><title>${escapeXml([relationship,...lines.slice(1)].join(" · "))}</title>${renderTextLines(lines,x+3,top+2.1,fontSize,lineHeight)}</g>`);
+  const mainsNote=compactElectricalMainsNote(entry);
+  const logicalLines=[`Controller Cable - ${entry.cableType}`,`230 V to controller location (${entry.controllerMarkupId} ${entry.controllerType}) — ${mainsNote}`];
+  const lines=logicalLines.flatMap(line=>wrapSheetText(line,60,2));
+  const lineHeight=Math.min(2.35,(entryHeight-1)/lines.length),fontSize=Math.min(1.85,lineHeight*.83);
+  out.push(`<g data-kind="electrical-connection" data-controller-id="${escapeXml(entry.controllerId)}" data-evidence-status="${escapeXml(entry.evidenceStatus)}"><title>${escapeXml(logicalLines.join(" · "))}</title>${renderTextLines(lines,x+3,top+2.1,fontSize,lineHeight)}</g>`);
  });
  out.push('</g>');return out.join('');
+}
+
+function compactElectricalMainsNote(entry){
+ if(entry.evidenceStatus==="verified-manufacturer"&&/separate 230 V mains PSU/iu.test(entry.mains??""))return "via specified separate PSU";
+ if(entry.evidenceStatus==="manufacturer-authored-mirror-original-unverified")return "via controller PSU; exact arrangement manual-required";
+ return "controller/PSU arrangement manual-required";
 }
 function renderTitleBlock(sheet,bounds){
  const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds,c=sheet.metadata.company;

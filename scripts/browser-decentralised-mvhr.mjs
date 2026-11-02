@@ -82,7 +82,7 @@ try {
   assert.equal(await count(cdp, '[data-decentralised-cable-id]'), 2, "Visible and hit-test cable polylines should share one saved cable identity");
   const connectedCables = await savedCables(cdp);
   assert.equal(connectedCables.length, 1);
-  assert.equal(connectedCables[0].specification.label, "LiYY 3 × 0.75 mm² stranded");
+  assert.equal(connectedCables[0].specification.label, "LiYY 3 × 0.75 mm² or equivalent");
 
   await click(cdp, "#tablet-tools-toggle");
   await clickByText(cdp, ".parts-category", "Decentralised");

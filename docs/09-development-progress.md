@@ -397,3 +397,9 @@ Current sizing evidence remains deliberately incomplete. AeroFresh 30 Compact pu
 - Added a preliminary A3 electrical connection block tied to the saved `C… → D…` cable endpoints. It separates controller-fed LV/control wiring, mains/PSU boundary, topology, terminal names, evidence, source and limitations without inventing a pin orientation, PSU, protection method, route limit or compliance result.
 - Added verified-manufacturer LUNOS 5/SC-FT and 5/UNI-FT connection evidence and explicitly bounded AeroFresh sMove evidence to the manufacturer-authored manual mirror whose original manufacturer-hosted PDF was not retrieved.
 - A4 cable rows now use the same saved cable-type label and retain plan-route-only measurement. Older pinned controller snapshots do not silently inherit newer electrical evidence. The final local checkpoint passes all 525 tests across 209 checked modules, the production build, the isolated controller/cable save-reopen browser journey, and the mixed A3/direct-PDF browser export with an exact 420 × 297 mm first page followed by A4 parts pages.
+
+### 2 November 2026 — compact decentralised key and electrician note (local branch)
+
+- Changed the A3 symbol key to one vertical column with one comfortably spaced item per row.
+- Reduced each visible electrical connection to the controller cable/type and `230 V to controller location`, retaining only the PSU qualification needed to keep the mains/low-voltage boundary accurate. Detailed voltage, topology, terminal, evidence, source and limitation records remain in the print-scene metadata.
+- Standardised AeroFresh 30/sMove drawing and parts-output wording to `LiYY 3 × 0.75 mm² or equivalent` without applying LiYY to other model families or inventing equivalence criteria. Existing saved cable evidence remains unchanged.

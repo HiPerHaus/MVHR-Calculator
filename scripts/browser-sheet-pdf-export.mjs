@@ -73,17 +73,22 @@ try {
     "Controller - 5/SC-FT SmartComfort",
     "Controller - sMove",
     "Controller Cable - J-Y(St)Y (2x2x0.8)",
-    "Controller Cable - LiYY 3 × 0.75 mm² stranded",
+    "Controller Cable - LiYY 3 × 0.75 mm² or equivalent",
     "Decentralised MVHR - AeroFresh 30 Compact",
     "Decentralised MVHR - ComfoAir 70",
     "Decentralised MVHR - ComfoSpot 50",
     "Decentralised MVHR - LUNOS e²60",
   ].sort());
-  assert.equal(electricalEvidence.noteCount, 4);
+  assert.equal(electricalEvidence.noteCount, 2);
   assert.equal(electricalEvidence.preliminaryBoundary, true);
   assert.equal(electricalEvidence.verifiedLunos, true);
   assert.equal(electricalEvidence.unverifiedAeroFresh, true);
   assert.equal(electricalEvidence.genericLegend, false);
+  assert.equal(electricalEvidence.singleColumn, true);
+  assert.equal(electricalEvidence.compactOnly, true);
+  assert.match(electricalEvidence.visibleText, /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
+  assert.match(electricalEvidence.visibleText, /230 V to controller location/);
+  assert.match(await evaluate(cdp, "window.__outputText"), /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
   await evaluate(cdp, "document.querySelector('#download').click()");
   const downloaded = await waitForDownload(downloadDirectory);
   await mkdir(outputDirectory, { recursive: true });
@@ -173,9 +178,10 @@ async function startQaServer() {
     const watermark=drawingDocument.querySelector('[data-kind="draft-watermark"]');
     const combinedArrows=[...drawingDocument.querySelector('[data-id="grille-combined"]')?.querySelectorAll('[data-part="airflow-arrow"]')??[]].map(node=>{const values=node.getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number),ys=values.filter((_,index)=>index%2===1);return {minY:Math.min(...ys),maxY:Math.max(...ys)};}).sort((a,b)=>a.minY-b.minY);
     window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>Number(node.getAttribute("data-annotation-scale"))===2&&Number(node.getAttribute("data-arrow-length-mm"))>=640),offsetArrows:grilleArrows.every(node=>Number(node.getAttribute("data-grille-clearance-mm"))>=120),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))===300&&Number(node.getAttribute("data-annotation-scale"))===2),integratedLabels:grilleLabels.every(node=>node.getAttribute("data-label-integrated")==="true"&&node.getAttribute("fill")==="white"&&Number(node.getAttribute("data-label-scale-x"))>0&&Number(node.getAttribute("data-label-scale-x"))<=1),combinedPairClear:combinedArrows.length===2&&combinedArrows[0].maxY<combinedArrows[1].minY,watermarkFontSize:Number(watermark?.getAttribute("font-size")),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
-    const keyLabels=[...drawingDocument.querySelectorAll('#sheet-key > title')].map(node=>node.textContent).filter(label=>/^(Controller Cable|Decentralised MVHR|Controller) - /u.test(label));
+    const keyLabels=[...drawingDocument.querySelectorAll('#sheet-key [data-kind="legend-item"] > title')].map(node=>node.textContent).filter(label=>/^(Controller Cable|Decentralised MVHR|Controller) - /u.test(label));
     const electricalNotes=[...drawingDocument.querySelectorAll('#electrical-connection-notes [data-kind="electrical-connection"]')];
-    window.__electricalEvidence={keyLabels,noteCount:electricalNotes.length,preliminaryBoundary:drawingDocument.querySelector('#electrical-connection-notes')?.getAttribute('data-evidence-boundary')==='preliminary-model-specific-not-installation-approval',verifiedLunos:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='verified-manufacturer'),unverifiedAeroFresh:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='manufacturer-authored-mirror-original-unverified'),genericLegend:keyLabels.some(label=>/schematic location marker|electrical design status shown/u.test(label))};
+    const electricalText=drawingDocument.querySelector('#electrical-connection-notes')?.textContent??'';
+    window.__electricalEvidence={keyLabels,noteCount:electricalNotes.length,preliminaryBoundary:drawingDocument.querySelector('#electrical-connection-notes')?.getAttribute('data-evidence-boundary')==='preliminary-model-specific-not-installation-approval',verifiedLunos:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='verified-manufacturer'),unverifiedAeroFresh:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='manufacturer-authored-mirror-original-unverified'),genericLegend:keyLabels.some(label=>/schematic location marker|electrical design status shown/u.test(label)),singleColumn:drawingDocument.querySelector('#sheet-key')?.getAttribute('data-layout')==='single-column',visibleText:electricalText,compactOnly:!/LV\\/control|Topology|Terminals|Evidence|Source|Limit|individual star runs|6–16 VDC/iu.test(electricalText)};
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
     window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});

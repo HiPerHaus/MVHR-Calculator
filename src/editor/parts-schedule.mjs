@@ -9,7 +9,7 @@ import {
   COMFOWELL_320_ARTICLE_EVIDENCE,
   routeFamilyForKind,
 } from "./component-catalogue.mjs";
-import { inspectDecentralisedMvhr } from "./decentralised-mvhr.mjs";
+import { decentralisedConnectionCableTypeLabel, inspectDecentralisedMvhr } from "./decentralised-mvhr.mjs";
 
 const VERIFIED_REGIONAL_STATUSES = new Set([
   "manufacturer-catalogue-verified-regional-match",
@@ -53,6 +53,7 @@ export function createPartsSchedule(project, options = {}) {
   const unresolved = unresolvedScheduleItems(componentLines, routeLines);
   const summary = scheduleSummary(componentLines, routeLines, assemblies);
   const decentralisedSystems = inspectDecentralisedMvhr(project, floorId);
+  const componentById = new Map(components.map((component) => [component.id, component]));
   const decentralisedCableLines = decentralisedSystems.cableRoutes.map((cable, index) => {
     const source = project.decentralisedCables.find((candidate) => candidate.id === cable.id);
     return {
@@ -62,6 +63,7 @@ export function createPartsSchedule(project, options = {}) {
       unitComponentId: cable.unitComponentId,
       cableKind: cable.cableKind,
       specification: structuredClone(source.specification),
+      displayCableType: decentralisedConnectionCableTypeLabel(source, componentById.get(cable.controllerId), componentById.get(cable.unitComponentId)),
       topologyStatus: source.topologyStatus,
       planLengthMm: cable.planLengthMm,
       lengthStatus: cable.lengthStatus,

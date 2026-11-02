@@ -158,18 +158,19 @@ test("controller markers and cable routes survive move rotate edit save and opti
   const schedule = createPartsSchedule(reopened, { floorId: "floor-ground" });
   assert.equal(schedule.decentralisedCableLines.length, 1);
   assert.equal(schedule.decentralisedCableLines[0].lengthStatus, "plan-route-only-elevation-and-slack-excluded");
+  assert.equal(schedule.decentralisedCableLines[0].displayCableType, "LiYY 3 × 0.75 mm² or equivalent");
+  assert.equal(schedule.decentralisedCableLines[0].specification.label, "LiYY 3 × 0.75 mm² stranded · 6–16 VDC power/control");
   const svg = renderA3SheetSvg(createA3SheetModel(reopened, sheetMetadata()));
   assert.match(svg, /data-system="decentralised-controller"/);
   assert.match(svg, /data-kind="decentralised-cable"/);
   assert.match(svg, />D1<|>C1</);
-  assert.match(svg, /Controller Cable - LiYY 3 × 0\.75 mm² stranded · 6–16 VDC power\/control/);
+  assert.match(svg, /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
   assert.match(svg, /Decentralised MVHR - AeroFresh 30 Compact/);
   assert.match(svg, /Controller - sMove/);
   assert.match(svg, /ELECTRICAL CONNECTION · PRELIMINARY/);
-  assert.match(svg, /C1 sMove → D1 AeroFresh 30 Compact/);
+  assert.match(svg, /230 V to controller location \(C1 sMove\) — via controller PSU; exact arrangement manual-required/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
-  assert.match(svg, /Do not connect a fan directly to 230 V/);
-  assert.doesNotMatch(svg, /Terminals - .*S1\/S2/);
+  assert.doesNotMatch(svg, /Do not connect a fan directly to 230 V|LV\/control -|Topology -|Terminals -|Evidence -|Source -|Limit -/);
 
   const duplicated = applyCommand(reopened, { type: "designOption.duplicate", id: "option-copy", name: "Option copy", revision: "B", copyScopes: ["markup"], activate: true });
   assert.equal(duplicated.decentralisedCables.length, 1);
@@ -203,6 +204,7 @@ test("drawing key and electrical note list actual mixed models, cable types and 
   assert.equal(labels.filter((label) => label === "Controller - sMove").length, 1);
   assert.equal(labels.filter((label) => label === "Controller - 5/SC-FT SmartComfort").length, 1);
   assert.equal(labels.filter((label) => label.startsWith("Controller Cable - ")).length, 2);
+  assert.equal(labels.includes("Controller Cable - LiYY 3 × 0.75 mm² or equivalent"), true);
   assert.equal(labels.some((label) => /schematic location marker|electrical design status shown/u.test(label)), false);
   const lunosConnection = sheet.printScene.electricalConnections.find((connection) => connection.controllerId === lunosController.id);
   assert.equal(lunosConnection.topology, "Individual star runs from controller to fan; loop-through is prohibited.");
@@ -210,11 +212,11 @@ test("drawing key and electrical note list actual mixed models, cable types and 
   assert.match(lunosConnection.mains, /Separate 230 V mains PSU/);
   assert.match(lunosConnection.limitations, /No verified maximum fan-cable length is stored/);
   const svg = renderA3SheetSvg(sheet);
-  assert.match(svg, /Individual star runs from controller to fan/);
-  assert.match(svg, /Terminals - \+, −, S1\/S2/);
-  assert.match(svg, /Separate 230 V mains PSU/);
+  assert.match(svg, /data-layout="single-column"/);
+  assert.match(svg, /230 V to controller location \(C2 5\/SC-FT SmartComfort\) — via specified separate PSU/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
   assert.match(svg, /verified-manufacturer/);
+  assert.doesNotMatch(svg, /Individual star runs from controller to fan|Terminals -|Separate 230 V mains PSU|LV\/control -|Topology -|Evidence -|Source -|Limit -/);
 });
 
 test("manual controller and unconnected units print manual-required electrical placeholders", () => {
@@ -234,8 +236,8 @@ test("manual controller and unconnected units print manual-required electrical p
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /Controller Cable - Type unverified\/manual required/);
   assert.match(svg, /Controller - Type unverified\/manual required/);
-  assert.match(svg, /No model-specific manual recorded/);
-  assert.match(svg, /Integrated controller · connection detail not stored/);
+  assert.match(svg, /230 V to controller location \(C1 Type unverified\/manual required\) — controller\/PSU arrangement manual-required/);
+  assert.doesNotMatch(svg, /No model-specific manual recorded|Integrated controller · connection detail not stored|Connection not marked/);
   const manualConnection = sheet.printScene.electricalConnections.find((connection) => connection.controllerId === manual.id);
   assert.match(manualConnection.limitations, /Do not use this placeholder as installation wiring guidance/);
 });
