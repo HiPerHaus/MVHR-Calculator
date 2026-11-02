@@ -591,7 +591,7 @@ test("outdoor legend distinguishes combined, intake and exhaust using the drawn 
   const drawing=svg.split('<g id="drawing-content"')[1].split('<text data-kind="draft-watermark"')[0];
   assert.equal((drawing.match(/data-part="airflow-label"/g)||[]).length,4);
   assert.equal((drawing.match(/>Outside Air<\/text>/g)||[]).length,2);
-  assert.equal((drawing.match(/>Exhaust air out<\/text>/g)||[]).length,2);
+  assert.equal((drawing.match(/>Exhaust Air OUT<\/text>/g)||[]).length,2);
   assert.doesNotMatch(drawing,/>ODA<|>EHA<|>P\d+<\/text>/);
   assert.equal((drawing.match(/data-part="airflow-arrow"/g)||[]).length,4);
   assert.match(drawing,/data-stream="intake" data-flow-x="-1" data-flow-y="0"/);

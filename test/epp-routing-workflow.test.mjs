@@ -31,6 +31,22 @@ function assertInline(project) {
  }
 }
 
+function shapeBounds(shape) {
+ const values=String(shape.attributes.d??"").match(/-?\d+(?:\.\d+)?/gu)?.map(Number)??[];
+ const xs=values.filter((_,index)=>index%2===0),ys=values.filter((_,index)=>index%2===1);
+ return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+}
+
+function integratedLabelBounds(label) {
+ const width=Number(label.attributes["data-label-text-length-mm"]),height=Number(label.attributes["font-size"]);
+ const x=Number(label.attributes["data-label-centre-x-mm"]),y=Number(label.attributes["data-label-centre-y-mm"]);
+ return {minX:x-width/2,maxX:x+width/2,minY:y-height/2,maxY:y+height/2};
+}
+
+function boundsOverlap(a,b) {
+ return a.minX<b.maxX&&a.maxX>b.minX&&a.minY<b.maxY&&a.maxY>b.minY;
+}
+
 test("final EPP legs correct slight offsets and retain exact endpoints",()=>{
  const points=[{x:0,y:0},{x:0,y:1000},{x:1000,y:1004}];
  const constrained=constrainEppPlanPoints(points);assertAngles(constrained);
@@ -106,12 +122,21 @@ test("placed combined grille swaps Left/Right without changing port identities a
   const values=arrow.attributes.d.match(/-?\d+(?:\.\d+)?/gu).map(Number),xs=values.filter((_,index)=>index%2===0);
   assert.ok(Math.min(...xs)>=graphic.widthMm/2+arrow.attributes["data-grille-clearance-mm"]-1e-6,"airflow arrow stays wholly beyond the outside grille face");
  }
- assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","Exhaust air out","ODA","Outside Air"]);
+ assert.deepEqual(shapes.filter(s=>s.tag==="text").map(s=>s.text).sort(),["EHA","Exhaust Air OUT","ODA","Outside Air"]);
  const labels=shapes.filter(s=>s.attributes["data-part"]==="airflow-label");
- assert.deepEqual(labels.map(s=>[s.attributes["data-stream"],s.text]),[["intake","Outside Air"],["exhaust","Exhaust air out"]]);
+ assert.deepEqual(labels.map(s=>[s.attributes["data-stream"],s.text]),[["intake","Outside Air"],["exhaust","Exhaust Air OUT"]]);
  assert.ok(arrows.every(arrow=>arrow.attributes["data-annotation-scale"]===2&&arrow.attributes["data-arrow-length-mm"]>=640),"external airflow arrows are exactly doubled from the released baseline");
  assert.ok(labels.every(label=>label.attributes["font-size"]===300&&label.attributes["data-annotation-scale"]===2),"external airflow labels are exactly doubled from the 150 mm released baseline");
- assert.ok(Math.abs(labels[0].attributes.y-labels[1].attributes.y)>300,"combined-grille labels spread apart after doubling instead of overlapping");
+ assert.ok(labels.every(label=>label.attributes.fill==="white"&&label.attributes["data-label-integrated"]==="true"&&label.attributes["data-label-scale-x"]>0&&label.attributes["data-label-scale-x"]<=1),"white labels are explicitly scaled to fit inside their service-coloured arrow shafts");
+ const arrowBounds=Object.fromEntries(arrows.map(arrow=>[arrow.attributes["data-stream"],shapeBounds(arrow)]));
+ const labelBounds=Object.fromEntries(labels.map(label=>[label.attributes["data-stream"],integratedLabelBounds(label)]));
+ for(const stream of ["intake","exhaust"]) {
+  const arrow=arrowBounds[stream],label=labelBounds[stream];
+  assert.ok(label.minX>=arrow.minX&&label.maxX<=arrow.maxX&&label.minY>=arrow.minY&&label.maxY<=arrow.maxY,`${stream} wording stays inside its own arrow bounds`);
+  assert.equal(boundsOverlap(label,arrowBounds[stream==="intake"?"exhaust":"intake"]),false,`${stream} wording does not enter the adjacent arrow lane`);
+ }
+ const orderedArrowBounds=Object.values(arrowBounds).sort((a,b)=>a.minY-b.minY);
+ assert.ok(orderedArrowBounds[0].maxY+100<=orderedArrowBounds[1].minY,"adjacent combined-grille arrowheads retain a generous clear lane in either handing");
  assert.ok(graphic.drawingBoundsMm.minX<=-174&&graphic.drawingBoundsMm.maxX>=700,"offset arrows and labels are included in print fitting bounds");
  const sheet=createA3SheetModel(history.present,{projectName:"Grille review",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-10-23",status:"Preliminary — not for construction",floorId:"floor-ground"});
  const svg=renderA3SheetSvg(sheet);
@@ -134,8 +159,16 @@ test("single external grilles derive intake inward and exhaust outward airflow f
    const label=externalGrilleShapes(graphic).find(s=>s.attributes["data-part"]==="airflow-label");
    const port=graphic.ports.find(candidate=>candidate.stream===stream),sign=stream==="intake"?1:-1;
    assert.deepEqual([arrow.attributes["data-stream"],arrow.attributes["data-flow-x"],arrow.attributes["data-flow-y"]],[stream,port.directionX*sign||0,port.directionY*sign||0]);
-   assert.equal(label.text,stream==="intake"?"Outside Air":"Exhaust air out");
+   assert.equal(label.text,stream==="intake"?"Outside Air":"Exhaust Air OUT");
    assert.equal(label.attributes["data-keep-on-drawing"],"true");
+   assert.equal(label.attributes["data-label-integrated"],"true");
+   assert.equal(label.attributes.fill,"white");
+   const localLabelAngle=Number(label.attributes["data-label-angle-deg"]);
+   const globalLabelAngle=(localLabelAngle+quarterTurns*90)*Math.PI/180;
+   const normalizedGlobalLabelAngle=Math.atan2(Math.sin(globalLabelAngle),Math.cos(globalLabelAngle));
+   const globalFlow={x:arrow.attributes["data-flow-x"]*Math.cos(quarterTurns*Math.PI/2)-arrow.attributes["data-flow-y"]*Math.sin(quarterTurns*Math.PI/2),y:arrow.attributes["data-flow-x"]*Math.sin(quarterTurns*Math.PI/2)+arrow.attributes["data-flow-y"]*Math.cos(quarterTurns*Math.PI/2)};
+   assert.ok(Math.abs(Math.cos(globalLabelAngle)*globalFlow.y-Math.sin(globalLabelAngle)*globalFlow.x)<1e-9,"integrated wording remains aligned to the arrow through every quarter turn");
+   assert.ok(normalizedGlobalLabelAngle<=Math.PI/2+1e-9&&normalizedGlobalLabelAngle>-Math.PI/2-1e-9,"integrated wording remains upright through every quarter turn");
    assert.ok(Math.abs(component.orientation.z-Math.sin(quarterTurns*Math.PI/4))<1e-9);
    assert.ok(Math.abs(component.orientation.w-Math.cos(quarterTurns*Math.PI/4))<1e-9);
   }

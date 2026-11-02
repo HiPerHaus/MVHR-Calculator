@@ -73,6 +73,7 @@ export function deriveComponentPlanGraphic(component) {
     const ports=component.ports??component.catalogueSnapshot?.ports??[];
     const graphic={graphicId:EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,kind:"external-weather-grille",widthMm:symbol.widthMm,depthMm:symbol.heightMm,
       view:"plan",combined:ports.filter(p=>["intake","exhaust"].includes(p.stream)).length===2,handing:component.externalGrilleHanding??"left",
+      yawRad:componentYaw(component.orientation),
       ports:ports.map(p=>({xMm:p.positionMm.x,yMm:p.positionMm.y,directionX:p.direction?.x??null,directionY:p.direction?.y??null,stream:p.stream,nominalSizeMm:p.interface?.nominalSizeMm??null})),
       evidenceBoundary:"Louvred weather hood drawing based on supplied Zehnder appearance; generic combined geometry remains schematic."};
     return deepFreeze({...graphic,drawingBoundsMm:externalGrilleDrawingBounds(graphic)});
@@ -308,12 +309,25 @@ export function externalGrilleShapes(graphic) {
 
 function appendExternalGrilleAirflowArrows(graphic,push) {
   const annotationScale=2;
-  const baseLength=graphic.combined?Math.max(420,Math.min(540,graphic.widthMm*1.25)):Math.max(320,Math.min(440,graphic.widthMm*1.15));
+  // The owner-approved treatment uses a broad, labelled arrow rather than a
+  // narrow arrow with a detached label. Retain the doubled annotation scale,
+  // but give the shaft enough length for condensed white lettering.
+  const baseLength=graphic.combined?Math.max(680,Math.min(760,graphic.widthMm*2.1)):Math.max(560,Math.min(680,graphic.widthMm*1.8));
   const length=baseLength*annotationScale;
   const baseShaftHalfWidth=Math.max(18,Math.min(30,graphic.depthMm*.075));
-  const shaftHalfWidth=baseShaftHalfWidth*annotationScale;
+  const fontSize=300;
+  const shaftHalfWidth=Math.max(baseShaftHalfWidth*annotationScale,fontSize*.65);
+  const arrowMetrics=airflowArrowMetrics(length,shaftHalfWidth);
   const annotationGapMm=Math.max(120,Math.min(180,graphic.depthMm*.35));
-  for(const port of graphic.ports.filter(port=>["intake","exhaust"].includes(port.stream))) {
+  const airflowPorts=graphic.ports.filter(port=>["intake","exhaust"].includes(port.stream));
+  const lanes=[...airflowPorts].sort((a,b)=>a.yMm-b.yMm);
+  const laneMidpoint=lanes.reduce((sum,port)=>sum+port.yMm,0)/Math.max(1,lanes.length);
+  const minimumLaneSeparation=arrowMetrics.headHalfWidth*2+Math.max(120,fontSize*.4);
+  const laneOffsetByPort=new Map(lanes.map((port,index)=>[
+    port,
+    laneMidpoint+(index-(lanes.length-1)/2)*minimumLaneSeparation-port.yMm,
+  ]));
+  for(const port of airflowPorts) {
     const directionLength=Math.hypot(port.directionX??NaN,port.directionY??NaN);
     if(!Number.isFinite(directionLength)||directionLength<=0)continue;
     const portDirection={x:port.directionX/directionLength,y:port.directionY/directionLength};
@@ -321,7 +335,8 @@ function appendExternalGrilleAirflowArrows(graphic,push) {
     const flow={x:portDirection.x*sign,y:portDirection.y*sign};
     const exterior={x:-portDirection.x,y:-portDirection.y};
     const exteriorEdgeMm=Math.abs(exterior.x)*graphic.widthMm/2+Math.abs(exterior.y)*graphic.depthMm/2;
-    const origin=graphic.combined?{x:0,y:port.yMm}:{x:0,y:0};
+    const laneOffsetMm=graphic.combined?(laneOffsetByPort.get(port)??0):0;
+    const origin=graphic.combined?{x:0,y:port.yMm+laneOffsetMm}:{x:0,y:0};
     const centre={
       x:origin.x+exterior.x*(exteriorEdgeMm+annotationGapMm+length/2),
       y:origin.y+exterior.y*(exteriorEdgeMm+annotationGapMm+length/2),
@@ -332,31 +347,49 @@ function appendExternalGrilleAirflowArrows(graphic,push) {
       "data-part":"airflow-arrow","data-stream":port.stream,
       "data-flow-x":roundGraphicNumber(flow.x),"data-flow-y":roundGraphicNumber(flow.y),
       "data-grille-clearance-mm":roundGraphicNumber(annotationGapMm),
+      "data-lane-offset-mm":roundGraphicNumber(laneOffsetMm),
       "data-annotation-scale":annotationScale,"data-arrow-length-mm":roundGraphicNumber(length),
+      "data-arrow-shaft-width-mm":roundGraphicNumber(shaftHalfWidth*2),
     });
-    const label=port.stream==="intake"?"Outside Air":"Exhaust air out";
-    const labelNormal=airflowLabelNormal(flow);
-    // Keep these installation-critical labels readable at ordinary sheet
-    // scales. This is model-space text; 300 mm is exactly twice the released
-    // 150 mm annotation and renders at 4 mm on a 1:75 drawing.
-    const fontSize=300,labelOffset=shaftHalfWidth*1.65+fontSize*.62;
-    const pairSpreadMm=graphic.combined?Math.sign(port.yMm||0)*fontSize*.12:0;
+    const label=port.stream==="intake"?"Outside Air":"Exhaust Air OUT";
+    const labelPaddingMm=Math.max(44,fontSize*.16);
+    const textLengthMm=Math.max(fontSize,length-arrowMetrics.headLength-labelPaddingMm*2);
+    const textCentre={
+      x:centre.x-flow.x*arrowMetrics.headLength/2,
+      y:centre.y-flow.y*arrowMetrics.headLength/2,
+    };
+    const labelAngleDeg=readableAxisAngleDegrees(flow,graphic.yawRad);
+    const naturalTextWidthMm=label.length*fontSize*.58;
+    const labelScaleX=Math.min(1,textLengthMm/naturalTextWidthMm);
     push("text",{
-      x:roundGraphicNumber(centre.x+labelNormal.x*labelOffset),
-      y:roundGraphicNumber(centre.y+labelNormal.y*labelOffset+pairSpreadMm+fontSize*.32),
-      fill:"#1d343d",stroke:"none",
-      "font-size":fontSize,"font-weight":800,"text-anchor":"middle",
+      x:0,y:roundGraphicNumber(fontSize*.32),
+      transform:`translate(${roundGraphicNumber(textCentre.x)} ${roundGraphicNumber(textCentre.y)}) rotate(${roundGraphicNumber(labelAngleDeg)}) scale(${roundGraphicNumber(labelScaleX)} 1)`,
+      fill:"white",stroke:"none",
+      "font-size":fontSize,"font-family":"Arial Narrow, Helvetica Neue, sans-serif","font-weight":800,
+      "text-anchor":"middle",
       "data-part":"airflow-label","data-stream":port.stream,"data-keep-on-drawing":"true",
+      "data-label-integrated":"true","data-lane-offset-mm":roundGraphicNumber(laneOffsetMm),
       "data-annotation-scale":annotationScale,"data-label-font-size-mm":fontSize,
+      "data-label-text-length-mm":roundGraphicNumber(textLengthMm),
+      "data-label-natural-width-mm":roundGraphicNumber(naturalTextWidthMm),
+      "data-label-scale-x":roundGraphicNumber(labelScaleX),
+      "data-label-angle-deg":roundGraphicNumber(labelAngleDeg),
+      "data-label-centre-x-mm":roundGraphicNumber(textCentre.x),
+      "data-label-centre-y-mm":roundGraphicNumber(textCentre.y),
     },label);
   }
 }
 
-function airflowLabelNormal(direction) {
-  const left={x:-direction.y,y:direction.x},right={x:direction.y,y:-direction.x};
-  if(left.y<right.y)return left;
-  if(right.y<left.y)return right;
-  return left.x>=right.x?left:right;
+function readableAxisAngleDegrees(direction,yawRad=0) {
+  const yawDegrees=yawRad*180/Math.PI;
+  let globalDegrees=Math.atan2(direction.y,direction.x)*180/Math.PI+yawDegrees;
+  while(globalDegrees>90)globalDegrees-=180;
+  while(globalDegrees<=-90)globalDegrees+=180;
+  return globalDegrees-yawDegrees;
+}
+
+function componentYaw(orientation={x:0,y:0,z:0,w:1}) {
+  return Math.atan2(2*(orientation.w*orientation.z+orientation.x*orientation.y),1-2*(orientation.y*orientation.y+orientation.z*orientation.z));
 }
 
 function externalGrilleDrawingBounds(graphic) {
@@ -370,8 +403,12 @@ function externalGrilleDrawingBounds(graphic) {
       const xs=[],ys=[];for(let i=0;i+1<values.length;i+=2){xs.push(values[i]);ys.push(values[i+1]);}
       if(xs.length)bounds.push({minX:Math.min(...xs),minY:Math.min(...ys),maxX:Math.max(...xs),maxY:Math.max(...ys)});
     } else if(shape.tag==="text") {
-      const font=Number(a["font-size"]??20),width=String(shape.text??"").length*font*.58,x=Number(a.x),y=Number(a.y);
-      bounds.push({minX:x-width/2,minY:y-font,maxX:x+width/2,maxY:y+font*.35});
+      const font=Number(a["font-size"]??20),width=Number(a["data-label-text-length-mm"]??String(shape.text??"").length*font*.58);
+      const x=Number(a["data-label-centre-x-mm"]??a.x),y=Number(a["data-label-centre-y-mm"]??a.y);
+      const height=font,angle=Number(a["data-label-angle-deg"]??0)*Math.PI/180;
+      const halfX=Math.abs(Math.cos(angle))*width/2+Math.abs(Math.sin(angle))*height/2;
+      const halfY=Math.abs(Math.sin(angle))*width/2+Math.abs(Math.cos(angle))*height/2;
+      bounds.push({minX:x-halfX,minY:y-halfY,maxX:x+halfX,maxY:y+halfY});
     }
   }
   const padding=12;
@@ -379,13 +416,20 @@ function externalGrilleDrawingBounds(graphic) {
 }
 
 function filledAirflowArrowPath(centre,direction,length,shaftHalfWidth) {
-  const half=length/2,headLength=Math.min(52,length*.3),headHalfWidth=shaftHalfWidth*1.65;
+  const half=length/2,{headLength,headHalfWidth}=airflowArrowMetrics(length,shaftHalfWidth);
   const tail={x:centre.x-direction.x*half,y:centre.y-direction.y*half};
   const tip={x:centre.x+direction.x*half,y:centre.y+direction.y*half};
   const shoulder={x:tip.x-direction.x*headLength,y:tip.y-direction.y*headLength};
   const perpendicular={x:-direction.y,y:direction.x};
   const point=(origin,side,offset)=>`${roundGraphicNumber(origin.x+perpendicular.x*side*offset)} ${roundGraphicNumber(origin.y+perpendicular.y*side*offset)}`;
   return `M ${point(tail,1,shaftHalfWidth)} L ${point(shoulder,1,shaftHalfWidth)} L ${point(shoulder,1,headHalfWidth)} L ${roundGraphicNumber(tip.x)} ${roundGraphicNumber(tip.y)} L ${point(shoulder,-1,headHalfWidth)} L ${point(shoulder,-1,shaftHalfWidth)} L ${point(tail,-1,shaftHalfWidth)} Z`;
+}
+
+function airflowArrowMetrics(length,shaftHalfWidth) {
+  return {
+    headLength:Math.min(length*.3,Math.max(shaftHalfWidth*1.15,120)),
+    headHalfWidth:shaftHalfWidth*1.45,
+  };
 }
 
 function externalAirflowColour(stream){return stream==="intake"?"#1769d2":"#e2342f";}
