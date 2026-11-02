@@ -34,14 +34,17 @@ export function inspectVentilationProjectType(project) {
   const selectedType = normalizeVentilationProjectType(project.ventilationDesignType);
   const components = Array.isArray(project.components) ? project.components : [];
   const decentralisedUnitCount = components.filter((component) => component?.decentralisedMvhr).length;
-  const centralComponentCount = components.length - decentralisedUnitCount;
+  const decentralisedControllerCount = components.filter((component) => component?.decentralisedController).length;
+  const decentralisedCableCount = Array.isArray(project.decentralisedCables) ? project.decentralisedCables.length : 0;
+  const decentralisedObjectCount = decentralisedUnitCount + decentralisedControllerCount + decentralisedCableCount;
+  const centralComponentCount = components.length - decentralisedUnitCount - decentralisedControllerCount;
   const centralRouteCount = Array.isArray(project.routes) ? project.routes.length : 0;
   const centralConnectionCount = Array.isArray(project.connections) ? project.connections.length : 0;
   const centralAssemblyCount = Array.isArray(project.equipmentAssemblies) ? project.equipmentAssemblies.length : 0;
   const centralObjectCount = centralComponentCount + centralRouteCount + centralConnectionCount + centralAssemblyCount;
-  const contentType = decentralisedUnitCount > 0 && centralObjectCount > 0
+  const contentType = decentralisedObjectCount > 0 && centralObjectCount > 0
     ? "mixed"
-    : decentralisedUnitCount > 0
+    : decentralisedObjectCount > 0
       ? "decentralised"
       : centralObjectCount > 0
         ? "centralised"
@@ -56,6 +59,8 @@ export function inspectVentilationProjectType(project) {
     conflictsWithContent,
     suggestedType: conflictsWithContent ? "mixed" : contentType,
     decentralisedUnitCount,
+    decentralisedControllerCount,
+    decentralisedCableCount,
     centralObjectCount,
   });
 }

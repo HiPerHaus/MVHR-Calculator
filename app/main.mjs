@@ -367,8 +367,20 @@ const decentralisedPairLabel = document.querySelector("#decentralised-pair-label
 const decentralisedPairGroup = document.querySelector("#decentralised-pair-group");
 const decentralisedControllerLabel = document.querySelector("#decentralised-controller-label");
 const decentralisedControllerReference = document.querySelector("#decentralised-controller-reference");
+const decentralisedControllerMarker = document.querySelector("#decentralised-controller-marker");
+const connectDecentralisedControllerButton = document.querySelector("#connect-decentralised-controller");
+const decentralisedCableKind = document.querySelector("#decentralised-cable-kind");
+const decentralisedCableSpec = document.querySelector("#decentralised-cable-spec");
+const applyDecentralisedCableButton = document.querySelector("#apply-decentralised-cable");
 const applyDecentralisedConfigurationButton = document.querySelector("#apply-decentralised-configuration");
 const decentralisedConfigurationDetail = document.querySelector("#decentralised-configuration-detail");
+const decentralisedControllerTerm = document.querySelector("#decentralised-controller-term");
+const decentralisedControllerField = document.querySelector("#decentralised-controller-field");
+const decentralisedControllerModel = document.querySelector("#decentralised-controller-model");
+const decentralisedControllerMarkupId = document.querySelector("#decentralised-controller-markup-id");
+const decentralisedControllerManualReference = document.querySelector("#decentralised-controller-manual-reference");
+const applyDecentralisedControllerButton = document.querySelector("#apply-decentralised-controller");
+const decentralisedControllerDetail = document.querySelector("#decentralised-controller-detail");
 const singleComponentDuctRunButton = document.querySelector("#single-component-duct-run");
 const twinComponentDuctRunButton = document.querySelector("#twin-component-duct-run");
 const clearComponentDuctRunsButton = document.querySelector("#clear-component-duct-runs");
@@ -796,12 +808,15 @@ let selectedWallId = null;
 let selectedNodeId = null;
 let selectedRouteId = null;
 let selectedRoutePointIndex = null;
+let selectedDecentralisedCableId = null;
+let selectedDecentralisedCablePointIndex = null;
 let selectedReferenceId = history.present.floorReferences[0]?.id ?? null;
 let dragState = null;
 let floorAreaDragState = null;
 let componentDragState = null;
 let grilleAlignmentPreview = null;
 let routePointDragState = null;
+let decentralisedCablePointDragState = null;
 let panState = null;
 const canvasTouchPointers = new Map();
 let pinchCameraGesture = null;
@@ -1299,6 +1314,9 @@ clearVentilationDialog.addEventListener("close", applyClearVentilationChoice);
 rotateComponentButton.addEventListener("click", rotateSelectedComponent);
 componentRoomAssignment.addEventListener("change", changeSelectedTerminalRoom);
 applyDecentralisedConfigurationButton.addEventListener("click", applySelectedDecentralisedConfiguration);
+connectDecentralisedControllerButton.addEventListener("click", connectSelectedDecentralisedController);
+applyDecentralisedCableButton.addEventListener("click", applySelectedDecentralisedCable);
+applyDecentralisedControllerButton.addEventListener("click", applySelectedDecentralisedController);
 singleComponentDuctRunButton.addEventListener("click", () => setSelectedTerminalDuctRuns(1));
 twinComponentDuctRunButton.addEventListener("click", () => setSelectedTerminalDuctRuns(2));
 clearComponentDuctRunsButton.addEventListener("click", clearSelectedTerminalDuctRuns);
@@ -1485,6 +1503,7 @@ function cancelTransientPointerPreviewForPinch() {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
+  decentralisedCablePointDragState = null;
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -1578,6 +1597,24 @@ canvas.addEventListener("pointerdown", (event) => {
     render();
     return;
   }
+  const cablePointHandle = event.target.closest?.(".decentralised-cable-point-handle.intermediate");
+  if (activeTask === "ventilation" && activeTool === "select" && cablePointHandle) {
+    const cableId = cablePointHandle.dataset.decentralisedCableId;
+    const pointIndex = Number.parseInt(cablePointHandle.dataset.pointIndex, 10);
+    const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
+    const point = cable?.points[pointIndex];
+    if (!cable || !point || pointIndex < 1 || pointIndex >= cable.points.length - 1) return;
+    selectedDecentralisedCableId = cable.id;
+    selectedDecentralisedCablePointIndex = pointIndex;
+    selectedRouteId = null;
+    mechanicalState = clearMechanicalSelection(mechanicalState);
+    decentralisedCablePointDragState = { cableId, pointIndex, pointerId: event.pointerId, start: { ...point }, preview: { ...point } };
+    canvas.setPointerCapture(event.pointerId);
+    interactionMessage = "Cable point move preview · release to commit · Esc cancels";
+    event.preventDefault();
+    render();
+    return;
+  }
   const mechanicalHit = mechanicalHitFromTarget(event.target);
   if (activeTask === "ventilation" && activeTool === "select" && (mechanicalHit?.kind === "component" || mechanicalHit?.kind === "port")) {
     const componentId = mechanicalHit.componentId;
@@ -1592,6 +1629,8 @@ canvas.addEventListener("pointerdown", (event) => {
     selectedFloorAreaId = null;
     selectedRouteId = null;
     selectedRoutePointIndex = null;
+    selectedDecentralisedCableId = null;
+    selectedDecentralisedCablePointIndex = null;
     const assembly = equipmentAssemblyForComponent(history.present, componentId);
     componentDragState = {
       componentId,
@@ -1691,6 +1730,12 @@ canvas.addEventListener("pointermove", (event) => {
   if (routePointDragState && event.pointerId === routePointDragState.pointerId) {
     routePointDragState.preview = eventToGridWorld(event);
     cursorStatus.textContent = `X ${formatMm(routePointDragState.preview.x)} · Y ${formatMm(routePointDragState.preview.y)}`;
+    render();
+    return;
+  }
+  if (decentralisedCablePointDragState && event.pointerId === decentralisedCablePointDragState.pointerId) {
+    decentralisedCablePointDragState.preview = eventToGridWorld(event);
+    cursorStatus.textContent = `X ${formatMm(decentralisedCablePointDragState.preview.x)} · Y ${formatMm(decentralisedCablePointDragState.preview.y)}`;
     render();
     return;
   }
@@ -1805,6 +1850,16 @@ canvas.addEventListener("pointerup", (event) => {
     event.preventDefault();
     return;
   }
+  if (decentralisedCablePointDragState && event.pointerId === decentralisedCablePointDragState.pointerId) {
+    const completedDrag = decentralisedCablePointDragState;
+    decentralisedCablePointDragState = null;
+    suppressNextClick = true;
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    if (completedDrag.preview.x !== completedDrag.start.x || completedDrag.preview.y !== completedDrag.start.y) commitCommand({ type: "decentralisedCable.movePoint", cableId: completedDrag.cableId, pointIndex: completedDrag.pointIndex, point: completedDrag.preview }, "Controller cable plan point moved");
+    else { interactionMessage = "Cable point selected; model unchanged"; render(); }
+    event.preventDefault();
+    return;
+  }
   if (componentDragState && event.pointerId === componentDragState.pointerId) {
     const completedDrag = componentDragState;
     componentDragState = null;
@@ -1892,6 +1947,7 @@ canvas.addEventListener("lostpointercapture", () => {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
+  decentralisedCablePointDragState = null;
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -1928,6 +1984,20 @@ canvas.addEventListener("click", (event) => {
       addRoutePointAtSegment(addPointTarget);
       return;
     }
+    const cableAddPointTarget = event.target.closest?.(".decentralised-cable-add-point");
+    if (activeTool === "select" && cableAddPointTarget) {
+      const cableId = cableAddPointTarget.dataset.decentralisedCableId;
+      const segmentIndex = Number.parseInt(cableAddPointTarget.dataset.segmentIndex, 10);
+      const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
+      if (cable && Number.isSafeInteger(segmentIndex)) {
+        const start = cable.points[segmentIndex];
+        const end = cable.points[segmentIndex + 1];
+        commitCommand({ type: "decentralisedCable.insertPoint", cableId, segmentIndex, point: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } }, "Controller cable bend point added");
+        selectedDecentralisedCableId = cableId;
+        selectedDecentralisedCablePointIndex = segmentIndex + 1;
+      }
+      return;
+    }
     if (activeTool === "place-component" || activeTool === "place-assembly" || activeTool === "route") {
       handleMechanicalClick(event);
       return;
@@ -1941,13 +2011,20 @@ canvas.addEventListener("click", (event) => {
       selectedFloorAreaId = null;
       selectedRouteId = null;
       selectedRoutePointIndex = null;
+      selectedDecentralisedCableId = null;
+      selectedDecentralisedCablePointIndex = null;
       interactionMessage = "Catalogue component selected";
     } else {
+      const cableId = event.target.closest?.("[data-decentralised-cable-id]")?.dataset.decentralisedCableId ?? null;
       const routeId = routeIdFromPointerEvent(event);
       mechanicalState = clearMechanicalSelection(mechanicalState);
-      selectedRouteId = routeId;
+      selectedDecentralisedCableId = cableId;
+      selectedDecentralisedCablePointIndex = null;
+      selectedRouteId = cableId ? null : routeId;
       selectedRoutePointIndex = null;
-      interactionMessage = routeId
+      interactionMessage = cableId
+        ? "Controller cable selected · add or drag bend points · cable is not a duct route"
+        : routeId
         ? "Duct route selected; its drawn single/twin arrangement can be edited in the inspector"
         : "Building geometry is locked in Ventilation; use Plan to edit walls, rooms and zones";
     }
@@ -2119,6 +2196,15 @@ document.addEventListener("keydown", (event) => {
     } else if ((event.key === "Delete" || event.key === "Backspace") && activeTool === "select" && mechanicalState.selectedComponentId) {
       openComponentDeleteDialog();
       event.preventDefault();
+    } else if ((event.key === "Delete" || event.key === "Backspace") && activeTool === "select" && selectedDecentralisedCableId) {
+      if (selectedDecentralisedCablePointIndex !== null) {
+        commitCommand({ type: "decentralisedCable.removePoint", cableId: selectedDecentralisedCableId, pointIndex: selectedDecentralisedCablePointIndex }, "Controller cable bend point removed");
+        selectedDecentralisedCablePointIndex = null;
+      } else {
+        commitCommand({ type: "decentralisedCable.delete", cableId: selectedDecentralisedCableId }, "Controller cable removed; unit/controller markers retained");
+        selectedDecentralisedCableId = null;
+      }
+      event.preventDefault();
     } else if ((event.key === "Delete" || event.key === "Backspace") && activeTool === "select" && selectedRouteId) {
       deleteSelectedDuctRun();
       event.preventDefault();
@@ -2126,7 +2212,11 @@ document.addEventListener("keydown", (event) => {
       rotateSelectedComponent();
       event.preventDefault();
     } else if (event.key === "Escape") {
-      if (routePointDragState) {
+      if (decentralisedCablePointDragState) {
+        decentralisedCablePointDragState = null;
+        interactionMessage = "Cable point move cancelled; model unchanged";
+        render();
+      } else if (routePointDragState) {
         cancelRoutePointMove();
       } else if (componentDragState) {
         cancelComponentMove();
@@ -4160,7 +4250,8 @@ function openComponentDeleteDialog() {
     const associationScope = inspection.associationCount === 0
       ? "No room or zone terminal assignment is affected."
       : `${countLabel(inspection.associationCount, "room or zone terminal assignment")} will be cleared.`;
-    deleteComponentScope.textContent = `${routeScope} ${connectionScope} ${associationScope}`;
+    const cableScope = inspection.decentralisedCableCount === 0 ? "No controller cable will be removed." : `${countLabel(inspection.decentralisedCableCount, "controller cable route")} will also be removed.`;
+    deleteComponentScope.textContent = `${routeScope} ${connectionScope} ${cableScope} ${associationScope}`;
     deleteComponentDialog.showModal();
   } catch (error) {
     pendingComponentDeletion = null;
@@ -4189,6 +4280,7 @@ function applyComponentDeleteChoice() {
       assemblyId: inspection.assemblyId,
       routeIds: inspection.routeIds,
       connectionIds: inspection.connectionIds,
+      decentralisedCableIds: inspection.decentralisedCableIds,
     },
   }, `${deletedLabel} and its confirmed dependent scope deleted`)) {
     mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -6177,6 +6269,7 @@ function render() {
   }
   if (activeTask === "ventilation") {
     for (const assembly of history.present.equipmentAssemblies) renderEquipmentAssemblyServiceZone(assembly);
+    for (const cable of history.present.decentralisedCables.filter((candidate) => candidate.floorId === currentFloorId())) renderDecentralisedCable(cable);
     const ductOccludingComponents = history.present.components.filter(componentRendersAboveDucts);
     for (const route of history.present.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) renderDuctRoute(route);
     for (const component of history.present.components.filter(component=>!ductOccludingComponents.includes(component))) renderComponent(component);
@@ -6186,6 +6279,8 @@ function render() {
     for (const component of ductOccludingComponents) renderComponent(component);
     const selectedRoute = history.present.routes.find((route) => route.id === selectedRouteId);
     if (selectedRoute && routeIsVisible(selectedRoute) && activeTool === "select") renderRouteEditHandles(selectedRoute);
+    const selectedCable = history.present.decentralisedCables.find((cable) => cable.id === selectedDecentralisedCableId);
+    if (selectedCable && activeTool === "select") renderDecentralisedCableEditHandles(selectedCable);
     if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
       const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
       for(const guide of grilleAlignmentPreview.guides)modelLayer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
@@ -6194,12 +6289,15 @@ function render() {
     }
     const displayedRoutes=history.present.routes.filter(routeIsVisible).map(route=>({...route,points:routeDisplayPoints(route)}));
     for(const elbow of deriveHrvCeilingElbows(displayedRoutes,history.present.components.filter(componentIsVisible))) {
-      const drawing=svgElement("g",{transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,"data-hrv-ceiling-elbow":elbow.portId,"data-route-id":elbow.routeId,"aria-label":"90° HRV top elbow to ceiling · provisional height"});
+      const selected=selectedRouteId===elbow.routeId;
+      const drawing=svgElement("g",{transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,class:`hrv-ceiling-elbow${selected?" selected":""}`,"data-hrv-ceiling-elbow":elbow.portId,"data-route-id":elbow.routeId,"data-alignment-status":"typed-port-centred","aria-label":"90° HRV top elbow centred on typed unit port · route tangent follows first plan leg"});
+      if(selected)drawing.append(svgElement("circle",{cx:0,cy:0,r:elbow.nominalSizeMm*.82,fill:"none",stroke:"#f0a43c","stroke-width":10,"stroke-dasharray":"18 10","data-part":"selected-elbow-halo"}));
       for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
-      const title=svgElement("title",{});title.textContent="90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
+      const title=svgElement("title",{});title.textContent="Typed port centre aligned · 90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
       const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
-      const label=svgElement("text",{x:toView(elbow.xMm),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-6*unitsPerPixel,"font-size":10*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":"middle","pointer-events":"none","data-ventilation-label":"bend"});
-      label.textContent="90° ↑";
+      const side=["extract","exhaust"].includes(elbow.stream)?-1:1;
+      const label=svgElement("text",{x:toView(elbow.xMm+side*elbow.nominalSizeMm*.9),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-7*unitsPerPixel,"font-size":9*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":side<0?"end":"start","pointer-events":"none","data-ventilation-label":"ceiling-elbow","data-route-id":elbow.routeId});
+      label.textContent="↑90°";
       if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
     }
   }
@@ -6490,6 +6588,7 @@ function renderDuctRoute(route) {
   const geometry = routeBodyGeometry(route, family);
   const serviceClass = ductServiceClass(route);
   const selectedClass = selectedRouteId === route.id ? " selected" : "";
+  const ceilingElbows = deriveHrvCeilingElbows([route], history.present.components.filter(componentIsVisible));
   const arrangementClass = geometry.arrangement === "unset" ? " arrangement-unset" : "";
   const lanePointStrings = geometry.lanes.map(routePointString);
   if (geometry.scaled) {
@@ -6530,9 +6629,12 @@ function renderDuctRoute(route) {
       modelLayer.append(svgElement("line", {x1:toView(cut.a.x),y1:toView(cut.a.y),x2:toView(cut.b.x),y2:toView(cut.b.y),
         stroke:"#263f46","stroke-width":0.8,"stroke-dasharray":"2 1.5","data-epp-half-cut-guide":"true","pointer-events":"none"}));
     }
-    const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id,"data-ventilation-label":"bend"});
-    label.textContent = elbow.drawable ? `${elbow.angleDegrees}°` : "Review bend";
-    if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
+    const belongsToCeilingElbow = ceilingElbows.some((candidate) => Math.hypot(candidate.xMm-elbow.vertex.x,candidate.yMm-elbow.vertex.y) <= candidate.nominalSizeMm*2.5);
+    if (!belongsToCeilingElbow) {
+      const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id,"data-ventilation-label":"bend"});
+      label.textContent = elbow.drawable ? `${elbow.angleDegrees}°` : "Review bend";
+      if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
+    }
   }
   const hitLines = geometry.arrangement === "twin" ? lanePointStrings : [sweepPoints];
   for (const points of hitLines) {
@@ -6543,6 +6645,39 @@ function renderDuctRoute(route) {
       "aria-label": `${family.name} route · ${ductBodyDisplayLabel(geometry)} · ${geometry.rigidEpp ? "rigid runs with drawn elbows" : "smooth visual sweep"}`,
     }));
   }
+}
+
+function decentralisedCableDisplayPoints(cable) {
+  const points = cable.points.map((point) => ({ ...point }));
+  if (decentralisedCablePointDragState?.cableId === cable.id) points[decentralisedCablePointDragState.pointIndex] = { ...decentralisedCablePointDragState.preview };
+  if (componentDragState) {
+    const delta = { x: componentDragState.preview.x - componentDragState.start.x, y: componentDragState.preview.y - componentDragState.start.y };
+    if (componentDragState.memberIds.includes(cable.controllerId)) { points[0].x += delta.x; points[0].y += delta.y; }
+    if (componentDragState.memberIds.includes(cable.unitComponentId)) { points[points.length - 1].x += delta.x; points[points.length - 1].y += delta.y; }
+  }
+  return points;
+}
+
+function renderDecentralisedCable(cable) {
+  const points = decentralisedCableDisplayPoints(cable);
+  const pointString = routePointString(points);
+  const selected = selectedDecentralisedCableId === cable.id ? " selected" : "";
+  modelLayer.append(
+    svgElement("polyline", { points: pointString, class: `decentralised-cable${selected}`, "data-decentralised-cable-id": cable.id, "data-cable-kind": cable.cableKind, "aria-hidden": "true" }),
+    svgElement("polyline", { points: pointString, class: "decentralised-cable-hit", "data-decentralised-cable-id": cable.id, "aria-label": `${cable.cableKind} controller cable plan route · electrical design unverified` }),
+  );
+}
+
+function renderDecentralisedCableEditHandles(cable) {
+  const points = decentralisedCableDisplayPoints(cable);
+  const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const midpoint = { x: (points[index].x + points[index + 1].x) / 2, y: (points[index].y + points[index + 1].y) / 2 };
+    const add = svgElement("g", { class: "decentralised-cable-add-point", transform: `translate(${toView(midpoint.x)} ${toView(midpoint.y)})`, "data-decentralised-cable-id": cable.id, "data-segment-index": index, "aria-label": `Add cable bend point after segment ${index + 1}` });
+    add.append(svgElement("circle", { cx: 0, cy: 0, r: 7 * unitsPerPixel, fill: "white", stroke: "#735c8f", "stroke-width": 1.5 * unitsPerPixel }), svgElement("line", { x1: -3 * unitsPerPixel, y1: 0, x2: 3 * unitsPerPixel, y2: 0, stroke: "#735c8f", "stroke-width": 1.4 * unitsPerPixel }), svgElement("line", { x1: 0, y1: -3 * unitsPerPixel, x2: 0, y2: 3 * unitsPerPixel, stroke: "#735c8f", "stroke-width": 1.4 * unitsPerPixel }));
+    modelLayer.append(add);
+  }
+  points.forEach((point, index) => modelLayer.append(svgElement("circle", { cx: toView(point.x), cy: toView(point.y), r: 5 * unitsPerPixel, class: `decentralised-cable-point-handle ${index > 0 && index < points.length - 1 ? "intermediate" : "endpoint locked"}`, "data-decentralised-cable-id": cable.id, "data-point-index": index, "aria-label": index > 0 && index < points.length - 1 ? `Drag cable point ${index}` : "Cable endpoint locked to marker" })));
 }
 
 function routeBodyGeometry(route, family = routeFamilyForKind(route.ductKind)) {
@@ -6667,12 +6802,32 @@ function renderComponent(component) {
       primaryClass: common.class,
     });
   } else if (component.decentralisedMvhr) {
-    const modeGlyph = svgElement("text", { x: 0, y: 4, class: "component-symbol-code", "text-anchor": "middle", "data-component-id": component.id });
+    const markupGlyph = svgElement("text", { x: 0, y: 3, class: "component-symbol-code decentralised-unit-id", "text-anchor": "middle", "data-component-id": component.id });
+    markupGlyph.textContent = component.decentralisedMvhr.markupId;
+    const modeGlyph = svgElement("text", { x: 0, y: 17, class: "decentralised-mode-code", "text-anchor": "middle", "data-component-id": component.id });
     modeGlyph.textContent = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
+    const pairGlyph = svgElement("text", { x: 0, y: toView(symbol.heightMm) / 2 + 13, class: "decentralised-pair-code", "text-anchor": "middle", "data-component-id": component.id });
+    pairGlyph.textContent = component.decentralisedMvhr.pairGroupId ?? "";
     group.append(
-      svgElement("line", { x1: -toView(symbol.widthMm)/2-4, y1: -toView(symbol.heightMm)/2-3, x2: toView(symbol.widthMm)/2+4, y2: -toView(symbol.heightMm)/2-3, class: "component-wall-reference", "data-component-id": component.id }),
-      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 5, ...common }),
+      svgElement("line", { x1: -toView(symbol.widthMm)/2-8, y1: -toView(symbol.heightMm)/2-5, x2: toView(symbol.widthMm)/2+8, y2: -toView(symbol.heightMm)/2-5, class: "component-wall-reference", "data-component-id": component.id }),
+      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 8, ...common, class: `${common.class} decentralised-unit-symbol` }),
+      svgElement("circle", { cx: 0, cy: -10, r: Math.max(8, toView(symbol.heightMm) * 0.22), class: "decentralised-unit-core", "data-component-id": component.id }),
+      svgElement("path", { d: "M -26 -10 L -15 -17 L -15 -3 Z M 26 -10 L 15 -17 L 15 -3 Z", class: "decentralised-airflow-glyph", "data-component-id": component.id }),
+      markupGlyph,
       modeGlyph,
+      pairGlyph,
+    );
+  } else if (component.decentralisedController) {
+    const markupGlyph = svgElement("text", { x: 0, y: 2, class: "component-symbol-code decentralised-controller-id", "text-anchor": "middle", "data-component-id": component.id });
+    markupGlyph.textContent = component.decentralisedController.markupId;
+    const controlGlyph = svgElement("text", { x: 0, y: 17, class: "decentralised-mode-code", "text-anchor": "middle", "data-component-id": component.id });
+    controlGlyph.textContent = "CTRL";
+    group.setAttribute("data-system", "decentralised-controller");
+    group.append(
+      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 4, ...common, class: `${common.class} decentralised-controller-symbol` }),
+      svgElement("line", { x1: -toView(symbol.widthMm)/2+5, y1: -toView(symbol.heightMm)/2+8, x2: toView(symbol.widthMm)/2-5, y2: -toView(symbol.heightMm)/2+8, class: "decentralised-controller-terminal" }),
+      markupGlyph,
+      controlGlyph,
     );
   } else if (symbol.shape === "circle") {
     group.append(svgElement("circle", {
@@ -6722,7 +6877,9 @@ function renderComponent(component) {
     : terminalPort
     ? `${assignedSpace?.name ?? "Unassigned"} · ${formatRoomChoice(terminalPort.stream)}`
     : component.decentralisedMvhr
-      ? `${component.displayName ?? "Decentralised MVHR"} · ${decentralisedSpace?.name ?? "Unassigned"}${component.decentralisedMvhr.pairGroupId ? ` · ${component.decentralisedMvhr.pairGroupId}` : ""}`
+      ? component.decentralisedMvhr.markupId
+    : component.decentralisedController
+      ? component.decentralisedController.markupId
     : planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID
       ? `${planGraphic.modelName ?? "ComfoAir Q350"}${planGraphic.mountedCw ? ` + CW${planGraphic.mountedCw.size}` : ""} · ${planGraphic.handingLabel}${planGraphic.mountedDimensions?.envelopeStatus === "schematic-layout-allowance" ? " · provisional envelope" : ""}`
       : planGraphic?.graphicId === CA200_GRAPHIC_ID
@@ -7821,6 +7978,9 @@ function renderCataloguePalette() {
           if (item.category === "decentralised-mvhr-unit") {
             interactionMessage = `${item.name} placement active · tap to place physical unit markers · Select, Pan, Cancel or Esc exits`;
             render();
+          } else if (item.category === "decentralised-controller") {
+            interactionMessage = `${item.name} placement active · tap to mark controller location · connect units from the inspector`;
+            render();
           }
         }
       });
@@ -7881,6 +8041,10 @@ function cataloguePlacementSummary(item) {
   if (item.category === "decentralised-mvhr-unit") {
     const mode = item.decentralisedSpecification?.operatingMode === "alternating-paired" ? "Alternating · pair/group required" : "Continuous balanced";
     return `${mode} · schematic through-wall marker`;
+  }
+  if (item.category === "decentralised-controller") {
+    const specification = item.decentralisedControllerSpecification;
+    return `${specification.compatibilityStatus === "unverified-manual-input" ? "Manual / unverified" : "Reviewed model family"} · ${specification.maximumHeads ?? "head limit depends on PSU"}`;
   }
   if (item.symbol?.shape === "luna-grille") return "Round grille · drawing symbol";
   if (item.symbol?.shape === "wall-grille") return "Wall / bulkhead · magnetic cover · drawing symbol";
@@ -9215,6 +9379,7 @@ function catalogueGroupGlyph(groupName) {
   if (groupName === "Terminals") return "●";
   if (groupName === "Attenuation & distribution") return "⋮";
   if (groupName === "Decentralised MVHR") return "◫";
+  if (groupName === "Decentralised controls") return "▦";
   if (groupName.includes("Duct")) return "⌁";
   return "◇";
 }
@@ -9223,6 +9388,7 @@ function compactGroupName(groupName) {
   if (groupName === "Attenuation & distribution") return "Distribution";
   if (groupName === "Ducts & fittings") return "Duct fittings";
   if (groupName === "Decentralised MVHR") return "Decentralised";
+  if (groupName === "Decentralised controls") return "Controls";
   return groupName;
 }
 
@@ -9241,6 +9407,7 @@ function catalogueGlyph(item) {
   if (item.symbol?.shape === "wall-grille") return item.symbol.stream === "supply" ? "▱ ↑↑↑" : "↓↓↓ ▱";
   if (item.mounting) return item.mounting === "horizontal" ? "▭" : "▯";
   if (item.category === "mvhr-unit") return "▣";
+  if (item.category === "decentralised-controller") return "▦";
   if (item.category === "terminal") return "●";
   if (item.category === "attenuator-manifold") return "⋮";
   return "◇";
@@ -9254,6 +9421,7 @@ function catalogueGlyphClass(item) {
 
 function componentEvidenceLabel(component) {
   if (component.decentralisedMvhr) return "schematic through-wall marker";
+  if (component.decentralisedController) return "schematic controller marker";
   if (component.displaySymbol?.cwProfile) return "source-sized CW drawing · provisional setout";
   if (component.catalogueStatus === "source-backed-symbol-profile-interface-pending") return "drawing symbol · connection pending";
   if (component.catalogueStatus === "synthetic-not-manufacturer-verified") return "generic test";
@@ -9265,6 +9433,7 @@ function componentEvidenceLabel(component) {
 
 function componentEvidenceDescription(component) {
   if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
+  if (component.decentralisedController) return `${component.decentralisedController.compatibilityStatus.replaceAll("-", " ")} · ${component.decentralisedController.sourceRevision} · cable routes are plan markup only · no electrical compliance or installation approval`;
   if (component.displaySymbol?.ca200Profile) return "Owner-selected CA200 manual dimensions and manufacturer handed role map · DN125 drawing ports · centred port setout interpretation and installation fit require review";
   if (component.displaySymbol?.cwProfile) return `${component.displaySymbol.cwProfile.generation} manufacturer module dimensions · assembled seating and branch-centre offsets provisional · installed elevation and acoustic selection require review`;
   if (component.catalogueStatus === "source-backed-owner-drawing-profile-installation-review-required") return component.catalogueSnapshot?.connectionSetout?.orientationConvention === "manufacturer" ? "Manufacturer orientation and manual port centres · owner-confirmed 160 mm EPP connections" : "Saved Aerofresh 450 drawing convention · schematic port centres · DN160 drawing snap targets";
@@ -9544,13 +9713,23 @@ function renderComponentRoomAssignment(component) {
 
 function renderDecentralisedConfiguration(component) {
   const metadata = component.decentralisedMvhr ?? null;
-  const visible = Boolean(metadata);
-  componentRoomTerm.hidden = visible;
-  componentRoomField.hidden = visible;
-  componentRunTerm.hidden = visible;
-  componentRunField.hidden = visible;
-  decentralisedSystemTerm.hidden = !visible;
-  decentralisedSystemField.hidden = !visible;
+  const controllerMetadata = component.decentralisedController ?? null;
+  const special = Boolean(metadata || controllerMetadata);
+  componentRoomTerm.hidden = special;
+  componentRoomField.hidden = special;
+  componentRunTerm.hidden = special;
+  componentRunField.hidden = special;
+  decentralisedSystemTerm.hidden = !metadata;
+  decentralisedSystemField.hidden = !metadata;
+  decentralisedControllerTerm.hidden = !controllerMetadata;
+  decentralisedControllerField.hidden = !controllerMetadata;
+  if (controllerMetadata) {
+    decentralisedControllerModel.textContent = component.displayName ?? controllerMetadata.controllerModelId;
+    decentralisedControllerMarkupId.textContent = `${controllerMetadata.markupId} · schematic controller location`;
+    decentralisedControllerManualReference.value = controllerMetadata.manualModelReference ?? "";
+    decentralisedControllerManualReference.disabled = controllerMetadata.compatibilityStatus !== "unverified-manual-input";
+    decentralisedControllerDetail.textContent = `${controllerMetadata.compatibilityStatus === "unverified-manual-input" ? "Manual / unverified compatibility" : "Model-family compatibility reviewed"} · ${controllerMetadata.topologyStatus.replaceAll("-", " ")} · ${controllerMetadata.powerSupplyRequirement}`;
+  }
   if (!metadata) return;
   const alternating = metadata.operatingMode === "alternating-paired";
   decentralisedOperatingMode.textContent = alternating
@@ -9572,8 +9751,20 @@ function renderDecentralisedConfiguration(component) {
   decentralisedPairGroup.value = metadata.pairGroupId ?? "";
   decentralisedControllerLabel.hidden = !metadata.controllerReferenceRequired;
   decentralisedControllerReference.value = metadata.controllerReference ?? "";
+  const controllers = history.present.components.filter((candidate) => candidate.floorId === component.floorId && candidate.decentralisedController);
+  decentralisedControllerMarker.replaceChildren(new Option("Choose controller marker", ""));
+  for (const controller of controllers) {
+    const compatible = controller.decentralisedController.compatibleUnitCatalogueItemIds.includes(component.catalogueItemId);
+    decentralisedControllerMarker.append(new Option(`${controller.decentralisedController.markupId} · ${controller.displayName}${compatible ? " · reviewed match" : " · unverified"}`, controller.id));
+  }
+  decentralisedControllerMarker.value = metadata.controllerId ?? "";
+  const cable = history.present.decentralisedCables.find((candidate) => candidate.unitComponentId === component.id) ?? null;
+  decentralisedCableKind.value = cable?.cableKind ?? "unspecified";
+  decentralisedCableSpec.value = cable?.specification.label ?? "";
+  applyDecentralisedCableButton.disabled = cable === null;
+  connectDecentralisedControllerButton.textContent = cable ? "Redraw controller cable" : "Connect controller → unit";
   decentralisedConfigurationDetail.textContent = alternating
-    ? `Pair/group and ${metadata.controllerReferenceRequired ? "controller" : "control"} references are associations only. No controller quantity, compatibility or airflow is inferred.`
+    ? `Unit ${metadata.markupId} · pair/group and controller links remain explicit. Marked cable length is plan-route only; no electrical compliance or airflow is inferred.`
     : "No companion unit is required. Catalogue airflow remains reference-only and is excluded from project totals.";
 }
 
@@ -9591,6 +9782,56 @@ function applySelectedDecentralisedConfiguration() {
     pairGroupId: component.decentralisedMvhr.operatingMode === "alternating-paired" ? decentralisedPairGroup.value : null,
     controllerReference: component.decentralisedMvhr.controllerReferenceRequired ? decentralisedControllerReference.value : null,
   }, "Decentralised unit associations updated; airflow and installation suitability remain unassessed");
+}
+
+function connectSelectedDecentralisedController() {
+  const unit = history.present.components.find((candidate) => candidate.id === mechanicalState.selectedComponentId);
+  if (!unit?.decentralisedMvhr) return;
+  const controller = history.present.components.find((candidate) => candidate.id === decentralisedControllerMarker.value);
+  if (!controller?.decentralisedController) {
+    interactionMessage = "Place and choose a controller marker before drawing a cable";
+    updateStatus();
+    return;
+  }
+  const controllerMetadata = controller.decentralisedController;
+  const id = `decentralised-cable-${identityCounter++}`;
+  commitCommand({
+    type: "decentralisedCable.add",
+    replaceExisting: true,
+    cable: {
+      id,
+      floorId: unit.floorId,
+      controllerId: controller.id,
+      unitComponentId: unit.id,
+      cableKind: controllerMetadata.topologyStatus === "verified-star-individual-runs" ? "control-interconnect" : "combined-power-control",
+      specification: structuredClone(controllerMetadata.defaultCableSpecification),
+      topologyStatus: controllerMetadata.topologyStatus,
+      maximumRouteLengthMm: null,
+      points: [{ x: controller.positionMm.x, y: controller.positionMm.y }, { x: unit.positionMm.x, y: unit.positionMm.y }],
+    },
+  }, `${controllerMetadata.markupId} connected to ${unit.decentralisedMvhr.markupId}; route is plan markup, not electrical approval`);
+}
+
+function applySelectedDecentralisedCable() {
+  const unit = history.present.components.find((candidate) => candidate.id === mechanicalState.selectedComponentId);
+  const cable = unit && history.present.decentralisedCables.find((candidate) => candidate.unitComponentId === unit.id);
+  if (!cable) return;
+  commitCommand({
+    type: "decentralisedCable.configure",
+    cableId: cable.id,
+    cableKind: decentralisedCableKind.value,
+    specification: {
+      status: "unverified-manual-input",
+      label: decentralisedCableSpec.value,
+      source: null,
+    },
+  }, "Cable markup updated as manual/unverified input");
+}
+
+function applySelectedDecentralisedController() {
+  const component = history.present.components.find((candidate) => candidate.id === mechanicalState.selectedComponentId);
+  if (!component?.decentralisedController) return;
+  commitCommand({ type: "component.setDecentralisedControllerConfiguration", componentId: component.id, manualModelReference: decentralisedControllerManualReference.value }, "Controller note updated; compatibility remains explicit");
 }
 
 function renderStorageState() {

@@ -53,6 +53,21 @@ export function createPartsSchedule(project, options = {}) {
   const unresolved = unresolvedScheduleItems(componentLines, routeLines);
   const summary = scheduleSummary(componentLines, routeLines, assemblies);
   const decentralisedSystems = inspectDecentralisedMvhr(project, floorId);
+  const decentralisedCableLines = decentralisedSystems.cableRoutes.map((cable, index) => {
+    const source = project.decentralisedCables.find((candidate) => candidate.id === cable.id);
+    return {
+      ref: `CBL-${index + 1}`,
+      id: cable.id,
+      controllerId: cable.controllerId,
+      unitComponentId: cable.unitComponentId,
+      cableKind: cable.cableKind,
+      specification: structuredClone(source.specification),
+      topologyStatus: source.topologyStatus,
+      planLengthMm: cable.planLengthMm,
+      lengthStatus: cable.lengthStatus,
+      quantityBasis: "marked plan route; rises, drops, slack and termination allowance excluded",
+    };
+  });
 
   return deepFreeze({
     kind: "drawing-parts-schedule",
@@ -70,8 +85,9 @@ export function createPartsSchedule(project, options = {}) {
     unresolved,
     summary,
     decentralisedSystems,
+    decentralisedCableLines,
     lengthBasis: "Saved route control-polyline centreline in plan. Single multiplies by 1 and Twin by 2. Display sweeps, bends, fittings, allowances and waste are excluded.",
-    evidenceBoundary: "Placed quantities are exact model-record counts. Decentralised physical units, pair/groups and controller references are reported separately; no controller quantity or delivered airflow is inferred. Product identity, regional availability and compatibility remain provisional unless the line explicitly says verified regional catalogue match. This is not a price, order, fabrication or engineering schedule.",
+    evidenceBoundary: "Placed quantities are exact model-record counts. Decentralised physical units, controller markers, pair/groups and controller links are reported separately. Cable quantities are marked plan-route lengths only and are never merged with duct quantities. No delivered airflow or electrical compliance is inferred. Product identity, regional availability and compatibility remain provisional unless the line explicitly says verified regional catalogue match. This is not a price, order, fabrication or engineering schedule.",
   });
 }
 
@@ -82,6 +98,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
     const catalogueItem = COMPONENT_CATALOGUE.find(item => item.id === (snapshot?.recordId ?? component.catalogueItemId));
     const category = catalogueItem?.category;
     const section = category === "decentralised-mvhr-unit" ? "decentralised"
+      : category === "decentralised-controller" ? "decentralised-control"
       : category?.startsWith("mvhr-unit") ? "mvhr"
       : ["terminal", "external-grille"].includes(category) ? "terminals" : "equipment";
     const combinedGrille = category === "external-grille" && component.ports.some(port => port.stream === "intake") && component.ports.some(port => port.stream === "exhaust");

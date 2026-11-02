@@ -11,14 +11,13 @@ import { isPathInside, resolveStaticRequestPath } from "../src/dev/static-path.m
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-decentralised-mvhr-"));
-const debuggingPort = await reservePort();
 const qaIdentity = { userId: "qa-decentralised-user", workspaceId: "qa-decentralised-workspace" };
 const server = await startQaServer();
 const address = server.address();
 const appUrl = `http://127.0.0.1:${address.port}/app/`;
 const browser = spawn(chrome, [
   "--headless=new", "--no-first-run", "--disable-gpu", "--disable-background-networking",
-  "--disable-component-update", `--remote-debugging-port=${debuggingPort}`, `--user-data-dir=${profileDirectory}`,
+  "--disable-component-update", "--remote-debugging-port=0", `--user-data-dir=${profileDirectory}`,
   "--window-size=1180,820", "about:blank",
 ], { stdio: ["ignore", "ignore", "pipe"] });
 let browserStderr = "";
@@ -26,7 +25,7 @@ browser.stderr.setEncoding("utf8");
 browser.stderr.on("data", (chunk) => { browserStderr += chunk; });
 
 try {
-  await waitForDevTools(debuggingPort);
+  const debuggingPort = await readDevToolsPort(profileDirectory);
   const target = await fetch(`http://127.0.0.1:${debuggingPort}/json/new?${encodeURIComponent(appUrl)}`, { method: "PUT" }).then((response) => response.json());
   const cdp = await connectCdp(target.webSocketDebuggerUrl);
   const exceptions = [];
@@ -43,7 +42,7 @@ try {
   assert.match(await text(cdp,"#ventilation-project-type-context"),/Decentralised project/u);
   assert.match(await text(cdp,".parts-category"),/Decentralised/u,"Decentralised tools should be the first project-type default");
   await clickByText(cdp, ".parts-category", "Decentralised");
-  assert.equal(await count(cdp, '[data-catalogue-item-id$="-decentralised"]'), 4);
+  assert.equal(await count(cdp, '[data-catalogue-item-id$="-decentralised"][data-catalogue-item-id*="compact"], [data-catalogue-item-id*="comfospot"][data-catalogue-item-id$="-decentralised"], [data-catalogue-item-id*="comfoair-70"][data-catalogue-item-id$="-decentralised"], [data-catalogue-item-id*="e2-60"][data-catalogue-item-id$="-decentralised"]'), 4);
 
   await click(cdp, '[data-catalogue-item-id="aerofresh-30-compact-decentralised"]');
   await canvasTouchTap(cdp, 0.36, 0.38);
@@ -71,6 +70,20 @@ try {
   assert.deepEqual(records.map((item) => item.controllerReference), ["sMove 1", "sMove 1"]);
 
   await click(cdp, "#tablet-tools-toggle");
+  await clickByText(cdp, ".parts-category", "Controls");
+  await click(cdp, '[data-catalogue-item-id="aerofresh-smove-controller-decentralised"]');
+  await canvasTouchTap(cdp, 0.48, 0.54);
+  await click(cdp, "#select-tool");
+  assert.equal(await count(cdp, '[data-system="decentralised-controller"]'), 1);
+  await selectFirstComponent(cdp);
+  const controllerId = await savedControllerId(cdp);
+  await setValue(cdp, "#decentralised-controller-marker", controllerId);
+  await click(cdp, "#connect-decentralised-controller");
+  assert.equal(await count(cdp, '[data-decentralised-cable-id]'), 2, "Visible and hit-test cable polylines should share one saved cable identity");
+  assert.equal((await savedCables(cdp)).length, 1);
+
+  await click(cdp, "#tablet-tools-toggle");
+  await clickByText(cdp, ".parts-category", "Decentralised");
   await click(cdp, '[data-catalogue-item-id="zehnder-comfospot-50-decentralised"]');
   await canvasTouchTap(cdp, 0.48, 0.62);
   await click(cdp, "#select-tool");
@@ -79,7 +92,7 @@ try {
   assert.match(await text(cdp, "#decentralised-operating-mode"), /Continuous-balanced/u);
 
   const schedule = await scheduleSummary(cdp);
-  assert.deepEqual(schedule, { unitCount: 3, pairGroupCount: 1, controllerReferenceCount: 1, scheduleQuantity: 3, routeCount: 0 });
+  assert.deepEqual(schedule, { unitCount: 3, controllerMarkerCount: 1, cableRouteCount: 1, pairGroupCount: 1, controllerReferenceCount: 2, scheduleQuantity: 3, routeCount: 0 });
   assert.equal(await evaluate(cdp, `document.querySelectorAll('[data-system="decentralised-mvhr"]').length >= 3`), true);
 
   await click(cdp,"#project-nav");
@@ -101,11 +114,12 @@ try {
   records = await savedDecentralised(cdp);
   assert.equal(records.length, 3);
   assert.equal(records.filter((item) => item.pairGroupId === "Pair 1").length, 2);
+  assert.equal((await savedCables(cdp)).length,1);
   assert.equal(await savedProjectType(cdp),"mixed");
   assert.equal(await text(cdp,"#current-project-type"),"Mixed");
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, physicalUnits: 3, projectType: "mixed", conflictReview: true, typeFilterTouchHeight: filterHeight, persistentTouchPlacement: true, alternatingPairAndController: true, continuousBalancedUnpaired: true, rotated: true, centralRoutes: 0, saveReopen: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, physicalUnits: 3, controllerMarkers: 1, controllerCables: 1, projectType: "mixed", conflictReview: true, typeFilterTouchHeight: filterHeight, persistentTouchPlacement: true, alternatingPairAndController: true, continuousBalancedUnpaired: true, rotated: true, centralRoutes: 0, saveReopen: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -152,7 +166,9 @@ async function savedDecentralised(cdp) {
   return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return (saved?.project?.components??[]).filter((component)=>component.decentralisedMvhr).map((component)=>({id:component.id,pairGroupId:component.decentralisedMvhr.pairGroupId,controllerReference:component.decentralisedMvhr.controllerReference,operatingMode:component.decentralisedMvhr.operatingMode,orientation:component.orientation})); })()`);
 }
 async function savedProjectType(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return saved?.project?.ventilationDesignType; })()`); }
-async function scheduleSummary(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); const module=await import("/src/editor/parts-schedule.mjs"); const schedule=module.createPartsSchedule(saved.project,{floorId:"floor-ground"}); return {unitCount:schedule.decentralisedSystems.unitCount,pairGroupCount:schedule.decentralisedSystems.pairGroupCount,controllerReferenceCount:schedule.decentralisedSystems.controllerReferenceCount,scheduleQuantity:schedule.componentLines.filter((line)=>line.section==="decentralised").reduce((sum,line)=>sum+line.quantity,0),routeCount:schedule.routeLines.length}; })()`); }
+async function savedControllerId(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return (saved?.project?.components??[]).find(component=>component.decentralisedController)?.id??null; })()`); }
+async function savedCables(cdp) { await delay(220); return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return saved?.project?.decentralisedCables??[]; })()`); }
+async function scheduleSummary(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); const module=await import("/src/editor/parts-schedule.mjs"); const schedule=module.createPartsSchedule(saved.project,{floorId:"floor-ground"}); return {unitCount:schedule.decentralisedSystems.unitCount,controllerMarkerCount:schedule.decentralisedSystems.controllerMarkerCount,cableRouteCount:schedule.decentralisedSystems.cableRouteCount,pairGroupCount:schedule.decentralisedSystems.pairGroupCount,controllerReferenceCount:schedule.decentralisedSystems.controllerReferenceCount,scheduleQuantity:schedule.componentLines.filter((line)=>line.section==="decentralised").reduce((sum,line)=>sum+line.quantity,0),routeCount:schedule.routeLines.length}; })()`); }
 async function selectLatestComponent(cdp) { return evaluate(cdp, `(() => { const items=[...document.querySelectorAll('[data-system="decentralised-mvhr"]')]; const element=items.at(-1); if(!element)return false; element.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,clientX:element.getBoundingClientRect().x+3,clientY:element.getBoundingClientRect().y+3,pointerType:"mouse"})); element.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,clientX:element.getBoundingClientRect().x+3,clientY:element.getBoundingClientRect().y+3,pointerType:"mouse"})); element.dispatchEvent(new MouseEvent("click",{bubbles:true,clientX:element.getBoundingClientRect().x+3,clientY:element.getBoundingClientRect().y+3})); return true; })()`); }
 async function selectFirstComponent(cdp) { return evaluate(cdp, `(() => { const element=document.querySelector('[data-system="decentralised-mvhr"]'); if(!element)return false; const box=element.getBoundingClientRect(); element.dispatchEvent(new MouseEvent("click",{bubbles:true,clientX:box.x+3,clientY:box.y+3})); return true; })()`); }
 async function canvasPoint(cdp, xRatio, yRatio) { return evaluate(cdp, `(() => { const box=document.querySelector("#plan-canvas").getBoundingClientRect(); return { x:box.left+box.width*${xRatio}, y:box.top+box.height*${yRatio} }; })()`); }
@@ -164,8 +180,7 @@ async function visible(cdp, selector) { return evaluate(cdp, `(() => { const ele
 async function count(cdp, selector) { return evaluate(cdp, `document.querySelectorAll(${JSON.stringify(selector)}).length`); }
 async function text(cdp, selector) { return evaluate(cdp, `document.querySelector(${JSON.stringify(selector)})?.textContent ?? ""`); }
 async function attribute(cdp, selector, name) { return evaluate(cdp, `document.querySelector(${JSON.stringify(selector)})?.getAttribute(${JSON.stringify(name)}) ?? null`); }
-async function reservePort() { const instance=createServer(); await new Promise((resolveListen)=>instance.listen(0,"127.0.0.1",resolveListen)); const port=instance.address().port; await new Promise((resolveClose)=>instance.close(resolveClose)); return port; }
-async function waitForDevTools(port) { for(let attempt=0;attempt<160;attempt+=1){try{const response=await fetch(`http://127.0.0.1:${port}/json/version`);if(response.ok)return;}catch{}await delay(50);}throw new Error("Chrome DevTools endpoint did not become available"); }
+async function readDevToolsPort(directory) { const file=join(directory,"DevToolsActivePort"); for(let attempt=0;attempt<160;attempt+=1){try{return (await readFile(file,"utf8")).trim().split("\n")[0];}catch{await delay(50);}}throw new Error("Chrome DevTools endpoint did not become available"); }
 async function connectCdp(url) { const socket=new WebSocket(url); await new Promise((resolveOpen,reject)=>{socket.addEventListener("open",resolveOpen,{once:true});socket.addEventListener("error",reject,{once:true});}); let sequence=0;const pending=new Map(),handlers=new Map();socket.addEventListener("message",(event)=>{const message=JSON.parse(event.data);if(message.id){const request=pending.get(message.id);pending.delete(message.id);if(message.error)request.reject(new Error(message.error.message));else request.resolve(message.result);}else for(const handler of handlers.get(message.method)??[])handler(message.params);});return {send(method,params={}){const id=++sequence;socket.send(JSON.stringify({id,method,params}));return new Promise((resolveSend,rejectSend)=>pending.set(id,{resolve:resolveSend,reject:rejectSend}));},on(method,handler){if(!handlers.has(method))handlers.set(method,[]);handlers.get(method).push(handler);},close(){socket.close();}}; }
 async function evaluate(cdp, expression) { const result=await cdp.send("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.exception?.description??result.exceptionDetails.text);return result.result.value; }
 async function waitFor(cdp, expression, timeoutMs=10000) { const started=Date.now();while(Date.now()-started<timeoutMs){if(await evaluate(cdp,`Boolean(${expression})`))return;await delay(50);}throw new Error(`Timed out waiting for: ${expression}`); }

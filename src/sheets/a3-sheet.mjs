@@ -280,6 +280,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
       lanes: geometry.lanes.map((lane) => lane.map((point) => planPoint(point, `Route ${route.id} body point`))),
     };
   });
+  const decentralisedCables = (project.decentralisedCables ?? []).filter((cable) => cable.floorId === floorId).map((cable) => ({ ...structuredClone(cable), points: cable.points.map((point) => planPoint(point, `Cable ${cable.id} point`)) }));
   const components = project.components.filter((component) => component.floorId === floorId).map((component) => ({
     id: component.id,
     scheduleRef: componentRefById.get(component.id) ?? "P??",
@@ -290,6 +291,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     symbol: normalizeSymbol(component.displaySymbol),
     planGraphic: deriveComponentPlanGraphic(component),
     decentralisedMvhr: component.decentralisedMvhr ? structuredClone(component.decentralisedMvhr) : null,
+    decentralisedController: component.decentralisedController ? structuredClone(component.decentralisedController) : null,
   }));
   let hasUncalibratedReference = false;
   const references = project.floorReferences.filter((reference) => reference.floorId === floorId && reference.visible).map((reference) => {
@@ -336,6 +338,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     ...floorAreas.map(outline=>pointsBounds(outline.vertices)),
     ...routingExclusions.map(exclusion=>({minX:exclusion.geometry.x,minY:exclusion.geometry.y,maxX:exclusion.geometry.x+exclusion.geometry.width,maxY:exclusion.geometry.y+exclusion.geometry.height})),
     ...routes.map(routeBounds),
+    ...decentralisedCables.map((cable) => pointsBounds(cable.points)),
     ...components.map(componentBounds),
     ...references.map(referenceBounds),
     ...cadReferences.map((reference) => reference.boundsMm),
@@ -348,11 +351,12 @@ function buildPrintScene(project, floorId, partsSchedule) {
     floorAreas,
     routingExclusions,
     routes,
+    decentralisedCables,
     components,
     hrvCeilingElbows: deriveHrvCeilingElbows(project.routes.filter(route=>route.floorId===floorId),project.components.filter(component=>component.floorId===floorId)),
     references,
     cadReferences,
-    legend: buildLegend({ walls, floorAreas, routingExclusions, routes, components, references, cadReferences }),
+    legend: buildLegend({ walls, floorAreas, routingExclusions, routes, decentralisedCables, components, references, cadReferences }),
     hasUncalibratedReference,
     hasPartialCadReference: cadReferences.some((reference) => reference.partialImportAccepted),
     modelBoundsMm: mergeBounds(allBounds),
@@ -379,12 +383,13 @@ function buildLegend(scene) {
       legend.push({ key: `service-${stream}`, label });
     }
   }
+  if (scene.decentralisedCables?.length) legend.push({ key: "decentralised-cable", label: "Controller cable — marked plan route; electrical design status shown in schedule" });
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=component.decentralisedMvhr?`decentralised-${component.decentralisedMvhr.operatingMode}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
+    const key=component.decentralisedMvhr?`decentralised-${component.decentralisedMvhr.operatingMode}`:component.decentralisedController?"decentralised-controller":g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key.startsWith('decentralised-')?`Decentralised MVHR — ${component.decentralisedMvhr.operatingMode==='alternating-paired'?'alternating physical unit':'continuous-balanced physical unit'} · schematic`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
+    const label=key==="decentralised-controller"?"Decentralised controller — schematic location marker":key.startsWith('decentralised-')?`Decentralised MVHR — ${component.decentralisedMvhr.operatingMode==='alternating-paired'?'alternating physical unit':'continuous-balanced physical unit'} · schematic`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -422,11 +427,12 @@ function renderPrintScene(sheet) {
     out.push(`<line data-kind="wall" data-wall-classification="${escapeXml(wall.classification)}" data-id="${escapeXml(wall.id)}" x1="${mapX(wall.start.x, transform)}" y1="${mapY(wall.start.y, transform)}" x2="${mapX(wall.end.x, transform)}" y2="${mapY(wall.end.y, transform)}" stroke="#26373f" stroke-width="${formatNumber(Math.max(0.35, wall.thicknessMm * transform.scale))}" stroke-linecap="square"${dash}/>`);
   }
   for (const route of scene.routes.filter(route=>!/^epp-rigid-dn/.test(route.ductKind) && route.ductKind!=="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
+  for (const cable of scene.decentralisedCables ?? []) out.push(renderDecentralisedCable(cable, transform));
   for (const component of scene.components.filter(component => ![LUNA_GRILLE_PLAN_GRAPHIC_ID,EXTERNAL_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
   for (const route of scene.routes.filter(route=>/^epp-rigid-dn/.test(route.ductKind) || route.ductKind==="semi-rigid-radial")) out.push(withoutDrawingLabels(renderRoute(route, transform)));
   for(const elbow of scene.hrvCeilingElbows??[]) {
     const shapes=hrvCeilingElbowShapes(elbow).map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}/>`).join("");
-    out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
+    out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-alignment-status="typed-port-centred" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
   }
   for (const component of scene.components.filter(component => [EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -480,6 +486,11 @@ function renderRoute(route, transform) {
   }
   out.push("</g>");
   return out.join("");
+}
+
+function renderDecentralisedCable(cable, transform) {
+  const points = sheetPointString(cable.points, transform);
+  return `<g data-kind="decentralised-cable" data-id="${escapeXml(cable.id)}" data-cable-kind="${escapeXml(cable.cableKind)}"><polyline points="${points}" fill="none" stroke="white" stroke-width="1.5"/><polyline points="${points}" fill="none" stroke="#735c8f" stroke-width="0.75" stroke-dasharray="3 1.5"/><title>${escapeXml(cable.cableKind)} controller cable · plan route only</title></g>`;
 }
 
 function renderReference(reference, transform) {
@@ -569,7 +580,15 @@ function renderComponent(component, transform) {
     const width = component.symbol.widthMm * transform.scale;
     const height = component.symbol.heightMm * transform.scale;
     const glyph = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
-    return `<g data-kind="component" data-system="decentralised-mvhr" data-mode="${escapeXml(component.decentralisedMvhr.operatingMode)}" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><line x1="${formatNumber(-width/2-2)}" y1="${formatNumber(-height/2-1)}" x2="${formatNumber(width/2+2)}" y2="${formatNumber(-height/2-1)}" stroke="#5e7079" stroke-width="0.8"/><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#f4f8f7" stroke="#28745d" stroke-width="0.55"/><text x="0" y="-0.2" text-anchor="middle" fill="#154f3f" font-size="2.5" font-weight="700">${glyph}</text><text x="0" y="3" text-anchor="middle" fill="#29434d" font-size="2.2">${escapeXml(component.scheduleRef)}</text></g>`;
+    const markupId = component.decentralisedMvhr.markupId ?? component.scheduleRef;
+    const pair = component.decentralisedMvhr.pairGroupId ?? "";
+    return `<g data-kind="component" data-system="decentralised-mvhr" data-mode="${escapeXml(component.decentralisedMvhr.operatingMode)}" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><line x1="${formatNumber(-width/2-2.5)}" y1="${formatNumber(-height/2-1.5)}" x2="${formatNumber(width/2+2.5)}" y2="${formatNumber(-height/2-1.5)}" stroke="#5e7079" stroke-width="0.8"/><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.8" fill="#f4f8f7" stroke="#28745d" stroke-width="0.75"/><circle cx="0" cy="${formatNumber(-height*0.12)}" r="${formatNumber(Math.max(1.8,height*0.2))}" fill="#d9ebe5" stroke="#28745d" stroke-width="0.45"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#154f3f" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#29434d" font-size="1.9" font-weight="700">${glyph}</text>${pair?`<text data-keep-on-drawing="true" x="0" y="${formatNumber(height/2+3.5)}" text-anchor="middle" fill="#29434d" font-size="2.2" font-weight="700">${escapeXml(pair)}</text>`:""}</g>`;
+  }
+  if (component.decentralisedController) {
+    const width = component.symbol.widthMm * transform.scale;
+    const height = component.symbol.heightMm * transform.scale;
+    const markupId = component.decentralisedController.markupId ?? component.scheduleRef;
+    return `<g data-kind="component" data-system="decentralised-controller" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#fff7dd" stroke="#8b6b16" stroke-width="0.75"/><line x1="${formatNumber(-width/2+1.5)}" y1="${formatNumber(-height/2+2)}" x2="${formatNumber(width/2-1.5)}" y2="${formatNumber(-height/2+2)}" stroke="#8b6b16" stroke-width="0.55" stroke-dasharray="1.5 1"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#6f5310" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#6f5310" font-size="1.8" font-weight="700">CTRL</text></g>`;
   }
   if (component.planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID) {
     return renderQ350Component(component, transform, x, y, angle);
@@ -864,6 +883,8 @@ function legendSwatch(key, x, y,item={}) {
     return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${ductMask}${g.paths.map((d,index)=>`<path d="${d}" fill="${key.startsWith('luna-')&&index===0?'white':'none'}"/>`).join('')}</g>`;
   }
   if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
+  if(key==='decentralised-cable')return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#735c8f" stroke-width=".7" stroke-dasharray="3 1.5"/>`;
+  if(key==='decentralised-controller')return `<g data-kind="legend-decentralised-controller"><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#fff7dd" stroke="#8b6b16" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#6f5310" font-size="1.6" font-weight="700">C</text></g>`;
   if(key.startsWith('decentralised-'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">${key.endsWith('alternating-paired')?'ALT':'BAL'}</text></g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key.startsWith('external-grille-')) {

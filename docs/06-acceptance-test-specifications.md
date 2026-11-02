@@ -172,6 +172,12 @@ Place a continuous-balanced marker beside a central MVHR system. It does not req
 
 The parts list counts every physical marker once. Pair/group and controller references appear as associations rather than additional purchase quantities. A3/A4 output identifies schematic decentralised markers without claiming a drilling template, wall suitability, clearance, product compatibility or installation certification.
 
+Place, move and rotate a decentralised controller marker, then connect one compatible physical unit with a controller cable. The unit and controller display short stable `D…` and `C…` identities. Moving either endpoint keeps the cable attached; editing an intermediate point changes only the cable route. Save/reopen and design-option duplication retain internally valid, option-isolated identities. Deleting either endpoint identifies and removes its dependent cable. The cable never appears in the airflow route graph, pressure calculation or duct quantity.
+
+Select an article-specific controller whose verified compatibility excludes the selected unit and confirm the connection is blocked. Select the manual controller and confirm the route remains visibly unverified. A cable length is reported only as plan-markup length, not installed length. Unknown maximum run length stays unknown. A candidate cable specification from a non-primary manual mirror remains a candidate and is not promoted to verified manufacturer evidence or Australian electrical compliance.
+
+Create a rotated CA200 horizontal unit and a remote CW320, then draw a DN125 EPP route from the typed unit port. A near-port click is compacted and the supported lead remains centred on the exact typed port rather than leaving a phantom bend. Move/rotate both endpoints, save/reopen and export A3/PDF. The typed attachments remain exact, the ceiling-bend marker remains port-centred, and one compact selected-bend label does not overlap a second generic review label.
+
 ## Ventilation project type acceptance
 
 Open an older saved drawing containing no project-type field. It opens as **Unclassified** without changing its saved source, equipment, routes, rooms or lifecycle stage. Existing centralised or decentralised geometry may be described as a suggestion but does not assign the type automatically.

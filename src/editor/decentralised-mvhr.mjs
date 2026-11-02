@@ -7,10 +7,17 @@ const CATALOGUE_SOURCE = Object.freeze({
 
 const SCHEMATIC_SYMBOL = Object.freeze({
   shape: "box",
-  widthMm: 320,
-  heightMm: 140,
+  widthMm: 520,
+  heightMm: 260,
   scaleStatus: "schematic-not-to-scale",
   throughWall: true,
+});
+
+const CONTROLLER_SYMBOL = Object.freeze({
+  shape: "decentralised-controller",
+  widthMm: 360,
+  heightMm: 260,
+  scaleStatus: "schematic-not-to-scale",
 });
 
 export function decentralisedMvhrRecords() {
@@ -74,6 +81,75 @@ export function decentralisedMvhrRecords() {
   ];
 }
 
+export function decentralisedControllerRecords() {
+  return [
+    controllerRecord({
+      id: "aerofresh-smove-controller-decentralised",
+      versionId: "aerofresh-smove-controller-decentralised.v1",
+      manufacturer: "Aerofresh",
+      name: "sMove controller",
+      controllerModelId: "aerofresh-smove",
+      compatibleUnitCatalogueItemIds: ["aerofresh-30-compact-decentralised"],
+      maximumHeads: 8,
+      compatibilityStatus: "verified-product-family-head-limit",
+      topologyStatus: "verified-synchronised-pairs",
+      cableEvidenceStatus: "candidate-manual-mirror",
+      defaultCableSpecification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded · 6–16 VDC power/control", source: "INST-AEROFRESH30 V1 (7/26) p21 manual mirror; original host unavailable" },
+      sourceRevision: "Fantech Trade product page + candidate manual mirror INST-AEROFRESH30 V1 (7/26)",
+      powerSupplyRequirement: "Wired sMove arrangement; exact AU installation and run limits unresolved.",
+      note: "Existing reviewed product guidance identifies sMove for AeroFresh 30 Compact, synchronized pairs and a maximum of eight physical heads. Exact cable requirements and installed run limits remain unverified.",
+    }),
+    controllerRecord({
+      id: "lunos-5-sc-ft-controller-decentralised",
+      versionId: "lunos-5-sc-ft-controller-decentralised.v1",
+      manufacturer: "LUNOS",
+      name: "5/SC-FT SmartComfort control",
+      controllerModelId: "lunos-5-sc-ft",
+      compatibleUnitCatalogueItemIds: ["lunos-e2-60-decentralised"],
+      maximumHeads: null,
+      compatibilityStatus: "verified-product-family",
+      topologyStatus: "verified-star-individual-runs",
+      cableEvidenceStatus: "verified-model-specific",
+      defaultCableSpecification: { status: "verified-manufacturer", label: "Fan circuit example J-Y(St)Y (2x2x0.8); conductor cross-section 0.5–1.5 mm²", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
+      sourceRevision: "LUNOS E458 + E476 06.24 EN",
+      powerSupplyRequirement: "12 V fan circuits; separate 230 V mains PSU. Select NT18/NT60 explicitly before enforcing head count.",
+      note: "Verified for e2-60 with individual star fan runs; loop-through is prohibited. Maximum supported heads remains unknown until the PSU variant is selected.",
+    }),
+    controllerRecord({
+      id: "lunos-5-uni-ft-controller-decentralised",
+      versionId: "lunos-5-uni-ft-controller-decentralised.v1",
+      manufacturer: "LUNOS",
+      name: "5/UNI-FT universal control",
+      controllerModelId: "lunos-5-uni-ft",
+      compatibleUnitCatalogueItemIds: ["lunos-e2-60-decentralised"],
+      maximumHeads: null,
+      compatibilityStatus: "verified-product-family",
+      topologyStatus: "verified-star-individual-runs",
+      cableEvidenceStatus: "verified-model-specific",
+      defaultCableSpecification: { status: "verified-manufacturer", label: "Fan circuit example J-Y(St)Y (2x2x0.8); conductor cross-section 0.5–1.5 mm²", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
+      sourceRevision: "LUNOS E458 + E474 09.23 DE/EN",
+      powerSupplyRequirement: "12 VDC SELV controller; separate 230 V mains PSU. 0–10 V is optional analogue control, not supply.",
+      note: "Verified for e2-60 with individual star fan runs; loop-through is prohibited. Maximum supported heads remains unknown until the PSU/controller arrangement is selected.",
+    }),
+    controllerRecord({
+      id: "manual-decentralised-controller",
+      versionId: "manual-decentralised-controller.v1",
+      manufacturer: null,
+      name: "Controller — manual / unverified",
+      controllerModelId: "manual-unverified",
+      compatibleUnitCatalogueItemIds: [],
+      maximumHeads: null,
+      compatibilityStatus: "unverified-manual-input",
+      topologyStatus: "unverified-model-specific",
+      cableEvidenceStatus: "unverified-model-specific",
+      defaultCableSpecification: { status: "unverified-manual-input", label: null, source: null },
+      sourceRevision: "manual input",
+      powerSupplyRequirement: "Unknown",
+      note: "Use only to mark a controller location while the exact model, supported head count, wiring topology and cable specification remain unresolved.",
+    }),
+  ];
+}
+
 export function isDecentralisedMvhrComponent(component) {
   return component?.decentralisedMvhr?.systemKind === "decentralised-through-wall";
 }
@@ -85,6 +161,8 @@ export function inspectDecentralisedMvhr(project, floorId) {
   const diagnostics = [];
   const pairGroups = groupByNonEmpty(components, (component) => component.decentralisedMvhr.pairGroupId);
   const controllerGroups = groupByNonEmpty(components, (component) => component.decentralisedMvhr.controllerReference);
+  const controllers = (project?.components ?? []).filter((component) => component.floorId === floorId && component.decentralisedController);
+  const cables = (project?.decentralisedCables ?? []).filter((cable) => cable.floorId === floorId);
 
   for (const component of components) {
     const metadata = component.decentralisedMvhr;
@@ -97,6 +175,22 @@ export function inspectDecentralisedMvhr(project, floorId) {
     if (metadata.controllerReferenceRequired && metadata.controllerReference === null) diagnostics.push(issue(
       "decentralised-controller-unassigned", "warning", "Controller association is not recorded", `${component.displayName} needs an explicit controller reference. No controller quantity is inferred.`, component.id,
     ));
+    if (metadata.controllerId !== null) {
+      const controller = controllers.find((candidate) => candidate.id === metadata.controllerId);
+      if (!controller) diagnostics.push(issue("decentralised-controller-marker-missing", "warning", "Controller marker is missing", `${component.displayName} references a controller marker that is not on this floor.`, component.id));
+      else if (!controllerSupportsUnit(controller, component)) diagnostics.push(issue("decentralised-controller-model-unverified", "warning", "Controller compatibility is unverified", `${controller.displayName} is not verified for ${component.displayName}; retain the manual/unverified state until manufacturer evidence is reviewed.`, component.id));
+    }
+  }
+
+  for (const controller of controllers) {
+    const linkedUnits = components.filter((component) => component.decentralisedMvhr.controllerId === controller.id);
+    const maximumHeads = controller.decentralisedController.maximumHeads;
+    if (maximumHeads !== null && linkedUnits.length > maximumHeads) diagnostics.push(issue("decentralised-controller-head-limit", "error", "Controller head limit exceeded", `${controller.decentralisedController.markupId} links ${linkedUnits.length} physical heads; the reviewed maximum is ${maximumHeads}.`, controller.id));
+    if (controller.decentralisedController.compatibilityStatus === "unverified-manual-input") diagnostics.push(issue("decentralised-controller-manual-unverified", "warning", "Controller model is unverified", `${controller.decentralisedController.markupId} is a manual location marker. Confirm the exact controller, supported topology and electrical requirements.`, controller.id));
+  }
+
+  for (const cable of cables) {
+    if (cable.specification.status !== "verified-manufacturer") diagnostics.push(issue("decentralised-cable-spec-unverified", "warning", "Cable specification is unverified", `${cable.id} records a ${cable.cableKind} plan route only. Confirm cable type, topology and electrical installation requirements.`, cable.unitComponentId));
   }
 
   for (const [pairGroupId, members] of pairGroups) {
@@ -119,11 +213,26 @@ export function inspectDecentralisedMvhr(project, floorId) {
     continuousBalancedUnitCount: components.filter((component) => component.decentralisedMvhr.operatingMode === "continuous-balanced").length,
     pairGroupCount: pairGroups.size,
     controllerReferenceCount: controllerGroups.size,
+    controllerMarkerCount: controllers.length,
+    cableRouteCount: cables.length,
+    cableRoutes: cables.map((cable) => ({ id: cable.id, controllerId: cable.controllerId, unitComponentId: cable.unitComponentId, cableKind: cable.cableKind, planLengthMm: cablePlanLengthMm(cable), lengthStatus: "plan-route-only-elevation-and-slack-excluded" })),
     pairGroups: [...pairGroups].map(([id, members]) => ({ id, componentIds: members.map((component) => component.id), physicalUnitCount: members.length })),
     controllerGroups: [...controllerGroups].map(([id, members]) => ({ id, componentIds: members.map((component) => component.id), physicalUnitCount: members.length })),
     diagnostics,
-    evidenceBoundary: "Physical unit markers, explicit room/zone, pair/group and controller references only. Wall suitability, clearances, electrical design, compliance, product compatibility and delivered airflow are not assessed.",
+    evidenceBoundary: "Physical unit and controller markers, explicit room/zone, pair/group/controller links and marked cable plan routes only. Cable route length excludes rises, drops, slack and termination allowance. Wall suitability, clearances, electrical design, compliance, product compatibility and delivered airflow are not assessed.",
   });
+}
+
+export function cablePlanLengthMm(cable) {
+  let length = 0;
+  for (let index = 1; index < cable.points.length; index += 1) length += Math.hypot(cable.points[index].x - cable.points[index - 1].x, cable.points[index].y - cable.points[index - 1].y);
+  return length;
+}
+
+function controllerSupportsUnit(controller, unit) {
+  const metadata = controller.decentralisedController;
+  if (metadata.compatibilityStatus === "unverified-manual-input") return false;
+  return metadata.compatibleUnitCatalogueItemIds.includes(unit.catalogueItemId);
 }
 
 function record(value) {
@@ -165,6 +274,39 @@ function record(value) {
       evidenceBoundary: value.evidenceBoundary,
     },
     note: value.evidenceBoundary,
+  };
+}
+
+function controllerRecord(value) {
+  const source = { ...CATALOGUE_SOURCE };
+  return {
+    id: value.id,
+    versionId: value.versionId,
+    group: "Decentralised controls",
+    category: "decentralised-controller",
+    manufacturer: value.manufacturer,
+    productId: null,
+    manufacturerArticle: null,
+    name: value.name,
+    status: value.compatibilityStatus,
+    source,
+    dimensions: { unit: "mm", body: null, drawingEnvelope: null, evidenceStatus: "schematic-controller-location-only", note: "The plan marker is not a scaled product outline or electrical setout." },
+    symbol: { ...CONTROLLER_SYMBOL, modelCode: value.controllerModelId },
+    ports: [],
+    decentralisedControllerSpecification: {
+      systemKind: "decentralised-controller",
+      controllerModelId: value.controllerModelId,
+      compatibleUnitCatalogueItemIds: [...value.compatibleUnitCatalogueItemIds],
+      maximumHeads: value.maximumHeads,
+      compatibilityStatus: value.compatibilityStatus,
+      cableEvidenceStatus: value.cableEvidenceStatus,
+      topologyStatus: value.topologyStatus,
+      defaultCableSpecification: value.defaultCableSpecification,
+      sourceRevision: value.sourceRevision,
+      powerSupplyRequirement: value.powerSupplyRequirement,
+      note: value.note,
+    },
+    note: value.note,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   createProject,
   deserializeProject,
   identityQuaternion,
+  inspectComponentDeletion,
   knownMm,
   serializeProject,
   unknownMm,
@@ -126,6 +127,57 @@ test("parts schedule and A3 export count physical units without adding pair or c
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /data-system="decentralised-mvhr"/);
   assert.match(svg, /Decentralised MVHR/);
+});
+
+test("controller markers and cable routes survive move rotate edit save and option duplication", () => {
+  let project = projectWithFloor();
+  const unit = component("aerofresh-30-compact-decentralised", "unit-a", 1200, 1200);
+  const controller = component("aerofresh-smove-controller-decentralised", "controller-a", 2600, 1800);
+  project = applyCommand(project, { type: "component.add", component: unit });
+  project = applyCommand(project, { type: "component.add", component: controller });
+  assert.equal(project.components.find(item => item.id === unit.id).decentralisedMvhr.markupId, "D1");
+  assert.equal(project.components.find(item => item.id === controller.id).decentralisedController.markupId, "C1");
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: {
+    id: "cable-a", floorId: "floor-ground", controllerId: controller.id, unitComponentId: unit.id,
+    cableKind: "combined-power-control", topologyStatus: "verified-synchronised-pairs", maximumRouteLengthMm: null,
+    specification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded · 6–16 VDC power/control", source: "manual mirror candidate" },
+    points: [{ x: 2600, y: 1800 }, { x: 1200, y: 1200 }],
+  } });
+  project = applyCommand(project, { type: "decentralisedCable.insertPoint", cableId: "cable-a", segmentIndex: 0, point: { x: 2100, y: 1450 } });
+  project = applyCommand(project, { type: "decentralisedCable.movePoint", cableId: "cable-a", pointIndex: 1, point: { x: 2100, y: 1600 } });
+  project = applyCommand(project, { type: "component.moveXY", componentId: controller.id, xMm: 2800, yMm: 1900 });
+  project = applyCommand(project, { type: "component.rotateFloorZ", componentId: controller.id, angleRad: Math.PI / 2 });
+  assert.deepEqual(project.decentralisedCables[0].points[0], { x: 2800, y: 1900 });
+  assert.deepEqual(project.decentralisedCables[0].points.at(-1), { x: 1200, y: 1200 });
+  const reopened = deserializeProject(serializeProject(project));
+  assert.deepEqual(reopened.decentralisedCables, project.decentralisedCables);
+  const schedule = createPartsSchedule(reopened, { floorId: "floor-ground" });
+  assert.equal(schedule.decentralisedCableLines.length, 1);
+  assert.equal(schedule.decentralisedCableLines[0].lengthStatus, "plan-route-only-elevation-and-slack-excluded");
+  const svg = renderA3SheetSvg(createA3SheetModel(reopened, sheetMetadata()));
+  assert.match(svg, /data-system="decentralised-controller"/);
+  assert.match(svg, /data-kind="decentralised-cable"/);
+  assert.match(svg, />D1<|>C1</);
+
+  const duplicated = applyCommand(reopened, { type: "designOption.duplicate", id: "option-copy", name: "Option copy", revision: "B", copyScopes: ["markup"], activate: true });
+  assert.equal(duplicated.decentralisedCables.length, 1);
+  assert.notEqual(duplicated.decentralisedCables[0].id, "cable-a");
+  assert.ok(duplicated.components.some(item => item.decentralisedController?.markupId === "C1"));
+});
+
+test("verified controller compatibility is enforced while manual controller remains explicitly unverified", () => {
+  let project = projectWithFloor();
+  const lunos = component("lunos-e2-60-decentralised", "lunos-unit", 1200, 1200);
+  const smove = component("aerofresh-smove-controller-decentralised", "smove", 2500, 1200);
+  const manual = component("manual-decentralised-controller", "manual-controller", 2500, 2200);
+  for (const item of [lunos, smove, manual]) project = applyCommand(project, { type: "component.add", component: item });
+  const cable = controllerId => ({ id: `cable-${controllerId}`, floorId: "floor-ground", controllerId, unitComponentId: lunos.id, cableKind: "unspecified", topologyStatus: "unverified-model-specific", maximumRouteLengthMm: null, specification: { status: "unverified-manual-input", label: null, source: null }, points: [{ x: 0, y: 0 }, { x: 0, y: 0 }] });
+  assert.throws(() => applyCommand(project, { type: "decentralisedCable.add", cable: cable(smove.id) }), /not verified/);
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: cable(manual.id) });
+  const inspection = inspectDecentralisedMvhr(project, "floor-ground");
+  assert.equal(inspection.diagnostics.some(item => item.code === "decentralised-controller-model-unverified"), true);
+  const deletion = inspectComponentDeletion(project, manual.id);
+  assert.deepEqual(deletion.decentralisedCableIds, ["cable-manual-controller"]);
 });
 
 function component(catalogueItemId, id, xMm, yMm) {

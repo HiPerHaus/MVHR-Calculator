@@ -1,7 +1,7 @@
 import { COMBINED_DN160_PORT_PITCH_MM } from "../domain/combined-grille-drawing-spacing.mjs";
 import { ca200Records } from "./ca200-profile.mjs";
 import { standaloneCwRecords } from "./standalone-cw.mjs";
-import { decentralisedMvhrRecords } from "./decentralised-mvhr.mjs";
+import { decentralisedControllerRecords, decentralisedMvhrRecords } from "./decentralised-mvhr.mjs";
 import { terminalDrawingPortDefinition } from "../domain/terminal-drawing-connections.mjs";
 import { EXTERNAL_GRILLE_EVIDENCE } from "./external-grille-evidence.mjs";
 import { AEROFRESH_MANUAL_EVIDENCE } from "./aerofresh-manual-evidence.mjs";
@@ -295,6 +295,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
   ...ca200Records().map(componentRecord),
   ...standaloneCwRecords().map(componentRecord),
   ...decentralisedMvhrRecords().map(componentRecord),
+  ...decentralisedControllerRecords().map(componentRecord),
   componentRecord({
     id: "synthetic-mvhr-placeholder",
     versionId: "generic-mvhr-unit.v2",
@@ -594,6 +595,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
     manufacturerGeometryAsset: item.manufacturerGeometryAsset ?? null,
     ...(item.terminalSpecification ? { terminalSpecification: item.terminalSpecification } : {}),
     ...(item.decentralisedSpecification ? { decentralisedSpecification: item.decentralisedSpecification } : {}),
+    ...(item.decentralisedControllerSpecification ? { decentralisedControllerSpecification: item.decentralisedControllerSpecification } : {}),
   };
   return {
     id: placement.id,
@@ -639,10 +641,19 @@ export function createCatalogueComponent(catalogueItemId, placement) {
         systemKind: item.decentralisedSpecification.systemKind,
         operatingMode: item.decentralisedSpecification.operatingMode,
         controllerReferenceRequired: item.decentralisedSpecification.controller.referenceRequired,
+        markupId: null,
         pairGroupId: null,
         controllerReference: null,
+        controllerId: null,
         roomId: null,
         zoneId: null,
+      },
+    } : {}),
+    ...(item.decentralisedControllerSpecification ? {
+      decentralisedController: {
+        ...structuredClone(item.decentralisedControllerSpecification),
+        markupId: null,
+        manualModelReference: null,
       },
     } : {}),
   };

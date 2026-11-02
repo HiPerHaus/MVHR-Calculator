@@ -6,6 +6,9 @@ import {constrainEppPlanPoints,isEppPlanSegment,alignEppPortApproaches,hasHrvCei
 import {applyCommand,createProject,identityQuaternion,knownMm,unknownMm,floorPortTransform,serializeProject,deserializeProject} from "../src/domain/spatial.mjs";
 import {createCatalogueComponent,routeFamilyForKind} from "../src/editor/component-catalogue.mjs";
 import {createCommandHistory,executeCommand,undoCommand,redoCommand} from "../src/domain/history.mjs";
+import {createConfiguredMvhrComponent} from "../src/editor/mvhr-placement.mjs";
+import {standaloneCwRecordId} from "../src/editor/standalone-cw.mjs";
+import {deriveHrvCeilingElbows} from "../src/editor/hrv-ceiling-elbows.mjs";
 
 function assertAngles(points) { for(let i=1;i<points.length;i++) assert.ok(isEppPlanSegment(points[i-1],points[i]),JSON.stringify(points)); }
 function fixture() {
@@ -61,6 +64,38 @@ test("EPP port approaches remain inline through point edits, equipment moves and
  p=applyCommand(p,{type:"route.movePoint",routeId:"epp-run",pointIndex:1,xMm:1000,yMm:937});assertInline(p);
  p=applyCommand(p,{type:"component.moveXY",componentId:"grille",xMm:5000,yMm:2531});assertInline(p);
  assertInline(deserializeProject(serializeProject(p)));
+});
+
+test("rotated CA200 ceiling bends stay centred on typed ports and compact nearby phantom clicks",()=>{
+ let p=applyCommand(createProject("ca200-cw-bend-alignment"),{type:"floor.add",floor:{id:"floor-ground",name:"Ground",transform:{translationMm:{x:0,y:0,z:knownMm(0,"datum")},orientation:identityQuaternion()}}});
+ const unit=createConfiguredMvhrComponent({model:"ca200",mounting:"horizontal",handing:"left",layout:"remote-attenuators"},{id:"ca200",floorId:"floor-ground",xMm:3000,yMm:1800});
+ const cw=createCatalogueComponent(standaloneCwRecordId({size:"320",stream:"supply",orientation:"horizontal",mainSize:125}),{id:"cw320-supply",floorId:"floor-ground",xMm:3300,yMm:4800,allowAssemblyOnly:true});
+ p=applyCommand(p,{type:"component.add",component:unit});
+ p=applyCommand(p,{type:"component.add",component:cw});
+ p=applyCommand(p,{type:"component.rotateFloorZ",componentId:"ca200",angleRad:Math.PI});
+ p=applyCommand(p,{type:"component.rotateFloorZ",componentId:"cw320-supply",angleRad:-Math.PI/2});
+ const startPort=p.components.find(c=>c.id==="ca200").ports.find(port=>port.stream==="supply");
+ const endPort=p.components.find(c=>c.id==="cw320-supply").ports.find(port=>port.definitionId.includes("port-main"));
+ const start=floorPortTransform(p,"ca200",startPort.id).positionMm,end=floorPortTransform(p,"cw320-supply",endPort.id).positionMm;
+ const family=routeFamilyForKind("epp-rigid-dn125");
+ p=applyCommand(p,{type:"route.add",route:{id:"ca200-cw-route",floorId:"floor-ground",system:"mvhr",stream:"supply",role:"Dwelling supply",ductKind:family.id,connectionInterface:family.connectionInterface,parallelRunCount:1,startAttachment:{componentId:"ca200",portId:startPort.id},endAttachment:{componentId:"cw320-supply",portId:endPort.id},points:[start,{...start,x:start.x+90,y:start.y+70},end]}});
+ let route=p.routes[0];
+ assert.deepEqual(route.points[0],start);
+ assert.ok(Math.hypot(route.points[1].x-start.x,route.points[1].y-start.y)>=499.9,`near-port click is compacted instead of becoming a phantom bend: ${JSON.stringify(route.points)}`);
+ let elbow=deriveHrvCeilingElbows(p.routes,p.components)[0];
+ assert.deepEqual({x:elbow.xMm,y:elbow.yMm},{x:start.x,y:start.y});
+ p=applyCommand(p,{type:"component.moveXY",componentId:"cw320-supply",xMm:3600,yMm:5000});
+ p=applyCommand(p,{type:"component.rotateFloorZ",componentId:"ca200",angleRad:Math.PI/2});
+ route=p.routes[0];
+ const movedStart=floorPortTransform(p,"ca200",startPort.id).positionMm;
+ assert.deepEqual(route.points[0],movedStart);
+ assert.ok(Math.hypot(route.points[1].x-movedStart.x,route.points[1].y-movedStart.y)>=499.9);
+ elbow=deriveHrvCeilingElbows(p.routes,p.components)[0];
+ assert.deepEqual({x:elbow.xMm,y:elbow.yMm},{x:movedStart.x,y:movedStart.y});
+ const reopened=deserializeProject(serializeProject(p));
+ assert.deepEqual(reopened.routes,p.routes);
+ const svg=renderA3SheetSvg(createA3SheetModel(reopened,{projectName:"CA200 bend",drawingTitle:"Ventilation",drawingId:"V01",revision:"A",revisionText:"Review",issueDate:"2026-11-02",status:"Preliminary — not for construction",floorId:"floor-ground"}));
+ assert.match(svg,/data-kind="hrv-ceiling-elbow" data-alignment-status="typed-port-centred"/);
 });
 
 test("whole-run deletion is isolated and undo restores all endpoint bindings",()=>{

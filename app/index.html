@@ -319,8 +319,20 @@
               <label>Room or zone<select id="decentralised-space-assignment" aria-label="Decentralised unit room or zone"></select></label>
               <label id="decentralised-pair-label">Pair / group reference<input id="decentralised-pair-group" type="text" maxlength="80" autocomplete="off" placeholder="Example: Pair 1" /></label>
               <label id="decentralised-controller-label">Controller reference<input id="decentralised-controller-reference" type="text" maxlength="120" autocomplete="off" placeholder="Example: sMove 1" /></label>
+              <label id="decentralised-controller-marker-label">Controller marker<select id="decentralised-controller-marker" aria-label="Linked decentralised controller marker"></select></label>
+              <button id="connect-decentralised-controller" type="button">Connect controller → unit</button>
+              <label id="decentralised-cable-kind-label">Marked cable type<select id="decentralised-cable-kind"><option value="unspecified">Unspecified / verify</option><option value="power">Power wiring · manual</option><option value="control-interconnect">Control / interconnect</option><option value="combined-power-control">Combined power / control</option></select></label>
+              <label id="decentralised-cable-spec-label">Cable specification<input id="decentralised-cable-spec" type="text" maxlength="240" autocomplete="off" placeholder="Unknown until model evidence is selected" /></label>
+              <button id="apply-decentralised-cable" type="button">Apply cable details</button>
               <button id="apply-decentralised-configuration" type="button">Apply associations</button>
               <small id="decentralised-configuration-detail"></small>
+            </dd>
+            <dt id="decentralised-controller-term" hidden>Controller marker</dt><dd id="decentralised-controller-field" class="component-decentralised-field" hidden>
+              <strong id="decentralised-controller-model"></strong>
+              <span id="decentralised-controller-markup-id"></span>
+              <label>Manual model note<input id="decentralised-controller-manual-reference" type="text" maxlength="120" autocomplete="off" placeholder="Only for an unverified manual marker" /></label>
+              <button id="apply-decentralised-controller" type="button">Apply controller note</button>
+              <small id="decentralised-controller-detail"></small>
             </dd>
             <dt>Evidence</dt><dd id="component-evidence"></dd>
           </dl>

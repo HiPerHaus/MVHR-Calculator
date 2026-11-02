@@ -9,6 +9,7 @@ import {
   identityQuaternion,
   inspectComponentDeletion,
   knownMm,
+  SCHEMA_VERSION,
   serializeProject,
   unknownMm,
 } from "../src/domain/spatial.mjs";
@@ -367,7 +368,7 @@ test("schema 23 engineering duties migrate without inventing network results in 
   }
 
   const migrated = deserializeProject(JSON.stringify(legacy));
-  assert.equal(migrated.schemaVersion, 26);
+  assert.equal(migrated.schemaVersion, SCHEMA_VERSION);
   assert.deepEqual(migrated.engineeringInputs, { version: "mvhr-engineering-inputs.v4", floorDuties: [], networkDesigns: [] });
   assert.equal(migrated.designOptions.filter(option => option.snapshot).every(option => option.snapshot.engineeringInputs.version === "mvhr-engineering-inputs.v4"), true);
   assert.equal(migrated.designOptions.filter(option => option.snapshot).every(option => option.snapshot.engineeringInputs.networkDesigns.length === 0), true);
@@ -390,7 +391,7 @@ test("schema 24 route inputs reopen into v3 without dereferencing the old diamet
     delete curve.unitConfigurationFingerprint; delete curve.pressureConvention; delete curve.filterCondition;
   }
   const reopened = deserializeProject(JSON.stringify(legacy));
-  assert.equal(reopened.schemaVersion, 26);
+  assert.equal(reopened.schemaVersion, SCHEMA_VERSION);
   assert.equal(reopened.engineeringInputs.version, "mvhr-engineering-inputs.v4");
   assert.equal(reopened.engineeringInputs.networkDesigns[0].routeResistanceInputs[0].crossSection.shape, "circular");
   const result = evaluateEngineeringNetwork(reopened, "floor-ground", "normal");

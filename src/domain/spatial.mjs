@@ -3,7 +3,7 @@ import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
 import { enableMountedCwDrawingConnections } from "./mounted-cw-drawing-connections.mjs";
 import { enableTerminalDrawingConnection, selectTerminalDrawingEntry } from "./terminal-drawing-connections.mjs";
-import { constrainEppPlanPoints, alignEppPortApproaches, realignEppPlanConnections, hasHrvCeilingElbow } from "./epp-plan-constraints.mjs";
+import { constrainEppPlanPoints, alignEppPortApproaches, realignEppPlanConnections, compactHrvCeilingElbowEndpoints, ensureHrvCeilingElbowLead, hasHrvCeilingElbow } from "./epp-plan-constraints.mjs";
 import {
   MAX_DXF_REFERENCE_ASSETS,
   MAX_TOTAL_DXF_REFERENCE_BYTES,
@@ -61,7 +61,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -216,6 +216,7 @@ export function createProject(id) {
     coordinateSystem: { ...COORDINATE_SYSTEM },
     floors: [],
     components: [],
+    decentralisedCables: [],
     equipmentAssemblies: [],
     routes: [],
     connections: [],
@@ -261,6 +262,8 @@ export function applyCommand(project, command, options = {}) {
       const component = normalizeComponent(command.component);
       requireUniqueId(next.components, component.id, "Component");
       requireEntity(next.floors, component.floorId, "Floor");
+      if (component.decentralisedMvhr && component.decentralisedMvhr.markupId === null) component.decentralisedMvhr.markupId = nextMarkupId(next.components, "decentralisedMvhr", "D");
+      if (component.decentralisedController && component.decentralisedController.markupId === null) component.decentralisedController.markupId = nextMarkupId(next.components, "decentralisedController", "C");
       next.components.push(component);
       if (command.autoAssignTerminalSpace === true) {
         assignTerminalToContainingSpace(next, component);
@@ -334,6 +337,7 @@ export function applyCommand(project, command, options = {}) {
       component.positionMm.x = requireFinite(command.xMm, "Component x");
       component.positionMm.y = requireFinite(command.yMm, "Component y");
       synchronizeAttachedRouteEndpoints(next, component.id);
+      synchronizeDecentralisedCableEndpoints(next, component.id);
       if (command.autoAssignTerminalSpace === true) {
         assignTerminalToContainingSpace(next, component);
         assignDecentralisedToContainingSpace(next, component);
@@ -349,6 +353,7 @@ export function applyCommand(project, command, options = {}) {
         component.orientation,
       );
       synchronizeAttachedRouteEndpoints(next, component.id);
+      synchronizeDecentralisedCableEndpoints(next, component.id);
       break;
     }
     case "component.setElevation": {
@@ -377,13 +382,89 @@ export function applyCommand(project, command, options = {}) {
       if (component.decentralisedMvhr.operatingMode === "continuous-balanced" && pairGroupId !== null) {
         throw new TypeError("Continuous-balanced units do not require an alternating pair/group reference");
       }
+      const controllerId = command.controllerId === undefined ? component.decentralisedMvhr.controllerId : nullableOpaqueId(command.controllerId, "Decentralised controller ID");
+      const controller = controllerId === null ? null : requireEntity(next.components, controllerId, "Decentralised controller");
+      if (controller && !controller.decentralisedController) throw new TypeError("Selected component is not a decentralised controller marker");
+      if (controller && controller.floorId !== component.floorId) throw new TypeError("Decentralised controller must share the unit floor");
       component.decentralisedMvhr = normalizeDecentralisedMvhrMetadata({
         ...component.decentralisedMvhr,
         roomId,
         zoneId,
         pairGroupId,
         controllerReference: nullableBoundedText(command.controllerReference, "Decentralised controller reference", 120),
+        controllerId,
       });
+      break;
+    }
+    case "component.setDecentralisedControllerConfiguration": {
+      const component = requireEntity(next.components, command.componentId, "Decentralised controller");
+      if (!component.decentralisedController) throw new TypeError("Component is not a decentralised controller marker");
+      component.decentralisedController = normalizeDecentralisedControllerMetadata({
+        ...component.decentralisedController,
+        manualModelReference: nullableBoundedText(command.manualModelReference, "Manual controller model reference", 120),
+      });
+      break;
+    }
+    case "decentralisedCable.add": {
+      const cable = normalizeDecentralisedCable(command.cable);
+      requireUniqueId(next.decentralisedCables, cable.id, "Decentralised cable");
+      const controller = requireEntity(next.components, cable.controllerId, "Decentralised cable controller");
+      const unit = requireEntity(next.components, cable.unitComponentId, "Decentralised cable unit");
+      if (!controller.decentralisedController) throw new TypeError("Decentralised cable start must be a controller marker");
+      if (!unit.decentralisedMvhr) throw new TypeError("Decentralised cable end must be a decentralised unit");
+      if (controller.floorId !== cable.floorId || unit.floorId !== cable.floorId) throw new TypeError("Decentralised cable endpoints must share its floor");
+      const existingCable = next.decentralisedCables.find((candidate) => candidate.unitComponentId === unit.id);
+      if (existingCable && command.replaceExisting !== true) throw new TypeError("Decentralised unit already has a controller cable");
+      if (existingCable) next.decentralisedCables = next.decentralisedCables.filter((candidate) => candidate.id !== existingCable.id);
+      const controllerMetadata = controller.decentralisedController;
+      if (controllerMetadata.compatibilityStatus !== "unverified-manual-input" && !controllerMetadata.compatibleUnitCatalogueItemIds.includes(unit.catalogueItemId)) throw new TypeError("Controller model is not verified for the selected decentralised unit");
+      const linkedHeadCount = next.decentralisedCables.filter((candidate) => candidate.controllerId === controller.id).length;
+      if (controllerMetadata.maximumHeads !== null && linkedHeadCount >= controllerMetadata.maximumHeads) throw new RangeError(`Controller ${controllerMetadata.markupId} supports at most ${controllerMetadata.maximumHeads} physical heads`);
+      cable.points[0] = planPointFromComponent(controller);
+      cable.points[cable.points.length - 1] = planPointFromComponent(unit);
+      next.decentralisedCables.push(cable);
+      unit.decentralisedMvhr.controllerId = controller.id;
+      unit.decentralisedMvhr.controllerReference = controller.decentralisedController.markupId;
+      break;
+    }
+    case "decentralisedCable.insertPoint": {
+      const cable = requireEntity(next.decentralisedCables, command.cableId, "Decentralised cable");
+      const segmentIndex = requireInteger(command.segmentIndex, "Decentralised cable segment index");
+      if (segmentIndex < 0 || segmentIndex >= cable.points.length - 1) throw new RangeError("Decentralised cable segment index is out of range");
+      cable.points.splice(segmentIndex + 1, 0, normalizePlanPoint(command.point, "Decentralised cable point"));
+      break;
+    }
+    case "decentralisedCable.movePoint": {
+      const cable = requireEntity(next.decentralisedCables, command.cableId, "Decentralised cable");
+      const pointIndex = requireInteger(command.pointIndex, "Decentralised cable point index");
+      if (pointIndex < 1 || pointIndex >= cable.points.length - 1) throw new RangeError("Only intermediate decentralised cable points can move");
+      cable.points[pointIndex] = normalizePlanPoint(command.point, "Decentralised cable point");
+      break;
+    }
+    case "decentralisedCable.removePoint": {
+      const cable = requireEntity(next.decentralisedCables, command.cableId, "Decentralised cable");
+      const pointIndex = requireInteger(command.pointIndex, "Decentralised cable point index");
+      if (pointIndex < 1 || pointIndex >= cable.points.length - 1) throw new RangeError("Only intermediate decentralised cable points can be removed");
+      cable.points.splice(pointIndex, 1);
+      break;
+    }
+    case "decentralisedCable.configure": {
+      const cable = requireEntity(next.decentralisedCables, command.cableId, "Decentralised cable");
+      Object.assign(cable, normalizeDecentralisedCable({
+        ...cable,
+        cableKind: command.cableKind ?? cable.cableKind,
+        specification: command.specification ?? cable.specification,
+      }));
+      break;
+    }
+    case "decentralisedCable.delete": {
+      const cable = requireEntity(next.decentralisedCables, command.cableId, "Decentralised cable");
+      next.decentralisedCables = next.decentralisedCables.filter((candidate) => candidate.id !== cable.id);
+      const unit = next.components.find((component) => component.id === cable.unitComponentId);
+      if (unit?.decentralisedMvhr?.controllerId === cable.controllerId) {
+        unit.decentralisedMvhr.controllerId = null;
+        unit.decentralisedMvhr.controllerReference = null;
+      }
       break;
     }
     case "equipmentAssembly.moveBy": {
@@ -454,6 +535,11 @@ export function applyCommand(project, command, options = {}) {
       next.components = next.components.filter((component) => !componentIds.has(component.id));
       next.routes = next.routes.filter((route) => !routeIds.has(route.id));
       next.connections = next.connections.filter((connection) => !connectionIds.has(connection.id));
+      next.decentralisedCables = next.decentralisedCables.filter((cable) => !componentIds.has(cable.controllerId) && !componentIds.has(cable.unitComponentId));
+      for (const component of next.components) if (component.decentralisedMvhr?.controllerId && componentIds.has(component.decentralisedMvhr.controllerId)) {
+        component.decentralisedMvhr.controllerId = null;
+        component.decentralisedMvhr.controllerReference = null;
+      }
       if (inspection.assemblyId !== null) {
         next.equipmentAssemblies = next.equipmentAssemblies.filter(
           (assembly) => assembly.id !== inspection.assemblyId,
@@ -497,6 +583,7 @@ export function applyCommand(project, command, options = {}) {
       next.equipmentAssemblies = next.equipmentAssemblies.filter((assembly) => assembly.floorId !== floorId);
       next.routes = next.routes.filter((route) => route.floorId !== floorId);
       next.connections = next.connections.filter((connection) => !connectionIds.has(connection.id));
+      next.decentralisedCables = next.decentralisedCables.filter((cable) => cable.floorId !== floorId);
       for (const space of [...next.rooms, ...next.zones]) {
         space.terminalAssociations = space.terminalAssociations.filter(
           (association) => !componentIds.has(association.componentId),
@@ -1508,6 +1595,22 @@ export function migrateProjectData(project) {
       })),
     };
   }
+  if (migrated.schemaVersion === 26) {
+    migrated = {
+      ...migrated,
+      schemaVersion: 27,
+      decentralisedCables: [],
+      components: migrateDecentralisedMarkupComponents(migrated.components),
+      designOptions: migrated.designOptions.map(option => ({
+        ...option,
+        snapshot: option.snapshot === null ? null : {
+          ...option.snapshot,
+          decentralisedCables: [],
+          components: migrateDecentralisedMarkupComponents(option.snapshot.components),
+        },
+      })),
+    };
+  }
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -1542,6 +1645,7 @@ function validateProjectInternal(project, skipDesignOptions) {
   for (const collection of [
     "floors",
     "components",
+    "decentralisedCables",
     "equipmentAssemblies",
     "routes",
     "connections",
@@ -1587,6 +1691,24 @@ function validateProjectInternal(project, skipDesignOptions) {
     });
     requireEntity(project.floors, component.floorId, "Floor");
   });
+  for (const [field, label] of [["decentralisedMvhr", "Decentralised unit"], ["decentralisedController", "Decentralised controller"]]) {
+    const markupIds = project.components.map((component) => component[field]?.markupId).filter(Boolean);
+    if (new Set(markupIds).size !== markupIds.length) throw new TypeError(`${label} markup IDs must be unique`);
+  }
+  project.decentralisedCables.forEach((cable) => {
+    const normalized = normalizeDecentralisedCable(cable);
+    const controller = requireEntity(project.components, normalized.controllerId, "Decentralised cable controller");
+    const unit = requireEntity(project.components, normalized.unitComponentId, "Decentralised cable unit");
+    if (!controller.decentralisedController) throw new TypeError(`Decentralised cable controller is not a controller marker: ${normalized.id}`);
+    if (!unit.decentralisedMvhr) throw new TypeError(`Decentralised cable unit is not a decentralised unit: ${normalized.id}`);
+    if (controller.floorId !== normalized.floorId || unit.floorId !== normalized.floorId) throw new TypeError(`Decentralised cable endpoints must share its floor: ${normalized.id}`);
+    const start = planPointFromComponent(controller);
+    const end = planPointFromComponent(unit);
+    if (!samePlanPoint(normalized.points[0], start) || !samePlanPoint(normalized.points.at(-1), end)) throw new TypeError(`Decentralised cable endpoints must match their controller and unit: ${normalized.id}`);
+    if (unit.decentralisedMvhr.controllerId !== controller.id) throw new TypeError(`Decentralised cable and unit controller links must agree: ${normalized.id}`);
+  });
+  const cableUnitIds = project.decentralisedCables.map((cable) => cable.unitComponentId);
+  if (new Set(cableUnitIds).size !== cableUnitIds.length) throw new TypeError("Each decentralised unit can have only one controller cable");
   for (const duty of engineeringInputs.floorDuties) {
     requireEntity(project.floors, duty.floorId, "Engineering duty floor");
     if (duty.unitComponentId === null) continue;
@@ -1760,6 +1882,12 @@ function validateProjectInternal(project, skipDesignOptions) {
       if (zone.floorId !== component.floorId) {
         throw new TypeError(`Decentralised zone must share the component floor: ${component.id}`);
       }
+    }
+    if (metadata.controllerId !== null) {
+      const controller = requireEntity(project.components, metadata.controllerId, "Decentralised controller marker");
+      if (!controller.decentralisedController || controller.floorId !== component.floorId) throw new TypeError(`Decentralised controller marker must share the unit floor: ${component.id}`);
+      const cables = project.decentralisedCables.filter((cable) => cable.unitComponentId === component.id && cable.controllerId === controller.id);
+      if (cables.length !== 1) throw new TypeError(`Decentralised controller link requires exactly one marked cable route: ${component.id}`);
     }
   }
   if (project.referenceAssets.length > MAX_REFERENCE_ASSETS) {
@@ -3287,6 +3415,57 @@ function normalizeFloor(floor) {
   };
 }
 
+function migrateDecentralisedMarkupComponents(components) {
+  let unitIndex = 0;
+  return components.map((component) => {
+    if (!component.decentralisedMvhr) return component;
+    unitIndex += 1;
+    return {
+      ...component,
+      decentralisedMvhr: {
+        ...component.decentralisedMvhr,
+        markupId: component.decentralisedMvhr.markupId ?? `D${unitIndex}`,
+        controllerId: component.decentralisedMvhr.controllerId ?? null,
+      },
+    };
+  });
+}
+
+function nextMarkupId(components, metadataField, prefix) {
+  const used = new Set(components.map((component) => component[metadataField]?.markupId).filter(Boolean));
+  let index = 1;
+  while (used.has(`${prefix}${index}`)) index += 1;
+  return `${prefix}${index}`;
+}
+
+function nullableMarkupId(value, prefix, label) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = normalizeBoundedText(value, label, 20);
+  if (!new RegExp(`^${prefix}[1-9][0-9]*$`).test(normalized)) throw new TypeError(`${label} must use ${prefix} followed by a positive number`);
+  return normalized;
+}
+
+function normalizePlanPoint(value, label) {
+  return { x: requireFinite(value?.x, `${label} x`), y: requireFinite(value?.y, `${label} y`) };
+}
+
+function planPointFromComponent(component) {
+  return { x: component.positionMm.x, y: component.positionMm.y };
+}
+
+function samePlanPoint(left, right) {
+  return Math.abs(left.x - right.x) <= PLAN_OPERATION_EPSILON_MM && Math.abs(left.y - right.y) <= PLAN_OPERATION_EPSILON_MM;
+}
+
+function synchronizeDecentralisedCableEndpoints(project, componentId) {
+  const component = project.components.find((candidate) => candidate.id === componentId);
+  if (!component) return;
+  for (const cable of project.decentralisedCables) {
+    if (cable.controllerId === componentId) cable.points[0] = planPointFromComponent(component);
+    if (cable.unitComponentId === componentId) cable.points[cable.points.length - 1] = planPointFromComponent(component);
+  }
+}
+
 function normalizeComponent(component) {
   requireOpaqueId(component?.id, "Component ID");
   requireOpaqueId(component?.floorId, "Component floor ID");
@@ -3306,7 +3485,9 @@ function normalizeComponent(component) {
     ports,
     engineeringPassages,
     ...(component.decentralisedMvhr ? { decentralisedMvhr: normalizeDecentralisedMvhrMetadata(component.decentralisedMvhr) } : {}),
+    ...(component.decentralisedController ? { decentralisedController: normalizeDecentralisedControllerMetadata(component.decentralisedController) } : {}),
   };
+  if (normalized.decentralisedMvhr && normalized.decentralisedController) throw new TypeError("A component cannot be both a decentralised unit and controller");
   if (ductRunCount !== null && !assignableRoomTerminalPort(normalized)) {
     throw new TypeError("Duct run count is only valid for a single-port MVHR supply or extract terminal");
   }
@@ -3345,10 +3526,66 @@ function normalizeDecentralisedMvhrMetadata(value) {
     systemKind,
     operatingMode,
     controllerReferenceRequired: value.controllerReferenceRequired === true,
+    markupId: nullableMarkupId(value.markupId, "D", "Decentralised unit markup ID"),
     pairGroupId,
     controllerReference: nullableBoundedText(value.controllerReference, "Decentralised controller reference", 120),
+    controllerId: nullableOpaqueId(value.controllerId, "Decentralised controller ID"),
     roomId: nullableOpaqueId(value.roomId, "Decentralised room ID"),
     zoneId: nullableOpaqueId(value.zoneId, "Decentralised zone ID"),
+  };
+}
+
+function normalizeDecentralisedControllerMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Decentralised controller metadata is required");
+  const compatibilityStatus = normalizeChoice(value.compatibilityStatus, ["verified-product-family", "verified-product-family-head-limit", "unverified-manual-input"], "Decentralised controller compatibility status");
+  const compatibleUnitCatalogueItemIds = Array.isArray(value.compatibleUnitCatalogueItemIds) ? value.compatibleUnitCatalogueItemIds.map((id) => requireOpaqueId(id, "Compatible decentralised unit catalogue ID")) : [];
+  if (new Set(compatibleUnitCatalogueItemIds).size !== compatibleUnitCatalogueItemIds.length) throw new TypeError("Compatible decentralised unit catalogue IDs must be unique");
+  const maximumHeads = value.maximumHeads === null || value.maximumHeads === undefined ? null : requireInteger(value.maximumHeads, "Decentralised controller maximum heads");
+  if (maximumHeads !== null && maximumHeads < 1) throw new RangeError("Decentralised controller maximum heads must be positive");
+  return {
+    systemKind: normalizeChoice(value.systemKind, ["decentralised-controller"], "Decentralised controller system kind"),
+    controllerModelId: normalizeBoundedText(value.controllerModelId, "Decentralised controller model ID", 120),
+    compatibleUnitCatalogueItemIds,
+    maximumHeads,
+    compatibilityStatus,
+    cableEvidenceStatus: normalizeChoice(value.cableEvidenceStatus ?? "unverified-model-specific", ["verified-model-specific", "candidate-manual-mirror", "unverified-model-specific"], "Decentralised controller cable evidence status"),
+    topologyStatus: normalizeChoice(value.topologyStatus ?? "unverified-model-specific", ["unverified-model-specific", "verified-star-individual-runs", "verified-synchronised-pairs"], "Decentralised controller topology status"),
+    defaultCableSpecification: normalizeCableSpecification(value.defaultCableSpecification ?? { status: "unverified-manual-input", label: null, source: null }),
+    sourceRevision: normalizeBoundedText(value.sourceRevision ?? "unverified", "Decentralised controller source revision", 500),
+    powerSupplyRequirement: normalizeBoundedText(value.powerSupplyRequirement ?? "Unknown", "Decentralised controller power supply requirement", 500),
+    markupId: nullableMarkupId(value.markupId, "C", "Decentralised controller markup ID"),
+    manualModelReference: nullableBoundedText(value.manualModelReference, "Manual controller model reference", 120),
+    note: normalizeBoundedText(value.note, "Decentralised controller note", 1000),
+  };
+}
+
+function normalizeDecentralisedCable(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Decentralised cable is required");
+  requireOpaqueId(value.id, "Decentralised cable ID");
+  requireOpaqueId(value.floorId, "Decentralised cable floor ID");
+  requireOpaqueId(value.controllerId, "Decentralised cable controller ID");
+  requireOpaqueId(value.unitComponentId, "Decentralised cable unit ID");
+  if (!Array.isArray(value.points) || value.points.length < 2) throw new TypeError("Decentralised cable requires at least two plan points");
+  const specification = normalizeCableSpecification(value.specification);
+  return {
+    id: value.id,
+    floorId: value.floorId,
+    controllerId: value.controllerId,
+    unitComponentId: value.unitComponentId,
+    cableKind: normalizeChoice(value.cableKind, ["unspecified", "power", "control-interconnect", "combined-power-control"], "Decentralised cable kind"),
+    specification,
+    topologyStatus: normalizeChoice(value.topologyStatus ?? "unverified-model-specific", ["unverified-model-specific", "verified-star-individual-runs", "verified-synchronised-pairs"], "Decentralised cable topology status"),
+    maximumRouteLengthMm: value.maximumRouteLengthMm === null || value.maximumRouteLengthMm === undefined ? null : requireFinite(value.maximumRouteLengthMm, "Decentralised cable maximum route length"),
+    points: value.points.map((point) => normalizePlanPoint(point, "Decentralised cable point")),
+  };
+}
+
+function normalizeCableSpecification(specification) {
+  if (!specification || typeof specification !== "object" || Array.isArray(specification)) throw new TypeError("Decentralised cable specification is required");
+  return {
+    status: normalizeChoice(specification.status, ["unverified-manual-input", "candidate-manual-mirror", "verified-manufacturer"], "Decentralised cable specification status"),
+    label: nullableBoundedText(specification.label, "Decentralised cable specification", 240),
+    source: nullableBoundedText(specification.source, "Decentralised cable specification source", 500),
   };
 }
 
@@ -3502,6 +3739,9 @@ function componentDeletionInspection(project, componentId) {
       componentIdSet.has(connection.to.componentId)
     ))
     .map((connection) => connection.id);
+  const decentralisedCableIds = project.decentralisedCables
+    .filter((cable) => componentIdSet.has(cable.controllerId) || componentIdSet.has(cable.unitComponentId))
+    .map((cable) => cable.id);
   let associationCount = 0;
   for (const space of [...project.rooms, ...project.zones]) {
     associationCount += space.terminalAssociations.filter(
@@ -3518,6 +3758,8 @@ function componentDeletionInspection(project, componentId) {
     routeCount: routeIds.length,
     connectionIds,
     connectionCount: connectionIds.length,
+    decentralisedCableIds,
+    decentralisedCableCount: decentralisedCableIds.length,
     associationCount,
   };
 }
@@ -3529,12 +3771,14 @@ function assertConfirmedComponentDeletionScope(confirmedScope, inspection) {
   const componentIds = normalizeConfirmedIdList(confirmedScope.componentIds, "Confirmed component IDs");
   const routeIds = normalizeConfirmedIdList(confirmedScope.routeIds, "Confirmed route IDs");
   const connectionIds = normalizeConfirmedIdList(confirmedScope.connectionIds, "Confirmed connection IDs");
+  const decentralisedCableIds = normalizeConfirmedIdList(confirmedScope.decentralisedCableIds ?? [], "Confirmed decentralised cable IDs");
   const assemblyId = confirmedScope.assemblyId ?? null;
   if (assemblyId !== null) requireOpaqueId(assemblyId, "Confirmed equipment assembly ID");
   if (
     !sameOpaqueIdSet(componentIds, inspection.componentIds) ||
     !sameOpaqueIdSet(routeIds, inspection.routeIds) ||
     !sameOpaqueIdSet(connectionIds, inspection.connectionIds) ||
+    !sameOpaqueIdSet(decentralisedCableIds, inspection.decentralisedCableIds) ||
     assemblyId !== inspection.assemblyId
   ) {
     throw new TypeError("Component deletion scope changed; review and confirm the current dependent objects");
@@ -3696,15 +3940,18 @@ function synchronizeAttachedRouteEndpoints(project, componentId) {
 
 function constrainEditedEppRoute(route, project, realign = false) {
   if (!/^epp-rigid-dn/.test(route.ductKind)) return;
-  const direction = attachment => {
-    if (!attachment || !project) return null;
+  const endpointConstraint = attachment => {
+    if (!attachment || !project) return { direction: null, ceilingElbow: false };
     const component=requireEntity(project.components,attachment.componentId,"Component");
     const port=requireEntity(component.ports,attachment.portId,"Port");
-    if (hasHrvCeilingElbow(component,port)) return null;
-    return rotateVector(component.orientation,port.direction);
+    if (hasHrvCeilingElbow(component,port)) return { direction: null, ceilingElbow: true };
+    return { direction: rotateVector(component.orientation,port.direction), ceilingElbow: false };
   };
+  const start=endpointConstraint(route.startAttachment),end=endpointConstraint(route.endAttachment);
+  const stubMm=Math.max(500,(route.connectionInterface?.nominalSizeMm ?? 160)*4);
+  const compacted=compactHrvCeilingElbowEndpoints(constrainEppPlanPoints(route.points),{start:start.ceilingElbow,end:end.ceilingElbow},stubMm*1.25);
   const align=realign ? realignEppPlanConnections : alignEppPortApproaches;
-  route.points = align(constrainEppPlanPoints(route.points),direction(route.startAttachment),direction(route.endAttachment),Math.max(500,(route.connectionInterface?.nominalSizeMm ?? 160)*4));
+  route.points = ensureHrvCeilingElbowLead(align(compacted,start.direction,end.direction,stubMm),{start:start.ceilingElbow,end:end.ceilingElbow},stubMm);
 }
 
 function synchronizeRouteEndpoints(project, route) {
@@ -4063,6 +4310,11 @@ function normalizeBoundedText(value, label, maximumLength) {
 
 function requireFinite(value, label) {
   assertFinite(value, label);
+  return value;
+}
+
+function requireInteger(value, label) {
+  if (!Number.isSafeInteger(value)) throw new TypeError(`${label} must be an integer`);
   return value;
 }
 

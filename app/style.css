@@ -540,6 +540,21 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .component-decentralised-field small { color: var(--muted); font-size: 9px; line-height: 1.35; }
 .component-wall-reference { stroke: #5e7079; stroke-width: 3; pointer-events: none; }
 .component-symbol-code { fill: #154f3f; font-size: 11px; font-weight: 800; pointer-events: none; }
+.decentralised-unit-symbol { fill:#f4f8f7; stroke:#28745d; stroke-width:3; }
+.decentralised-unit-core { fill:#d9ebe5; stroke:#28745d; stroke-width:2; pointer-events:none; }
+.decentralised-airflow-glyph { fill:#28745d; pointer-events:none; }
+.decentralised-unit-id, .decentralised-controller-id { font-size:16px; paint-order:stroke; stroke:#f4f8f7; stroke-width:3px; }
+.decentralised-mode-code { fill:#29434d; font-size:8px; font-weight:800; letter-spacing:1px; pointer-events:none; }
+.decentralised-pair-code { fill:#29434d; font-size:10px; font-weight:800; paint-order:stroke; stroke:white; stroke-width:3px; pointer-events:none; }
+.decentralised-controller-symbol { fill:#fff7dd; stroke:#8b6b16; stroke-width:3; }
+.decentralised-controller-terminal { stroke:#8b6b16; stroke-width:3; stroke-dasharray:4 3; pointer-events:none; }
+.decentralised-cable { fill:none; stroke:#735c8f; stroke-width:3; stroke-dasharray:9 5; vector-effect:non-scaling-stroke; }
+.decentralised-cable.selected { stroke:#3f2761; stroke-width:5; }
+.decentralised-cable-hit { fill:none; stroke:transparent; stroke-width:18; vector-effect:non-scaling-stroke; cursor:pointer; }
+.decentralised-cable-point-handle { fill:#fff; stroke:#735c8f; stroke-width:2; vector-effect:non-scaling-stroke; }
+.decentralised-cable-point-handle.intermediate { cursor:move; }
+.decentralised-cable-point-handle.endpoint { fill:#e7deef; }
+.decentralised-cable-add-point { cursor:pointer; }
 .evidence-callout { margin-top: 22px; padding: 12px; border-left: 3px solid var(--teal); background: #eaf5f4; color: #315654; font-size: 11px; line-height: 1.5; }
 .evidence-callout strong { font-size: 12px; }
 .evidence-callout p { margin: 5px 0 0; }

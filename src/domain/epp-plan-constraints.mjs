@@ -119,6 +119,36 @@ export function realignEppPlanConnections(points,startDirection,endDirection,stu
   return alignEppPortApproaches(compact,startDirection,endDirection,stubMm);
 }
 
+// A vertical HRV rise has no meaningful horizontal port direction, but nearby
+// click points can still create a tiny phantom bend beside the top elbow.
+// Remove only those nearby plan clicks; exact typed endpoints and any known
+// elevation transition remain untouched by trimEndpointClick.
+export function compactHrvCeilingElbowEndpoints(points,{start=false,end=false}={},radius=800) {
+  let compact=points.map(point=>structuredClone(point));
+  if(end)compact=trimEndpointClick(compact,null,radius,true);
+  if(start)compact=trimEndpointClick(compact.slice().reverse(),null,radius,true).reverse();
+  return constrainEppPlanPoints(compact);
+}
+
+export function ensureHrvCeilingElbowLead(points,{start=false,end=false}={},leadMm=640) {
+  const alignStart=input=>{
+    if(input.length<2)return input;
+    const origin=input[0];
+    let targetIndex=1;
+    while(targetIndex<input.length-1&&Math.hypot(input[targetIndex].x-origin.x,input[targetIndex].y-origin.y)<leadMm)targetIndex+=1;
+    const target=input[targetIndex],dx=target.x-origin.x,dy=target.y-origin.y,distance=Math.hypot(dx,dy);
+    if(distance<leadMm||distance<EPS)return input;
+    if(isEppPlanSegment(origin,target))return [structuredClone(origin),...input.slice(targetIndex).map(point=>structuredClone(point))];
+    const angle=Math.round(Math.atan2(dy,dx)/(Math.PI/4))*(Math.PI/4);
+    const lead={...structuredClone(target),x:origin.x+Math.cos(angle)*leadMm,y:origin.y+Math.sin(angle)*leadMm};
+    return constrainEppPlanPoints([structuredClone(origin),lead,...input.slice(targetIndex).map(point=>structuredClone(point))]);
+  };
+  let aligned=points.map(point=>structuredClone(point));
+  if(start)aligned=alignStart(aligned);
+  if(end)aligned=alignStart(aligned.slice().reverse()).reverse();
+  return aligned;
+}
+
 // HRV EPP routes rise to a ceiling elbow before following the drawn plan run.
 // Its outlet follows the route; the unit's schematic side direction is not a plan constraint.
 export function hasHrvCeilingElbow(component, port) {

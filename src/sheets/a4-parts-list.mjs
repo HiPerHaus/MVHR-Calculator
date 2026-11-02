@@ -5,12 +5,13 @@ import {floorAreaValueLabel} from './floor-area-key.mjs';
 export function partsListRows(schedule){
  const rows=[],section=description=>rows.push({section:true,description,height:7});
  const add=(ref,description,quantity,unit='ea',partNumber='',kind='part')=>{const lines=wrapSheetText(description,58,4),partNumberLines=wrapSheetText(partNumber||'—',25,4);rows.push({ref,kind,partNumber,partNumberLines,description,lines,quantity:String(quantity),unit,height:Math.max(8,Math.max(lines.length,partNumberLines.length)*3.6+3)});};
- for(const [key,title] of [['mvhr','MVHR units'],['decentralised','Decentralised MVHR physical units'],['equipment','CW units and other equipment'],['terminals','Terminals']]){
+ for(const [key,title] of [['mvhr','MVHR units'],['decentralised','Decentralised MVHR physical units'],['decentralised-control','Decentralised controllers'],['equipment','CW units and other equipment'],['terminals','Terminals']]){
   const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key);
   if(!lines.length)continue;
   section(title);
   for(const line of lines)add(line.ref,line.description,line.quantity,'ea',line.partNumber??line.productId??line.manufacturerArticle??'',line.isAssemblySummary?'assembly':'part');
  }
+ if(schedule.decentralisedCableLines?.length){section('Decentralised controller cable plan routes — not duct');for(const cable of schedule.decentralisedCableLines)add(cable.ref,`${cable.cableKind} cable · ${cable.specification.label??'specification unverified'} · ${(cable.planLengthMm/1000).toFixed(2)} m plan route`,(cable.planLengthMm/1000).toFixed(2),'m-plan','','decentralised-cable');}
  if(schedule.decentralisedSystems?.unitCount){
   section('Decentralised MVHR associations — references, not extra quantities');
   add('D-MVHR',`Physical units ${schedule.decentralisedSystems.unitCount} · explicit pair/groups ${schedule.decentralisedSystems.pairGroupCount} · controller references ${schedule.decentralisedSystems.controllerReferenceCount}`,schedule.decentralisedSystems.unitCount,'unit','','summary');

@@ -4,6 +4,7 @@ export const DESIGN_OPTION_COPY_SCOPES = Object.freeze(["plan", "rooms", "markup
 
 const SNAPSHOT_COLLECTIONS = Object.freeze([
   "components",
+  "decentralisedCables",
   "equipmentAssemblies",
   "routes",
   "connections",
@@ -149,7 +150,7 @@ function duplicateSnapshot(source, scopes, optionId) {
   }
   if (copyMarkup) {
     snapshot.ventilationDesignType = source.ventilationDesignType;
-    for (const field of ["components", "equipmentAssemblies", "routes", "connections"]) {
+    for (const field of ["components", "decentralisedCables", "equipmentAssemblies", "routes", "connections"]) {
       snapshot[field] = structuredClone(source[field]);
     }
     snapshot.engineeringInputs = copyRooms ? structuredClone(source.engineeringInputs) : createEngineeringInputs();
