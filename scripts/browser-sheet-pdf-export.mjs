@@ -68,6 +68,22 @@ try {
   assert.equal(grilleEvidence.combinedPairClear, true);
   assert.ok(grilleEvidence.watermarkFontSize > 0 && grilleEvidence.watermarkFontSize <= 14, "draft watermark should fit inside the drawing clip");
   assert.equal(grilleEvidence.lunaMasks, 2,"placed Luna and key should both retain opaque duct masks");
+  const electricalEvidence = await evaluate(cdp, "window.__electricalEvidence");
+  assert.deepEqual(electricalEvidence.keyLabels.sort(), [
+    "Controller - 5/SC-FT SmartComfort",
+    "Controller - sMove",
+    "Controller Cable - J-Y(St)Y (2x2x0.8)",
+    "Controller Cable - LiYY 3 × 0.75 mm² stranded",
+    "Decentralised MVHR - AeroFresh 30 Compact",
+    "Decentralised MVHR - ComfoAir 70",
+    "Decentralised MVHR - ComfoSpot 50",
+    "Decentralised MVHR - LUNOS e²60",
+  ].sort());
+  assert.equal(electricalEvidence.noteCount, 4);
+  assert.equal(electricalEvidence.preliminaryBoundary, true);
+  assert.equal(electricalEvidence.verifiedLunos, true);
+  assert.equal(electricalEvidence.unverifiedAeroFresh, true);
+  assert.equal(electricalEvidence.genericLegend, false);
   await evaluate(cdp, "document.querySelector('#download').click()");
   const downloaded = await waitForDownload(downloadDirectory);
   await mkdir(outputDirectory, { recursive: true });
@@ -135,6 +151,10 @@ async function startQaServer() {
     project = domain.applyCommand(project,{type:"reference.addImage",asset:{id:"qa-plan-asset",kind:"image",fileName:"sheet-plan.png",mediaType:"image/png",byteLength:referenceBytes.length,sha256:await portable.sha256Hex(referenceBytes),widthPx:dimensions.widthPx,heightPx:dimensions.heightPx,dataUrl:portable.bytesToDataUrl(referenceBytes,"image/png")},reference:{id:"qa-plan-reference",floorId:"floor-ground",assetId:"qa-plan-asset",visible:true,locked:true,opacity:.7,transform:{translationMm:{x:0,y:0},rotationRad:0,scaleMmPerPixel:domain.knownMm(10,"QA scale")},calibration:null}});
     project = domain.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model:"q350-hrv",mounting:"vertical",handing:"left",layout:"unit-mounted-cw",cwSize:"320"},{id:"unit",floorId:"floor-ground",xMm:1000,yMm:1000})});
     for (const [index, catalogueItemId] of ["aerofresh-30-compact-decentralised","zehnder-comfospot-50-decentralised","zehnder-comfoair-70-decentralised","lunos-e2-60-decentralised"].entries()) project = domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id:\`decentralised-\${index}\`,floorId:"floor-ground",xMm:3000+index*600,yMm:2000})});
+    project = domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent("aerofresh-smove-controller-decentralised",{id:"controller-aerofresh",floorId:"floor-ground",xMm:3000,yMm:2700})});
+    project = domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent("lunos-5-sc-ft-controller-decentralised",{id:"controller-lunos",floorId:"floor-ground",xMm:4800,yMm:2700})});
+    project = domain.applyCommand(project,{type:"decentralisedCable.add",cable:{id:"cable-aerofresh",floorId:"floor-ground",controllerId:"controller-aerofresh",unitComponentId:"decentralised-0",cableKind:"combined-power-control",topologyStatus:"verified-synchronised-pairs",maximumRouteLengthMm:null,specification:{status:"candidate-manual-mirror",label:"LiYY 3 × 0.75 mm² stranded",source:"INST-AEROFRESH30 V1 pp6, 21–22 · manufacturer-authored mirror; original host not retrieved"},points:[{x:3000,y:2700},{x:3000,y:2000}]}});
+    project = domain.applyCommand(project,{type:"decentralisedCable.add",cable:{id:"cable-lunos",floorId:"floor-ground",controllerId:"controller-lunos",unitComponentId:"decentralised-3",cableKind:"control-interconnect",topologyStatus:"verified-star-individual-runs",maximumRouteLengthMm:null,specification:{status:"verified-manufacturer",label:"J-Y(St)Y (2x2x0.8)",source:"LUNOS E474 09.23 pp1, 3"},points:[{x:4800,y:2700},{x:4800,y:2000}]}});
     for (const [id,catalogueItemId,x,y,angleRad] of [["grille-combined","generic-external-grille-combined-dn160",5200,1200,0],["grille-intake","generic-external-grille-intake-dn160",5200,2300,Math.PI/2],["grille-exhaust","generic-external-grille-exhaust-dn160",5200,3100,Math.PI],["luna-output","luna-supply",4500,3500,0]]) { project=domain.applyCommand(project,{type:"component.add",component:createCatalogueComponent(catalogueItemId,{id,floorId:"floor-ground",xMm:x,yMm:y})}); if(angleRad) project=domain.applyCommand(project,{type:"component.rotateFloorZ",componentId:id,angleRad}); }
     const addRoute = (id, ductKind, stream, points, parallelRunCount=1) => { const family=routeFamilyForKind(ductKind); project=domain.applyCommand(project,{type:"route.add",route:{id,floorId:"floor-ground",system:"mvhr",stream,role:stream==="extract"?"Dwelling extract":stream==="intake"?"Outdoor intake":"Dwelling supply",ductKind,connectionInterface:family.connectionInterface,parallelRunCount,startAttachment:null,endAttachment:null,points:points.map(([x,y])=>({x,y,z:domain.unknownMm("QA route elevation not set")}))}}); };
     addRoute("qa-radial","semi-rigid-radial","supply",[[500,3500],[4500,3500]]);
@@ -153,6 +173,9 @@ async function startQaServer() {
     const watermark=drawingDocument.querySelector('[data-kind="draft-watermark"]');
     const combinedArrows=[...drawingDocument.querySelector('[data-id="grille-combined"]')?.querySelectorAll('[data-part="airflow-arrow"]')??[]].map(node=>{const values=node.getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number),ys=values.filter((_,index)=>index%2===1);return {minY:Math.min(...ys),maxY:Math.max(...ys)};}).sort((a,b)=>a.minY-b.minY);
     window.__grilleEvidence = {arrowCount:grilleArrows.length,streams:grilleArrows.map(node=>node.getAttribute("data-stream")),fills:grilleArrows.map(node=>node.getAttribute("fill")),labels:grilleLabels.map(node=>node.textContent),largeArrows:grilleArrows.every(node=>Number(node.getAttribute("data-annotation-scale"))===2&&Number(node.getAttribute("data-arrow-length-mm"))>=640),offsetArrows:grilleArrows.every(node=>Number(node.getAttribute("data-grille-clearance-mm"))>=120),readableLabels:grilleLabels.every(node=>Number(node.getAttribute("font-size"))===300&&Number(node.getAttribute("data-annotation-scale"))===2),integratedLabels:grilleLabels.every(node=>node.getAttribute("data-label-integrated")==="true"&&node.getAttribute("fill")==="white"&&Number(node.getAttribute("data-label-scale-x"))>0&&Number(node.getAttribute("data-label-scale-x"))<=1),combinedPairClear:combinedArrows.length===2&&combinedArrows[0].maxY<combinedArrows[1].minY,watermarkFontSize:Number(watermark?.getAttribute("font-size")),lunaMasks:drawingDocument.querySelectorAll('[data-part="luna-duct-mask"]').length};
+    const keyLabels=[...drawingDocument.querySelectorAll('#sheet-key > title')].map(node=>node.textContent).filter(label=>/^(Controller Cable|Decentralised MVHR|Controller) - /u.test(label));
+    const electricalNotes=[...drawingDocument.querySelectorAll('#electrical-connection-notes [data-kind="electrical-connection"]')];
+    window.__electricalEvidence={keyLabels,noteCount:electricalNotes.length,preliminaryBoundary:drawingDocument.querySelector('#electrical-connection-notes')?.getAttribute('data-evidence-boundary')==='preliminary-model-specific-not-installation-approval',verifiedLunos:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='verified-manufacturer'),unverifiedAeroFresh:electricalNotes.some(node=>node.getAttribute('data-evidence-status')==='manufacturer-authored-mirror-original-unverified'),genericLegend:keyLabels.some(label=>/schematic location marker|electrical design status shown/u.test(label))};
     window.__pagePlan = pages.map(({kind,widthMm,heightMm,orientation})=>({kind,widthMm,heightMm,orientation}));
     window.__supplierEvidence = partsListRows(longSheet.partsSchedule).filter(row=>!row.section).map(({description,quantity,unit,partNumber})=>({description,quantity,unit,partNumber}));
     const blob = await createMixedPagePdfBlob(pages,{title:"PDF browser QA",subject:"Mixed centralised and decentralised",author:"HiPer Studio"});

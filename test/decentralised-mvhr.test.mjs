@@ -17,7 +17,11 @@ import {
   createCatalogueComponent,
   deriveVentilationConnectionDemand,
 } from "../src/editor/component-catalogue.mjs";
-import { inspectDecentralisedMvhr } from "../src/editor/decentralised-mvhr.mjs";
+import {
+  decentralisedControllerElectricalConnection,
+  decentralisedControllerTypeLabel,
+  inspectDecentralisedMvhr,
+} from "../src/editor/decentralised-mvhr.mjs";
 import { createPartsSchedule } from "../src/editor/parts-schedule.mjs";
 import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
 import { createA3SheetModel, renderA3SheetSvg } from "../src/sheets/a3-sheet.mjs";
@@ -158,11 +162,98 @@ test("controller markers and cable routes survive move rotate edit save and opti
   assert.match(svg, /data-system="decentralised-controller"/);
   assert.match(svg, /data-kind="decentralised-cable"/);
   assert.match(svg, />D1<|>C1</);
+  assert.match(svg, /Controller Cable - LiYY 3 × 0\.75 mm² stranded · 6–16 VDC power\/control/);
+  assert.match(svg, /Decentralised MVHR - AeroFresh 30 Compact/);
+  assert.match(svg, /Controller - sMove/);
+  assert.match(svg, /ELECTRICAL CONNECTION · PRELIMINARY/);
+  assert.match(svg, /C1 sMove → D1 AeroFresh 30 Compact/);
+  assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
+  assert.match(svg, /Do not connect a fan directly to 230 V/);
+  assert.doesNotMatch(svg, /Terminals - .*S1\/S2/);
 
   const duplicated = applyCommand(reopened, { type: "designOption.duplicate", id: "option-copy", name: "Option copy", revision: "B", copyScopes: ["markup"], activate: true });
   assert.equal(duplicated.decentralisedCables.length, 1);
   assert.notEqual(duplicated.decentralisedCables[0].id, "cable-a");
   assert.ok(duplicated.components.some(item => item.decentralisedController?.markupId === "C1"));
+});
+
+test("drawing key and electrical note list actual mixed models, cable types and verified LUNOS detail", () => {
+  let project = projectWithFloor();
+  const aero = component("aerofresh-30-compact-decentralised", "aero-unit", 1000, 1000);
+  const smove = component("aerofresh-smove-controller-decentralised", "smove-controller", 1800, 1000);
+  const lunos = component("lunos-e2-60-decentralised", "lunos-unit", 1000, 2400);
+  const lunosController = component("lunos-5-sc-ft-controller-decentralised", "lunos-controller", 1800, 2400);
+  for (const item of [aero, smove, lunos, lunosController]) project = applyCommand(project, { type: "component.add", component: item });
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: {
+    id: "aero-cable", floorId: "floor-ground", controllerId: smove.id, unitComponentId: aero.id,
+    cableKind: "combined-power-control", topologyStatus: "verified-synchronised-pairs", maximumRouteLengthMm: null,
+    specification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded", source: "INST-AEROFRESH30 V1 pp6, 21–22 · manufacturer-authored mirror; original host not retrieved" },
+    points: [{ x: 1800, y: 1000 }, { x: 1000, y: 1000 }],
+  } });
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: {
+    id: "lunos-cable", floorId: "floor-ground", controllerId: lunosController.id, unitComponentId: lunos.id,
+    cableKind: "control-interconnect", topologyStatus: "verified-star-individual-runs", maximumRouteLengthMm: null,
+    specification: { status: "verified-manufacturer", label: "J-Y(St)Y (2x2x0.8)", source: "LUNOS E474 09.23 pp1, 3" },
+    points: [{ x: 1800, y: 2400 }, { x: 1000, y: 2400 }],
+  } });
+  const sheet = createA3SheetModel(project, sheetMetadata());
+  const labels = sheet.printScene.legend.map((entry) => entry.label);
+  assert.equal(labels.filter((label) => label === "Decentralised MVHR - AeroFresh 30 Compact").length, 1);
+  assert.equal(labels.filter((label) => label === "Decentralised MVHR - LUNOS e²60").length, 1);
+  assert.equal(labels.filter((label) => label === "Controller - sMove").length, 1);
+  assert.equal(labels.filter((label) => label === "Controller - 5/SC-FT SmartComfort").length, 1);
+  assert.equal(labels.filter((label) => label.startsWith("Controller Cable - ")).length, 2);
+  assert.equal(labels.some((label) => /schematic location marker|electrical design status shown/u.test(label)), false);
+  const lunosConnection = sheet.printScene.electricalConnections.find((connection) => connection.controllerId === lunosController.id);
+  assert.equal(lunosConnection.topology, "Individual star runs from controller to fan; loop-through is prohibited.");
+  assert.equal(lunosConnection.terminals, "+, −, S1/S2 at the fan circuit; diagram orientation remains governed by the cited current manual");
+  assert.match(lunosConnection.mains, /Separate 230 V mains PSU/);
+  assert.match(lunosConnection.limitations, /No verified maximum fan-cable length is stored/);
+  const svg = renderA3SheetSvg(sheet);
+  assert.match(svg, /Individual star runs from controller to fan/);
+  assert.match(svg, /Terminals - \+, −, S1\/S2/);
+  assert.match(svg, /Separate 230 V mains PSU/);
+  assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
+  assert.match(svg, /verified-manufacturer/);
+});
+
+test("manual controller and unconnected units print manual-required electrical placeholders", () => {
+  let project = projectWithFloor();
+  const unit = component("lunos-e2-60-decentralised", "unit-manual", 1000, 1000);
+  const manual = component("manual-decentralised-controller", "controller-manual", 1800, 1000);
+  project = applyCommand(project, { type: "component.add", component: unit });
+  project = applyCommand(project, { type: "component.add", component: manual });
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: {
+    id: "manual-cable", floorId: "floor-ground", controllerId: manual.id, unitComponentId: unit.id,
+    cableKind: "unspecified", topologyStatus: "unverified-model-specific", maximumRouteLengthMm: null,
+    specification: { status: "unverified-manual-input", label: null, source: null },
+    points: [{ x: 1800, y: 1000 }, { x: 1000, y: 1000 }],
+  } });
+  project = applyCommand(project, { type: "component.add", component: component("zehnder-comfospot-50-decentralised", "unit-unconnected", 3000, 1000) });
+  const sheet = createA3SheetModel(deserializeProject(serializeProject(project)), sheetMetadata());
+  const svg = renderA3SheetSvg(sheet);
+  assert.match(svg, /Controller Cable - Type unverified\/manual required/);
+  assert.match(svg, /Controller - Type unverified\/manual required/);
+  assert.match(svg, /No model-specific manual recorded/);
+  assert.match(svg, /Integrated controller · connection detail not stored/);
+  const manualConnection = sheet.printScene.electricalConnections.find((connection) => connection.controllerId === manual.id);
+  assert.match(manualConnection.limitations, /Do not use this placeholder as installation wiring guidance/);
+});
+
+test("older pinned controller snapshots do not silently inherit newer electrical evidence", () => {
+  const controller = structuredClone(component("lunos-5-sc-ft-controller-decentralised", "legacy-controller", 1000, 1000));
+  delete controller.catalogueSnapshot.decentralisedControllerSpecification.typeLabel;
+  delete controller.catalogueSnapshot.decentralisedControllerSpecification.electricalConnection;
+  assert.equal(decentralisedControllerTypeLabel(controller), "5/SC-FT SmartComfort control");
+  assert.deepEqual(decentralisedControllerElectricalConnection(controller), {
+    evidenceStatus: "unverified-manual-required",
+    sourceRevision: "Pinned controller record does not contain model-specific electrical connection evidence",
+    lowVoltage: "Unknown — current model-specific manual required",
+    mains: "Unknown — electrician to confirm supply, PSU, protection and isolation requirements",
+    topology: "Unknown — no wiring topology or terminal mapping inferred",
+    terminals: null,
+    limitations: "Do not use this placeholder as installation wiring guidance.",
+  });
 });
 
 test("verified controller compatibility is enforced while manual controller remains explicitly unverified", () => {

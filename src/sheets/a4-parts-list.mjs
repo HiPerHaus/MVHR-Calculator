@@ -1,4 +1,5 @@
 import {quotedCode} from '../editor/quote-product-codes.mjs';
+import {decentralisedCableTypeLabel} from '../editor/decentralised-mvhr.mjs';
 import {escapeXml,wrapSheetText} from './a3-sheet.mjs';
 import {floorAreaValueLabel} from './floor-area-key.mjs';
 
@@ -11,7 +12,7 @@ export function partsListRows(schedule){
   section(title);
   for(const line of lines)add(line.ref,line.description,line.quantity,'ea',line.partNumber??line.productId??line.manufacturerArticle??'',line.isAssemblySummary?'assembly':'part');
  }
- if(schedule.decentralisedCableLines?.length){section('Decentralised controller cable plan routes — not duct');for(const cable of schedule.decentralisedCableLines)add(cable.ref,`${cable.cableKind} cable · ${cable.specification.label??'specification unverified'} · ${(cable.planLengthMm/1000).toFixed(2)} m plan route`,(cable.planLengthMm/1000).toFixed(2),'m-plan','','decentralised-cable');}
+ if(schedule.decentralisedCableLines?.length){section('Decentralised controller cable plan routes — not duct');for(const cable of schedule.decentralisedCableLines)add(cable.ref,`Controller Cable - ${decentralisedCableTypeLabel(cable)} · ${(cable.planLengthMm/1000).toFixed(2)} m plan route`,(cable.planLengthMm/1000).toFixed(2),'m-plan','','decentralised-cable');}
  if(schedule.decentralisedSystems?.unitCount){
   section('Decentralised MVHR associations — references, not extra quantities');
   add('D-MVHR',`Physical units ${schedule.decentralisedSystems.unitCount} · explicit pair/groups ${schedule.decentralisedSystems.pairGroupCount} · controller references ${schedule.decentralisedSystems.controllerReferenceCount}`,schedule.decentralisedSystems.unitCount,'unit','','summary');

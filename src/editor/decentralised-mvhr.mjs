@@ -26,7 +26,7 @@ export function decentralisedMvhrRecords() {
       id: "aerofresh-30-compact-decentralised",
       versionId: "aerofresh-30-compact-decentralised.v1",
       manufacturer: "Aerofresh",
-      name: "Aerofresh 30 Compact",
+      name: "AeroFresh 30 Compact",
       guideUrl: "https://www.hiperhaus.com.au/docs/Aerofresh-30-Compact-Guide.pdf",
       operatingMode: "alternating-paired",
       wallOpeningReference: { valueMm: 160, basis: "HiPer guide wall-opening statement", status: "conflicts-with-sleeve-versus-core-manual-terminology" },
@@ -68,7 +68,7 @@ export function decentralisedMvhrRecords() {
       id: "lunos-e2-60-decentralised",
       versionId: "lunos-e2-60-decentralised.v1",
       manufacturer: "Lunos",
-      name: "e2-60",
+      name: "LUNOS e²60",
       guideUrl: "https://www.hiperhaus.com.au/docs/HiPer-Haus-Lunos-e2-60-Guide.pdf",
       operatingMode: "alternating-paired",
       wallOpeningReference: { valueMm: 162, basis: "HiPer guide approximate core-opening statement", status: "reference-only-not-drill-diameter" },
@@ -88,15 +88,25 @@ export function decentralisedControllerRecords() {
       versionId: "aerofresh-smove-controller-decentralised.v1",
       manufacturer: "Aerofresh",
       name: "sMove controller",
+      typeLabel: "sMove",
       controllerModelId: "aerofresh-smove",
       compatibleUnitCatalogueItemIds: ["aerofresh-30-compact-decentralised"],
       maximumHeads: 8,
       compatibilityStatus: "verified-product-family-head-limit",
       topologyStatus: "verified-synchronised-pairs",
       cableEvidenceStatus: "candidate-manual-mirror",
-      defaultCableSpecification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded · 6–16 VDC power/control", source: "INST-AEROFRESH30 V1 (7/26) p21 manual mirror; original host unavailable" },
+      defaultCableSpecification: { status: "candidate-manual-mirror", label: "LiYY 3 × 0.75 mm² stranded", source: "INST-AEROFRESH30 V1 (7/26) p21 manual mirror; original host unavailable" },
       sourceRevision: "Fantech Trade product page + candidate manual mirror INST-AEROFRESH30 V1 (7/26)",
       powerSupplyRequirement: "Wired sMove arrangement; exact AU installation and run limits unresolved.",
+      electricalConnection: {
+        evidenceStatus: "manufacturer-authored-mirror-original-unverified",
+        sourceRevision: "INST-AEROFRESH30 V1 · cover 6/26, body 7/26 · pp6, 12, 21–22 · manufacturer-authored mirror; original host not retrieved",
+        lowVoltage: "Controller-fed fan connection · 6–16 VDC from the sMove operating unit",
+        mains: "Do not connect a fan directly to 230 V. Supplied PSU, mains arrangement and protection remain to be confirmed.",
+        topology: "Synchronized pairs; sMove s4 maximum 4 heads and s8 maximum 8 heads. Star/series applicability is not asserted.",
+        terminals: null,
+        limitations: "Confirm the supplied current manual, exact sMove/PSU variant, terminals and pin orientation, cable run limit and Australian installation requirements before work.",
+      },
       note: "Existing reviewed product guidance identifies sMove for AeroFresh 30 Compact, synchronized pairs and a maximum of eight physical heads. Exact cable requirements and installed run limits remain unverified.",
     }),
     controllerRecord({
@@ -104,15 +114,25 @@ export function decentralisedControllerRecords() {
       versionId: "lunos-5-sc-ft-controller-decentralised.v1",
       manufacturer: "LUNOS",
       name: "5/SC-FT SmartComfort control",
+      typeLabel: "5/SC-FT SmartComfort",
       controllerModelId: "lunos-5-sc-ft",
       compatibleUnitCatalogueItemIds: ["lunos-e2-60-decentralised"],
       maximumHeads: null,
       compatibilityStatus: "verified-product-family",
       topologyStatus: "verified-star-individual-runs",
       cableEvidenceStatus: "verified-model-specific",
-      defaultCableSpecification: { status: "verified-manufacturer", label: "Fan circuit example J-Y(St)Y (2x2x0.8); conductor cross-section 0.5–1.5 mm²", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
+      defaultCableSpecification: { status: "verified-manufacturer", label: "J-Y(St)Y (2x2x0.8)", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
       sourceRevision: "LUNOS E458 + E476 06.24 EN",
       powerSupplyRequirement: "12 V fan circuits; separate 230 V mains PSU. Select NT18/NT60 explicitly before enforcing head count.",
+      electricalConnection: {
+        evidenceStatus: "verified-manufacturer",
+        sourceRevision: "LUNOS E458 pp14–15 · E474 09.23 pp1, 3 · E476 06.24 EN pp5, 7–8",
+        lowVoltage: "12 V fan circuits · cable example J-Y(St)Y (2x2x0.8) · conductor cross-section 0.5–1.5 mm²",
+        mains: "Separate 230 V mains PSU. Select the actual PSU arrangement before applying a head limit.",
+        topology: "Individual star runs from controller to fan; loop-through is prohibited.",
+        terminals: "+, −, S1/S2 at the fan circuit; diagram orientation remains governed by the cited current manual",
+        limitations: "No verified maximum fan-cable length is stored. The supplied local operating-element lead is not to be extended. Confirm current Australian installation requirements.",
+      },
       note: "Verified for e2-60 with individual star fan runs; loop-through is prohibited. Maximum supported heads remains unknown until the PSU variant is selected.",
     }),
     controllerRecord({
@@ -120,15 +140,25 @@ export function decentralisedControllerRecords() {
       versionId: "lunos-5-uni-ft-controller-decentralised.v1",
       manufacturer: "LUNOS",
       name: "5/UNI-FT universal control",
+      typeLabel: "5/UNI-FT universal",
       controllerModelId: "lunos-5-uni-ft",
       compatibleUnitCatalogueItemIds: ["lunos-e2-60-decentralised"],
       maximumHeads: null,
       compatibilityStatus: "verified-product-family",
       topologyStatus: "verified-star-individual-runs",
       cableEvidenceStatus: "verified-model-specific",
-      defaultCableSpecification: { status: "verified-manufacturer", label: "Fan circuit example J-Y(St)Y (2x2x0.8); conductor cross-section 0.5–1.5 mm²", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
+      defaultCableSpecification: { status: "verified-manufacturer", label: "J-Y(St)Y (2x2x0.8)", source: "LUNOS E474 09.23 pp1, 3 and E458 pp14–15" },
       sourceRevision: "LUNOS E458 + E474 09.23 DE/EN",
       powerSupplyRequirement: "12 VDC SELV controller; separate 230 V mains PSU. 0–10 V is optional analogue control, not supply.",
+      electricalConnection: {
+        evidenceStatus: "verified-manufacturer",
+        sourceRevision: "LUNOS E458 pp14–15 · E474 09.23 DE/EN pp1, 3",
+        lowVoltage: "12 VDC SELV fan circuits · cable example J-Y(St)Y (2x2x0.8) · conductor cross-section 0.5–1.5 mm²",
+        mains: "Separate 230 V mains PSU. Optional 0–10 V is analogue control, not the fan supply.",
+        topology: "Individual star runs from controller to fan; loop-through is prohibited.",
+        terminals: "+, −, S1/S2 at the fan circuit; diagram orientation remains governed by the cited current manual",
+        limitations: "No verified maximum fan-cable length is stored. Confirm the actual PSU/controller arrangement and current Australian installation requirements.",
+      },
       note: "Verified for e2-60 with individual star fan runs; loop-through is prohibited. Maximum supported heads remains unknown until the PSU/controller arrangement is selected.",
     }),
     controllerRecord({
@@ -136,6 +166,7 @@ export function decentralisedControllerRecords() {
       versionId: "manual-decentralised-controller.v1",
       manufacturer: null,
       name: "Controller — manual / unverified",
+      typeLabel: "Type unverified/manual required",
       controllerModelId: "manual-unverified",
       compatibleUnitCatalogueItemIds: [],
       maximumHeads: null,
@@ -145,6 +176,15 @@ export function decentralisedControllerRecords() {
       defaultCableSpecification: { status: "unverified-manual-input", label: null, source: null },
       sourceRevision: "manual input",
       powerSupplyRequirement: "Unknown",
+      electricalConnection: {
+        evidenceStatus: "unverified-manual-required",
+        sourceRevision: "No model-specific manual recorded",
+        lowVoltage: "Unknown — current model-specific manual required",
+        mains: "Unknown — electrician to confirm supply, PSU, protection and isolation requirements",
+        topology: "Unknown — no wiring topology or terminal mapping inferred",
+        terminals: null,
+        limitations: "Do not use this placeholder as installation wiring guidance.",
+      },
       note: "Use only to mark a controller location while the exact model, supported head count, wiring topology and cable specification remain unresolved.",
     }),
   ];
@@ -229,6 +269,53 @@ export function cablePlanLengthMm(cable) {
   return length;
 }
 
+export function decentralisedUnitTypeLabel(component) {
+  const snapshot = component?.catalogueSnapshot;
+  const pinned = snapshot?.decentralisedSpecification?.typeLabel;
+  if (typeof pinned === "string" && pinned.trim()) return pinned.trim();
+  if (snapshot) return cleanRepeatedManufacturer(snapshot.manufacturer, snapshot.displayName) ?? "Type unverified/manual required";
+  const current = decentralisedMvhrRecords().find((record) => record.id === component?.catalogueItemId)?.decentralisedSpecification?.typeLabel;
+  if (typeof current === "string" && current.trim()) return current.trim();
+  return cleanRepeatedManufacturer(component?.manufacturer, component?.displayName) ?? "Type unverified/manual required";
+}
+
+export function decentralisedControllerTypeLabel(component) {
+  if (component?.decentralisedController?.compatibilityStatus === "unverified-manual-input" && component.decentralisedController.manualModelReference) return component.decentralisedController.manualModelReference;
+  const snapshot = component?.catalogueSnapshot;
+  const pinned = snapshot?.decentralisedControllerSpecification?.typeLabel;
+  if (typeof pinned === "string" && pinned.trim()) return pinned.trim();
+  if (snapshot) return cleanRepeatedManufacturer(snapshot.manufacturer, snapshot.displayName) ?? "Type unverified/manual required";
+  const current = decentralisedControllerRecords().find((record) => record.id === component?.catalogueItemId)?.decentralisedControllerSpecification?.typeLabel;
+  if (typeof current === "string" && current.trim()) return current.trim();
+  return cleanRepeatedManufacturer(component?.manufacturer, component?.displayName) ?? "Type unverified/manual required";
+}
+
+export function decentralisedCableTypeLabel(cable) {
+  const label = cable?.specification?.label;
+  return typeof label === "string" && label.trim() ? label.trim() : "Type unverified/manual required";
+}
+
+export function decentralisedControllerElectricalConnection(component) {
+  const snapshot = component?.catalogueSnapshot;
+  const pinned = snapshot?.decentralisedControllerSpecification?.electricalConnection;
+  if (pinned) return structuredClone(pinned);
+  if (snapshot) return unverifiedElectricalConnection("Pinned controller record does not contain model-specific electrical connection evidence");
+  const current = decentralisedControllerRecords().find((record) => record.id === component?.catalogueItemId)?.decentralisedControllerSpecification?.electricalConnection;
+  return current ? structuredClone(current) : unverifiedElectricalConnection("No model-specific manual recorded");
+}
+
+function unverifiedElectricalConnection(sourceRevision) {
+  return {
+    evidenceStatus: "unverified-manual-required",
+    sourceRevision,
+    lowVoltage: "Unknown — current model-specific manual required",
+    mains: "Unknown — electrician to confirm supply, PSU, protection and isolation requirements",
+    topology: "Unknown — no wiring topology or terminal mapping inferred",
+    terminals: null,
+    limitations: "Do not use this placeholder as installation wiring guidance.",
+  };
+}
+
 function controllerSupportsUnit(controller, unit) {
   const metadata = controller.decentralisedController;
   if (metadata.compatibilityStatus === "unverified-manual-input") return false;
@@ -245,7 +332,7 @@ function record(value) {
     manufacturer: value.manufacturer,
     productId: null,
     manufacturerArticle: null,
-    name: `${value.manufacturer} ${value.name}`,
+    name: value.name,
     status: "source-backed-current-range-identity-topology-only",
     source,
     dimensions: {
@@ -264,6 +351,7 @@ function record(value) {
     ports: [],
     decentralisedSpecification: {
       systemKind: "decentralised-through-wall",
+      typeLabel: value.name,
       operatingMode: value.operatingMode,
       controller: value.controller,
       referenceAirflowM3h: value.referenceAirflowM3h ?? null,
@@ -295,6 +383,7 @@ function controllerRecord(value) {
     ports: [],
     decentralisedControllerSpecification: {
       systemKind: "decentralised-controller",
+      typeLabel: value.typeLabel,
       controllerModelId: value.controllerModelId,
       compatibleUnitCatalogueItemIds: [...value.compatibleUnitCatalogueItemIds],
       maximumHeads: value.maximumHeads,
@@ -304,10 +393,19 @@ function controllerRecord(value) {
       defaultCableSpecification: value.defaultCableSpecification,
       sourceRevision: value.sourceRevision,
       powerSupplyRequirement: value.powerSupplyRequirement,
+      electricalConnection: structuredClone(value.electricalConnection),
       note: value.note,
     },
     note: value.note,
   };
+}
+
+function cleanRepeatedManufacturer(manufacturer, displayName) {
+  if (typeof displayName !== "string" || !displayName.trim()) return null;
+  const normalized = displayName.trim();
+  if (typeof manufacturer !== "string" || !manufacturer.trim()) return normalized;
+  const prefix = `${manufacturer.trim()} `;
+  return normalized.toLocaleLowerCase().startsWith(`${prefix}${prefix}`.toLocaleLowerCase()) ? normalized.slice(prefix.length) : normalized;
 }
 
 function groupByNonEmpty(components, selector) {

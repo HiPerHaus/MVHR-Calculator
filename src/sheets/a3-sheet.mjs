@@ -24,6 +24,12 @@ import {
   q350CasingPath,
 } from "../editor/component-plan-graphics.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
+import {
+  decentralisedCableTypeLabel,
+  decentralisedControllerElectricalConnection,
+  decentralisedControllerTypeLabel,
+  decentralisedUnitTypeLabel,
+} from "../editor/decentralised-mvhr.mjs";
 import { ventilationProjectTypeLabel } from "../domain/ventilation-project-type.mjs";
 import { floorAreaValueLabel, inspectSheetFloorArea } from "./floor-area-key.mjs";
 
@@ -283,6 +289,10 @@ function buildPrintScene(project, floorId, partsSchedule) {
   const decentralisedCables = (project.decentralisedCables ?? []).filter((cable) => cable.floorId === floorId).map((cable) => ({ ...structuredClone(cable), points: cable.points.map((point) => planPoint(point, `Cable ${cable.id} point`)) }));
   const components = project.components.filter((component) => component.floorId === floorId).map((component) => ({
     id: component.id,
+    catalogueItemId: component.catalogueItemId ?? null,
+    catalogueRecordVersionId: component.catalogueRecordVersionId ?? null,
+    catalogueSnapshot: component.catalogueSnapshot ? structuredClone(component.catalogueSnapshot) : null,
+    manufacturer: component.manufacturer ?? null,
     scheduleRef: componentRefById.get(component.id) ?? "P??",
     displayName: sanitizeXmlText(component.displayName ?? component.id, "Component display name"),
     catalogueStatus: sanitizeXmlText(component.catalogueStatus ?? "unclassified", "Component status"),
@@ -343,7 +353,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     ...references.map(referenceBounds),
     ...cadReferences.map((reference) => reference.boundsMm),
   ].filter(Boolean);
-  return deepFreeze({
+  const scene = {
     floorId,
     floorName: sanitizeXmlText(reportFloorName(floor.name), "Floor name"),
     floorArea: inspectSheetFloorArea(project, floorId),
@@ -356,11 +366,15 @@ function buildPrintScene(project, floorId, partsSchedule) {
     hrvCeilingElbows: deriveHrvCeilingElbows(project.routes.filter(route=>route.floorId===floorId),project.components.filter(component=>component.floorId===floorId)),
     references,
     cadReferences,
-    legend: buildLegend({ walls, floorAreas, routingExclusions, routes, decentralisedCables, components, references, cadReferences }),
+    legend: [],
+    electricalConnections: [],
     hasUncalibratedReference,
     hasPartialCadReference: cadReferences.some((reference) => reference.partialImportAccepted),
     modelBoundsMm: mergeBounds(allBounds),
-  });
+  };
+  scene.legend = buildLegend(scene);
+  scene.electricalConnections = buildElectricalConnections(scene);
+  return deepFreeze(scene);
 }
 
 function buildLegend(scene) {
@@ -383,13 +397,18 @@ function buildLegend(scene) {
       legend.push({ key: `service-${stream}`, label });
     }
   }
-  if (scene.decentralisedCables?.length) legend.push({ key: "decentralised-cable", label: "Controller cable — marked plan route; electrical design status shown in schedule" });
+  const cableTypes = new Map();
+  for (const cable of scene.decentralisedCables ?? []) {
+    const type = decentralisedCableTypeLabel(cable);
+    if (!cableTypes.has(type)) cableTypes.set(type, cable);
+  }
+  for (const [type, cable] of cableTypes) legend.push({ key: `decentralised-cable:${cable.id}`, label: `Controller Cable - ${type}` });
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=component.decentralisedMvhr?`decentralised-${component.decentralisedMvhr.operatingMode}`:component.decentralisedController?"decentralised-controller":g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
+    const key=component.decentralisedMvhr?`decentralised-unit:${component.catalogueItemId??decentralisedUnitTypeLabel(component)}`:component.decentralisedController?`decentralised-controller:${decentralisedControllerTypeLabel(component)}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key==="decentralised-controller"?"Decentralised controller — schematic location marker":key.startsWith('decentralised-')?`Decentralised MVHR — ${component.decentralisedMvhr.operatingMode==='alternating-paired'?'alternating physical unit':'continuous-balanced physical unit'} · schematic`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
+    const label=key.startsWith("decentralised-controller:")?`Controller - ${decentralisedControllerTypeLabel(component)}`:key.startsWith('decentralised-unit:')?`Decentralised MVHR - ${decentralisedUnitTypeLabel(component)}`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -405,6 +424,57 @@ function buildLegend(scene) {
     throw new RangeError(`Used-symbol legend exceeds the ${MAX_LEGEND_ITEMS}-item A3 title-block limit`);
   }
   return legend;
+}
+
+function buildElectricalConnections(scene) {
+  const components = new Map(scene.components.map((component) => [component.id, component]));
+  const groups = new Map();
+  const connectedUnitIds = new Set();
+  for (const cable of scene.decentralisedCables ?? []) {
+    const controller = components.get(cable.controllerId);
+    const unit = components.get(cable.unitComponentId);
+    if (!controller?.decentralisedController || !unit?.decentralisedMvhr) continue;
+    connectedUnitIds.add(unit.id);
+    const cableType = decentralisedCableTypeLabel(cable);
+    const controllerType = decentralisedControllerTypeLabel(controller);
+    const unitType = decentralisedUnitTypeLabel(unit);
+    const key = `${controller.id}\u0000${cableType}\u0000${unitType}`;
+    const electrical = decentralisedControllerElectricalConnection(controller);
+    if (!groups.has(key)) groups.set(key, {
+      id: `electrical:${cable.id}`,
+      controllerId: controller.id,
+      controllerMarkupId: controller.decentralisedController.markupId ?? "C?",
+      controllerType,
+      unitType,
+      unitMarkupIds: [],
+      cableType,
+      cableEvidenceStatus: cable.specification.status,
+      cableSource: cable.specification.source,
+      ...electrical,
+    });
+    groups.get(key).unitMarkupIds.push(unit.decentralisedMvhr.markupId ?? "D?");
+  }
+  for (const unit of scene.components.filter((component) => component.decentralisedMvhr && !connectedUnitIds.has(component.id))) {
+    groups.set(`unconnected\u0000${unit.id}`, {
+      id: `electrical:unconnected:${unit.id}`,
+      controllerId: null,
+      controllerMarkupId: "Controller not marked",
+      controllerType: unit.decentralisedMvhr.controllerReferenceRequired ? "Type unverified/manual required" : "Integrated controller · connection detail not stored",
+      unitType: decentralisedUnitTypeLabel(unit),
+      unitMarkupIds: [unit.decentralisedMvhr.markupId ?? "D?"],
+      cableType: "Type unverified/manual required",
+      cableEvidenceStatus: "unverified-manual-input",
+      cableSource: null,
+      evidenceStatus: "unverified-manual-required",
+      sourceRevision: "No model-specific electrical connection detail stored for this placed unit",
+      lowVoltage: "Unknown — current model-specific manual required",
+      mains: "Unknown — electrician to confirm supply, protection and isolation requirements",
+      topology: "No controller-to-unit connection is marked",
+      terminals: null,
+      limitations: "Do not use this placeholder as installation wiring guidance.",
+    });
+  }
+  return [...groups.values()].map((entry) => ({ ...entry, unitMarkupIds: [...new Set(entry.unitMarkupIds)] }));
 }
 
 function renderPrintScene(sheet) {
@@ -849,8 +919,39 @@ function renderSheetLegend(sheet,bounds){
  out.push(`<text data-kind="floor-area-basis" x="${x+4}" y="${y+18.3}" font-size="2.15" fill="#5d6d74">${escapeXml(wrapSheetText(area.basisLabel,48,1)[0])}</text>`);
  let cy=y+22;
  const items=sheet.printScene.legend.length?sheet.printScene.legend:[{key:"empty",label:"No symbols placed"}];
- const rowHeight=Math.min(10,(h-27)/items.length),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
- for(const item of items){out.push(`<title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,35,2),glyphScale=Math.min(1,rowHeight/9),gx=x+w-15,gy=cy+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,x+4,cy+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));cy+=rowHeight;}
+ const electrical=sheet.printScene.electricalConnections??[];
+ const electricalHeight=electrical.length?Math.min(h-42,12+electrical.reduce((sum,entry)=>sum+(entry.controllerId?22:7),0)):0;
+ const columnCount=electrical.length?2:1,columnWidth=w/columnCount,rowCount=Math.ceil(items.length/columnCount);
+ const rowHeight=Math.min(10,(h-27-electricalHeight)/rowCount),fontSize=Math.min(2.7,rowHeight*.29),lineHeight=fontSize*1.25;
+ for(const [index,item] of items.entries()){const column=columnCount===1?0:Math.floor(index/rowCount),row=columnCount===1?index:index%rowCount,itemX=x+column*columnWidth,itemY=cy+row*rowHeight;out.push(`<title>${escapeXml(item.label)}</title>`);const lines=wrapSheetText(item.label,columnCount===1?35:24,2),glyphScale=Math.min(1,rowHeight/9),gx=itemX+columnWidth-11,gy=itemY+rowHeight/2;out.push(`<g transform="translate(${gx} ${gy}) scale(${glyphScale}) translate(${-gx} ${-gy})">${legendSwatch(item.key,gx,gy,item)}</g>`);out.push(renderTextLines(lines,itemX+3,itemY+rowHeight/2-(lines.length-1)*lineHeight/2+fontSize*.3,fontSize,lineHeight));}
+ if(electrical.length)out.push(renderElectricalConnectionNotes(electrical,{x,y:y+h-electricalHeight,width:w,height:electricalHeight}));
+ out.push('</g>');return out.join('');
+}
+
+function renderElectricalConnectionNotes(connections,bounds){
+ const {x,y,width,height}=bounds;
+ const out=[`<g id="electrical-connection-notes" data-evidence-boundary="preliminary-model-specific-not-installation-approval"><rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fffdf7" stroke="#687880" stroke-width="0.25"/><text x="${x+3}" y="${y+5}" font-size="2.7" font-weight="700" fill="#17242b">ELECTRICAL CONNECTION · PRELIMINARY</text><text x="${x+3}" y="${y+8.5}" font-size="1.7" fill="#8a4d28">Electrician to verify current supplied manual and AU requirements</text>`];
+ const weights=connections.map(entry=>entry.controllerId?22:7),weightTotal=weights.reduce((sum,value)=>sum+value,0);
+ let consumed=0;
+ connections.forEach((entry,index)=>{
+  const top=y+11+(height-11)*(consumed/weightTotal),entryHeight=(height-11)*(weights[index]/weightTotal);consumed+=weights[index];
+  if(index)out.push(`<line x1="${x+3}" y1="${top}" x2="${x+width-3}" y2="${top}" stroke="#d7d0c1" stroke-width="0.18"/>`);
+  const relationship=`${entry.controllerMarkupId} ${entry.controllerType} → ${entry.unitMarkupIds.join(", ")} ${entry.unitType}`;
+  const source=[entry.cableSource,entry.sourceRevision].filter(Boolean).join(" · ");
+  const lines=(entry.controllerId?[
+   relationship,
+   `Controller Cable - ${entry.cableType}`,
+   `LV/control - ${entry.lowVoltage}`,
+   `Mains/PSU - ${entry.mains}`,
+   `Topology - ${entry.topology}`,
+   ...(entry.terminals?[`Terminals - ${entry.terminals}`]:[]),
+   `Evidence - cable ${entry.cableEvidenceStatus}; connection ${entry.evidenceStatus}`,
+   `Source - ${source}`,
+   `Limit - ${entry.limitations}`,
+  ]:[relationship,"Connection not marked · controller cable and current manual required",`Source - ${entry.sourceRevision}`]).map(line=>wrapSheetText(line,58,1)[0]);
+  const lineHeight=Math.min(2.15,(entryHeight-1)/lines.length),fontSize=Math.min(1.75,lineHeight*.83);
+  out.push(`<g data-kind="electrical-connection" data-controller-id="${escapeXml(entry.controllerId??"")}" data-evidence-status="${escapeXml(entry.evidenceStatus)}"><title>${escapeXml([relationship,...lines.slice(1)].join(" · "))}</title>${renderTextLines(lines,x+3,top+2.1,fontSize,lineHeight)}</g>`);
+ });
  out.push('</g>');return out.join('');
 }
 function renderTitleBlock(sheet,bounds){
@@ -883,9 +984,9 @@ function legendSwatch(key, x, y,item={}) {
     return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${ductMask}${g.paths.map((d,index)=>`<path d="${d}" fill="${key.startsWith('luna-')&&index===0?'white':'none'}"/>`).join('')}</g>`;
   }
   if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
-  if(key==='decentralised-cable')return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#735c8f" stroke-width=".7" stroke-dasharray="3 1.5"/>`;
-  if(key==='decentralised-controller')return `<g data-kind="legend-decentralised-controller"><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#fff7dd" stroke="#8b6b16" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#6f5310" font-size="1.6" font-weight="700">C</text></g>`;
-  if(key.startsWith('decentralised-'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">${key.endsWith('alternating-paired')?'ALT':'BAL'}</text></g>`;
+  if(key.startsWith('decentralised-cable:'))return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#735c8f" stroke-width=".7" stroke-dasharray="3 1.5"/>`;
+  if(key.startsWith('decentralised-controller:'))return `<g data-kind="legend-decentralised-controller"><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#fff7dd" stroke="#8b6b16" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#6f5310" font-size="1.6" font-weight="700">C</text></g>`;
+  if(key.startsWith('decentralised-unit:'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">D</text></g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key.startsWith('external-grille-')) {
     const bounds=g.drawingBoundsMm??{minX:-g.widthMm/2,maxX:g.widthMm/2,minY:-g.depthMm/2,maxY:g.depthMm/2};
