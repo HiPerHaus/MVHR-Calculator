@@ -532,6 +532,9 @@ export function applyCommand(project, command, options = {}) {
       const componentIds = new Set(inspection.componentIds);
       const routeIds = new Set(inspection.routeIds);
       const connectionIds = new Set(inspection.connectionIds);
+      const deletesDecentralisedUnit = next.components.some((component) => (
+        componentIds.has(component.id) && component.decentralisedMvhr
+      ));
       next.components = next.components.filter((component) => !componentIds.has(component.id));
       next.routes = next.routes.filter((route) => !routeIds.has(route.id));
       next.connections = next.connections.filter((connection) => !connectionIds.has(connection.id));
@@ -563,6 +566,7 @@ export function applyCommand(project, command, options = {}) {
         fanCurves: design.fanCurves.filter((curve) => curve.unitComponentId === null || !componentIds.has(curve.unitComponentId)),
         operatingPointModels: design.operatingPointModels.filter((model) => !componentIds.has(model.unitComponentId)),
       }));
+      if (deletesDecentralisedUnit) renumberDecentralisedUnits(next.components);
       break;
     }
     case "ventilation.clearFloor": {
@@ -3436,6 +3440,26 @@ function nextMarkupId(components, metadataField, prefix) {
   let index = 1;
   while (used.has(`${prefix}${index}`)) index += 1;
   return `${prefix}${index}`;
+}
+
+function renumberDecentralisedUnits(components) {
+  components
+    .map((component, componentIndex) => ({
+      component,
+      componentIndex,
+      priorNumber: component.decentralisedMvhr
+        ? Number.parseInt(component.decentralisedMvhr.markupId?.slice(1) ?? "", 10)
+        : null,
+    }))
+    .filter((entry) => entry.component.decentralisedMvhr)
+    .sort((left, right) => (
+      (Number.isFinite(left.priorNumber) ? left.priorNumber : Number.POSITIVE_INFINITY)
+      - (Number.isFinite(right.priorNumber) ? right.priorNumber : Number.POSITIVE_INFINITY)
+      || left.componentIndex - right.componentIndex
+    ))
+    .forEach((entry, index) => {
+      entry.component.decentralisedMvhr.markupId = `D${index + 1}`;
+    });
 }
 
 function nullableMarkupId(value, prefix, label) {

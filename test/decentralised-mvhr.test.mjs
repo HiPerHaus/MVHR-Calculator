@@ -22,6 +22,12 @@ import {
   decentralisedControllerTypeLabel,
   inspectDecentralisedMvhr,
 } from "../src/editor/decentralised-mvhr.mjs";
+import {
+  createCommandHistory,
+  executeCommand,
+  redoCommand,
+  undoCommand,
+} from "../src/domain/history.mjs";
 import { createPartsSchedule } from "../src/editor/parts-schedule.mjs";
 import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
 import { createA3SheetModel, renderA3SheetSvg } from "../src/sheets/a3-sheet.mjs";
@@ -176,6 +182,86 @@ test("controller markers and cable routes survive move rotate edit save and opti
   assert.equal(duplicated.decentralisedCables.length, 1);
   assert.notEqual(duplicated.decentralisedCables[0].id, "cable-a");
   assert.ok(duplicated.components.some(item => item.decentralisedController?.markupId === "C1"));
+});
+
+test("deleting a decentralised unit closes visible numbering gaps without changing stable links or other options", () => {
+  let project = projectWithFloor();
+  const first = component("aerofresh-30-compact-decentralised", "stable-unit-first", 1000, 1000);
+  const middle = component("lunos-e2-60-decentralised", "stable-unit-middle", 2000, 1000);
+  const last = component("zehnder-comfospot-50-decentralised", "stable-unit-last", 3000, 1000);
+  const controller = component("manual-decentralised-controller", "stable-controller", 4000, 1000);
+  for (const item of [first, middle, last, controller]) project = applyCommand(project, { type: "component.add", component: item });
+  project = applyCommand(project, { type: "decentralisedCable.add", cable: {
+    id: "stable-cable", floorId: "floor-ground", controllerId: controller.id, unitComponentId: last.id,
+    cableKind: "unspecified", topologyStatus: "unverified-model-specific", maximumRouteLengthMm: null,
+    specification: { status: "unverified-manual-input", label: null, source: null },
+    points: [{ x: 4000, y: 1000 }, { x: 3000, y: 1000 }],
+  } });
+  project = applyCommand(project, { type: "designOption.duplicate", id: "option-delete-test", name: "Deletion test", revision: "B", copyScopes: ["markup"], activate: true });
+  const optionUnitIds = project.components.filter((item) => item.decentralisedMvhr).map((item) => item.id);
+  const [optionFirstId, optionMiddleId, optionLastId] = optionUnitIds;
+  const optionControllerId = project.components.find((item) => item.decentralisedController).id;
+  const optionCableId = project.decentralisedCables[0].id;
+  const beforeDelete = structuredClone(project);
+  const deletion = inspectComponentDeletion(project, optionMiddleId);
+  let history = executeCommand(createCommandHistory(project), {
+    type: "component.delete",
+    componentId: optionMiddleId,
+    confirmedScope: deletion,
+  });
+
+  assert.deepEqual(history.present.components.filter((item) => item.decentralisedMvhr).map((item) => ({ id: item.id, markupId: item.decentralisedMvhr.markupId })), [
+    { id: optionFirstId, markupId: "D1" },
+    { id: optionLastId, markupId: "D2" },
+  ]);
+  assert.deepEqual(history.present.decentralisedCables.map((cable) => ({ id: cable.id, controllerId: cable.controllerId, unitComponentId: cable.unitComponentId })), [
+    { id: optionCableId, controllerId: optionControllerId, unitComponentId: optionLastId },
+  ]);
+  const sheet = createA3SheetModel(history.present, sheetMetadata());
+  const legendLabels = sheet.printScene.legend.map((entry) => entry.label);
+  assert.equal(legendLabels.includes("Decentralised MVHR - AeroFresh 30 Compact"), true);
+  assert.equal(legendLabels.includes("Decentralised MVHR - ComfoSpot 50"), true);
+  assert.equal(legendLabels.includes("Decentralised MVHR - LUNOS e²60"), false);
+  assert.equal(sheet.printScene.electricalConnections.some((entry) => entry.unitMarkupIds.includes("D2")), true);
+  const svg = renderA3SheetSvg(sheet);
+  assert.match(svg, new RegExp(`data-id="${optionLastId}" data-markup-id="D2"`));
+  assert.doesNotMatch(svg, /data-markup-id="D3"/);
+  const schedule = createPartsSchedule(history.present, { floorId: "floor-ground" });
+  assert.equal(schedule.decentralisedSystems.unitCount, 2);
+  assert.deepEqual(schedule.decentralisedSystems.cableRoutes.map((cable) => cable.unitComponentId), [optionLastId]);
+
+  history = undoCommand(history);
+  assert.deepEqual(history.present, beforeDelete);
+  history = redoCommand(history);
+  assert.deepEqual(history.present.components.filter((item) => item.decentralisedMvhr).map((item) => item.decentralisedMvhr.markupId), ["D1", "D2"]);
+  const reopened = deserializeProject(serializeProject(history.present));
+  assert.deepEqual(reopened.components.filter((item) => item.decentralisedMvhr).map((item) => item.decentralisedMvhr.markupId), ["D1", "D2"]);
+  assert.equal(reopened.decentralisedCables[0].unitComponentId, optionLastId);
+
+  const originalOptionId = reopened.designOptions.find((option) => option.id !== "option-delete-test").id;
+  const original = applyCommand(reopened, { type: "designOption.switch", optionId: originalOptionId });
+  assert.deepEqual(original.components.filter((item) => item.decentralisedMvhr).map((item) => ({ id: item.id, markupId: item.decentralisedMvhr.markupId })), [
+    { id: first.id, markupId: "D1" },
+    { id: middle.id, markupId: "D2" },
+    { id: last.id, markupId: "D3" },
+  ]);
+});
+
+test("deletion normalises legacy decentralised number gaps before assigning the next unit number", () => {
+  let project = projectWithFloor();
+  const first = component("aerofresh-30-compact-decentralised", "legacy-unit-first", 1000, 1000);
+  const middle = component("lunos-e2-60-decentralised", "legacy-unit-middle", 2000, 1000);
+  const last = component("zehnder-comfospot-50-decentralised", "legacy-unit-last", 3000, 1000);
+  for (const item of [first, middle, last]) project = applyCommand(project, { type: "component.add", component: item });
+  project.components.find((item) => item.id === middle.id).decentralisedMvhr.markupId = "D4";
+  project.components.find((item) => item.id === last.id).decentralisedMvhr.markupId = "D9";
+  project = deserializeProject(serializeProject(project));
+  const deletion = inspectComponentDeletion(project, middle.id);
+  project = applyCommand(project, { type: "component.delete", componentId: middle.id, confirmedScope: deletion });
+  assert.deepEqual(project.components.filter((item) => item.decentralisedMvhr).map((item) => item.decentralisedMvhr.markupId), ["D1", "D2"]);
+  const added = component("zehnder-comfoair-70-decentralised", "legacy-unit-added", 4000, 1000);
+  project = applyCommand(project, { type: "component.add", component: added });
+  assert.equal(project.components.find((item) => item.id === added.id).decentralisedMvhr.markupId, "D3");
 });
 
 test("drawing key and electrical note list actual mixed models, cable types and verified LUNOS detail", () => {

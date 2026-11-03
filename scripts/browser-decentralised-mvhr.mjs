@@ -97,13 +97,25 @@ try {
   assert.deepEqual(schedule, { unitCount: 3, controllerMarkerCount: 1, cableRouteCount: 1, pairGroupCount: 1, controllerReferenceCount: 2, scheduleQuantity: 3, routeCount: 0 });
   assert.equal(await evaluate(cdp, `document.querySelectorAll('[data-system="decentralised-mvhr"]').length >= 3`), true);
 
+  await selectFirstComponent(cdp);
+  await click(cdp, "#delete-component");
+  assert.equal(await visible(cdp, "#delete-component-dialog"), true);
+  await click(cdp, '#delete-component-dialog button[value="delete"]');
+  await waitFor(cdp, `document.querySelectorAll('[data-system="decentralised-mvhr"]').length === 2`);
+  assert.deepEqual((await savedDecentralised(cdp)).map((item) => item.markupId), ["D1", "D2"]);
+  assert.equal(await count(cdp, '[data-system="decentralised-mvhr"][data-markup-id="D3"]'), 0);
+  await click(cdp, "#undo");
+  assert.deepEqual((await savedDecentralised(cdp)).map((item) => item.markupId), ["D1", "D2", "D3"]);
+  await click(cdp, "#redo");
+  assert.deepEqual((await savedDecentralised(cdp)).map((item) => item.markupId), ["D1", "D2"]);
+
   await click(cdp,"#project-nav");
   await setValue(cdp,"#project-ventilation-type","centralised");
   await waitFor(cdp,`document.querySelector("#project-type-conflict-dialog")?.open`);
   assert.match(await text(cdp,"#project-type-conflict-message"),/decentralised ventilation objects/u);
   await click(cdp,'#project-type-conflict-dialog button[value="mixed"]');
   assert.equal(await text(cdp,"#current-project-type"),"Mixed");
-  assert.equal((await savedDecentralised(cdp)).length,3,"Changing project type must preserve placed units");
+  assert.equal((await savedDecentralised(cdp)).length,2,"Changing project type must preserve placed units");
   await evaluate(cdp,`document.querySelector("#cloud-projects-dialog").showModal()`);
   await setValue(cdp,"#project-type-filter","mixed");
   const filterHeight=await evaluate(cdp,`document.querySelector("#project-type-filter").getBoundingClientRect().height`);
@@ -112,16 +124,17 @@ try {
 
   await waitForValue(() => savedProjectType(cdp), "mixed");
   await cdp.send("Page.reload", { ignoreCache: true });
-  await waitFor(cdp, `document.readyState === "complete" && !document.querySelector(".app-shell")?.hidden && document.querySelectorAll('[data-system="decentralised-mvhr"]').length >= 3`);
+  await waitFor(cdp, `document.readyState === "complete" && !document.querySelector(".app-shell")?.hidden && document.querySelectorAll('[data-system="decentralised-mvhr"]').length === 2`);
   records = await savedDecentralised(cdp);
-  assert.equal(records.length, 3);
-  assert.equal(records.filter((item) => item.pairGroupId === "Pair 1").length, 2);
-  assert.equal((await savedCables(cdp)).length,1);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records.map((item) => item.markupId), ["D1", "D2"]);
+  assert.equal(records.filter((item) => item.pairGroupId === "Pair 1").length, 1);
+  assert.equal((await savedCables(cdp)).length,0);
   assert.equal(await savedProjectType(cdp),"mixed");
   assert.equal(await text(cdp,"#current-project-type"),"Mixed");
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, physicalUnits: 3, controllerMarkers: 1, controllerCables: 1, projectType: "mixed", conflictReview: true, typeFilterTouchHeight: filterHeight, persistentTouchPlacement: true, alternatingPairAndController: true, continuousBalancedUnpaired: true, rotated: true, centralRoutes: 0, saveReopen: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, physicalUnits: 2, controllerMarkers: 1, controllerCables: 0, projectType: "mixed", conflictReview: true, typeFilterTouchHeight: filterHeight, persistentTouchPlacement: true, alternatingPairAndController: true, continuousBalancedUnpaired: true, deletedUnitRenumbered: true, undoRedoRenumbering: true, rotated: true, centralRoutes: 0, saveReopen: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -165,7 +178,7 @@ async function startQaServer() {
 
 async function savedDecentralised(cdp) {
   await delay(220);
-  return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return (saved?.project?.components??[]).filter((component)=>component.decentralisedMvhr).map((component)=>({id:component.id,pairGroupId:component.decentralisedMvhr.pairGroupId,controllerReference:component.decentralisedMvhr.controllerReference,operatingMode:component.decentralisedMvhr.operatingMode,orientation:component.orientation})); })()`);
+  return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return (saved?.project?.components??[]).filter((component)=>component.decentralisedMvhr).map((component)=>({id:component.id,markupId:component.decentralisedMvhr.markupId,pairGroupId:component.decentralisedMvhr.pairGroupId,controllerReference:component.decentralisedMvhr.controllerReference,operatingMode:component.decentralisedMvhr.operatingMode,orientation:component.orientation})); })()`);
 }
 async function savedProjectType(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return saved?.project?.ventilationDesignType; })()`); }
 async function savedControllerId(cdp) { return evaluate(cdp, `(async () => { const recovery=await import("/src/persistence/working-session.mjs"); const store=recovery.createWorkingSessionStore(indexedDB,{tabId:recovery.workingTabId(sessionStorage)}); const saved=await store.read({userId:${JSON.stringify(qaIdentity.userId)},workspaceId:${JSON.stringify(qaIdentity.workspaceId)}}); return (saved?.project?.components??[]).find(component=>component.decentralisedController)?.id??null; })()`); }
