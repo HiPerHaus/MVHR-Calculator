@@ -940,19 +940,12 @@ function renderElectricalConnectionNotes(connections,bounds){
  connections.forEach((entry,index)=>{
   const top=y+9+index*entryHeight;
   if(index)out.push(`<line x1="${x+3}" y1="${top}" x2="${x+width-3}" y2="${top}" stroke="#d7d0c1" stroke-width="0.18"/>`);
-  const mainsNote=compactElectricalMainsNote(entry);
-  const logicalLines=[`Controller Cable - ${entry.cableType}`,`230 V to controller location (${entry.controllerMarkupId} ${entry.controllerType}) — ${mainsNote}`];
+  const logicalLines=[`Controller Cable - ${entry.cableType}`,"230 V to controller location"];
   const lines=logicalLines.flatMap(line=>wrapSheetText(line,60,2));
   const lineHeight=Math.min(2.35,(entryHeight-1)/lines.length),fontSize=Math.min(1.85,lineHeight*.83);
   out.push(`<g data-kind="electrical-connection" data-controller-id="${escapeXml(entry.controllerId)}" data-evidence-status="${escapeXml(entry.evidenceStatus)}"><title>${escapeXml(logicalLines.join(" · "))}</title>${renderTextLines(lines,x+3,top+2.1,fontSize,lineHeight)}</g>`);
  });
  out.push('</g>');return out.join('');
-}
-
-function compactElectricalMainsNote(entry){
- if(entry.evidenceStatus==="verified-manufacturer"&&/separate 230 V mains PSU/iu.test(entry.mains??""))return "via specified separate PSU";
- if(entry.evidenceStatus==="manufacturer-authored-mirror-original-unverified")return "via controller PSU; exact arrangement manual-required";
- return "controller/PSU arrangement manual-required";
 }
 function renderTitleBlock(sheet,bounds){
  const {xMm:x,yMm:y,widthMm:w,heightMm:h}=bounds,c=sheet.metadata.company;

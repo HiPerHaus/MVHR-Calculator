@@ -168,9 +168,9 @@ test("controller markers and cable routes survive move rotate edit save and opti
   assert.match(svg, /Decentralised MVHR - AeroFresh 30 Compact/);
   assert.match(svg, /Controller - sMove/);
   assert.match(svg, /ELECTRICAL CONNECTION · PRELIMINARY/);
-  assert.match(svg, /230 V to controller location \(C1 sMove\) — via controller PSU; exact arrangement manual-required/);
+  assert.match(svg, /230 V to controller location/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
-  assert.doesNotMatch(svg, /Do not connect a fan directly to 230 V|LV\/control -|Topology -|Terminals -|Evidence -|Source -|Limit -/);
+  assert.doesNotMatch(svg, /C1 sMove\) —|controller\/PSU arrangement|exact arrangement manual-required|via specified separate PSU|Do not connect a fan directly to 230 V|LV\/control -|Topology -|Terminals -|Evidence -|Source -|Limit -/);
 
   const duplicated = applyCommand(reopened, { type: "designOption.duplicate", id: "option-copy", name: "Option copy", revision: "B", copyScopes: ["markup"], activate: true });
   assert.equal(duplicated.decentralisedCables.length, 1);
@@ -213,10 +213,10 @@ test("drawing key and electrical note list actual mixed models, cable types and 
   assert.match(lunosConnection.limitations, /No verified maximum fan-cable length is stored/);
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /data-layout="single-column"/);
-  assert.match(svg, /230 V to controller location \(C2 5\/SC-FT SmartComfort\) — via specified separate PSU/);
+  assert.match(svg, /230 V to controller location/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
   assert.match(svg, /verified-manufacturer/);
-  assert.doesNotMatch(svg, /Individual star runs from controller to fan|Terminals -|Separate 230 V mains PSU|LV\/control -|Topology -|Evidence -|Source -|Limit -/);
+  assert.doesNotMatch(svg, /C2 5\/SC-FT SmartComfort\) —|controller\/PSU arrangement|exact arrangement manual-required|via specified separate PSU|Individual star runs from controller to fan|Terminals -|Separate 230 V mains PSU|LV\/control -|Topology -|Evidence -|Source -|Limit -/);
 });
 
 test("manual controller and unconnected units print manual-required electrical placeholders", () => {
@@ -236,8 +236,8 @@ test("manual controller and unconnected units print manual-required electrical p
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /Controller Cable - Type unverified\/manual required/);
   assert.match(svg, /Controller - Type unverified\/manual required/);
-  assert.match(svg, /230 V to controller location \(C1 Type unverified\/manual required\) — controller\/PSU arrangement manual-required/);
-  assert.doesNotMatch(svg, /No model-specific manual recorded|Integrated controller · connection detail not stored|Connection not marked/);
+  assert.match(svg, /230 V to controller location/);
+  assert.doesNotMatch(svg, /controller\/PSU arrangement|exact arrangement manual-required|via specified separate PSU|No model-specific manual recorded|Integrated controller · connection detail not stored|Connection not marked/);
   const manualConnection = sheet.printScene.electricalConnections.find((connection) => connection.controllerId === manual.id);
   assert.match(manualConnection.limitations, /Do not use this placeholder as installation wiring guidance/);
 });

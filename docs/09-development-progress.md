@@ -401,5 +401,5 @@ Current sizing evidence remains deliberately incomplete. AeroFresh 30 Compact pu
 ### 2 November 2026 — compact decentralised key and electrician note (local branch)
 
 - Changed the A3 symbol key to one vertical column with one comfortably spaced item per row.
-- Reduced each visible electrical connection to the controller cable/type and `230 V to controller location`, retaining only the PSU qualification needed to keep the mains/low-voltage boundary accurate. Detailed voltage, topology, terminal, evidence, source and limitation records remain in the print-scene metadata.
+- Reduced each visible electrical connection to the controller cable/type and the exact instruction `230 V to controller location`. Controller reference/type and PSU/manual-required qualifications no longer follow that visible instruction; detailed voltage, PSU, topology, terminal, evidence, source and limitation records remain in the print-scene metadata.
 - Standardised AeroFresh 30/sMove drawing and parts-output wording to `LiYY 3 × 0.75 mm² or equivalent` without applying LiYY to other model families or inventing equivalence criteria. Existing saved cable evidence remains unchanged.
