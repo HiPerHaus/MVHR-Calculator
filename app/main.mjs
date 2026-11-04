@@ -288,7 +288,6 @@ const projectTypeConflictMessage = document.querySelector("#project-type-conflic
 const keepProjectTypeButton = document.querySelector("#keep-project-type");
 const newProjectButton = document.querySelector("#new-project");
 const renameProjectButton = document.querySelector("#rename-project");
-const projectSaveButton = document.querySelector("#project-save");
 const projectSaveAsButton = document.querySelector("#project-save-as");
 const currentProjectNameElement = document.querySelector("#current-project-name");
 const currentProjectIdElement = document.querySelector("#current-project-id");
@@ -853,7 +852,7 @@ let camera = createCamera();
 const initialCameraFit = createInitialCameraFitScheduler({
   requestFrame: (callback) => window.requestAnimationFrame(callback),
   measure: () => canvas.getBoundingClientRect(),
-  apply: (rect) => applyCameraFit(rect, "Drawing fitted after loading; project geometry unchanged"),
+  apply: (rect) => applyCameraFit(rect, "Drawing fitted to view"),
 });
 if (typeof window.ResizeObserver === "function") {
   const drawingResizeObserver = new window.ResizeObserver(() => initialCameraFit.request());
@@ -1238,14 +1237,10 @@ snapToggleButton.addEventListener("click", toggleSnap);
 saveButton.addEventListener("click", () => saveExplicit());
 saveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 reopenButton.addEventListener("click", () => setTask("project"));
-document.querySelector("#project-cloud-open").addEventListener("click",()=>document.querySelector("#cloud-projects-button").click());
-document.querySelector("#project-signin").addEventListener("click",()=>document.querySelector("#account-button").click());
 newProjectButton.addEventListener("click", () => openProjectNameDialog("new"));
 renameProjectButton.addEventListener("click", () => openProjectNameDialog("rename"));
-projectSaveButton.addEventListener("click", () => saveExplicit());
 projectSaveAsButton.addEventListener("click", () => openProjectNameDialog("save-as"));
 projectNameForm.addEventListener("submit", applyProjectNameChoice);
-document.querySelector("#account-nav").addEventListener("click",()=>cloudSession?.openAccount());
 document.querySelector("#project-details-form").addEventListener("submit",event=>{
  event.preventDefault();const form=event.currentTarget;
  try{const details=Object.fromEntries(new FormData(form));commitCommand({type:"project.updateDetails",details},"Project details applied · save the drawing to keep changes");currentProjectName=details.name.trim();document.querySelector("#project-details-status").textContent="Applied. Save the drawing to keep these details.";renderProjectWorkspace();}
@@ -1428,6 +1423,7 @@ workflowUploadPlanButton.addEventListener("click", () => {
   pdfReferenceFileInput.click();
 });
 workflowSetScaleButton.addEventListener("click", () => {
+  selectedReferenceId = history.present.floorReferences.find(reference => reference.floorId === currentFloorId())?.id ?? null;
   setTask("plan");
   startCalibration();
 });
@@ -2392,13 +2388,17 @@ function setTask(task, { designNavigation = false } = {}) {
     commitCommand({type:"component.matchCombinedGrilleSpacing"},"DN160 combined grille ports matched to Q350 spacing · connected ducts follow · Undo available");
   }
   projectNavigationButton.classList.toggle("active", task === "project");
-  planNavigationButton.classList.toggle("active", activeDesignStage === "plan");
-  ventilationNavigationButton.classList.toggle("active", activeDesignStage === "place");
-  routeNavigationButton.classList.toggle("active", activeDesignStage === "route");
+  planNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "plan");
+  ventilationNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "place");
+  routeNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "route");
   threeDNavigationButton.classList.toggle("active", task === "three-d");
   catalogueNavigationButton.classList.toggle("active", task === "catalogue");
-  checksNavigationButton.classList.toggle("active", activeDesignStage === "check");
-  sheetsNavigationButton.classList.toggle("active", activeDesignStage === "export");
+  checksNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "check");
+  sheetsNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "export");
+  for (const button of document.querySelectorAll(".task-nav button")) {
+    if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
   projectWorkspace.hidden = task !== "project";
   planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
   viewOptionsAnchor.hidden = task !== "ventilation";
@@ -2626,7 +2626,14 @@ function renderProjectWorkspace() {
 
   quoteExclusionsInput.value = project.quoteDraft.scopeExclusions.join("\n");
   quoteScopeReviewedInput.checked = project.quoteDraft.scopeReviewed;
-  workflowSetScaleButton.disabled = history.present.floorReferences.length === 0;
+  const reference = project.floorReferences.find(item => item.floorId === currentFloorId());
+  const hasOutline = project.floorAreaOutlines.some(item => item.floorId === currentFloorId());
+  workflowSetScaleButton.disabled = !reference;
+  workflowSetScaleButton.title = reference ? "Calibrate the floor plan" : "Upload a floor plan to set its scale. Manual drawings use millimetres.";
+  workflowDrawPerimeterButton.disabled = Boolean(reference && !reference.calibration);
+  workflowDrawPerimeterButton.title = workflowDrawPerimeterButton.disabled ? "Set the floor plan scale first" : "Draw the serviced area on the plan or manual grid";
+  workflowMarkupMvhrButton.disabled = !hasOutline;
+  workflowMarkupMvhrButton.title = hasOutline ? "Design ventilation for the serviced area" : "Mark the serviced area first";
 
   renderWorkflowRows(quoteSummary, [
     ["Serviced floor area", formatArea(quote.areaMm2)],
@@ -2991,9 +2998,13 @@ function openSheetPreview({ designStage = false } = {}) {
     routeNavigationButton.classList.remove("active");
     catalogueNavigationButton.classList.remove("active");
     checksNavigationButton.classList.remove("active");
+    threeDNavigationButton.classList.remove("active");
+    threeDWorkspace.hidden = true;
+    for (const button of document.querySelectorAll(".task-nav button")) button.removeAttribute("aria-current");
     sheetsNavigationButton.classList.add("active");
     if (designStage) activeDesignStage = "export";
     document.body.dataset.designStage = activeDesignStage;
+    sheetsNavigationButton.setAttribute("aria-current", "page");
     closeSheetPreviewButton.focus();
   } catch (error) {
     interactionMessage = `Sheet preview unavailable: ${error.message}`;
@@ -3096,7 +3107,7 @@ function createProjectLibrary() {
 
 function initialStorageState(result) {
   if (!result.ok) return { kind: "failed", label: "Local recovery unavailable", detail: result.message };
-  if (!result.found && !result.savedAtUtc) return { kind: "unsaved", label: "Unsaved project · this browser", detail: "Choose Save to create a named project" };
+  if (!result.found && !result.savedAtUtc) return { kind: "unsaved", label: "Not saved", detail: "Choose Save to create a named project" };
   if (result.portableBudget?.portable === false) {
     return {
       kind: "warning",
@@ -5290,7 +5301,7 @@ async function addReferenceImage() {
   interactionMessage = "Validating PNG source…";
   updateStatus();
   try {
-    if (file.type !== "image/png") throw new TypeError("Only PNG reference images are supported in this milestone");
+    if (file.type !== "image/png") throw new TypeError("Choose a PNG image for this reference");
     if (file.size > MAX_IMAGE_BYTES) throw new RangeError("PNG exceeds the 5 MiB prototype limit");
     const bytes = new Uint8Array(await file.arrayBuffer());
     validateImageBytes(bytes, file.type);
@@ -10333,7 +10344,7 @@ render();
 async function saveExplicit() {
   if(cloudSession?.loading){interactionMessage="Checking sign-in; please wait before saving.";updateStatus();return false;}
   if(cloudSavePending)return cloudSavePending;
-  if(!cloudSession?.workspace){document.querySelector("#account-button").click();return false;}
+  if(!cloudSession?.workspace){document.querySelector("#account-nav").click();return false;}
   const project=deserializeProject(serializeProject(history.present)),name=currentProjectName;
   const workspaceId=cloudSession.workspace.id,userId=cloudSession.user.id,binding=cloudBindingVersion;
   storageState={kind:"pending",label:"Saving to cloud…",detail:"Wait for the cloud save acknowledgement"};renderStorageState();
@@ -10357,13 +10368,9 @@ cloudSession=initializeCloudUI({
   onChange(state){
     handleWorkingSessionState(state);
     saveButton.textContent=state.workspace?"Save":"Sign in to save";
-    projectSaveButton.textContent=state.workspace?"Save":"Sign in to save";
     saveAsButton.hidden=!state.workspace;document.querySelector("#project-save-as").hidden=!state.workspace;
-    document.querySelector("#project-cloud-open").disabled=false;
-    document.querySelector("#project-signin").hidden=Boolean(state.workspace);
     document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
     saveButton.disabled=state.loading || Boolean(cloudSavePending) || (!workingReady&&Boolean(workingContext(state)));
-    projectSaveButton.disabled=saveButton.disabled;
     if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
   },
   onOpen(loaded){
@@ -10459,7 +10466,7 @@ async function restoreWorkingSession(context){
    workingRestoreStarted=false;workingReady=false;
    if(current)queueMicrotask(()=>handleWorkingSessionState(cloudSession));
   }else{workingReady=true;queueWorkingSession();}
-  saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);projectSaveButton.disabled=saveButton.disabled;
+  saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);
  }
 }
 window.addEventListener("pagehide",()=>queueWorkingSession());

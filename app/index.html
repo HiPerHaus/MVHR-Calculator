@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HiPer Studio — Manual plan and mechanical milestone</title>
+    <title>HiPer Studio</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -14,13 +14,13 @@
           <span class="brand-mark" aria-hidden="true">H</span>
           <div>
             <strong>HiPer Studio</strong>
-            <span>Manual plan, rooms and mechanical interaction milestone</span>
+            <span>Building and ventilation design</span>
           </div>
         </div>
         <nav class="task-nav" aria-label="Studio navigation">
           <button id="project-nav" type="button">Project</button>
           <div class="design-stage-nav" role="group" aria-label="Design workflow">
-            <button id="plan-nav" type="button" class="active" data-design-stage="plan">Plan</button>
+            <button id="plan-nav" type="button" data-design-stage="plan">Plan</button>
             <button id="ventilation-nav" type="button" data-design-stage="place">Place</button>
             <button id="route-nav" type="button" data-design-stage="route">Route</button>
             <button id="checks-nav" type="button" data-design-stage="check">Check</button>
@@ -33,10 +33,9 @@
         <div class="local-controls">
           <div id="local-state" class="draft-state" data-state="unsaved">
             <span class="state-dot"></span>
-            <span id="local-state-label">Unsaved project · this browser</span>
+            <span id="local-state-label">Not saved</span>
           </div>
-          <button id="account-button" type="button">Sign in</button>
-          <button id="cloud-projects-button" type="button">Projects</button>
+          <button id="cloud-projects-button" type="button">Open saved projects</button>
           <button id="save-local" type="button">Sign in to save</button>
           <button id="save-as-local" type="button" hidden>Save As</button>
           <button id="reopen-local" type="button" hidden>Older device drawings</button>
@@ -46,7 +45,7 @@
 
       <div id="plan-workspace" class="workspace">
         <button id="tablet-panel-backdrop" class="tablet-panel-backdrop" type="button" aria-label="Close drawing panels" tabindex="-1"></button>
-        <aside class="left-panel" aria-label="Tools and layers">
+        <aside id="tools-panel" class="left-panel" aria-label="Tools and layers">
           <section id="draw-tools-section">
             <h2>Plan drawing</h2>
             <button id="wall-tool" class="tool" type="button" aria-pressed="false">
@@ -194,8 +193,8 @@
             </div>
             <div id="mode-prompt" role="status">Select a tool</div>
             <div class="tablet-panel-controls" aria-label="Drawing panels">
-              <button id="tablet-tools-toggle" type="button" aria-expanded="false">Tools</button>
-              <button id="tablet-inspector-toggle" type="button" aria-expanded="false">Inspector</button>
+              <button id="tablet-tools-toggle" aria-controls="tools-panel" type="button" aria-expanded="false">Tools</button>
+              <button id="tablet-inspector-toggle" aria-controls="inspector-panel" type="button" aria-expanded="false">Inspector</button>
             </div>
           </div>
           <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas">
@@ -267,7 +266,7 @@
           </div>
         </main>
 
-        <aside class="right-panel" aria-label="Inspector">
+        <aside id="inspector-panel" class="right-panel" aria-label="Inspector">
           <h2>Inspector</h2>
           <div id="inspector-empty" class="empty-state">
             <strong>No selection</strong>
@@ -407,6 +406,15 @@
           <button id="new-project" type="button">New project</button>
         </header>
         <div class="project-workflow-layout project-home-layout">
+          <article class="workflow-card workflow-card-wide">
+            <h2>Set up a drawing</h2><p class="project-home-note">Upload a plan, or choose Edit floor plan to draw manually at full scale.</p>
+            <div class="workflow-step-list project-home-steps">
+              <button id="workflow-upload-plan" type="button"><strong>1 · Add floor plan</strong><small>Upload your PDF.</small></button>
+              <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Choose two points and enter the distance.</small></button>
+              <button id="workflow-draw-perimeter" type="button"><strong>3 · Mark serviced area</strong><small>Trace the area the system serves.</small></button>
+              <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units, outlets and ducts.</small></button>
+            </div>
+          </article>
           <article class="workflow-card workflow-card-wide project-home-current">
             <div class="project-library-heading">
               <div><h2>Current drawing</h2><strong id="current-project-name">Untitled project</strong><small id="current-project-id" hidden></small></div>
@@ -416,9 +424,6 @@
             <div class="project-home-actions">
               <button id="workflow-open-ventilation" type="button" class="primary-action">Continue drawing</button>
               <button id="workflow-open-plan" type="button">Edit floor plan</button>
-              <button id="project-save" type="button">Sign in to save</button>
-              <button id="project-cloud-open" type="button">Projects</button>
-              <button id="project-signin" type="button">Sign in</button>
             </div>
             <details class="project-home-options project-info-options"><summary>Project details</summary>
               <form id="project-details-form" class="company-fields-grid">
@@ -433,7 +438,7 @@
                 <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
               </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
             </details>
-            <details class="project-home-options" open><summary>Design options</summary>
+            <details class="project-home-options"><summary>Design options</summary>
               <div class="design-option-controls">
                 <label>Current option<select id="design-option-select"></select></label>
                 <label>Option name<input id="design-option-name" type="text" maxlength="80" /></label>
@@ -444,15 +449,7 @@
             </details>
             <details class="project-home-options"><summary>Project options</summary><div class="project-library-actions"><button id="rename-project" type="button">Rename</button><button id="project-save-as" type="button" hidden>Save As</button></div></details>
           </article>
-          <article class="workflow-card workflow-card-wide">
-            <h2>Set up a drawing</h2>
-            <div class="workflow-step-list project-home-steps">
-              <button id="workflow-upload-plan" type="button"><strong>1 · Add floor plan</strong><small>Upload your PDF.</small></button>
-              <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Choose two points and enter the distance.</small></button>
-              <button id="workflow-draw-perimeter" type="button"><strong>3 · Mark serviced area</strong><small>Trace the area the system serves.</small></button>
-              <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units, outlets and ducts.</small></button>
-            </div>
-          </article>
+
 
           <details class="workflow-card workflow-card-wide project-home-detail">
             <summary>Scope notes &amp; area</summary>

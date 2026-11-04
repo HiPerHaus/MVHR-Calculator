@@ -13,7 +13,7 @@ export function initializeCloudUI({ client, initialAccess, onChange, onOpen, bef
   const company = initializeCompanyAccount(client, state, onChange);
   const accessAdmin = initializeAccessAdmin(client, state);
   state.openAccount = () => { onAccount(); company.load(); };
-  const account = document.querySelector("#account-button");
+  const account = document.querySelector("#account-nav");
   const dialog = document.querySelector("#signin-dialog");
   const error = document.querySelector("#signin-error");
   const signedIn = document.querySelector("#signed-in-account");
