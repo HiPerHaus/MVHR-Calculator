@@ -1134,3 +1134,10 @@ Automatic Q350/end-plate drawing connections now use the same explicit drawing-o
 ### 9 November 2026 — temporarily hide customer 3D entry
 
 At the owner's request, hide the top 3D navigation button during customer testing. Retain the 3D workspace, height authoring, renderer, SVG export and data. Older browser sessions saved on the 3D view reopen in ventilation so normal recovery does not expose the hidden entry; drawing and height values are unchanged. This is a reversible interface choice, not removal of the underlying feature.
+
+
+### 9 November 2026 — preserve deliberate unit-top duct departure
+
+The owner reported a 45° external duct departure turning straight down across the neighbouring unit port, while a longer redraw worked. The HRV near-port cleanup discarded valid waypoints inside its schematic cleanup radius and enforced a 640 mm DN160 lead. Preserve an already axial or 45° nonzero first segment before applying that cleanup, in either drawing direction. Keep the existing repair for malformed or off-angle endpoint clicks and retain exact typed port centres. This corrects the minimum-lead policy above: a schematic minimum is not grounds to replace manual route intent.
+
+Preview and commit use the same corrected domain geometry. When an HRV port moves in plan, its adjacent interior corner follows the XY change before the remaining run is normalized; its elevation is retained. Realign only trims endpoints that have a fixed planar port axis, leaving the freely oriented ceiling departure intact. Synthetic DN125/DN160 regressions cover offsets on both sides of the old threshold, small and larger unit moves in both axes, known corner heights, both drawing directions, realignment, normalization stability, save/reopen, the ceiling-elbow heading and the neighbouring exhaust-port drawing clearance. No real design is changed or silently repaired on load. Preserving a short segment does not certify fitting space or installation clearance; existing drawing and engineering review warnings remain applicable.

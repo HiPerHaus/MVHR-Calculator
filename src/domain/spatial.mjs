@@ -3,7 +3,7 @@ import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
 import { enableMountedCwDrawingConnections } from "./mounted-cw-drawing-connections.mjs";
 import { enableTerminalDrawingConnection, selectTerminalDrawingEntry } from "./terminal-drawing-connections.mjs";
-import { constrainEppPlanPoints, alignEppPortApproaches, realignEppPlanConnections, compactHrvCeilingElbowEndpoints, ensureHrvCeilingElbowLead, hasHrvCeilingElbow } from "./epp-plan-constraints.mjs";
+import { isEppPlanSegment, constrainEppPlanPoints, alignEppPortApproaches, realignEppPlanConnections, compactHrvCeilingElbowEndpoints, ensureHrvCeilingElbowLead, hasHrvCeilingElbow } from "./epp-plan-constraints.mjs";
 import {
   MAX_DXF_REFERENCE_ASSETS,
   MAX_TOTAL_DXF_REFERENCE_BYTES,
@@ -3973,9 +3973,16 @@ function constrainEditedEppRoute(route, project, realign = false) {
   };
   const start=endpointConstraint(route.startAttachment),end=endpointConstraint(route.endAttachment);
   const stubMm=Math.max(500,(route.connectionInterface?.nominalSizeMm ?? 160)*4);
-  const compacted=compactHrvCeilingElbowEndpoints(constrainEppPlanPoints(route.points),{start:start.ceilingElbow,end:end.ceilingElbow},stubMm*1.25);
+  // A valid manual departure is intent, even when shorter than the schematic
+  // cleanup radius. Decide before normalization so an off-angle legacy click
+  // still receives the existing repair instead of appearing deliberately drawn.
+  const repairCeilingLead={
+    start:start.ceilingElbow && !hasEppPlanDeparture(route.points[0],route.points[1]),
+    end:end.ceilingElbow && !hasEppPlanDeparture(route.points.at(-1),route.points.at(-2)),
+  };
+  const compacted=compactHrvCeilingElbowEndpoints(constrainEppPlanPoints(route.points),repairCeilingLead,stubMm*1.25);
   const align=realign ? realignEppPlanConnections : alignEppPortApproaches;
-  route.points = ensureHrvCeilingElbowLead(align(compacted,start.direction,end.direction,stubMm),{start:start.ceilingElbow,end:end.ceilingElbow},stubMm);
+  route.points = ensureHrvCeilingElbowLead(align(compacted,start.direction,end.direction,stubMm),repairCeilingLead,stubMm);
 }
 
 // Disposable geometry only: no history, global validation or project mutation.
@@ -4000,17 +4007,44 @@ export function previewDuctRouteGeometry(project, routeValue, { terminalEntrySel
   return route;
 }
 
+function hasEppPlanDeparture(origin,neighbor) {
+  return isEppPlanSegment(origin,neighbor) &&
+    Math.hypot(neighbor.x-origin.x,neighbor.y-origin.y)>1e-6;
+}
+
 function synchronizeRouteEndpoints(project, route) {
   validateRouteAttachmentTypes(project, route);
-  if (route.startAttachment !== null) {
-    route.points[0] = componentPortPositionOnFloor(project, route.startAttachment);
+  const endpoints=[
+    {attachment:route.startAttachment,index:0,cornerIndex:1},
+    {attachment:route.endAttachment,index:route.points.length-1,cornerIndex:route.points.length-2},
+  ].filter(endpoint=>endpoint.attachment!==null).map(endpoint=>({
+    ...endpoint,position:componentPortPositionOnFloor(project,endpoint.attachment),
+  }));
+  const cornerMoves=new Map();
+  if (/^epp-rigid-dn/.test(route.ductKind) && route.points.length>2) {
+    for(const endpoint of endpoints) {
+      const origin=route.points[endpoint.index],corner=route.points[endpoint.cornerIndex];
+      const dx=endpoint.position.x-origin.x,dy=endpoint.position.y-origin.y;
+      if(Math.hypot(dx,dy)<=1e-6 || !hasEppPlanDeparture(origin,corner))continue;
+      const component=requireEntity(project.components,endpoint.attachment.componentId,"Component");
+      const port=requireEntity(component.ports,endpoint.attachment.portId,"Port");
+      if(!hasHrvCeilingElbow(component,port))continue;
+      const previous=cornerMoves.get(endpoint.cornerIndex);
+      // Two unit ends can share one corner. Apply an equal translation once;
+      // conflicting translations retain that corner for ordinary normalization.
+      if(cornerMoves.has(endpoint.cornerIndex) &&
+        (!previous || Math.hypot(previous.dx-dx,previous.dy-dy)>1e-6)) {
+        cornerMoves.set(endpoint.cornerIndex,null);
+      } else cornerMoves.set(endpoint.cornerIndex,{dx,dy});
+    }
   }
-  if (route.endAttachment !== null) {
-    route.points[route.points.length - 1] = componentPortPositionOnFloor(
-      project,
-      route.endAttachment,
-    );
+  for(const [index,move] of cornerMoves) {
+    if(!move)continue;
+    const corner=route.points[index];
+    // Move the plan departure with its port; never infer or alter its elevation.
+    route.points[index]={...corner,x:corner.x+move.dx,y:corner.y+move.dy};
   }
+  for(const endpoint of endpoints)route.points[endpoint.index]=endpoint.position;
   constrainEditedEppRoute(route, project);
 }
 

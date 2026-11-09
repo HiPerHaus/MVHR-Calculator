@@ -114,8 +114,13 @@ function trimEndpointClick(input,direction,radius,force) {
 }
 
 export function realignEppPlanConnections(points,startDirection,endDirection,stubMm=320) {
-  let compact=trimEndpointClick(points,endDirection,stubMm*2,true);
-  compact=trimEndpointClick(compact.slice().reverse(),startDirection,stubMm*2,true).reverse();
+  // A ceiling elbow has no fixed plan direction to realign. Keep its manual
+  // departure while repairing only endpoints with an actual planar port axis.
+  let compact=points.map(point=>structuredClone(point));
+  if(Math.hypot(endDirection?.x??0,endDirection?.y??0)>EPS)
+    compact=trimEndpointClick(compact,endDirection,stubMm*2,true);
+  if(Math.hypot(startDirection?.x??0,startDirection?.y??0)>EPS)
+    compact=trimEndpointClick(compact.slice().reverse(),startDirection,stubMm*2,true).reverse();
   return alignEppPortApproaches(compact,startDirection,endDirection,stubMm);
 }
 
