@@ -57,3 +57,9 @@ Standard project allowances include HRV-DRAIN per HRV, PLU-SURGE per eligible HR
 ## Spreadsheet parts handoff
 
 Export → **Export parts CSV** downloads an Excel-compatible UTF-8 table for the active design option across all floors. Project packs and allowances appear once, with explicit quantity bases, working revision and floor labels. Measured duct/cable lengths, assembly references, cut pieces already included in stock and unresolved items are labelled separately to avoid double counting. Pending quantities are not zero, and no prices are added. Select each design option separately to export independent alternatives. This preliminary handoff does not establish product compatibility or authorize an order.
+
+## Drawing workspace
+
+Plan, Draw, Check and Export share the same project. Draw combines equipment placement and routing. Centralised tools include HRVs, ComfoWell, terminals, manual ducts and a collapsible Auto route panel. Decentralised tools include wall units and controllers; select a placed unit to set pairing and controller cables. Search stays within the active tool tab. Switching tabs changes tools only: both systems stay visible on the same plan and remain included in checks, parts lists and exports, including mixed designs. Project type remains an explicit choice in Project details.
+
+The active tool tab is restored with the browser working copy. Older Place and Route views reopen in Draw without changing the saved model. Floor actions are explicitly labelled as applying to both systems.

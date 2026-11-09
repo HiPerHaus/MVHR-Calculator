@@ -69,7 +69,7 @@ try {
   const beforeStageNavigation = await stageMutationSnapshot(cdp);
   await click(cdp, "#plan-nav");
   await click(cdp, "#ventilation-nav");
-  await click(cdp, "#route-nav");
+  await click(cdp, "#ventilation-nav");
   await click(cdp, "#checks-nav");
   await delay(150);
   assert.deepEqual(await stageMutationSnapshot(cdp), beforeStageNavigation, "Stage navigation must not mutate the project or undo state");
@@ -81,7 +81,7 @@ try {
   await click(cdp, "#return-to-check");
   await waitFor(cdp, `!document.querySelector("#checks-workspace")?.hidden`);
 
-  await click(cdp, "#route-nav");
+  await click(cdp, "#ventilation-nav");
   await click(cdp, "#view-options-toggle");
   await click(cdp, '[data-visibility-group="dn90"]');
   assert.equal(await evaluate(cdp, `document.querySelector('[data-visibility-group="dn90"]')?.checked`), false);
@@ -90,7 +90,7 @@ try {
   await waitFor(cdp, `!document.querySelector("#plan-workspace")?.hidden && document.querySelector('[data-route-id="qa-free-dn90"]')`);
   assert.equal(await evaluate(cdp, `document.querySelector('[data-visibility-group="dn90"]')?.checked`), false, "Review reveal must not change the saved visibility preference");
   await click(cdp, "#return-to-check");
-  await click(cdp, "#route-nav");
+  await click(cdp, "#ventilation-nav");
   assert.equal(await evaluate(cdp, `Boolean(document.querySelector('[data-route-id="qa-free-dn90"]'))`), false, "Temporary route reveal must end on return to Check");
   await click(cdp, "#checks-nav");
 

@@ -47,3 +47,14 @@ test('design stage recovery is optional view state and rejects lifecycle labels'
  await store.write(context,{...snapshot('Invalid view'),designStage:'detailed-design'});
  await assert.rejects(store.read(context),/Invalid recovery design stage/);
 });
+
+test('Draw workspace and selected system survive recovery without altering mixed project data',async()=>{
+ const db=indexedDbFixture(),store=createWorkingSessionStore(db,{tabId:'tab-draw'});
+ const source={...snapshot('Mixed drawing'),designStage:'draw',ventilationWorkspace:'decentralised',catalogueGroup:'Decentralised controls'};
+ await store.write(context,source);
+ const restored=await store.read(context);
+ assert.equal(restored.designStage,'draw');assert.equal(restored.ventilationWorkspace,'decentralised');
+ assert.equal(restored.catalogueGroup,'Decentralised controls');assert.equal(restored.projectJson,source.projectJson);
+ await store.write(context,{...source,ventilationWorkspace:'mixed'});
+ await assert.rejects(store.read(context),/Invalid recovery ventilation workspace/);
+});

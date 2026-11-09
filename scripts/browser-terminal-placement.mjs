@@ -60,9 +60,9 @@ try {
   await click(cdp, ".terminal-service-tool-supply");
   assert.equal(await attribute(cdp, ".terminal-service-tool-supply", "aria-pressed"), "true");
   await click(cdp, "#ventilation-nav");
-  assert.equal(await attribute(cdp, ".terminal-service-tool-supply", "aria-pressed"), "true", "Clicking the active Place stage must not reset armed placement");
+  assert.equal(await attribute(cdp, ".terminal-service-tool-supply", "aria-pressed"), "true", "Clicking the active Draw stage must not reset armed placement");
   assert.match(await text(cdp, ".terminal-service-tool-supply"), /Active · keep placing/u);
-  await click(cdp, "#route-nav");
+  await click(cdp, "#plan-nav");
   assert.equal(await componentCount(cdp), 0, "Changing stage must cancel only the uncommitted placement preview");
   assert.equal(await attribute(cdp, "#select-tool", "aria-pressed"), "true");
   await click(cdp, "#ventilation-nav");

@@ -180,7 +180,8 @@ import { inspectConnectionAccessoryEvidence } from "../src/editor/connection-acc
 import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import { createEngineeringEditGuard } from "../src/editor/engineering-edit-guard.mjs";
 import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
-import { transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
+import { normalizeStudioDesignStage, transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
+import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace } from "../src/editor/ventilation-workspace.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   engineeringComponentFingerprint,
@@ -463,7 +464,8 @@ const routeButtons = [...document.querySelectorAll(".route-tool")];
 const planNavigationButton = document.querySelector("#plan-nav");
 const projectNavigationButton = document.querySelector("#project-nav");
 const ventilationNavigationButton = document.querySelector("#ventilation-nav");
-const routeNavigationButton = document.querySelector("#route-nav");
+const ventilationWorkspaceTabs = document.querySelector("#ventilation-workspace-tabs");
+const ventilationWorkspaceButtons = [...document.querySelectorAll("[data-ventilation-tab]")];
 const threeDNavigationButton = document.querySelector("#three-d-nav");
 const catalogueNavigationButton = document.querySelector("#catalogue-nav");
 const checksNavigationButton = document.querySelector("#checks-nav");
@@ -814,6 +816,7 @@ let activeDesignStage = "plan";
 let checkFocusReturnStage = null;
 let temporaryCheckReveal = null;
 let selectedCatalogueGroup = "Units";
+let activeVentilationWorkspace = "centralised";
 let snapEnabled = true;
 let draftPoints = [];
 let floorAreaDraftPoints = [];
@@ -1407,8 +1410,8 @@ applyComponentElevationButton.addEventListener("click", applySelectedComponentEl
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
 planNavigationButton.addEventListener("click", () => selectDesignStage("plan"));
-ventilationNavigationButton.addEventListener("click", () => selectDesignStage("place"));
-routeNavigationButton.addEventListener("click", () => selectDesignStage("route"));
+ventilationNavigationButton.addEventListener("click", () => selectDesignStage("draw"));
+for (const button of ventilationWorkspaceButtons) button.addEventListener("click", () => selectVentilationWorkspace(button.dataset.ventilationTab));
 threeDNavigationButton.addEventListener("click", () => setTask("three-d"));
 catalogueNavigationButton.addEventListener("click", () => setTask("catalogue"));
 checksNavigationButton.addEventListener("click", () => selectDesignStage("check"));
@@ -2392,6 +2395,7 @@ let lastCanvasDesignStage = "plan";
 let sheetReturnStage = "plan";
 
 function selectDesignStage(stage) {
+  stage = normalizeStudioDesignStage(stage);
   if (stage !== "check" && hasEngineeringEdits()) return requestEngineeringTransition(() => selectDesignStage(stage));
   const transition = transitionStudioDesignStage(activeDesignStage, stage);
   const alreadyVisible = transition.task === "sheets"
@@ -2401,7 +2405,7 @@ function selectDesignStage(stage) {
     if (stage === "export" && sheetPreviewPanel.hidden) openSheetPreview({ designStage: true });
     return;
   }
-  if (["plan", "place", "route"].includes(stage)) lastCanvasDesignStage = stage;
+  if (["plan", "draw"].includes(stage)) lastCanvasDesignStage = stage;
   if (stage === "export") {
     sheetReturnStage = activeDesignStage === "export" ? lastCanvasDesignStage : activeDesignStage;
     activeDesignStage = stage;
@@ -2421,6 +2425,10 @@ function setTask(task, { designNavigation = false } = {}) {
     sheetsNavigationButton.classList.remove("active");
   }
   activeTask = task;
+  if (["plan", "ventilation", "checks"].includes(task)) activeDesignStage = task === "ventilation" ? "draw" : task === "checks" ? "check" : "plan";
+  if (["plan", "draw"].includes(activeDesignStage)) lastCanvasDesignStage = activeDesignStage;
+  ventilationWorkspaceTabs.hidden = task !== "ventilation";
+  renderCataloguePalette();
   document.body.dataset.designStage = activeDesignStage;
   queueWorkingSession();
   document.querySelector("#account-workspace").hidden=task!=="account";
@@ -2436,8 +2444,7 @@ function setTask(task, { designNavigation = false } = {}) {
   }
   projectNavigationButton.classList.toggle("active", task === "project");
   planNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "plan");
-  ventilationNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "place");
-  routeNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "route");
+  ventilationNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "draw");
   threeDNavigationButton.classList.toggle("active", task === "three-d");
   catalogueNavigationButton.classList.toggle("active", task === "catalogue");
   checksNavigationButton.classList.toggle("active", ["plan", "ventilation", "checks"].includes(task) && activeDesignStage === "check");
@@ -2529,9 +2536,7 @@ function setTask(task, { designNavigation = false } = {}) {
   }
   setTool("select");
   interactionMessage = task === "ventilation"
-      ? activeDesignStage === "route"
-        ? "Route stage active; preview typed duct paths, then accept or edit them"
-        : "Place stage active; building geometry is visible and locked"
+      ? `${ventilationProjectTypeLabel(activeVentilationWorkspace)} tools active · place and connect on the same plan`
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
   render();
   initialCameraFit.request();
@@ -2540,8 +2545,8 @@ function setTask(task, { designNavigation = false } = {}) {
 function startPreliminaryLayout() {
   if (history.present.workflow.stage !== "quick-quote") return;
   if (commitCommand({ type: "workflow.startPreliminaryLayout" }, "Preliminary ventilation layout stage started; rooms remain optional")) {
-    activeDesignStage = "place";
-    lastCanvasDesignStage = "place";
+    activeDesignStage = "draw";
+    lastCanvasDesignStage = "draw";
     setTask("ventilation");
   }
 }
@@ -2551,8 +2556,8 @@ function openVentilationTask() {
     startPreliminaryLayout();
     return;
   }
-  activeDesignStage = "place";
-  lastCanvasDesignStage = "place";
+  activeDesignStage = "draw";
+  lastCanvasDesignStage = "draw";
   setTask("ventilation");
 }
 
@@ -2624,7 +2629,11 @@ function applyVentilationProjectType(type) {
   const previous=history.present.ventilationDesignType;
   if(type===previous) return renderProjectWorkspace();
   commitCommand({type:"project.setVentilationDesignType",ventilationDesignType:type},`${ventilationProjectTypeLabel(type)} project type applied · geometry and ventilation objects preserved`);
-  if(previous==="unclassified" && type==="decentralised" && activeTask==="project") selectedCatalogueGroup=null;
+  if (["centralised", "decentralised"].includes(type)) {
+    activeVentilationWorkspace = type;
+    selectedCatalogueGroup = null;
+    catalogueSearchInput.value = "";
+  }
   renderCataloguePalette();
   render();
 }
@@ -3045,7 +3054,6 @@ function openSheetPreview({ designStage = false } = {}) {
     projectNavigationButton.classList.remove("active");
     planNavigationButton.classList.remove("active");
     ventilationNavigationButton.classList.remove("active");
-    routeNavigationButton.classList.remove("active");
     catalogueNavigationButton.classList.remove("active");
     checksNavigationButton.classList.remove("active");
     threeDNavigationButton.classList.remove("active");
@@ -5233,6 +5241,9 @@ function applyLocalReopen(result, options = {}) {
   cancelDraft("");
   cancelCalibration("");
   history = createCommandHistory(result.project);
+  activeVentilationWorkspace = defaultVentilationWorkspace(result.project);
+  selectedCatalogueGroup = null;
+  catalogueSearchInput.value = "";
   portableDirty = true;
   identityCounter = nextIdentityCounter(result.project);
   referenceIdentityCounter = nextReferenceIdentityCounter(result.project);
@@ -8043,6 +8054,28 @@ function htmlText(name, value, className = "") {
   return element;
 }
 
+function selectVentilationWorkspace(workspace) {
+  normalizeVentilationWorkspace(workspace);
+  if (activeVentilationWorkspace === workspace) return;
+  const keepToolsOpen = planWorkspace.classList.contains("tablet-tools-open");
+  cancelActivePointer();
+  setTool("select");
+  mechanicalState = clearMechanicalSelection(mechanicalState);
+  selectedRouteId = null;
+  selectedRoutePointIndex = null;
+  selectedDecentralisedCableId = null;
+  selectedDecentralisedCablePointIndex = null;
+  activeVentilationWorkspace = workspace;
+  selectedCatalogueGroup = null;
+  catalogueSearchInput.value = "";
+  if (keepToolsOpen) setTabletPanel("tools");
+  ventilationWorkspaceButtons.find(button => button.dataset.ventilationTab === workspace)?.focus({ preventScroll: true });
+  interactionMessage = `${ventilationProjectTypeLabel(workspace)} tools active · both systems remain on the plan`;
+  renderCataloguePalette();
+  queueWorkingSession();
+  render();
+}
+
 function renderCataloguePalette() {
   const query = catalogueSearchInput.value.trim().toLowerCase();
   const allEntries = [
@@ -8066,22 +8099,17 @@ function renderCataloguePalette() {
     // Legacy generic remote assemblies remain readable in saved projects and the library.
 
   ];
-  const projectType=history.present.ventilationDesignType;
-  const unorderedGroups=[...new Set(allEntries.map((item) => item.group)), "Duct"];
-  const preferredGroup=projectType==="decentralised"?"Decentralised MVHR":"Units";
-  const groups=projectType==="decentralised"
-    ? ["Decentralised MVHR",...unorderedGroups.filter((group)=>group!=="Decentralised MVHR")]
-    : projectType==="centralised"
-      ? ["Units",...unorderedGroups.filter((group)=>group!=="Units")]
-      : unorderedGroups;
-  if (!groups.includes(selectedCatalogueGroup)) selectedCatalogueGroup = groups.includes(preferredGroup)?preferredGroup:groups[0];
-  ventilationProjectTypeContext.textContent=projectType==="decentralised"
-    ? "Decentralised project · through-wall unit markers are shown first. Central duct tools remain available if the project is changed to Mixed."
-    : projectType==="centralised"
-      ? "Centralised project · units, terminals and duct routing are shown first. Decentralised markers remain available for an explicit Mixed design."
-      : projectType==="mixed"
-        ? "Mixed project · centralised routing and decentralised markers remain separate and available together."
-        : "Unclassified project · choose Centralised, Decentralised or Mixed in Project details. Studio will not infer the choice from incomplete geometry.";
+  const projectType = history.present.ventilationDesignType;
+  const workspaceEntries = allEntries.filter(item => catalogueEntryWorkspace(item) === activeVentilationWorkspace);
+  const groups = [...new Set(workspaceEntries.map(item => item.group))];
+  if (activeVentilationWorkspace === "centralised") groups.push("Duct");
+  if (!groups.includes(selectedCatalogueGroup)) selectedCatalogueGroup = groups[0];
+  const workspaceLabel = ventilationProjectTypeLabel(activeVentilationWorkspace);
+  document.querySelector("#ventilation-tools-heading").textContent = `${workspaceLabel} tools`;
+  for (const button of ventilationWorkspaceButtons) button.setAttribute("aria-pressed", String(button.dataset.ventilationTab === activeVentilationWorkspace));
+  for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = panel.dataset.ventilationWorkspace !== activeVentilationWorkspace;
+  catalogueSearchInput.placeholder = activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
+  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools. Both systems stay on the same plan and are included in exports. Switching tabs does not change the project type.`;
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
     const button = document.createElement("button");
@@ -8104,7 +8132,7 @@ function renderCataloguePalette() {
     });
     catalogueCategories.append(button);
   }
-  const entries = allEntries.filter((item) => {
+  const entries = workspaceEntries.filter((item) => {
     if (!query) return item.group === selectedCatalogueGroup;
     return [item.name, item.manufacturer, item.productId, item.group, item.category, item.status, item.searchTerms]
       .filter(Boolean)
@@ -8112,7 +8140,7 @@ function renderCataloguePalette() {
   });
   const ductPanel=document.querySelector("#duct-parts");
   const matchingDuctButtons=routeButtons.filter(button=>!query || button.textContent.toLowerCase().includes(query));
-  const showDuct=query ? matchingDuctButtons.length>0 : selectedCatalogueGroup==="Duct";
+  const showDuct=activeVentilationWorkspace === "centralised" && (query ? matchingDuctButtons.length>0 : selectedCatalogueGroup==="Duct");
   ductPanel.hidden=!showDuct;
   for(const button of routeButtons)button.hidden=Boolean(query) && !matchingDuctButtons.includes(button);
   catalogueGroups.replaceChildren();
@@ -9503,7 +9531,9 @@ function focusCheckTarget(item) {
   checkFocusReturnStage = "check";
   temporaryCheckReveal = target;
   returnToCheckButton.hidden = false;
-  activeDesignStage = target.kind === "route" ? "route" : target.kind === "component" ? "place" : "plan";
+  activeDesignStage = ["route", "component"].includes(target.kind) ? "draw" : "plan";
+  if (target.kind === "route") activeVentilationWorkspace = "centralised";
+  if (target.kind === "component") activeVentilationWorkspace = resolved.value.decentralisedMvhr || resolved.value.decentralisedController ? "decentralised" : "centralised";
   setTask(target.kind === "room" || target.kind === "zone" ? "plan" : "ventilation", { designNavigation: true });
   mechanicalState = clearMechanicalSelection(mechanicalState);
   selectedRouteId = null;
@@ -10635,7 +10665,7 @@ function queueWorkingSession(modelChanged=false){
    if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
    const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
     cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
-    task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,camera:{...camera},catalogueGroup:selectedCatalogueGroup};
+    task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,camera:{...camera},catalogueGroup:selectedCatalogueGroup,ventilationWorkspace:activeVentilationWorkspace};
    const model=history.present;workingWrites++;
    workingSessions.write(context,snapshot).then(()=>{
     workingRecoveryError="";
@@ -10677,9 +10707,11 @@ async function restoreWorkingSession(context){
    currentCloudRecord=recovered.cloudRecord??null;cloudBindingVersion++;
    camera={...recovered.camera};
    if(typeof recovered.catalogueGroup==="string")selectedCatalogueGroup=recovered.catalogueGroup;
-   activeDesignStage=["plan","place","route","check","export"].includes(recovered.designStage)
-     ? recovered.designStage
-     : recovered.task==="ventilation"?"place":recovered.task==="checks"?"check":recovered.task==="sheets"?"export":"plan";
+   activeVentilationWorkspace = defaultVentilationWorkspace(recovered.project, recovered.ventilationWorkspace, recovered.catalogueGroup);
+   activeDesignStage=["plan","draw","place","route","check","export"].includes(recovered.designStage)
+     ? normalizeStudioDesignStage(recovered.designStage)
+     : recovered.task==="ventilation"?"draw":recovered.task==="checks"?"check":recovered.task==="sheets"?"export":"plan";
+   if (["plan", "draw"].includes(activeDesignStage)) lastCanvasDesignStage = activeDesignStage;
    // 3D entry is temporarily hidden for customer review; retain its data, but
    // reopen an older 3D session in the normal ventilation workspace.
    const recoveredTask = recovered.task === "three-d" ? "ventilation" : recovered.task;

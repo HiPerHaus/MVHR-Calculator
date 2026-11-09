@@ -21,8 +21,7 @@
           <button id="project-nav" type="button">Project</button>
           <div class="design-stage-nav" role="group" aria-label="Design workflow">
             <button id="plan-nav" type="button" data-design-stage="plan">Plan</button>
-            <button id="ventilation-nav" type="button" data-design-stage="place">Place</button>
-            <button id="route-nav" type="button" data-design-stage="route">Route</button>
+            <button id="ventilation-nav" type="button" data-design-stage="draw">Draw</button>
             <button id="checks-nav" type="button" data-design-stage="check">Check</button>
             <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
           </div>
@@ -58,48 +57,10 @@
 
           </section>
           <section id="mechanical-tools-section" hidden>
-            <h2>Parts</h2>
+            <h2 id="ventilation-tools-heading">Centralised tools</h2>
             <p id="ventilation-project-type-context" class="project-type-context" aria-live="polite"></p>
-            <div class="automatic-routing-actions" aria-label="Automatic duct routing">
-              <strong>Equipment-first routing</strong>
-              <span>Place typed equipment first, then preview routes. Auto route leaves existing routes alone; Re-route replaces only your explicit selection.</span>
-              <details class="routing-setup-details"><summary>Setup checklist</summary><ol id="routing-workflow-steps" class="routing-workflow-steps">
-                <li data-routing-step="equipment"><b>1</b><span>Place unit, outlets and external terminals.</span></li>
-                <li data-routing-step="distribution"><b>2</b><span>Place distribution boxes and attenuators.</span></li>
-                <li data-routing-step="constraints"><b>3</b><span>Confirm scale, outline and constraints.</span></li>
-                <li data-routing-step="generate"><b>4</b><span>Choose system and style, then preview.</span></li>
-                <li data-routing-step="review"><b>5</b><span>Accept good routes and regenerate the remainder.</span></li>
-              </ol></details>
-              <label>Duct system
-                <select id="automatic-route-system"><option value="dn90">DN90 radial</option><option value="epp">EPP main / outdoor</option></select>
-              </label>
-              <label>Route style
-                <select id="automatic-route-style"><option value="direct">Direct · shortest practical</option><option value="building-aligned">Building-aligned · orthogonal corridors</option></select>
-              </label>
-              <div id="automatic-route-axis-row" class="routing-axis-row" hidden>
-                <label>Building axis (degrees)<input id="automatic-route-axis" type="number" step="0.1" min="0" max="89.9" placeholder="Confirm axis" /></label>
-                <button id="suggest-building-axis" type="button">Use outline suggestion</button>
-                <small id="automatic-route-axis-detail">Review the suggested axis before previewing.</small>
-              </div>
-              <button id="auto-route" class="panel-action primary-route-action" type="button">Preview auto routes</button>
-              <button id="reroute-existing" class="panel-action" type="button">Re-route existing…</button>
-              <p id="automatic-route-setup-status" class="clear-ventilation-note" aria-live="polite"></p>
-            </div>
-            <details class="parts-details"><summary>Routing coordination</summary>
-              <button id="add-routing-exclusion" class="panel-action" type="button">Mark exclusion rectangle</button>
-              <p class="clear-ventilation-note">Click two opposite corners on the plan, then name the beam, void or no-go area.</p>
-              <label class="catalogue-search">Clear spacing between independent ducts (mm)
-                <input id="routing-clearance-input" type="number" min="0" step="10" placeholder="Not set" />
-              </label>
-              <button id="apply-routing-clearance" class="panel-action" type="button">Apply clearance</button>
-              <p id="routing-clearance-status" class="clear-ventilation-note"></p>
-              <p id="routing-coordination-status" class="clear-ventilation-note" aria-live="polite"></p>
-              <div id="routing-exclusion-list" class="routing-exclusion-list"></div>
-            </details>
-            <details class="parts-details"><summary>Design demand &amp; floor actions</summary>
+            <details class="parts-details" data-ventilation-workspace="centralised"><summary>Design demand</summary>
             <p id="ventilation-readiness" class="room-guidance"></p>
-            <button id="clear-ventilation" class="panel-action danger-action" type="button" disabled>Clear ventilation on this floor…</button>
-            <p class="clear-ventilation-note">Removes MVHR parts, outlets and routes on the active floor only. Building and reference work stays unchanged.</p>
             <div class="workflow-hint">
               <strong>Suggested sequence</strong>
               <span>Place outlets and choose Single duct or Twin duct, then review the unit and distribution demand. The HRV can still be placed at any time.</span>
@@ -112,7 +73,7 @@
             </details>
             <div id="catalogue-categories" class="parts-categories" aria-label="Part categories"></div>
             <label class="catalogue-search">Search manufacturer, product or type
-              <input id="catalogue-search" type="search" autocomplete="off" placeholder="e.g. Q350, terminal, EPP" />
+              <input id="catalogue-search" type="search" autocomplete="off" placeholder="e.g. Q350, terminal, EPP" aria-label="Search active ventilation tools" />
             </label>
             <div id="catalogue-groups" class="parts-product-grid"></div>
             <div id="duct-parts" hidden>
@@ -139,7 +100,53 @@
             </button>
             </div>
 </div>
-            <details class="parts-details"><summary>Product evidence</summary><p class="synthetic-warning">Unhanded Q350/Q450 setouts remain non-routable. Explicit Q350 left/right drawing profiles have source-backed centres and roles; their DN160 paths are drawing-only and do not approve physical mating, adapters, seals, supports or clearance. CW320 candidates remain non-placeable until local crosswalks and installation interfaces are evidenced. No private price, performance, pressure loss or product-fit claim is included.</p></details>
+            <details id="automatic-routing-section" class="parts-details" data-ventilation-workspace="centralised"><summary>Auto route</summary>
+            <div class="automatic-routing-actions" aria-label="Automatic duct routing">
+              <strong>Equipment-first routing</strong>
+              <span>Place typed equipment first, then preview routes. Auto route leaves existing routes alone; Re-route replaces only your explicit selection.</span>
+              <details class="routing-setup-details"><summary>Setup checklist</summary><ol id="routing-workflow-steps" class="routing-workflow-steps">
+                <li data-routing-step="equipment"><b>1</b><span>Place unit, outlets and external terminals.</span></li>
+                <li data-routing-step="distribution"><b>2</b><span>Place distribution boxes and attenuators.</span></li>
+                <li data-routing-step="constraints"><b>3</b><span>Confirm scale, outline and constraints.</span></li>
+                <li data-routing-step="generate"><b>4</b><span>Choose system and style, then preview.</span></li>
+                <li data-routing-step="review"><b>5</b><span>Accept good routes and regenerate the remainder.</span></li>
+              </ol></details>
+              <label>Duct system
+                <select id="automatic-route-system"><option value="dn90">DN90 radial</option><option value="epp">EPP main / outdoor</option></select>
+              </label>
+              <label>Route style
+                <select id="automatic-route-style"><option value="direct">Direct · shortest practical</option><option value="building-aligned">Building-aligned · orthogonal corridors</option></select>
+              </label>
+              <div id="automatic-route-axis-row" class="routing-axis-row" hidden>
+                <label>Building axis (degrees)<input id="automatic-route-axis" type="number" step="0.1" min="0" max="89.9" placeholder="Confirm axis" /></label>
+                <button id="suggest-building-axis" type="button">Use outline suggestion</button>
+                <small id="automatic-route-axis-detail">Review the suggested axis before previewing.</small>
+              </div>
+              <button id="auto-route" class="panel-action primary-route-action" type="button">Preview auto routes</button>
+              <button id="reroute-existing" class="panel-action" type="button">Re-route existing…</button>
+              <p id="automatic-route-setup-status" class="clear-ventilation-note" aria-live="polite"></p>
+            </div>
+            </details>
+            <details class="parts-details" data-ventilation-workspace="centralised"><summary>Routing coordination</summary>
+              <button id="add-routing-exclusion" class="panel-action" type="button">Mark exclusion rectangle</button>
+              <p class="clear-ventilation-note">Click two opposite corners on the plan, then name the beam, void or no-go area.</p>
+              <label class="catalogue-search">Clear spacing between independent ducts (mm)
+                <input id="routing-clearance-input" type="number" min="0" step="10" placeholder="Not set" />
+              </label>
+              <button id="apply-routing-clearance" class="panel-action" type="button">Apply clearance</button>
+              <p id="routing-clearance-status" class="clear-ventilation-note"></p>
+              <p id="routing-coordination-status" class="clear-ventilation-note" aria-live="polite"></p>
+              <div id="routing-exclusion-list" class="routing-exclusion-list"></div>
+            </details>
+            <details class="parts-details" data-ventilation-workspace="decentralised" hidden><summary>Pairing &amp; controller cables</summary>
+              <p class="room-guidance">Place a wall unit, then select it on the plan. Its properties include room or zone, pair/group, controller and cable controls. Place a controller from Controls before drawing its cable to a unit.</p>
+              <p class="room-guidance">Continuous-balanced units do not require a pair. Cable routes are separate from centralised ducts; no airflow or electrical compatibility is inferred.</p>
+            </details>
+            <details class="parts-details"><summary>Floor actions · both systems</summary>
+            <button id="clear-ventilation" class="panel-action danger-action" type="button" disabled>Clear all ventilation on this floor…</button>
+            <p class="clear-ventilation-note">Removes centralised and decentralised units, controllers, cables, outlets and ducts on this floor. Building and reference work stays unchanged.</p>
+            </details>
+            <details class="parts-details" data-ventilation-workspace="centralised"><summary>Product evidence</summary><p class="synthetic-warning">Unhanded Q350/Q450 setouts remain non-routable. Explicit Q350 left/right drawing profiles have source-backed centres and roles; their DN160 paths are drawing-only and do not approve physical mating, adapters, seals, supports or clearance. CW320 candidates remain non-placeable until local crosswalks and installation interfaces are evidenced. No private price, performance, pressure loss or product-fit claim is included.</p></details>
           </section>
           <section id="floor-area-tools-section">
             <h2>Building outline</h2>
@@ -184,6 +191,10 @@
             <div>
               <strong>Ground Floor</strong>
               <span>1 grid square = 1,000 mm</span>
+            </div>
+            <div id="ventilation-workspace-tabs" class="ventilation-workspace-tabs" role="group" aria-label="Ventilation tools" hidden>
+              <button id="centralised-tools-tab" type="button" data-ventilation-tab="centralised" aria-pressed="true">Centralised</button>
+              <button id="decentralised-tools-tab" type="button" data-ventilation-tab="decentralised" aria-pressed="false">Decentralised</button>
             </div>
             <div id="mode-prompt" role="status">Select a tool</div>
             <div class="tablet-panel-controls" aria-label="Drawing panels">
@@ -406,7 +417,7 @@
               <button id="workflow-upload-plan" type="button"><strong>1 · Add floor plan</strong><small>Upload your PDF.</small></button>
               <button id="workflow-set-scale" type="button"><strong>2 · Set scale</strong><small>Choose two points and enter the distance.</small></button>
               <button id="workflow-draw-perimeter" type="button"><strong>3 · Mark serviced area</strong><small>Trace the area the system serves.</small></button>
-              <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units, outlets and ducts.</small></button>
+              <button id="workflow-markup-mvhr" type="button"><strong>4 · Design ventilation</strong><small>Place units and draw ducts or controller cables.</small></button>
             </div>
           </article>
           <article class="workflow-card workflow-card-wide project-home-current">
