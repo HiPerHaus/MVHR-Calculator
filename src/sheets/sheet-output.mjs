@@ -6,14 +6,14 @@ export function createSheetOutputPages(sheet) {
   const totalPageCount = partsPages.length + 1;
   const drawingSvg = renderA3SheetSvg(sheet).replace(
     "</svg>",
-    `<text x="12" y="293" font-size="2.3" fill="#687880">Page 1 of ${totalPageCount} · A3</text></svg>`,
+    `<text x="12" y="${sheet.page.heightMm - 4}" font-size="2.3" fill="#687880">Page 1 of ${totalPageCount} · A3</text></svg>`,
   );
   return [
     Object.freeze({
       kind: "drawing",
-      widthMm: 420,
-      heightMm: 297,
-      orientation: "landscape",
+      widthMm: sheet.page.widthMm,
+      heightMm: sheet.page.heightMm,
+      orientation: sheet.page.orientation,
       className: "sheet-a3",
       label: "Page 1 · A3 drawing",
       svg: drawingSvg,

@@ -38,7 +38,7 @@ The proposed production sequence, exact Auth settings, rollback boundary and unr
 
 ## Drawing sheets and company branding
 
-The A3 sheet uses a full-height marked-up plan with a right-hand symbol key above the title block. Project → Project details supplies the project name, reference, client and site address; apply changes and save the drawing. These details travel with exported and cloud-saved drawings. Older drawings open with blank details until entered.
+The A3 sheet uses a marked-up plan above a dedicated dimension-detail band, with a right-hand symbol key above the title block. TVA and AeroFresh terminal housing sections appear on each plan. Exact matching Q/CW320 and AeroFresh/CW520 assemblies receive their supplied envelope references; unmatched assemblies and unreadable wiring sources remain explicitly pending. The plan scale is recalculated to fit the available space. Project → Project details supplies the project name, reference, client and site address; apply changes and save the drawing. These details travel with exported and cloud-saved drawings. Older drawings open with blank details until entered.
 
 Account contains workspace company details, primary contact and a PNG/JPEG logo (up to 2 MB). Workspace owners can save branding; members can view it. Branding is private to the workspace and fills new sheet previews. Refresh the sheet preview after changing details. The sheet remains a preliminary working draft, not an issued construction drawing.
 

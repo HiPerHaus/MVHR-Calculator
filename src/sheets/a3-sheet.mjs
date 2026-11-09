@@ -33,8 +33,10 @@ import {
 import { ventilationProjectTypeLabel } from "../domain/ventilation-project-type.mjs";
 import { floorAreaValueLabel, inspectSheetFloorArea } from "./floor-area-key.mjs";
 
+import { layoutPlanDetails, renderPlanDetails, selectPlanDetails } from "./plan-details.mjs";
+
 export const A3_DIMENSIONS_MM = Object.freeze({ short: 297, long: 420 });
-export const SHEET_TEMPLATE_ID = "hiper-a3-plan-sidebar-v3";
+export const SHEET_TEMPLATE_ID = "hiper-a3-plan-details-v4";
 export const ISSUE_STATUSES = Object.freeze([
   "Preliminary — not for construction",
   "Issued for review — not for construction",
@@ -80,7 +82,9 @@ export function createA3SheetModel(project, metadata) {
   const titleBlockBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm+printableBounds.heightMm-128,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:128});
   const legendBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:printableBounds.heightMm-128});
   const scheduleBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm+printableBounds.heightMm-SCHEDULE_HEIGHT_MM,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-DRAWING_GAP_MM,heightMm:SCHEDULE_HEIGHT_MM});
-  const drawingBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
+  const drawingArea=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
+  const planDetails = layoutPlanDetails(selectPlanDetails(sourceProject, normalized.floorId), drawingArea);
+  const drawingBounds = Object.freeze({ ...drawingArea, heightMm: drawingArea.heightMm - planDetails.bounds.heightMm - DRAWING_GAP_MM });
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId });
   const printScene = buildPrintScene(sourceProject, normalized.floorId, partsSchedule);
   const fit = calculateSheetFit(printScene.modelBoundsMm, drawingBounds, {
@@ -98,6 +102,7 @@ export function createA3SheetModel(project, metadata) {
     scheduleBounds,
     titleBlockBounds,
     legendBounds,
+    planDetails,
     printScene,
     partsSchedule,
     fit,
@@ -116,6 +121,7 @@ export function createA3SheetModel(project, metadata) {
     scheduleBounds,
     titleBlockBounds,
     legendBounds,
+    planDetails,
     printScene,
     partsSchedule,
     fit,
@@ -190,6 +196,7 @@ export function renderA3SheetSvg(sheet) {
   body.push(renderPrintScene(sheet));
   body.push("</g>");
   body.push(renderWatermark(sheet));
+  body.push(renderPlanDetails(sheet.planDetails));
   if(sheet.metadata.includeSchedule)body.push(renderPartsSchedule(sheet));
   body.push(renderSheetLegend(sheet,sheet.legendBounds));
   body.push(renderTitleBlock(sheet, title));
@@ -956,12 +963,12 @@ function renderTitleBlock(sheet,bounds){
  const contact=[sheet.metadata.companyLogoDataUrl?c.companyName:'',c.address,[c.phone,c.email].filter(Boolean).join(' · '),c.website,[c.contactName,c.contactPhone||c.contactEmail].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
  out.push(renderTextLines(wrapSheetText(contact,49,4),x+4,cy,2.3,3.1));cy=y+36;
  const rows=[['PROJECT',sheet.metadata.projectName],['SYSTEM',sheet.metadata.ventilationDesignTypeLabel],['CLIENT',sheet.metadata.clientName],['ADDRESS',sheet.metadata.siteName],['DRAWING',sheet.metadata.drawingTitle]];
- for(const [label,value] of rows){out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/><text x="${x+3}" y="${cy+3}" font-size="1.9" fill="#687880">${label}</text>`);const lines=wrapSheetText(value||'—',38,label==='ADDRESS'?3:2);out.push(renderTextLines(lines,x+3,cy+6.5,2.8,3.3));cy+=label==='ADDRESS'?17:13;}
+ for(const [label,value] of rows){out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/><text x="${x+3}" y="${cy+3}" font-size="1.9" fill="#687880">${label}</text>`);const lines=wrapSheetText(value||'—',38,label==='ADDRESS'?3:2);out.push(renderTextLines(lines,x+3,cy+6.5,2.8,3.3));cy+=label==='ADDRESS'?16:12;}
  out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/>`);
  out.push(renderTextLines(wrapSheetText(`${sheet.metadata.drawingId} · Rev ${sheet.metadata.revision}`,43,1),x+3,cy+5,2.8,3.2));
  out.push(renderTextLines(wrapSheetText(`${sheet.metadata.issueDate} · ${sheet.fit.label} · ${sheet.printScene.floorName}`,47,1),x+3,cy+10,2.5,3.1));
  out.push(renderTextLines(wrapSheetText(`DRAWN BY ${sheet.metadata.drawnBy||'—'} · CHECKED BY ${sheet.metadata.checkedBy||'—'}`,48,1),x+3,cy+15,2.4,3));
- out.push(renderTextLines(wrapSheetText(sheet.metadata.status,43,2),x+3,y+h-10,2.6,3.3));
+ out.push(renderTextLines(wrapSheetText(sheet.metadata.status,43,2),x+3,y+h-7,2.6,3.3));
  out.push(`<text x="${x+3}" y="${y+h-2}" font-size="1.8" fill="#687880">A3 · Print at 100% · Verify scale before use</text></g>`);return out.join('');
 }
 

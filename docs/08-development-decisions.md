@@ -1145,3 +1145,14 @@ Preview and commit use the same corrected domain geometry. When an HRV port move
 ### 9 November 2026 — concise export duct labels
 
 At the owner's request, remove the “— drawing route” suffix from all four A3 export legend duct labels. Supply, extract, outdoor intake and outdoor exhaust retain their service names and symbols. Preview, print and PDF use the same sheet renderer. This is a wording-only change: route geometry, saved project data, parts quantities and preliminary/not-for-construction status remain unchanged.
+
+
+### 9 November 2026 — source-backed A3 drawing details
+
+The owner supplied five detail screenshots and confirmed the final unlabeled arrangement is AeroFresh 300. Every A3 plan now reserves a separate band for vector ceiling TVA and wall/floor/bulkhead AeroFresh housing sections. The 128/140 and 120/115/140/90 dimensions retain the supplied dimension endpoints; they are not inferred cutouts, grille-face sizes or installation clearances. Plan fit is recalculated inside the remaining drawing area, so the printed scale can change. The legend and title block remain separate.
+
+Only the exact vertically mounted Q350/450 TR + CW320 and AeroFresh 450/600 + CW520 configurations receive the supplied assembled envelopes: 791 × 566 × 1414 and 870 × 650 × 1400 mm, respectively. The latter retains the source's 150 mm drain allowance and 700 mm cabinetry suggestion. Repeated matching assemblies are deduplicated per floor/option. Other CW sizes, remote layouts and German BIM profiles do not inherit these dimensions. These references never change model geometry, service clearances, parts quantities or source fingerprints.
+
+The Q wiring screenshot is too small to transcribe safely, so the drawing flags the need for the original wiring diagram instead of inventing terminals, voltage, cable specifications or controller identities. AeroFresh wiring fine labels are likewise not transcribed. The confirmed AeroFresh 300 remote arrangement retains unknown assembled dimensions because its arrows are blank; separately recorded bare-unit dimensions cannot fill them. AF300, AF600 and TR Q450 are not currently configurable through the placement UI; this change does not add model availability. AF300 selection and unknown values are tested with a selector fixture; existing Q350 and AF450 configurations are verified end to end. TR Q450 and AF600 remain unreachable through the current placement UI.
+
+Preview, print, active-option PDF and all-options PDF share the detail renderer. SVG dimensions remain vector text at least 2.5 mm high. Portrait export now preserves its actual A3 page orientation. QA also corrected a pre-existing title-block footer collision. Synthetic browser QA checks detail bounds, a five-reference stress panel, mixed A3/A4 page dimensions, PDF text and actual-size rendering. No private source drawings were copied into the repository and no electrical installation diagram was reconstructed.
