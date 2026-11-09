@@ -53,3 +53,7 @@ Private working copies restore only after sign-in and workspace membership resol
 
 
 Standard project allowances include HRV-DRAIN per HRV, PLU-SURGE per eligible HRV (excluded from Q450/Q600), and ZEN-CCPRO plus ZEN-OPTBOX per Q-series unit only. Unit-mounted CW modules and branch plates are listed separately; known CW320 Q-series mounting sets are included. Unknown product codes remain explicitly unselected. ZEN-C90-CSET is three per job. Extract filters use one per extract point and round to ten-filter bags; ZEN-OR90 rounds required O-rings to ten-ring packs. These job totals appear once, on the first floor containing ventilation. DN90 supply/extract route lengths and 100 mm unused-CW stubs combine into one total, followed by ZEN-CT90-50M coil quantity rounded upward. Pending Single/Twin choices stay pending. No prices or private estimate files are published.
+
+## Spreadsheet parts handoff
+
+Export → **Export parts CSV** downloads an Excel-compatible UTF-8 table for the active design option across all floors. Project packs and allowances appear once, with explicit quantity bases, working revision and floor labels. Measured duct/cable lengths, assembly references, cut pieces already included in stock and unresolved items are labelled separately to avoid double counting. Pending quantities are not zero, and no prices are added. Select each design option separately to export independent alternatives. This preliminary handoff does not establish product compatibility or authorize an order.

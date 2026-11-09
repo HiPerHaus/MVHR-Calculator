@@ -119,3 +119,30 @@ function scaledFixture(points) {
 }
 function rectangle() { return [{ x: 0, y: 0 }, { x: 10000, y: 0 }, { x: 10000, y: 5000 }, { x: 0, y: 5000 }]; }
 function concave() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 5000 }, { x: 3500, y: 5000 }, { x: 3500, y: 120 }, { x: 2500, y: 120 }, { x: 2500, y: 5000 }, { x: 0, y: 5000 }]; }
+
+test("Q350 automatic drawing-only routes use the same explicit connections and final body as manual commit", async () => {
+  const { deriveDuctBodyGeometry } = await import("../src/editor/duct-body-geometry.mjs");
+  const { routeFamilyForKind } = await import("../src/editor/component-catalogue.mjs");
+  const { validateDuctPathInsideOutline } = await import("../src/editor/automatic-radial-routing.mjs");
+  for (const reverse of [false, true]) for (const rotation of [0, Math.PI / 2]) for (const routingStyle of ["direct", "building-aligned"]) {
+    let project = scaledFixture(rectangle());
+    project = add(project, createCatalogueComponent("zehnder-q350-hrv-left-drawing-profile", { id: "q350", floorId: "ground", xMm: 1400, yMm: 1200 }));
+    if (rotation) project = applyCommand(project, { type: "component.rotateFloorZ", componentId: "q350", angleRad: rotation });
+    project = applyCommand(project, { type: "equipmentAssembly.add", ...createEquipmentAssembly("generic-remote-supply-attenuation-set", { id: "supply-set", floorId: "ground", xMm: 7000, yMm: 3600 }) });
+    const options = { routingStyle, buildingAxisRad: Math.PI / 4 };
+    const endpoints = inspectAutomaticEppRouting(project, "ground").endpoints;
+    const a = endpoints.find(endpoint => endpoint.componentId === "q350" && endpoint.stream === "supply");
+    const b = endpoints.find(endpoint => endpoint.componentId.endsWith("end-plate") && endpoint.stream === "supply");
+    const before = structuredClone(project);
+    const inspection = inspectAutomaticEppRouting(project, "ground", { startKey: (reverse ? b : a).key, endKey: (reverse ? a : b).key }, options);
+    assert.equal(inspection.status, "ready", `${reverse}/${rotation}/${routingStyle}: ${inspection.message}`);
+    const proposal = inspection.proposal;
+    assert.equal(proposal.geometryStatus, "drawing-only-fit-unverified");
+    const committed = applyCommand(project, { type: "route.add", route: routeFrom(proposal, "automatic-epp-preview") }).routes[0];
+    assert.deepEqual(proposal.previewRoute, committed);
+    const body = deriveDuctBodyGeometry(committed, routeFamilyForKind(committed.ductKind));
+    assert.deepEqual(proposal.sampledCentreline, body.sampledCentreline);
+    assert.equal(validateDuctPathInsideOutline(body.sampledCentreline, rectangle(), body.diameterMm), true);
+    assert.deepEqual(project, before);
+  }
+});

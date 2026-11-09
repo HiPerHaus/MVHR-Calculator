@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { resolve, extname } from 'node:path';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const port=Number(process.argv[2]??4297);
-const harness=await readFile(new URL('./drag-preview-review-ui.mjs',import.meta.url),'utf8');
+let harness=await readFile(new URL('./drag-preview-review-ui.mjs',import.meta.url),'utf8');
+if(process.argv[3]==='engineering')harness+='\n'+await readFile(new URL('./engineering-input-review-ui.mjs',import.meta.url),'utf8');
+if(process.argv[3]==='epp')harness+='\n'+await readFile(new URL('./epp-geometry-review-ui.mjs',import.meta.url),'utf8');
 const mocks={
  'app/auth-client.mjs':'export function getStudioClient(){return null;}',
  'app/auth-context.mjs':'export function getBootAccess(){return null;}',

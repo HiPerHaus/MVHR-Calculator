@@ -81,3 +81,10 @@ Every dataset needs a source, version, applicable product identity, configuratio
 - Acoustics, noise transfer, installation clearance or fabrication validation.
 - Whole-building aggregation across floors or alternative design options.
 - Issued-for-construction or commissioning output.
+
+
+## Safe editing and Check scope
+
+The Engineering mode selector in Design Check controls the summary, detailed network results, engineering report and installer-data foundation. Room requirements and the optional alternative external-duty screen remain Normal-only. Central network pressure is marked not applicable for decentralised-only layouts, without implying that decentralised airflow has been calculated.
+
+Edited fields display an unsaved indicator. Results continue to use saved inputs until **Save edited inputs** succeeds. Mode changes, leaving Check and exports offer **Save inputs and continue**, **Discard edits** or **Cancel**. Invalid fields block Save and the pending action; Cancel keeps the fields. Form Save updates the working project. Use the main project Save separately for a named checkpoint. Recreating an existing allocation draft asks before resetting its allocations, assumptions and resistance/fan/operating-point evidence.

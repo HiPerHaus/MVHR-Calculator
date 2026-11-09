@@ -186,6 +186,14 @@ export function validateDuctPathInsideOutline(points, polygon, diameterMm = AUTO
     points.slice(1).every((point, index) => validSegment(points[index], point, polygon, clearance, options));
 }
 
+// The explicitly selected outdoor terminal leg may cross the building outline,
+// but it must still avoid every marked exclusion and modelled duct envelope.
+export function validateDuctPathClearances(points, diameterMm, options = {}) {
+  if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(diameterMm) || diameterMm <= 0) return false;
+  return points.every(point => validCentreClearances(point, diameterMm / 2, options)) &&
+    points.slice(1).every((point, index) => validSegmentClearances(points[index], point, diameterMm / 2, options));
+}
+
 export function findContainedDuctPath(start, end, polygon, diameterMm = AUTOMATIC_RADIAL_DIAMETER_MM, options = {}) {
   const routingStyle = normalizeRoutingStyle(options);
   if (routingStyle === "building-aligned") {
@@ -368,6 +376,10 @@ function simplifyVisiblePath(points, polygon, clearance, options) {
 
 function validCentre(point, polygon, clearance, options = {}) {
   if (!pointInPolygon(point, polygon) || boundaryDistance(point, polygon) + 1e-6 < clearance) return false;
+  return validCentreClearances(point, clearance, options);
+}
+
+function validCentreClearances(point, clearance, options = {}) {
   for (const obstacle of options.forbiddenPolygons ?? []) {
     if (pointInPolygon(point, obstacle) || boundaryDistance(point, obstacle) + 1e-6 < clearance) return false;
   }
@@ -391,6 +403,11 @@ function validSegment(start, end, polygon, clearance, options = {}) {
     if (distance + 1e-6 < clearance) return false;
   }
   if (!pointInPolygon({ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, polygon)) return false;
+  return validSegmentClearances(start, end, clearance, options);
+}
+
+function validSegmentClearances(start, end, clearance, options = {}) {
+  if (!validCentreClearances(start, clearance, options) || !validCentreClearances(end, clearance, options)) return false;
   for (const obstacle of options.forbiddenPolygons ?? []) {
     if (pointInPolygon(start, obstacle) || pointInPolygon(end, obstacle)) return false;
     for (let index = 0; index < obstacle.length; index += 1) {

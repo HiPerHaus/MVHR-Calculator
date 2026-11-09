@@ -107,6 +107,10 @@ test("selective replacement preserves manual routes and fails closed for custom 
   });
   assert.equal(blocked.proposals.length, 0);
   assert.match(blocked.unresolved[0].reason, /custom interior vertical profile/);
+  const withScalar = applyCommand(customProject, { type: "route.setRoutingElevation", routeId: "route-1", elevationMm: knownMm(2700, "overall drawing plane") });
+  const scalarBlocked = inspectAutomaticRouteRerouting(withScalar, "ground", ["route-1"], { system: "dn90", routingStyle: "direct" });
+  assert.equal(scalarBlocked.proposals.length, 0, "a scalar plane does not authorize erasing a stored rise/drop profile");
+  assert.match(scalarBlocked.unresolved[0].reason, /custom interior vertical profile/);
   const atomicBlocked = inspectAutomaticRouteRerouting(customProject, "ground", ["route-1", "route-2"], {
     system: "dn90", routingStyle: "direct",
   });
@@ -136,6 +140,7 @@ test("EPP re-routing preserves explicit endpoints, duct family and occupied topo
   assert.deepEqual(replacement.endAttachment, project.routes[0].endAttachment);
   const applied = applyCommand(project, { type: "route.replaceBatch", routes: [replacement] });
   assert.equal(applied.routes.length, 1);
+  assert.deepEqual(aligned.proposals[0].previewRoute, applied.routes[0], "normalized replacement preview equals the committed route");
   assert.throws(() => applyCommand(project, { type: "route.replaceBatch", routes: [{ ...replacement, stream: "extract" }] }), /cannot change stream/);
 });
 
@@ -170,3 +175,30 @@ function scaledFixture(outline) {
 }
 function rectangle() { return [{ x: 0, y: 0 }, { x: 9000, y: 0 }, { x: 9000, y: 5000 }, { x: 0, y: 5000 }]; }
 function rotate(point, angle) { return { x: point.x * Math.cos(angle) - point.y * Math.sin(angle), y: point.x * Math.sin(angle) + point.y * Math.cos(angle) }; }
+
+test("EPP replacement retains known or unknown elevations, outside diameter and Single/Twin evidence", () => {
+  for (const measured of [false, true]) for (const parallelRunCount of [1, 2]) {
+    let project = scaledFixture(rectangle());
+    project = add(project, createCatalogueComponent("synthetic-mvhr-placeholder", { id: "unit", floorId: "ground", xMm: 1500, yMm: 1800 }));
+    project = applyCommand(project, { type: "equipmentAssembly.add", ...createEquipmentAssembly("generic-remote-supply-attenuation-set", { id: "supply-set", floorId: "ground", xMm: 7000, yMm: 3500 }) });
+    const endpoints = inspectAutomaticEppRouting(project, "ground").endpoints;
+    const start = endpoints.find(endpoint => endpoint.componentId === "unit" && endpoint.stream === "supply");
+    const end = endpoints.find(endpoint => endpoint.componentId.endsWith("end-plate") && endpoint.stream === "supply");
+    const proposal = inspectAutomaticEppRouting(project, "ground", { startKey: start.key, endKey: end.key }).proposal;
+    const route = eppRoute(proposal, "preserved-epp");
+    route.parallelRunCount = parallelRunCount;
+    route.connectionInterface = { ...route.connectionInterface, outsideDiameterMm: 200 };
+    project = applyCommand(project, { type: "route.add", route });
+    if (measured) project = applyCommand(project, { type: "threeD.applyFloorHeights", floorId: "ground", equipmentElevationMm: knownMm(2200, "fixture measured base"), outletElevationMm: knownMm(2300, "fixture measured outlet"), ductElevationMm: knownMm(2700, "fixture measured duct") });
+    const before = structuredClone(project);
+    const result = inspectAutomaticRouteRerouting(project, "ground", [route.id], { system: "epp", routingStyle: "building-aligned", buildingAxisRad: 0 });
+    assert.equal(result.status, "ready");
+    const replacement = result.proposals[0];
+    const applied = applyCommand(project, { type: "route.replaceBatch", routes: [replacement.replacementRoute] });
+    assert.deepEqual(replacement.previewRoute, applied.routes[0]);
+    for (const key of ["id", "floorId", "stream", "role", "ductKind", "startAttachment", "endAttachment", "parallelRunCount", "connectionInterface", "routingElevationMm"]) assert.deepEqual(applied.routes[0][key], before.routes[0][key], key);
+    assert.equal(replacement.drawingDiameterMm, 200);
+    assert.deepEqual(project, before, "planning leaves all original route data unchanged");
+    assert.deepEqual(deserializeProject(serializeProject(applied)), applied);
+  }
+});

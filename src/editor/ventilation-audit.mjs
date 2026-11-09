@@ -4,6 +4,8 @@ import { routeFamilyForKind } from "./component-catalogue.mjs";
 import { inspectRoutingCoordination } from "./routing-coordination.mjs";
 import { inspectDecentralisedMvhr, isDecentralisedMvhrComponent } from "./decentralised-mvhr.mjs";
 
+import { centralVentilationScope } from "./engineering-scope.mjs";
+
 const REQUIRED_HRV_ROLES = Object.freeze(["Dwelling supply", "Dwelling extract"]);
 
 export function auditVentilation(project, floorId) {
@@ -27,13 +29,13 @@ export function auditVentilation(project, floorId) {
   const graph = createPortGraph(components, routes, connections);
   const diagnostics = [];
   const decentralised = inspectDecentralisedMvhr(project, floorId);
-  const centralComponents = components.filter((component) => !isDecentralisedMvhrComponent(component));
+  const { centralComponents, decentralisedOnly } = centralVentilationScope(project, floorId);
   const unitComponents = components.filter(isHrvUnit);
   const unitPortsByRole = unitPortsForTopology(unitComponents);
   const distributionPortsByRole = distributionMainPortsByRole(components, assemblies, connections);
   const topologyCoverage = unitComponents.length > 0
     ? { status: "assessed-supported-typed-roots", unitComponentIds: unitComponents.map((component) => component.id) }
-    : centralComponents.length === 0 && routes.length === 0
+    : decentralisedOnly
       ? { status: "not-applicable-decentralised-only", unitComponentIds: [] }
       : { status: "not-assessed-no-supported-unit-root", unitComponentIds: [] };
 

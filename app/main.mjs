@@ -3,6 +3,7 @@ import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import { createSheetOutputPages, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
@@ -177,6 +178,7 @@ import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
 import { createPartsSchedule } from "../src/editor/parts-schedule.mjs";
 import { inspectConnectionAccessoryEvidence } from "../src/editor/connection-accessory-evidence.mjs";
 import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
+import { createEngineeringEditGuard } from "../src/editor/engineering-edit-guard.mjs";
 import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
 import { transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
@@ -594,6 +596,7 @@ const confirmProjectConversionButton = document.querySelector("#confirm-project-
 const sheetPreviewHost = document.querySelector("#sheet-preview-host");
 const sheetPreviewStatus = document.querySelector("#sheet-preview-status");
 const exportSheetPdfButton = document.querySelector("#export-sheet-pdf");
+const exportPartsCsvButton = document.querySelector("#export-parts-csv");
 const exportAllOptionsPdfButton = document.querySelector("#export-all-options-pdf");
 const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
@@ -797,6 +800,16 @@ let savedProjectName = initialNamedLoad?.ok && initialNamedLoad.found
   : null;
 let activeTool = "select";
 let activeTask = "project";
+let engineeringDutyBaseline = null;
+let engineeringNetworkBaseline = null;
+let renderedEngineeringMode = "normal";
+const engineeringEditsDialog = document.querySelector("#engineering-edits-dialog");
+const engineeringEditGuard = createEngineeringEditGuard({
+  isDirty: hasEngineeringEdits,
+  save: () => (!engineeringDutyDirty() || applyEngineeringDutyInput()) && (!engineeringNetworkDirty() || saveEngineeringNetworkEdits()),
+  discard: () => { engineeringDutyBaseline = null; engineeringNetworkBaseline = null; renderChecksWorkspace(); },
+  ask: () => { document.querySelector("#engineering-edits-error").textContent = ""; engineeringEditsDialog.showModal(); },
+});
 let activeDesignStage = "plan";
 let checkFocusReturnStage = null;
 let temporaryCheckReveal = null;
@@ -1275,8 +1288,8 @@ keepProjectTypeButton.addEventListener("click",()=>{ projectTypeConflictDialog.r
 projectTypeFilter.addEventListener("change",renderProjectLibrary);
 cancelProjectNameButton.addEventListener("click", closeProjectNameDialog);
 projectLibraryList.addEventListener("click", openProjectFromLibraryClick);
-undoButton.addEventListener("click", () => applyHistoryChange(undoCommand(history), "Undo saved locally"));
-redoButton.addEventListener("click", () => applyHistoryChange(redoCommand(history), "Redo saved locally"));
+undoButton.addEventListener("click", () => changeEngineeringSafeHistory(false));
+redoButton.addEventListener("click", () => changeEngineeringSafeHistory(true));
 exportButton.addEventListener("click", exportProject);
 openButton.addEventListener("click", () => {document.querySelector("#cloud-projects-dialog").close();portableFileInput.click();});
 document.querySelector("#cloud-projects-button").addEventListener("click",renderProjectLibrary);
@@ -1402,7 +1415,19 @@ checksNavigationButton.addEventListener("click", () => selectDesignStage("check"
 checksReturnVentilationButton.addEventListener("click", () => selectDesignStage(lastCanvasDesignStage));
 checksEngineeringForm.addEventListener("submit", applyEngineeringDutyInput);
 checksEngineeringClear.addEventListener("click", clearEngineeringDutyInput);
-engineeringNetworkMode.addEventListener("change", () => renderChecksWorkspace());
+engineeringNetworkMode.addEventListener("change", () => {
+  const nextMode = engineeringNetworkMode.value;
+  engineeringNetworkMode.value = renderedEngineeringMode;
+  requestEngineeringTransition(() => { engineeringNetworkMode.value = nextMode; renderChecksWorkspace(); });
+});
+for (const container of [checksEngineeringForm, document.querySelector("#engineering-network-editor")]) {
+  container.addEventListener("input", renderEngineeringEditStatus);
+  container.addEventListener("change", renderEngineeringEditStatus);
+}
+for (const choice of ["save", "discard", "cancel"]) {
+  document.querySelector(`#engineering-edits-${choice}`).addEventListener("click", () => resolveEngineeringTransition(choice));
+}
+engineeringEditsDialog.addEventListener("cancel", event => { event.preventDefault(); resolveEngineeringTransition("cancel"); });
 engineeringNetworkCreate.addEventListener("click", createEngineeringDraftFromRooms);
 engineeringNetworkSave.addEventListener("click", saveEngineeringNetworkEdits);
 engineeringNetworkExport.addEventListener("click", exportEngineeringNetworkReport);
@@ -1419,6 +1444,7 @@ threeDHost.addEventListener("pointermove", moveThreeDPointer);
 threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
+exportPartsCsvButton.addEventListener("click", exportPartsCsv);
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
@@ -2247,7 +2273,7 @@ document.addEventListener("keydown", (event) => {
       event.preventDefault();
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       if (event.shiftKey ? canRedo(history) : canUndo(history)) {
-        applyHistoryChange(event.shiftKey ? redoCommand(history) : undoCommand(history), event.shiftKey ? "Redo saved locally" : "Undo saved locally");
+        changeEngineeringSafeHistory(event.shiftKey);
       }
       event.preventDefault();
     }
@@ -2339,8 +2365,7 @@ document.addEventListener("keydown", (event) => {
       event.preventDefault();
       return;
     }
-    const nextHistory = event.shiftKey ? redoCommand(history) : undoCommand(history);
-    applyHistoryChange(nextHistory, event.shiftKey ? "Redo saved locally" : "Undo saved locally");
+    changeEngineeringSafeHistory(event.shiftKey);
     event.preventDefault();
   }
 });
@@ -2367,6 +2392,7 @@ let lastCanvasDesignStage = "plan";
 let sheetReturnStage = "plan";
 
 function selectDesignStage(stage) {
+  if (stage !== "check" && hasEngineeringEdits()) return requestEngineeringTransition(() => selectDesignStage(stage));
   const transition = transitionStudioDesignStage(activeDesignStage, stage);
   const alreadyVisible = transition.task === "sheets"
     ? !sheetPreviewPanel.hidden
@@ -2387,6 +2413,7 @@ function selectDesignStage(stage) {
 }
 
 function setTask(task, { designNavigation = false } = {}) {
+  if (task !== "checks" && hasEngineeringEdits()) return requestEngineeringTransition(() => setTask(task, { designNavigation }));
   if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
@@ -2715,6 +2742,7 @@ function applyDesignOptionHistory(command,message) {
 }
 
 function switchToDesignOption(optionId) {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(() => switchToDesignOption(optionId));
   if(optionId===history.present.activeDesignOptionId)return;
   if(!optionTransitionAvailable())return;
   const option=history.present.designOptions.find((candidate)=>candidate.id===optionId);
@@ -2921,6 +2949,7 @@ function openProjectFromLibraryClick(event) {
 }
 
 function requestProjectTransition(transition, message) {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(() => requestProjectTransition(transition, message));
   const needsGuard = requiresProjectReplacementConfirmation({
     committedProjectChanged: projectHasUnsavedChanges(),
     wallDraftPointCount: draftPoints.length + floorAreaDraftPoints.length,
@@ -2981,6 +3010,7 @@ function signedCount(value) {
 }
 
 function openSheetPreview({ designStage = false } = {}) {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(() => openSheetPreview({ designStage }));
   try {
     const activeOption=history.present.designOptions.find((option)=>option.id===history.present.activeDesignOptionId);
     const sheet=createSheetForDesignOption(history.present,activeOption);
@@ -3061,6 +3091,35 @@ function closeSheetPreview() {
 function printSheetPreview() {
   if (sheetPreviewPanel.hidden) return;
   window.print();
+}
+
+function exportPartsCsv() {
+  if (sheetPreviewPanel.hidden) return;
+  exportPartsCsvButton.disabled = true;
+  try {
+    const project = history.present;
+    const option = project.designOptions.find(candidate => candidate.id === project.activeDesignOptionId);
+    const projectName = project.projectDetails.name || currentProjectName;
+    const csv = createPartsCsv(project, { projectName });
+    const fileName = partsCsvFileName(projectName, option?.name);
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    try { anchor.click(); } finally {
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    }
+    interactionMessage = `Downloaded ${fileName} · ${option?.name ?? "Active option"} · all floors · quantities and unresolved items, no prices`;
+  } catch (error) {
+    interactionMessage = `Parts CSV export failed: ${error.message}`;
+  } finally {
+    exportPartsCsvButton.disabled = false;
+    sheetPreviewStatus.textContent = interactionMessage;
+    updateStatus();
+  }
 }
 
 async function exportSheetPreviewPdf() {
@@ -3843,8 +3902,15 @@ function cancelAutomaticEppPreview() {
 }
 
 function applyAutomaticEppPreview() {
+  const reviewed = automaticEppPreview?.proposal;
+  if (!automaticEppDialog.open || !reviewed) return;
+  refreshAutomaticEppPreview();
   const proposal = automaticEppPreview?.proposal;
   if (!proposal) return;
+  if (JSON.stringify(reviewed.previewRoute) !== JSON.stringify(proposal.previewRoute)) {
+    automaticEppSummary.textContent = "The drawing changed. Review the updated route preview, then apply it.";
+    return;
+  }
   const route = {
     id: `route-synthetic-${routeIdentityCounter}`,
     floorId: currentFloorId(),
@@ -3985,6 +4051,13 @@ function cancelAutomaticReroute() {
 }
 
 function applyAutomaticReroute() {
+  const reviewed = automaticReroutePreview?.proposals;
+  if (!automaticRerouteDialog.open || !reviewed?.length) return;
+  previewAutomaticReroute();
+  if (JSON.stringify(reviewed.map(proposal => proposal.previewRoute)) !== JSON.stringify(automaticReroutePreview.proposals.map(proposal => proposal.previewRoute))) {
+    if (automaticReroutePreview.proposals.length) automaticRerouteSummary.textContent = "The drawing changed. Review the updated replacement preview, then apply it.";
+    return;
+  }
   const routes = automaticReroutePreview?.proposals.map((proposal) => structuredClone(proposal.replacementRoute)) ?? [];
   if (!routes.length) return;
   const committed = commitCommand(
@@ -5075,6 +5148,10 @@ function countLabel(count, singular, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function changeEngineeringSafeHistory(redo) {
+  requestEngineeringTransition(() => applyHistoryChange(redo ? redoCommand(history) : undoCommand(history), redo ? "Redo saved locally" : "Undo saved locally"));
+}
+
 function applyHistoryChange(nextHistory, message) {
   if (nextHistory.present === history.present) return;
   history = nextHistory;
@@ -5197,6 +5274,7 @@ function applyLocalReopen(result, options = {}) {
 }
 
 async function exportProject() {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(exportProject);
   exportButton.disabled = true;
   interactionMessage = "Validating portable project…";
   updateStatus();
@@ -7700,11 +7778,11 @@ function renderDraft() {
   }
   if (activeTask === "ventilation" && automaticEppPreview?.proposal) {
     const proposal = automaticEppPreview.proposal;
-    const swept = deriveSweptCentreline(proposal.points).points;
+    const swept = proposal.sampledCentreline;
     draftLayer.append(svgElement("polyline", {
       points: routePointString(swept),
       class: `automatic-route-preview epp ${proposal.stream}`,
-      "stroke-width": toView(proposal.diameterMm),
+      "stroke-width": toView(proposal.drawingDiameterMm ?? proposal.diameterMm),
       "data-automatic-epp-preview": proposal.destination.componentId,
     }));
     draftLayer.append(svgElement("polyline", {
@@ -7715,18 +7793,20 @@ function renderDraft() {
   }
   if (activeTask === "ventilation" && automaticReroutePreview?.proposals.length) {
     for (const proposal of automaticReroutePreview.proposals) {
-      const swept = deriveSweptCentreline(proposal.points).points;
-      draftLayer.append(svgElement("polyline", {
-        points: routePointString(swept),
-        class: `automatic-route-preview reroute ${proposal.stream}`,
-        "stroke-width": toView(proposal.diameterMm),
-        "data-automatic-reroute-preview": proposal.routeId,
-      }));
-      draftLayer.append(svgElement("polyline", {
-        points: routePointString(swept),
-        class: "automatic-route-preview-centre reroute",
-        "data-automatic-reroute-preview-centre": proposal.routeId,
-      }));
+      const body = deriveDuctBodyGeometry(proposal.previewRoute, routeFamilyForKind(proposal.ductKind));
+      for (const lane of body.lanes) {
+        draftLayer.append(svgElement("polyline", {
+          points: routePointString(lane),
+          class: `automatic-route-preview reroute ${proposal.stream}`,
+          "stroke-width": toView(body.diameterMm ?? proposal.diameterMm),
+          "data-automatic-reroute-preview": proposal.routeId,
+        }));
+        draftLayer.append(svgElement("polyline", {
+          points: routePointString(lane),
+          class: "automatic-route-preview-centre reroute",
+          "data-automatic-reroute-preview-centre": proposal.routeId,
+        }));
+      }
     }
   }
   if (activeTool === "crop-reference" && referenceCropState) {
@@ -8335,11 +8415,12 @@ function renderChecksWorkspace() {
   const schedule = createPartsSchedule(history.present, { floorId: floor.id });
   const connectionEvidence = inspectConnectionAccessoryEvidence(history.present, floor.id);
   const airflow = inspectAirflowBalance(history.present, floor.id);
-  const engineering = evaluateEngineeringNetwork(history.present, floor.id, "normal");
+  const engineering = evaluateEngineeringNetwork(history.present, floor.id, engineeringNetworkMode.value);
   const designCheck = createDesignCheckSummary(audit, airflow, engineering);
   const sizing = inspectSizingPressureEvidence(history.present, floor.id);
   const costing = inspectProductCostingReadiness(history.present, floor.id);
-  const installer = createInstallerDocumentFoundation(history.present, floor.id);
+  const installer = createInstallerDocumentFoundation(history.present, floor.id, engineering.mode, engineering);
+  document.querySelector("#checks-mode-scope").textContent = `Engineering: ${formatRoomChoice(engineering.mode)} · ${floor.name} · active design option. Room requirements and alternative external duty screening remain Normal only. ${engineering.status === "not-applicable" ? "Central duct-network pressure is not applicable to this decentralised-only floor." : "Results use saved inputs, not unsaved form edits."}`;
   const topologyIssueCount = audit.diagnosticCounts.error + audit.diagnosticCounts.warning;
   checksStatusPill.textContent = `${designCheck.counts.errors} errors · ${designCheck.counts.warnings} warnings · ${designCheck.counts.notCalculated} not calculated`;
   checksStatusPill.className = `checks-status-pill${designCheck.counts.errors > 0 ? " error" : " warning"}`;
@@ -8460,7 +8541,7 @@ function renderChecksWorkspace() {
 
   renderAirflowChecks(airflow);
   renderEngineeringChecks(sizing);
-  renderEngineeringNetwork(floor.id);
+  renderEngineeringNetwork(floor.id, engineering);
   renderCostingReadiness(costing);
   renderInstallerFoundation(installer);
 
@@ -8493,9 +8574,9 @@ function renderChecksWorkspace() {
 }
 
 function applyEngineeringDutyInput(event) {
-  event.preventDefault();
+  event?.preventDefault();
   const floor = currentFloor();
-  if (!floor) return;
+  if (!floor) return false;
   const rawPressure = checksEngineeringPressure.value.trim();
   const basis = checksEngineeringBasis.value.trim();
   const source = checksEngineeringSource.value.trim();
@@ -8504,22 +8585,22 @@ function applyEngineeringDutyInput(event) {
   if (!rawPressure) {
     if (basis || source || filterCondition) {
       checksEngineeringInputStatus.textContent = "Enter pressure in Pa, or clear basis, source and filter condition to leave it unresolved.";
-      return;
+      return false;
     }
     externalStaticPressure = unresolvedExternalStaticPressure();
   } else {
     const valuePa = Number(rawPressure);
     if (!Number.isFinite(valuePa) || valuePa < 0) {
       checksEngineeringInputStatus.textContent = "External static pressure must be a non-negative number in Pa.";
-      return;
+      return false;
     }
     if (!basis || !source || !filterCondition) {
       checksEngineeringInputStatus.textContent = "Known pressure requires a basis, source and filter condition.";
-      return;
+      return false;
     }
     externalStaticPressure = externalStaticPressureFromInput(valuePa, basis, source, filterCondition);
   }
-  commitCommand({
+  const saved = commitCommand({
     type: "engineering.setFloorDuty",
     duty: {
       floorId: floor.id,
@@ -8528,16 +8609,21 @@ function applyEngineeringDutyInput(event) {
       externalStaticPressure,
     },
   }, "Normal engineering duty input updated; no pressure calculation inferred");
+  if (saved) { engineeringDutyBaseline = null; renderChecksWorkspace(); }
+  return saved;
 }
 
 function clearEngineeringDutyInput() {
+  if (!window.confirm("Clear the saved Normal external duty and any unapplied duty edits? This does not clear the engineering network. Undo can restore the saved duty.")) return;
+  engineeringDutyBaseline = null;
   const floor = currentFloor();
   if (!floor) return;
-  if (!history.present.engineeringInputs.floorDuties.some((duty) => duty.floorId === floor.id)) return;
+  if (!history.present.engineeringInputs.floorDuties.some((duty) => duty.floorId === floor.id)) { renderChecksWorkspace(); return; }
   commitCommand({ type: "engineering.clearFloorDuty", floorId: floor.id }, "Normal engineering duty input cleared");
 }
 
 function renderEngineeringChecks(sizing) {
+  if (engineeringDutyDirty()) { renderEngineeringEditStatus(); return; }
   checksEngineeringForm.querySelectorAll("input, select, button").forEach((element) => { element.disabled = false; });
   const selected = sizing.duty?.unitComponentId ?? "";
   checksEngineeringUnit.replaceChildren(new Option("Not selected", ""));
@@ -8559,10 +8645,12 @@ function renderEngineeringChecks(sizing) {
     : pressure.state === "known"
       ? `${formatNumberValue(pressure.valuePa)} Pa external static · ${pressure.filterCondition} · source: ${pressure.source}`
       : `External static pressure unresolved — ${pressure.reason}`;
+  engineeringDutyBaseline = engineeringFormSignature(checksEngineeringForm);
+  renderEngineeringEditStatus();
   const flow = sizing.assignedFlow.unitDutyAirflowM3h;
   checksEngineeringSummary.textContent = `Legacy exact-point unit evidence screen · ${sizing.unitPerformance.unit?.name ?? "Unit not selected"} · ${flow === null ? "manual room-target screening input unresolved" : `${formatNumberValue(flow)} m³/h manual assigned room-target total for screening`} · ${formatEngineeringPerformanceStatus(sizing.unitPerformance.status)}. This screen does not calculate network pressure; use the preliminary network engineering review below.`;
   checksEngineeringIssues.replaceChildren();
-  for (const blocker of sizing.blockers) {
+  for (const blocker of sizing.blockers.filter(item => !sizing.networkPressure.blockers.includes(item))) {
     checksEngineeringIssues.append(airflowIssue("Blocked / review required", blocker));
   }
   if (sizing.blockers.length === 0) {
@@ -8582,7 +8670,10 @@ function formatEngineeringPerformanceStatus(status) {
   return formatRoomChoice(status);
 }
 
-function createEngineeringDraftFromRooms() {
+function createEngineeringDraftFromRooms(confirmed = false) {
+  const existing = history.present.engineeringInputs.networkDesigns.some(item => item.floorId === currentFloorId() && item.mode === engineeringNetworkMode.value);
+  if (existing && confirmed !== true && !window.confirm(`Replace the saved ${formatRoomChoice(engineeringNetworkMode.value)} allocation draft? This replaces allocations, air properties, route/component resistance evidence, fan curves and operating-point curves. Undo can restore the previous saved draft.`)) return;
+  if (hasEngineeringEdits()) return requestEngineeringTransition(() => createEngineeringDraftFromRooms(true));
   const floor = currentFloor();
   if (!floor) return;
   try {
@@ -8599,6 +8690,8 @@ function createEngineeringDraftFromRooms() {
 }
 
 function clearEngineeringNetworkMode() {
+  if (!window.confirm(`Clear saved ${formatRoomChoice(engineeringNetworkMode.value)} network inputs and any unsaved network edits? Undo can restore the saved network.`)) return;
+  engineeringNetworkBaseline = null;
   const floor = currentFloor();
   if (!floor) return;
   const mode = engineeringNetworkMode.value;
@@ -8608,12 +8701,12 @@ function clearEngineeringNetworkMode() {
 
 function saveEngineeringNetworkEdits() {
   const floor = currentFloor();
-  if (!floor) return;
+  if (!floor) return false;
   const mode = engineeringNetworkMode.value;
   const current = history.present.engineeringInputs.networkDesigns.find(item => item.floorId === floor.id && item.mode === mode);
   if (!current) {
     engineeringNetworkStatus.textContent = "Create a reviewed allocation draft before entering network evidence.";
-    return;
+    return false;
   }
   try {
     const terminalAllocations = [...engineeringAllocationTable.querySelectorAll("tr[data-allocation-id]")].map(row => {
@@ -8729,14 +8822,20 @@ function saveEngineeringNetworkEdits() {
       basis: fluidBasis,
       source: fluidSource,
     };
-    commitCommand({ type: "engineering.setNetworkDesign", design: { ...structuredClone(current), occupancy, fluid, terminalAllocations, routeResistanceInputs, componentResistanceInputs, fanCurves, operatingPointModels } }, `${formatRoomChoice(mode)} engineering inputs updated`);
+    const saved = commitCommand({ type: "engineering.setNetworkDesign", design: { ...structuredClone(current), occupancy, fluid, terminalAllocations, routeResistanceInputs, componentResistanceInputs, fanCurves, operatingPointModels } }, `${formatRoomChoice(mode)} engineering inputs updated`);
+    if (!saved) return false;
+    engineeringNetworkBaseline = null;
+    renderChecksWorkspace();
     engineeringNetworkStatus.textContent = "Engineering inputs saved. Results are preliminary and remain blocked wherever evidence is missing.";
+    return true;
   } catch (error) {
     engineeringNetworkStatus.textContent = error instanceof Error ? error.message : String(error);
+    return false;
   }
 }
 
 function exportEngineeringNetworkReport() {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(exportEngineeringNetworkReport);
   const floor = currentFloor();
   if (!floor) return;
   const report = createEngineeringReport(history.present, floor.id, engineeringNetworkMode.value);
@@ -8750,6 +8849,7 @@ function exportEngineeringNetworkReport() {
 }
 
 function exportEngineeringNetworkJson() {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(exportEngineeringNetworkJson);
   const floor = currentFloor();
   if (!floor) return;
   const report = createEngineeringReport(history.present, floor.id, engineeringNetworkMode.value);
@@ -8778,17 +8878,18 @@ function downloadEngineeringBlob(payload, type, suffix) {
   URL.revokeObjectURL(url);
 }
 
-function renderEngineeringNetwork(floorId) {
+function renderEngineeringNetwork(floorId, evaluation = evaluateEngineeringNetwork(history.present, floorId, engineeringNetworkMode.value)) {
+  if (engineeringNetworkDirty()) { renderEngineeringEditStatus(); return; }
+  renderedEngineeringMode = engineeringNetworkMode.value;
   for (const control of [engineeringNetworkMode, engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkExportJson, engineeringNetworkClear]) control.disabled = false;
   const mode = engineeringNetworkMode.value;
   engineeringNetworkFactor.disabled = mode === "normal";
   const design = history.present.engineeringInputs.networkDesigns.find(item => item.floorId === floorId && item.mode === mode) ?? null;
-  const evaluation = evaluateEngineeringNetwork(history.present, floorId, mode);
   engineeringNetworkClear.disabled = design === null;
   engineeringNetworkSave.disabled = design === null;
   engineeringNetworkExport.disabled = design === null;
   engineeringNetworkExportJson.disabled = design === null;
-  engineeringNetworkStatus.textContent = design === null
+  engineeringNetworkStatus.textContent = evaluation.status === "not-applicable" ? "Central duct-network engineering is not applicable to this decentralised-only floor." : design === null
     ? `No ${formatRoomChoice(mode)} network is saved. Create a draft; multi-terminal rooms will remain unresolved for explicit allocation.`
     : `${formatRoomChoice(mode)} network saved · ${evaluation.status === "blocked" ? "blocked by missing or invalid evidence" : "preliminary calculation ready for technical review"}.`;
   engineeringOccupancy.value = design?.occupancy.state === "known" ? String(design.occupancy.persons) : "";
@@ -8913,6 +9014,35 @@ function renderEngineeringNetwork(floorId) {
   for (const item of evaluation.diagnostics) engineeringNetworkIssues.append(airflowIssue(item.severity === "error" ? "Blocked" : "Review", item.message));
   if (evaluation.diagnostics.length === 0) engineeringNetworkIssues.append(htmlText("div", "No calculation blockers in the saved inputs; technical review is still required.", "checks-diagnostic-empty"));
   engineeringNetworkBoundary.textContent = evaluation.evidenceBoundary;
+  const editable = design !== null && evaluation.status !== "not-applicable";
+  for (const input of [engineeringOccupancy, engineeringDensity, engineeringViscosity, engineeringFluidBasis, engineeringFluidSource]) input.disabled = !editable;
+  if (!editable) for (const input of document.querySelectorAll("#engineering-network-editor table input, #engineering-network-editor table select, #engineering-network-editor table textarea")) input.disabled = true;
+  else for (const row of engineeringRouteTable.querySelectorAll("tr[data-route-id]")) syncParallelRouteRow(row);
+  if (evaluation.status === "not-applicable") for (const control of [engineeringNetworkFactor, engineeringNetworkCreate, engineeringNetworkSave, engineeringNetworkExport, engineeringNetworkExportJson]) control.disabled = true;
+  engineeringNetworkBaseline = engineeringFormSignature(document.querySelector("#engineering-network-editor"));
+  renderEngineeringEditStatus();
+}
+
+function engineeringFormSignature(container) {
+  return JSON.stringify([...container.querySelectorAll("input, select, textarea")]
+    .filter(input => input !== engineeringNetworkFactor)
+    .map(input => [input.id || input.dataset.field, input.value]));
+}
+function engineeringDutyDirty() { return engineeringDutyBaseline !== null && engineeringDutyBaseline !== engineeringFormSignature(checksEngineeringForm); }
+function engineeringNetworkDirty() { return engineeringNetworkBaseline !== null && engineeringNetworkBaseline !== engineeringFormSignature(document.querySelector("#engineering-network-editor")); }
+function hasEngineeringEdits() { return engineeringDutyDirty() || engineeringNetworkDirty(); }
+function renderEngineeringEditStatus() {
+  document.querySelector("#engineering-duty-edits").textContent = engineeringDutyDirty() ? "Unapplied external duty edits. Apply duty input to include them in the working project." : "";
+  document.querySelector("#engineering-network-edits").textContent = engineeringNetworkDirty() ? "Unsaved network edits. Results still show saved inputs. Save edited inputs before relying on or exporting the new values." : "";
+}
+function requestEngineeringTransition(action) { return engineeringEditGuard.request(action); }
+function resolveEngineeringTransition(choice) {
+  engineeringEditsDialog.close();
+  const resolved = engineeringEditGuard.resolve(choice);
+  if (!resolved && choice === "save") {
+    document.querySelector("#engineering-edits-error").textContent = engineeringDutyDirty() ? checksEngineeringInputStatus.textContent : engineeringNetworkStatus.textContent;
+    engineeringEditsDialog.showModal();
+  }
 }
 
 function inputCell(field, value, suffix) {
@@ -9162,7 +9292,7 @@ function renderInstallerFoundation(installer) {
   checksInstallerSections.append(
     checksListRow("Airflow schedule", "Required and assigned retained; predicted and measured remain blank"),
     checksListRow("Materials schedule", "Model quantities and evidence status retained; prices excluded"),
-    checksListRow("Pressure/sizing screening", `${formatRoomChoice(installer.unitDutyAndPressure.status)}; calculated network loss remains blank`),
+    checksListRow(`${formatRoomChoice(installer.mode)} engineering network`, `${formatRoomChoice(installer.unitDutyAndPressure.status)} · same saved evaluation as Design Check and the engineering report; technical review remains required`),
     checksListRow("Commissioning", "Measurement, instrument, calibration, installer, date and result fields start blank"),
   );
   checksInstallerIssues.replaceChildren();
@@ -9361,6 +9491,7 @@ function renderCheckDiagnostic(item) {
 }
 
 function focusCheckTarget(item) {
+  if (hasEngineeringEdits()) return requestEngineeringTransition(() => focusCheckTarget(item));
   const target = item.target ?? (item.componentId ? { kind: "component", id: item.componentId } : item.routeId ? { kind: "route", id: item.routeId } : null);
   if (!target) return;
   const resolved = resolveDesignCheckTarget(history.present, target);
@@ -10549,7 +10680,10 @@ async function restoreWorkingSession(context){
    activeDesignStage=["plan","place","route","check","export"].includes(recovered.designStage)
      ? recovered.designStage
      : recovered.task==="ventilation"?"place":recovered.task==="checks"?"check":recovered.task==="sheets"?"export":"plan";
-   if(recovered.task==="sheets")openSheetPreview({designStage:true});else setTask(recovered.task,{designNavigation:["plan","ventilation","checks"].includes(recovered.task)});
+   // 3D entry is temporarily hidden for customer review; retain its data, but
+   // reopen an older 3D session in the normal ventilation workspace.
+   const recoveredTask = recovered.task === "three-d" ? "ventilation" : recovered.task;
+   if(recoveredTask==="sheets")openSheetPreview({designStage:true});else setTask(recoveredTask,{designNavigation:["plan","ventilation","checks"].includes(recoveredTask)});
    const dirty=projectHasUnsavedChanges();storageState={kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:currentCloudRecord?`Cloud version ${currentCloudRecord.save_version} · device recovery is separate from Save`:"Current drawing restored from this browser"};
    interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · changes still need saving":""}`;
    render();renderStorageState();updateStatus();
@@ -10574,5 +10708,5 @@ canvas.addEventListener("wheel",()=>queueWorkingSession(),{passive:true});
 document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>queueWorkingSession());
 
 window.addEventListener("beforeunload",event=>{
- if(cloudSavePending||workingQueued||workingWrites||(!workingReady&&workingActivity>0)||(workingRecoveryError&&projectHasUnsavedChanges())){event.preventDefault();event.returnValue="";}
+ if(hasEngineeringEdits()||cloudSavePending||workingQueued||workingWrites||(!workingReady&&workingActivity>0)||(workingRecoveryError&&projectHasUnsavedChanges())){event.preventDefault();event.returnValue="";}
 });

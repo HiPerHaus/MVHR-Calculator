@@ -61,7 +61,7 @@ try {
   assert.match(applied.engineeringSummary, /Legacy exact-point unit evidence screen/);
   assert.match(applied.engineeringSummary, /does not calculate network pressure.*preliminary network engineering review/i);
   assert.match(applied.engineeringIssues, /aligns with one source statement.*not measured performance.*whole-network suitability/i);
-  assert.match(applied.engineeringIssues, /current topology audit has unresolved connection issues/i);
+  assert.doesNotMatch(applied.engineeringIssues, /current topology audit has unresolved connection issues/i); // Network readiness belongs to the shared engine.
   assert.match(applied.engineeringBoundary, /cannot interpolate a fan curve/i);
   assert.match(applied.costingSummary, /0 priced.*total unresolved/i);
   assert.match(applied.costingLines, /ComfoAir Q350 TR.*unpriced/s);

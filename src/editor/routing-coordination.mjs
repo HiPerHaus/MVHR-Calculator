@@ -12,9 +12,11 @@ export function routingCoordinationInputs(project, floorId, options = {}) {
     if (route.floorId !== floorId || excludedRouteIds.has(route.id)) continue;
     const geometry = deriveDuctBodyGeometry(route, routeFamilyForKind(route.ductKind));
     if (!geometry.scaled) continue;
-    for (let index = 1; index < geometry.sampledCentreline.length; index += 1) {
-      blockedSegments.push({ start: planPoint(geometry.sampledCentreline[index - 1]), end: planPoint(geometry.sampledCentreline[index]), radiusMm: geometry.diameterMm / 2, routeId: route.id, diameterBasis: geometry.diameterBasis,
-        endpointComponentIds: index === 1 ? [route.startAttachment?.componentId].filter(Boolean) : index === geometry.sampledCentreline.length - 1 ? [route.endAttachment?.componentId].filter(Boolean) : [] });
+    for (const lane of geometry.lanes) {
+      for (let index = 1; index < lane.length; index += 1) {
+        blockedSegments.push({ start: planPoint(lane[index - 1]), end: planPoint(lane[index]), radiusMm: geometry.diameterMm / 2, routeId: route.id, diameterBasis: geometry.diameterBasis,
+          endpointComponentIds: index === 1 ? [route.startAttachment?.componentId].filter(Boolean) : index === lane.length - 1 ? [route.endAttachment?.componentId].filter(Boolean) : [] });
+      }
     }
   }
   return Object.freeze({

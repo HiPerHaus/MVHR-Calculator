@@ -45,7 +45,7 @@ export function inspectAutomaticRouteRerouting(project, floorId, routeIds, optio
 
     const planned = route.ductKind === SUPPORTED_RADIAL_KIND
       ? planRadialReplacement(working, route, context, options)
-      : planEppReplacement(working, route, context, options);
+      : planEppReplacement(working, route, context, { ...options, interiorElevation: elevation });
     if (!planned) {
       unresolved.push(unresolvedRoute(route.id, "No full-width replacement could avoid the building boundary, marked exclusions and modelled duct clearances."));
       continue;
@@ -67,7 +67,7 @@ export function inspectAutomaticRouteRerouting(project, floorId, routeIds, optio
             : structuredClone(elevation),
       })),
     };
-    working.routes.push(structuredClone(replacementRoute));
+    working.routes.push(structuredClone(planned.previewRoute ?? replacementRoute));
     proposals.push(Object.freeze({
       routeId: route.id,
       system: route.system,
@@ -75,6 +75,8 @@ export function inspectAutomaticRouteRerouting(project, floorId, routeIds, optio
       role: route.role,
       ductKind: route.ductKind,
       diameterMm: planned.diameterMm,
+      drawingDiameterMm: planned.drawingDiameterMm ?? planned.diameterMm,
+      previewRoute: planned.previewRoute ?? replacementRoute,
       routingStyle: context.routingStyle,
       buildingAxisRad: context.buildingAxisRad,
       source: Object.freeze(endpointSummary(project, route.startAttachment)),
@@ -158,9 +160,10 @@ function planEppReplacement(project, route, context, options) {
     ...options,
     routingStyle: context.routingStyle,
     buildingAxisRad: context.buildingAxisRad,
+    replacementRoute: route,
   });
   if (!inspection.proposal) return { problem: inspection.message };
-  return { points: inspection.proposal.points, diameterMm: inspection.proposal.diameterMm };
+  return { points: inspection.proposal.points, diameterMm: inspection.proposal.diameterMm, drawingDiameterMm: inspection.proposal.drawingDiameterMm, previewRoute: inspection.proposal.previewRoute };
 }
 
 function endpointRecord(project, attachment) {
@@ -182,11 +185,16 @@ function endpointSummary(project, attachment) {
 }
 
 function preservedInteriorElevation(route) {
-  if (route.routingElevationMm) return structuredClone(route.routingElevationMm);
   const interior = route.points.slice(1, -1).map((point) => point.z);
-  if (interior.length === 0) return unknownMm("re-routed plan elevation not set");
-  const first = interior[0];
-  return interior.every((measurement) => sameMeasurement(first, measurement)) ? structuredClone(first) : null;
+  if (interior.length > 0) {
+    const first = interior[0];
+    // A scalar drawing-plane setting does not erase explicit per-point height
+    // evidence: developed lengths still use point.z, even when 3D uses the scalar.
+    if (!interior.every(measurement => sameMeasurement(first, measurement))) return null;
+    if (first.state !== "unknown") return structuredClone(first);
+  }
+  return route.routingElevationMm ? structuredClone(route.routingElevationMm) :
+    interior.length ? structuredClone(interior[0]) : unknownMm("re-routed plan elevation not set");
 }
 
 function sameMeasurement(left, right) {

@@ -33,7 +33,9 @@ export function createDesignCheckSummary(audit, airflow, engineering = null) {
     }));
   }
 
-  if (!engineering || engineering.status === "not-configured") {
+  if (engineering?.status === "not-applicable" || audit.topologyCoverage?.status === "not-applicable-decentralised-only") {
+    // Central network pressure is not a missing calculation for decentralised-only work.
+  } else if (!engineering || engineering.status === "not-configured") {
     notCalculated.push(Object.freeze({
       id: "network-pressure:not-calculated",
       code: "network-pressure-not-calculated",
@@ -71,6 +73,8 @@ export function createDesignCheckSummary(audit, airflow, engineering = null) {
   }
 
   return deepFreeze({
+    mode: engineering?.mode ?? "normal",
+    networkApplicable: engineering?.status !== "not-applicable" && audit.topologyCoverage?.status !== "not-applicable-decentralised-only",
     groups: { errors, warnings, notCalculated },
     counts: { errors: errors.length, warnings: warnings.length, notCalculated: notCalculated.length },
     status: errors.length > 0 ? "errors" : warnings.length > 0 ? "warnings" : "review-only",

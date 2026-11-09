@@ -131,6 +131,8 @@ test("product costing stays unpriced and installer measurements stay blank", () 
   assert.equal(installer.status, "working-draft-incomplete");
   assert.equal(installer.sourceDesignSnapshotId, null);
   assert.equal(installer.commissioningRows.length, 2);
+  assert.equal(installer.commissioningRows.every(row => row.designAssignedTarget === null), true);
+  assert.equal(installer.unitDutyAndPressure.status, "not-configured");
   assert.equal(installer.commissioningRows.every((row) => row.measuredNormalAirflow === null), true);
   assert.equal(installer.commissioningRows.every((row) => row.measuredBoostAirflow === null), true);
   assert.equal(installer.airflowSchedule.every((row) => row.predicted === null && row.measured === null), true);

@@ -2,6 +2,8 @@ import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { engineeringComponentFingerprint, engineeringRouteFingerprint, engineeringSystemFingerprint } from "../domain/engineering-inputs.mjs";
 import { solveOperatingPoint, solveParallelBranchFlows } from "./engineering-solvers.mjs";
 
+import { centralVentilationScope } from "./engineering-scope.mjs";
+
 const EPSILON = 1e-9;
 const ROOT_ROLES = Object.freeze({ supply: "Dwelling supply", extract: "Dwelling extract" });
 
@@ -12,6 +14,10 @@ const ROOT_ROLES = Object.freeze({ supply: "Dwelling supply", extract: "Dwelling
  */
 export function evaluateEngineeringNetwork(project, floorId, mode = "normal") {
   validateProject(project);
+  if (centralVentilationScope(project, floorId).decentralisedOnly) {
+    return deepFreeze({ ...emptyResult(floorId, mode, ""), status: "not-applicable", diagnostics: [],
+      evidenceBoundary: "Central duct-network pressure is not applicable to this decentralised-only floor. Decentralised airflow, wall suitability and commissioning remain separate, uncalculated checks." });
+  }
   const design = project.engineeringInputs.networkDesigns.find(candidate => candidate.floorId === floorId && candidate.mode === mode) ?? null;
   if (!design) return emptyResult(floorId, mode, "No saved engineering network design exists for this floor and mode.");
   const components = project.components.filter(component => component.floorId === floorId);

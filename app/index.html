@@ -26,7 +26,8 @@
             <button id="checks-nav" type="button" data-design-stage="check">Check</button>
             <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
           </div>
-          <button id="three-d-nav" type="button">3D</button>
+          <!-- Temporarily hide 3D entry during customer testing; retain its workspace and export implementation. -->
+          <button id="three-d-nav" type="button" hidden>3D</button>
           <button id="catalogue-nav" type="button">Catalogue</button>
           <button id="account-nav" type="button">Account</button>
         </nav>
@@ -175,14 +176,7 @@
             <div id="cad-reference-list" class="reference-list"><span>No DXF reference</span></div>
           </section>
 
-          <section>
-            <h2>Layers</h2>
-            <label class="check-row"><input type="checkbox" checked disabled /> Walls</label>
-            <label class="check-row"><input type="checkbox" checked disabled /> Building outline</label>
-            <label class="check-row"><input type="checkbox" checked disabled /> Rooms &amp; zones</label>
-            <label class="check-row"><input type="checkbox" checked disabled /> Grid</label>
-          </section>
-          <p class="scope-note">Local planning shell. Dashed room dividers are nonphysical and never count as wall quantities or thermal boundaries. DXF review accepts only the bounded synthetic AC1015 fixture dialect. PDF, real DWG and general DXF remain open.</p>
+          <p class="scope-note">Dashed room dividers do not count as physical walls. Import PDF or PNG plans and calibrate before drawing. DXF is experimental and accepts only the bounded synthetic AC1015 fixture dialect; real DWG and general DXF are not supported.</p>
         </aside>
 
         <main class="canvas-panel">
@@ -515,6 +509,8 @@
         <div class="checks-layout">
           <article class="checks-card checks-card-wide checks-action-summary">
             <h2>Actionable review</h2>
+            <label>Engineering mode <select id="engineering-network-mode"><option value="normal">Normal</option><option value="low">Low</option><option value="boost">Boost</option></select></label>
+            <p id="checks-mode-scope" class="checks-summary"></p>
             <div class="checks-group-grid">
               <section><h3>Errors <span id="checks-error-count">0</span></h3><div id="checks-errors" class="checks-diagnostics"></div></section>
               <section><h3>Warnings <span id="checks-warning-count">0</span></h3><div id="checks-warnings" class="checks-diagnostics"></div></section>
@@ -555,7 +551,9 @@
             <p id="checks-schedule-boundary" class="checks-boundary"></p>
           </article>
           <article class="checks-card checks-card-wide">
-            <h2>Manufacturer duty &amp; pressure evidence</h2>
+            <h2>Alternative external duty evidence · Normal only</h2>
+            <p class="checks-boundary">Optional exact-point manufacturer screening for an externally supplied pressure. This does not calculate network pressure or control the engineering readiness result.</p>
+            <p id="engineering-duty-edits" class="checks-summary" role="status"></p>
             <form id="checks-engineering-form" class="checks-engineering-form">
               <label>Selected MVHR unit
                 <select id="checks-engineering-unit">
@@ -584,13 +582,10 @@
             <div id="checks-engineering-issues" class="checks-diagnostics"></div>
             <p id="checks-engineering-boundary" class="checks-boundary"></p>
           </article>
-          <article class="checks-card checks-card-wide">
+          <article id="engineering-network-editor" class="checks-card checks-card-wide">
             <h2>Engineering network · preliminary</h2>
             <p>Evaluate explicit terminal design allocations through typed routes for the active design option, selected floor and selected mode. Room requirements are currently editable for Normal only. Low and Boost drafts start from a designer-entered factor and remain editable terminal allocations. This does not predict achieved airflow or certify a design.</p>
             <div class="checks-engineering-actions">
-              <label>Mode
-                <select id="engineering-network-mode"><option value="normal">Normal</option><option value="low">Low</option><option value="boost">Boost</option></select>
-              </label>
               <label>Low / Boost draft factor from assigned Normal target
                 <input id="engineering-network-factor" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Required for Low / Boost" />
               </label>
@@ -600,6 +595,7 @@
               <button id="engineering-network-export-json" type="button">Export data JSON</button>
               <button id="engineering-network-clear" type="button">Clear mode</button>
             </div>
+            <p id="engineering-network-edits" class="checks-summary" role="status"></p>
             <p id="engineering-network-status" class="checks-summary"></p>
             <details><summary>Mode and air-property assumptions</summary>
               <div class="checks-engineering-form">
@@ -703,7 +699,8 @@
           </div>
           <div class="sheet-preview-actions">
             <button id="export-sheet-pdf" type="button">Export PDF</button>
-            <button id="export-all-options-pdf" type="button">Export all options</button>
+            <button id="export-parts-csv" type="button" title="Excel-compatible CSV: active design option, all floors, project packs counted once, no prices">Export parts CSV</button>
+            <button id="export-all-options-pdf" type="button">All-options PDF</button>
             <button id="print-sheet-preview" type="button">Print</button>
             <button id="close-sheet-preview" type="button">Return to plan</button>
           </div>
@@ -712,7 +709,7 @@
           <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
         </div>
         <footer class="sheet-preview-note">
-          Working draft only · not an issued revision · not for construction · print at 100% and verify physical scale
+          Working draft only · not an issued revision · not for construction · print at 100% and verify physical scale. Parts CSV: active option, all floors, no prices; opens in Excel.
         </footer>
       </section>
     </div>
@@ -955,6 +952,16 @@
           <button type="submit" class="primary-action">Apply</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="engineering-edits-dialog" aria-labelledby="engineering-edits-title">
+      <h2 id="engineering-edits-title">Unsaved engineering inputs</h2>
+      <p>Save these inputs to the working project, discard them, or cancel and keep editing. Results and exports use saved inputs only. Save the project separately for a named checkpoint.</p>
+      <p id="engineering-edits-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="engineering-edits-save" type="button">Save inputs and continue</button>
+        <button id="engineering-edits-discard" type="button">Discard edits</button>
+        <button id="engineering-edits-cancel" type="button" autofocus>Cancel</button>
+      </div>
     </dialog>
     <dialog id="remove-room-dialog" aria-labelledby="remove-room-title">
       <form method="dialog">

@@ -1,3 +1,7 @@
+import { createInstallerDocumentFoundation } from "../src/editor/installer-document.mjs";
+import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
+import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
+import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -749,3 +753,20 @@ function loopComponent() { return { id: "loop-component", floorId: "floor-ground
 function addRoute(project, id, unitPortId, terminalId, terminalPortId, stream, role, y, parallelRunCount) { return applyCommand(project, { type: "route.add", route: { id, floorId: "floor-ground", system: "mvhr", stream, role, ductKind: "semi-rigid-radial", connectionInterface: interface90(), parallelRunCount, startAttachment: { componentId: "unit", portId: unitPortId }, endAttachment: { componentId: terminalId, portId: terminalPortId }, points: [{ x: 1000, y, z: knownMm(2500, "test") }, { x: 9000, y, z: knownMm(2500, "test") }] } }); }
 function addBoundaryRoute(project, id, unitPortId, terminalId, terminalPortId, stream, role, y) { return applyCommand(project, { type: "route.add", route: { id, floorId: "floor-ground", system: "mvhr", stream, role, ductKind: "semi-rigid-radial", connectionInterface: interface90(), parallelRunCount: 1, startAttachment: { componentId: "unit", portId: unitPortId }, endAttachment: { componentId: terminalId, portId: terminalPortId }, points: [{ x: 800, y, z: knownMm(2500, "test") }, { x: 0, y, z: knownMm(2500, "test") }] } }); }
 function connectRoute(project, id, startComponentId, startPortId, endComponentId, endPortId, stream, role, points) { return applyCommand(project, { type: "route.add", route: { id, floorId: "floor-ground", system: "mvhr", stream, role, ductKind: "semi-rigid-radial", connectionInterface: interface90(), parallelRunCount: 1, startAttachment: { componentId: startComponentId, portId: startPortId }, endAttachment: { componentId: endComponentId, portId: endPortId }, points: points.map(([x,y]) => ({ x, y, z: knownMm(2500, "test") })) } }); }
+
+test("selected-mode Check, report and installer foundation share the saved evaluation", () => {
+  let project = setNetworkDesign(engineeringFixture(), baseDesign());
+  const draft = createEngineeringNetworkDraft(project, "floor-ground", "boost", { normalTargetFactor: 1.5 });
+  project = setNetworkDesign(project, draft.design);
+  const evaluation = evaluateEngineeringNetwork(project, "floor-ground", "boost");
+  const summary = createDesignCheckSummary(auditVentilation(project, "floor-ground"), inspectAirflowBalance(project, "floor-ground"), evaluation);
+  const report = createEngineeringReport(project, "floor-ground", "boost");
+  const installer = createInstallerDocumentFoundation(project, "floor-ground", "boost", evaluation);
+  assert.equal(summary.mode, "boost");
+  assert.equal(installer.mode, "boost");
+  assert.equal(report.issue.calculationStatus, evaluation.status);
+  assert.deepEqual(installer.unitDutyAndPressure, evaluation);
+  assert.equal(installer.commissioningRows[0].designAssignedTarget.valueLps, 15);
+  assert.equal(installer.commissioningRows[0].measuredNormalAirflow, null);
+  assert.throws(() => createInstallerDocumentFoundation(project, "floor-ground", "normal", evaluation), /scope mismatch/);
+});

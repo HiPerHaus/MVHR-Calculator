@@ -1,3 +1,6 @@
+import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
+import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
+import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -423,3 +426,20 @@ function sheetMetadata() {
     companyLogoDataUrl: null,
   };
 }
+
+test("decentralised controllers do not trigger central topology or pressure blockers", () => {
+  let project = projectWithFloor();
+  project = applyCommand(project, { type: "component.add", component: component("aerofresh-30-compact-decentralised", "af-head", 1000, 1000) });
+  project = applyCommand(project, { type: "component.add", component: component("aerofresh-smove-controller-decentralised", "smove", 2000, 1000) });
+  const audit = auditVentilation(project, "floor-ground");
+  const engineering = evaluateEngineeringNetwork(project, "floor-ground", "boost");
+  const summary = createDesignCheckSummary(audit, inspectAirflowBalance(project, "floor-ground"), engineering);
+  assert.equal(audit.topologyCoverage.status, "not-applicable-decentralised-only");
+  assert.equal(engineering.status, "not-applicable");
+  assert.equal(summary.networkApplicable, false);
+  assert.equal(summary.groups.notCalculated.some(item => item.code === "network-pressure-not-calculated"), false);
+  assert.equal(summary.groups.notCalculated.some(item => item.code === "decentralised-airflow-not-calculated"), true);
+  project = applyCommand(project, { type: "component.add", component: component("zehnder-q350-hrv-left-drawing-profile", "central-unit", 3000, 1000) });
+  assert.equal(evaluateEngineeringNetwork(project, "floor-ground", "boost").status, "not-configured");
+  assert.notEqual(auditVentilation(project, "floor-ground").topologyCoverage.status, "not-applicable-decentralised-only");
+});

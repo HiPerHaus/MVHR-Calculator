@@ -2,20 +2,21 @@ import { validateProject } from "../domain/spatial.mjs";
 import { inspectAirflowBalance } from "./airflow-balance.mjs";
 import { inspectConnectionAccessoryEvidence } from "./connection-accessory-evidence.mjs";
 import { createPartsSchedule } from "./parts-schedule.mjs";
-import { inspectSizingPressureEvidence } from "./sizing-pressure-evidence.mjs";
+import { evaluateEngineeringNetwork } from "./engineering-engine.mjs";
 
 /**
  * Deterministic installer-document data foundation. It is intentionally a
  * working-draft data pack, not a released PDF or installation instruction.
  */
-export function createInstallerDocumentFoundation(project, floorId) {
+export function createInstallerDocumentFoundation(project, floorId, mode = "normal", evaluation = null) {
   validateProject(project);
   const floor = project.floors.find((candidate) => candidate.id === floorId);
   if (!floor) throw new TypeError(`Installer-document floor not found: ${String(floorId)}`);
   const airflow = inspectAirflowBalance(project, floorId);
   const schedule = createPartsSchedule(project, { floorId });
   const connections = inspectConnectionAccessoryEvidence(project, floorId);
-  const sizing = inspectSizingPressureEvidence(project, floorId);
+  const engineering = evaluation ?? evaluateEngineeringNetwork(project, floorId, mode);
+  if (engineering.floorId !== floorId || engineering.mode !== mode) throw new TypeError("Installer engineering evaluation scope mismatch");
   const componentById = new Map(project.components.map((component) => [component.id, component]));
 
   const airflowSchedule = airflow.lines.map((line) => ({
@@ -35,7 +36,7 @@ export function createInstallerDocumentFoundation(project, floorId) {
     terminalId: componentId,
     terminalLabel: componentById.get(componentId)?.displayName ?? componentId,
     issuedTargetReference: null,
-    designAssignedTarget: structuredClone(line.assigned),
+    designAssignedTarget: structuredClone(engineering.design?.terminalAllocations.find(item => item.componentId === componentId && item.spaceId === line.id) ?? null),
     measuredNormalAirflow: null,
     measuredBoostAirflow: null,
     instrumentReference: null,
@@ -45,7 +46,7 @@ export function createInstallerDocumentFoundation(project, floorId) {
     result: null,
   })));
   const blockers = [
-    ...(sizing.status !== "review-required" ? ["Pressure/unit-duty evidence is incomplete."] : []),
+    ...(!["preliminary-review-required", "not-applicable"].includes(engineering.status) ? ["Pressure/unit-duty evidence is incomplete."] : []),
     ...(schedule.unresolved.length > 0 ? ["The materials schedule contains unresolved product or quantity evidence."] : []),
     ...(connections.summary.unresolvedRequirementCount > 0 ? ["Installation connection/accessory evidence remains unresolved."] : []),
     "No immutable design snapshot or issued drawing revision is selected for this working draft.",
@@ -61,7 +62,8 @@ export function createInstallerDocumentFoundation(project, floorId) {
     issuedDrawingRevision: null,
     airflowSchedule,
     materialsSchedule: structuredClone(schedule),
-    unitDutyAndPressure: structuredClone(sizing),
+    mode,
+    unitDutyAndPressure: structuredClone(engineering),
     connectionEvidence: structuredClone(connections),
     commissioningRows,
     blockers,

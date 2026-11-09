@@ -1,8 +1,8 @@
 import { inspectFloorAreaOutline } from "../domain/floor-area.mjs";
 import { alignEppPortApproaches, constrainEppPlanPoints, hasHrvCeilingElbow } from "../domain/epp-plan-constraints.mjs";
-import { floorPortTransform } from "../domain/spatial.mjs";
+import { floorPortTransform, unknownMm } from "../domain/spatial.mjs";
 import { routeFamilyForKind } from "./component-catalogue.mjs";
-import { deriveSweptCentreline } from "./duct-body-geometry.mjs";
+import { inspectAutomaticEppGeometry } from "./automatic-epp-geometry.mjs";
 import { findContainedDuctPath, validateDuctPathInsideOutline } from "./automatic-radial-routing.mjs";
 import { routingCoordinationInputs } from "./routing-coordination.mjs";
 
@@ -61,8 +61,8 @@ export function inspectAutomaticEppRouting(project, floorId, selection = {}, opt
   const diameterMm = start.routeFamily.connectionInterface.nominalSizeMm;
   const pathOptions = coordinationOptions(options, coordination, start, end);
   const planned = exteriorCount === 1
-    ? planExternalTermination(start, end, polygon, diameterMm, pathOptions)
-    : planInternal(start, end, polygon, diameterMm, pathOptions);
+    ? planExternalTermination(project, floorId, start, end, polygon, diameterMm, pathOptions)
+    : planInternal(project, floorId, start, end, polygon, diameterMm, pathOptions);
   if (!planned) return result("unresolved", endpoints, compatibleEnds, null, `No full-width DN${diameterMm} route could avoid the building boundary, marked exclusions and modelled duct clearances.`, context);
 
   const proposal = Object.freeze({
@@ -74,18 +74,23 @@ export function inspectAutomaticEppRouting(project, floorId, selection = {}, opt
     ductKind: start.routeFamily.id,
     connectionInterface: start.routeFamily.connectionInterface,
     diameterMm,
-    clearanceMm: diameterMm / 2,
+    clearanceMm: planned.geometry.body.diameterMm / 2,
+    drawingDiameterMm: planned.geometry.body.diameterMm,
     routingStyle,
     buildingAxisRad: context.buildingAxisRad,
-    lengthMm: pathLength(planned.points),
+    lengthMm: pathLength(planned.geometry.route.points),
+    // points are command controls; previewRoute is the exact normalized result.
+    previewRoute: planned.geometry.route,
+    sampledCentreline: planned.geometry.body.sampledCentreline,
+    diameterBasis: planned.geometry.body.diameterBasis,
     points: Object.freeze(planned.points.map((point) => Object.freeze({ x: point.x, y: point.y }))),
     exteriorTermination: planned.exteriorTermination,
     geometryStatus: start.routeFamily.connectionInterface.connectionScope === "drawing-only" ? "drawing-only-fit-unverified" : "nominal-interface-only",
   });
   return result("ready", endpoints, compatibleEnds, proposal,
     planned.exteriorTermination
-      ? `DN${diameterMm} preview ready. Interior duct width is checked; the final leg crosses the outline only to the selected external terminal.`
-      : `DN${diameterMm} preview ready with its full drawing width inside the building outline.`, context);
+      ? `DN${diameterMm} preview ready. The final normalized drawing body is checked; only its straight terminal leg may cross the outline. Installation fit remains unverified.`
+      : `DN${diameterMm} preview ready with its final normalized drawing width inside the building outline. Installation fit remains unverified.`, context);
 }
 
 function eligibleEndpoints(project, floorId, occupied) {
@@ -116,7 +121,9 @@ function compatiblePair(left, right) {
   if (left.component.id === right.component.id) return false;
   if (left.port.system !== right.port.system || left.port.stream !== right.port.stream || left.port.role !== right.port.role) return false;
   if (left.routeFamily.id !== right.routeFamily.id) return false;
-  if (!interfaceCompatible(left.port.interface, right.port.interface)) return false;
+  // Each endpoint was checked against this same explicit drawing-only route
+  // family above. Their physical families need not match one another: this is
+  // the domain/manual drawing connection, not a claim of installed mating.
   if (["intake", "exhaust"].includes(left.port.stream)) return left.externalTerminal !== right.externalTerminal;
   return !left.externalTerminal && !right.externalTerminal;
 }
@@ -131,14 +138,14 @@ function interfaceCompatible(left, right) {
   return true;
 }
 
-function planInternal(start, end, polygon, diameterMm, options) {
+function planInternal(project, floorId, start, end, polygon, diameterMm, options) {
   const controls = findContainedDuctPath(start.positionMm, end.positionMm, polygon, diameterMm, options);
   if (!controls) return null;
   const points = alignAndConstrain(controls, start, end, diameterMm, options);
-  return validateSwept(points, polygon, diameterMm, options) ? { points, exteriorTermination: false } : null;
+  return validateFinalCandidate(project, floorId, points, start, end, polygon, options);
 }
 
-function planExternalTermination(start, end, polygon, diameterMm, options) {
+function planExternalTermination(project, floorId, start, end, polygon, diameterMm, options) {
   const externalIsStart = start.externalTerminal;
   const external = externalIsStart ? start : end;
   const internal = externalIsStart ? end : start;
@@ -150,9 +157,7 @@ function planExternalTermination(start, end, polygon, diameterMm, options) {
   let points = [...controls, external.positionMm];
   if (externalIsStart) points = points.reverse();
   points = alignAndConstrain(points, start, end, diameterMm, options);
-  const interior = externalIsStart ? points.slice(1) : points.slice(0, -1);
-  if (interior.length < 2 || !validateSwept(interior, polygon, diameterMm, options)) return null;
-  return { points, exteriorTermination: true };
+  return validateFinalCandidate(project, floorId, points, start, end, polygon, options);
 }
 
 function alignAndConstrain(points, start, end, diameterMm, options) {
@@ -161,10 +166,20 @@ function alignAndConstrain(points, start, end, diameterMm, options) {
   return alignEppPortApproaches(constrained, start.direction, end.direction, Math.max(500, diameterMm * 4));
 }
 
-function validateSwept(points, polygon, diameterMm, options) {
-  if (!validateDuctPathInsideOutline(points, polygon, diameterMm, options)) return false;
-  const swept = deriveSweptCentreline(points, { sweepTrimRatio: 0.25, samplesPerCorner: 8 }).points;
-  return validateDuctPathInsideOutline(swept, polygon, diameterMm, options);
+function validateFinalCandidate(project, floorId, points, start, end, polygon, options) {
+  const template = options.replacementRoute ?? null;
+  const route = template ? { ...structuredClone(template), points: points.map((point, index) => ({
+    x: point.x, y: point.y,
+    z: structuredClone(index === 0 ? template.points[0].z : index === points.length - 1 ? template.points.at(-1).z : options.interiorElevation),
+  })) } : {
+    id: "automatic-epp-preview", floorId, system: "mvhr", stream: start.port.stream, role: start.port.role,
+    ductKind: start.routeFamily.id, connectionInterface: start.routeFamily.connectionInterface, parallelRunCount: 1,
+    startAttachment: { componentId: start.component.id, portId: start.port.id },
+    endAttachment: { componentId: end.component.id, portId: end.port.id },
+    points: points.map(point => ({ x: point.x, y: point.y, z: unknownMm("automatic EPP route elevation not set") })),
+  };
+  const geometry = inspectAutomaticEppGeometry(project, route, polygon, options);
+  return geometry.valid ? { points, geometry, exteriorTermination: geometry.exteriorTermination } : null;
 }
 
 function coordinationOptions(options, coordination, start, end) {

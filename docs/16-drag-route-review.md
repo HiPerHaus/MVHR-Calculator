@@ -33,6 +33,8 @@ These are drawing-function timings, not end-to-end frame-rate or user-drawing me
 
 Run `node scripts/drag-preview-review-server.mjs 4297`, then open `http://127.0.0.1:4297/after/app/`. Use **Run interaction checks** and **Benchmark 40 ducts**. The untouched source benchmark is at `/before/app/`. The harness uses only synthetic data on a separate loopback origin and is excluded from `dist/`.
 
-## Separate automatic-routing limitation
+## Automatic-routing limitation at the drag checkpoint
 
 The preview parity work here covers manual route drawing and affected drag geometry. Automatic EPP planning and automatic re-routing are unchanged. Their current planner checks candidate controls with a generic swept curve before the domain applies HRV leads/compaction and fixed-radius rigid elbows. Correcting that safely requires validating the exact normalized final body against the outline/exclusions, including permitted exterior terminal legs. A render-only change must not imply those final containment checks have been performed. This remains a separate product-review priority.
+
+The separate follow-on work is recorded in [Reliability and parts handoff review](18-reliability-and-parts-review.md). It does not change the scope of the original drag checkpoint above.
