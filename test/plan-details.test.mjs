@@ -130,3 +130,24 @@ test("a mixed matched AF and unmatched Q retains the unreadable Q wiring warning
  assert.match(svg,/data-detail-id="af-cw520"/);
  assert.doesNotMatch(svg,/data-detail-id="q-cw320"/);
 });
+
+test("source-shaped illustrations preserve dimension labels and characteristic profiles", async () => {
+  const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
+  const expected = {
+    "ceiling-tva": [128,140], "wall-housing": [120,115,140],
+    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [],
+  };
+  for (const [id,values] of Object.entries(expected)) {
+    const svg=render(id);
+    assert.deepEqual([...svg.matchAll(/data-dimension="(\d+)"/g)].map(m=>Number(m[1])),values);
+    assert.match(svg,/data-visual-basis="owner-source-profile"/);
+    assert.doesNotMatch(svg,/<image|data:image|https?:|>Side<|>AF<|>Q</);
+    assert.ok([...svg.matchAll(/font-size="([\d.]+)"/g)].every(m=>Number(m[1])>=2.5));
+  }
+  for(const id of ["ceiling-tva","wall-housing","af300-remote"]) assert.match(render(id),/data-source-feature="hatched-section"/);
+  assert.match(render("q-cw320"),/data-source-feature="q-mounting-set"/);
+  assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
+  assert.match(render("q-cw320"),/data-dimension="unresolved"/);
+  assert.match(render("af300-remote"),/data-dimension="unresolved"/);
+  assert.throws(()=>render("unknown"),/Unknown installation reference/);
+});
