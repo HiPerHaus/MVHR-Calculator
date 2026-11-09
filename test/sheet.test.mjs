@@ -117,13 +117,54 @@ test("the sheet legend, plan references and schedule preserve service and eviden
   const svg = renderA3SheetSvg(sheet);
   assert.match(svg, /data-kind="component"[^>]*data-schedule-ref="P01"/);
   assert.doesNotMatch(svg.slice(svg.indexOf('<g id="drawing-content"'), svg.indexOf('</g>', svg.indexOf('<g id="drawing-content"'))), /<text\b/);
-  assert.match(svg, /Supply duct — drawing route/);
+  assert.match(svg, /Supply duct/);
+  assert.doesNotMatch(svg, /drawing route/);
   assert.match(svg, /data-kind="parts-schedule"/);
   assert.match(svg, /Generic supply terminal/);
   assert.match(svg, /unmatched provisional/);
   assert.match(svg, /data-kind="route-body"/);
   assert.match(svg, /data-schedule-ref="D01"/);
   assert.doesNotMatch(svg, /Calibrated PNG reference — locked underlay/);
+});
+
+test("export legend uses concise duct labels without changing routes or draft status", () => {
+  let project = projectWithFloor();
+  const labels = [
+    ["supply", "Supply duct"],
+    ["extract", "Extract duct"],
+    ["intake", "Outdoor intake duct"],
+    ["exhaust", "Outdoor exhaust duct"],
+  ];
+  for (const [index, [stream]] of labels.entries()) {
+    project = applyCommand(project, {
+      type: "route.add",
+      route: {
+        id: `legend-${stream}`,
+        floorId: "floor-ground",
+        system: "mvhr",
+        stream,
+        role: null,
+        ductKind: ["intake", "exhaust"].includes(stream) ? "epp-rigid-dn160" : "semi-rigid-radial",
+        startAttachment: null,
+        endAttachment: null,
+        points: [
+          { x: 1000, y: 1000 + index * 500, z: unknownMm("not set") },
+          { x: 3000, y: 1000 + index * 500, z: unknownMm("not set") },
+        ],
+      },
+    });
+  }
+  const before = JSON.stringify(project);
+  const sheet = createA3SheetModel(project, metadata());
+  const svg = renderA3SheetSvg(sheet);
+  assert.deepEqual(sheet.printScene.legend.map(({ key, label }) => [key, label]),
+    labels.map(([stream, label]) => [`service-${stream}`, label]));
+  assert.deepEqual(sheet.printScene.routes.map(({ id }) => id), project.routes.map(({ id }) => id));
+  assert.equal(sheet.partsSchedule.routeLines.length, 4);
+  assert.equal((svg.match(/data-kind="route-body"/gu) ?? []).length, 4);
+  assert.doesNotMatch(svg, /drawing route/);
+  assert.match(svg, /Preliminary — not for construction/);
+  assert.equal(JSON.stringify(project), before);
 });
 
 test("A3 uses the shared Q350 plan graphic for both handed profiles and rotated placement", () => {

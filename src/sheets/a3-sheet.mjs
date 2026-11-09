@@ -388,10 +388,10 @@ function buildLegend(scene) {
     legend.push({ key: "wall-virtual", label: "Virtual wall — authoritative model boundary" });
   }
   for (const [stream, label] of [
-    ["supply", "Supply duct — drawing route"],
-    ["extract", "Extract duct — drawing route"],
-    ["intake", "Outdoor intake duct — drawing route"],
-    ["exhaust", "Outdoor exhaust duct — drawing route"],
+    ["supply", "Supply duct"],
+    ["extract", "Extract duct"],
+    ["intake", "Outdoor intake duct"],
+    ["exhaust", "Outdoor exhaust duct"],
   ]) {
     if (scene.routes.some((route) => route.stream === stream)) {
       legend.push({ key: `service-${stream}`, label });
