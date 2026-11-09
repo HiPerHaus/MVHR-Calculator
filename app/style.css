@@ -837,3 +837,6 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
   .project-workspace, .account-workspace { padding:16px; }
   .project-home-detail-grid, .company-fields-grid { grid-template-columns:1fr; }
 }
+
+.route-selection-halo { fill: none; stroke: #ffab32; opacity: .68; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.route-self-crossing-warning { fill: none; stroke: #b4421f; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }

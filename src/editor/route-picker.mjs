@@ -9,6 +9,10 @@
 export const ROUTE_PICK_TOLERANCE_CSS_PX = 12;
 
 export function pickRouteAtClientPoint(routes, camera, rect, clientPoint, options = {}) {
+  return pickRoutesAtClientPoint(routes, camera, rect, clientPoint, options)[0] ?? null;
+}
+
+export function pickRoutesAtClientPoint(routes, camera, rect, clientPoint, options = {}) {
   if (!Array.isArray(routes)) throw new TypeError("Routes must be an array");
   const tolerancePx = finitePositive(
     options.tolerancePx ?? ROUTE_PICK_TOLERANCE_CSS_PX,
@@ -19,6 +23,8 @@ export function pickRouteAtClientPoint(routes, camera, rect, clientPoint, option
     "Millimetres per view unit",
   );
   const pointsForRoute = options.pointsForRoute ?? ((route) => route.points);
+  const pathsForRoute = options.pathsForRoute ?? (route => [pointsForRoute(route)]);
+  if (typeof pathsForRoute !== "function") throw new TypeError("Route paths resolver must be a function");
   if (typeof pointsForRoute !== "function") throw new TypeError("Route points resolver must be a function");
   validateCamera(camera);
   validateRect(rect);
@@ -27,25 +33,22 @@ export function pickRouteAtClientPoint(routes, camera, rect, clientPoint, option
     y: finite(clientPoint?.y, "Client y"),
   };
 
-  let nearest = null;
+  const hits = [];
   for (const route of routes) {
-    const routePoints = pointsForRoute(route);
-    if (!route?.id || !Array.isArray(routePoints) || routePoints.length < 2) continue;
-    const points = routePoints.map((point) => projectToClient(
-      point,
-      camera,
-      rect,
-      millimetresPerViewUnit,
-    ));
+    if (!route?.id) continue;
     let distancePx = Infinity;
-    for (let index = 1; index < points.length; index += 1) {
-      distancePx = Math.min(distancePx, pointToSegmentDistance(click, points[index - 1], points[index]));
+    for (const routePoints of pathsForRoute(route)) {
+      if (!Array.isArray(routePoints) || routePoints.length < 2) continue;
+      const points = routePoints.map(point => projectToClient(point, camera, rect, millimetresPerViewUnit));
+      for (let index = 1; index < points.length; index += 1) {
+        distancePx = Math.min(distancePx, pointToSegmentDistance(click, points[index - 1], points[index]));
+      }
     }
-    if (distancePx <= tolerancePx && (nearest === null || distancePx < nearest.distancePx)) {
-      nearest = { routeId: route.id, distancePx };
+    if (distancePx <= tolerancePx) {
+      hits.push({ routeId: route.id, distancePx });
     }
   }
-  return nearest;
+  return hits.sort((left, right) => left.distancePx - right.distancePx);
 }
 
 function projectToClient(point, camera, rect, millimetresPerViewUnit) {
@@ -94,4 +97,14 @@ function finitePositive(value, label) {
   const normalized = finite(value, label);
   if (normalized <= 0) throw new RangeError(`${label} must be positive`);
   return normalized;
+}
+
+// Repeat clicks at the same screen position cycle all overlapping ducts.
+// Model identity changes and camera/pointer movement start a fresh selection.
+export function cycleRoutePick(hits, point, previous = null) {
+  const ids = hits.map(hit => hit.routeId);
+  if (!ids.length) return {routeId:null,cycle:null};
+  const same = previous && Math.hypot(point.x-previous.x,point.y-previous.y)<=4 && ids.length===previous.ids.length && ids.every(id=>previous.ids.includes(id));
+  const index = same ? (ids.indexOf(previous.routeId)+1)%ids.length : 0;
+  return {routeId:ids[index],cycle:{...point,ids,routeId:ids[index]}};
 }

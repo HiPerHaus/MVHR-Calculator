@@ -3978,6 +3978,28 @@ function constrainEditedEppRoute(route, project, realign = false) {
   route.points = ensureHrvCeilingElbowLead(align(compacted,start.direction,end.direction,stubMm),{start:start.ceilingElbow,end:end.ceilingElbow},stubMm);
 }
 
+// Disposable geometry only: no history, global validation or project mutation.
+// Use the same endpoint and EPP normalization as route.add, including unit top elbows.
+// Callers may supply a shallow project with moved components for drag previews.
+export function previewDuctRouteGeometry(project, routeValue, { terminalEntrySelections = [] } = {}) {
+  const route = normalizeRoute(routeValue);
+  let geometryProject = project;
+  if (terminalEntrySelections.length) {
+    const selectedIds = new Set(terminalEntrySelections.map(selection => selection.componentId));
+    geometryProject = { ...project, components: project.components.map(component =>
+      selectedIds.has(component.id) ? structuredClone(component) : component) };
+    for (const selection of terminalEntrySelections) {
+      if (![route.startAttachment, route.endAttachment].some(endpoint =>
+        endpoint?.componentId === selection.componentId && endpoint.portId === selection.portId)) {
+        throw new TypeError("Terminal entry must belong to a route endpoint");
+      }
+      selectTerminalDrawingEntry(geometryProject, selection);
+    }
+  }
+  synchronizeRouteEndpoints(geometryProject, route);
+  return route;
+}
+
 function synchronizeRouteEndpoints(project, route) {
   validateRouteAttachmentTypes(project, route);
   if (route.startAttachment !== null) {

@@ -1,3 +1,4 @@
+import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
@@ -36,6 +37,7 @@ import {
   createProject,
   deserializeProject,
   floorPortTransform,
+  previewDuctRouteGeometry,
   identityQuaternion,
   inspectComponentDeletion,
   inspectFloorVentilationClear,
@@ -97,6 +99,7 @@ import {
   componentRotationIntent,
   createMechanicalInteractionState,
   handleMechanicalCanvasClick,
+  mechanicalRoutePreview,
   removeMechanicalRoutePoint,
   requiresProjectReplacementConfirmation,
   resolveComponentPlacementState,
@@ -134,7 +137,7 @@ import {
   planSnappedWallChain,
   wallInteriorSnapRadiusPx,
 } from "../src/editor/wall-snap.mjs";
-import { pickRouteAtClientPoint } from "../src/editor/route-picker.mjs";
+import { pickRoutesAtClientPoint, cycleRoutePick } from "../src/editor/route-picker.mjs";
 import { pickPortAtClientPoint, PORT_PICK_TOLERANCE_CSS_PX } from "../src/editor/port-picker.mjs";
 import {
   deriveDuctBodyGeometry,
@@ -803,10 +806,13 @@ let draftPoints = [];
 let floorAreaDraftPoints = [];
 let activeChainId = null;
 let hoverPoint = null;
+let routeHoverHit = null;
+let routeHoverPoint = null;
 let selectedWallId = null;
 let selectedNodeId = null;
 let selectedRouteId = null;
 let selectedRoutePointIndex = null;
+let routePickCycle = null;
 let selectedDecentralisedCableId = null;
 let selectedDecentralisedCablePointIndex = null;
 let selectedReferenceId = history.present.floorReferences[0]?.id ?? null;
@@ -816,6 +822,11 @@ let componentDragState = null;
 let grilleAlignmentPreview = null;
 let routePointDragState = null;
 let decentralisedCablePointDragState = null;
+const renderedModelGroups = new Map();
+let dragPreviewRendering = false;
+let dragPreviewProject = null;
+let routeCoordinationDiagnostics = [];
+const dragPreviewFrame = createFramePreviewScheduler(renderDragPreview);
 let panState = null;
 const canvasTouchPointers = new Map();
 let pinchCameraGesture = null;
@@ -1499,7 +1510,7 @@ function cancelTransientPointerPreviewForPinch() {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
-  decentralisedCablePointDragState = null;
+  if (decentralisedCablePointDragState) { decentralisedCablePointDragState = null; render(); }
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -1570,6 +1581,7 @@ canvas.addEventListener("pointerdown", (event) => {
     render();
     return;
   }
+  if (activeTask === "ventilation" && activeTool === "select" && event.altKey) return;
   const routePointHandle = event.target.closest?.(".route-point-handle.intermediate");
   if (activeTask === "ventilation" && activeTool === "select" && routePointHandle) {
     const routeId = routePointHandle.dataset.routeId;
@@ -1720,44 +1732,38 @@ canvas.addEventListener("pointermove", (event) => {
     const reference = selectedReference();
     if (!reference) return;
     referenceCropState.currentSourcePoint = referenceSourcePointFromEvent(event, reference);
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   if (routePointDragState && event.pointerId === routePointDragState.pointerId) {
     routePointDragState.preview = eventToGridWorld(event);
     cursorStatus.textContent = `X ${formatMm(routePointDragState.preview.x)} · Y ${formatMm(routePointDragState.preview.y)}`;
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   if (decentralisedCablePointDragState && event.pointerId === decentralisedCablePointDragState.pointerId) {
     decentralisedCablePointDragState.preview = eventToGridWorld(event);
     cursorStatus.textContent = `X ${formatMm(decentralisedCablePointDragState.preview.x)} · Y ${formatMm(decentralisedCablePointDragState.preview.y)}`;
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   if (componentDragState && event.pointerId === componentDragState.pointerId) {
-    const proposed = layoutPointerPosition(eventToSvgWorld(event), {
-      snapEnabled, gridMm: GRID_SNAP_MM,
-      drag: { pointerStart: componentDragState.pointerStart, start: componentDragState.start },
-    });
-    const component=history.present.components.find(c=>c.id===componentDragState.componentId);
-    grilleAlignmentPreview=!componentDragState.assemblyId ? grilleAlignment(component,proposed) : null;
-    componentDragState.preview = grilleAlignmentPreview?.point ?? proposed;
+    updateComponentDragPointer(event);
     mechanicalState = updateMechanicalPointer(mechanicalState, componentDragState.preview);
     cursorStatus.textContent = `X ${formatMm(componentDragState.preview.x)} · Y ${formatMm(componentDragState.preview.y)}`;
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   if (dragState && event.pointerId === dragState.pointerId) {
     dragState.preview = eventToGridWorld(event);
     cursorStatus.textContent = `X ${formatMm(dragState.preview.x)} · Y ${formatMm(dragState.preview.y)}`;
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   if (floorAreaDragState && event.pointerId === floorAreaDragState.pointerId) {
     floorAreaDragState.preview = resolvePointerPoint(event);
     cursorStatus.textContent = `X ${formatMm(floorAreaDragState.preview.x)} · Y ${formatMm(floorAreaDragState.preview.y)}`;
-    render();
+    dragPreviewFrame.schedule();
     return;
   }
   hoverPoint = resolvePointerPoint(event);
@@ -1767,7 +1773,9 @@ canvas.addEventListener("pointermove", (event) => {
   if (activeTool === "routing-exclusion" && routingExclusionDraftStart) renderDraft();
   if (activeTool === "place-component" || activeTool === "place-assembly" || activeTool === "route") {
     const hoverPort=activeTool==="route"?mechanicalHitFromPointerEvent(event):null;
-    const proposed=hoverPort?.positionMm??eventToGridWorld(event);
+    const proposed=hoverPort?.kind === "port" ? hoverPort.positionMm ?? portFloorPoint(hoverPort.componentId,hoverPort.portId) : eventToGridWorld(event);
+    routeHoverHit = hoverPort;
+    routeHoverPoint = proposed;
     grilleAlignmentPreview=grillePlacementAlignment(proposed);
     mechanicalState = updateMechanicalPointer(mechanicalState, grilleAlignmentPreview?.point??proposed);
     renderDraft();
@@ -1827,6 +1835,7 @@ canvas.addEventListener("pointerup", (event) => {
     return;
   }
   if (routePointDragState && event.pointerId === routePointDragState.pointerId) {
+    routePointDragState.preview = eventToGridWorld(event);
     const completedDrag = routePointDragState;
     routePointDragState = null;
     suppressNextClick = true;
@@ -1847,6 +1856,7 @@ canvas.addEventListener("pointerup", (event) => {
     return;
   }
   if (decentralisedCablePointDragState && event.pointerId === decentralisedCablePointDragState.pointerId) {
+    decentralisedCablePointDragState.preview = eventToGridWorld(event);
     const completedDrag = decentralisedCablePointDragState;
     decentralisedCablePointDragState = null;
     suppressNextClick = true;
@@ -1857,6 +1867,7 @@ canvas.addEventListener("pointerup", (event) => {
     return;
   }
   if (componentDragState && event.pointerId === componentDragState.pointerId) {
+    updateComponentDragPointer(event);
     const completedDrag = componentDragState;
     componentDragState = null;
     grilleAlignmentPreview = null;
@@ -1891,6 +1902,7 @@ canvas.addEventListener("pointerup", (event) => {
     return;
   }
   if (floorAreaDragState && event.pointerId === floorAreaDragState.pointerId) {
+    floorAreaDragState.preview = resolvePointerPoint(event);
     const completedDrag = floorAreaDragState;
     floorAreaDragState = null;
     suppressNextClick = true;
@@ -1911,6 +1923,7 @@ canvas.addEventListener("pointerup", (event) => {
     return;
   }
   if (!dragState || event.pointerId !== dragState.pointerId) return;
+  dragState.preview = eventToGridWorld(event);
   const completedDrag = dragState;
   dragState = null;
   suppressNextClick = true;
@@ -1943,7 +1956,7 @@ canvas.addEventListener("lostpointercapture", () => {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
-  decentralisedCablePointDragState = null;
+  if (decentralisedCablePointDragState) { decentralisedCablePointDragState = null; render(); }
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -1960,6 +1973,13 @@ canvas.addEventListener("click", (event) => {
   if (suppressNextClick) {
     suppressNextClick = false;
     return;
+  }
+  if (activeTask === "ventilation" && activeTool === "select" && event.altKey) {
+    selectedRouteId = routeIdFromPointerEvent(event); selectedRoutePointIndex = null;
+    mechanicalState = clearMechanicalSelection(mechanicalState);
+    selectedDecentralisedCableId = null;
+    interactionMessage = selectedRouteId ? "Duct selected · Alt-click again to cycle overlaps · crossings do not imply a connection" : "No duct at this point";
+    render(); return;
   }
   if (activeTask === "ventilation") {
     if (activeTool === "routing-exclusion") {
@@ -2021,7 +2041,7 @@ canvas.addEventListener("click", (event) => {
       interactionMessage = cableId
         ? "Controller cable selected · add or drag bend points · cable is not a duct route"
         : routeId
-        ? "Duct route selected; its drawn single/twin arrangement can be edited in the inspector"
+        ? "Duct route selected; Alt-click an overlap to cycle ducts · selected duct is outlined"
         : "Building geometry is locked in Ventilation; use Plan to edit walls, rooms and zones";
     }
     render();
@@ -4117,6 +4137,8 @@ function handleMechanicalClick(event, selectedHit = null) {
     : eventToGridWorld(event);
   const priorState = mechanicalState;
   const result = handleMechanicalCanvasClick(mechanicalState, { point, hit });
+  routeHoverHit = null;
+  routeHoverPoint = null;
   mechanicalState = result.state;
   interactionMessage = result.message;
   if (result.intent?.type === "component.place" && standaloneCwPlacement) { openCw(result.intent.point,event.shiftKey||event.ctrlKey);return; }
@@ -4192,23 +4214,7 @@ function handleMechanicalClick(event, selectedHit = null) {
     const committed = commitCommand({
       type: "route.add",
       terminalEntrySelections:result.intent.terminalEntrySelections,
-      route: {
-        id,
-        floorId: "floor-ground",
-        system: result.intent.system,
-        stream: result.intent.stream,
-        role: result.intent.role,
-        connectionInterface: result.intent.connectionInterface,
-        ductKind: result.intent.ductKind,
-        parallelRunCount: result.intent.parallelRunCount,
-        startAttachment: result.intent.start,
-        endAttachment: result.intent.end,
-        points: result.intent.points.map((routePoint) => ({
-          x: routePoint.x,
-          y: routePoint.y,
-          z: unknownMm("synthetic route elevation not set"),
-        })),
-      },
+      route: routeFromIntent(result.intent, id),
     }, `${routeFamilyForKind(result.intent.ductKind).name} route committed; engineering losses and exact product fit remain unverified`);
     if (committed) {
       routeIdentityCounter += 1;
@@ -4224,6 +4230,13 @@ function handleMechanicalClick(event, selectedHit = null) {
   } else {
     render();
   }
+}
+
+function routeFromIntent(intent, id = "draft-route-preview") {
+  return {id, floorId: "floor-ground", system:intent.system, stream:intent.stream, role:intent.role,
+    connectionInterface:intent.connectionInterface, ductKind:intent.ductKind, parallelRunCount:intent.parallelRunCount,
+    startAttachment:intent.start, endAttachment:intent.end,
+    points:intent.points.map(point=>({x:point.x,y:point.y,z:unknownMm("synthetic route elevation not set")}))};
 }
 
 function rotateSelectedComponent() {
@@ -4512,22 +4525,16 @@ function mechanicalHitFromPointerEvent(event) {
 }
 
 function routeIdFromPointerEvent(event) {
+  const candidates = pickRoutesAtClientPoint(history.present.routes.filter(routeIsVisible), camera,
+    canvas.getBoundingClientRect(), {x:event.clientX,y:event.clientY}, {
+      millimetresPerViewUnit:MILLIMETRES_PER_VIEW_UNIT,
+      pathsForRoute:route=>routeBodyGeometry(route).lanes,
+    });
   const directRouteId = event.target?.dataset?.routeId;
-  if (directRouteId && history.present.routes.some((route) => route.id === directRouteId && routeIsVisible(route))) {
-    return directRouteId;
-  }
-  const hit = pickRouteAtClientPoint(
-    history.present.routes.filter(routeIsVisible),
-    camera,
-    canvas.getBoundingClientRect(),
-    { x: event.clientX, y: event.clientY },
-    {
-      millimetresPerViewUnit: MILLIMETRES_PER_VIEW_UNIT,
-      pointsForRoute: (route) => routeBodyGeometry(route).sampledCentreline,
-    },
-  );
-  if (hit) return hit.routeId;
-  return null;
+  if (directRouteId && !candidates.some(hit=>hit.routeId===directRouteId) && history.present.routes.some(route=>route.id===directRouteId&&routeIsVisible(route))) candidates.unshift({routeId:directRouteId,distancePx:0});
+  const result = cycleRoutePick(candidates, {x:event.clientX,y:event.clientY}, routePickCycle?.project === history.present ? routePickCycle : null);
+  routePickCycle = result.cycle ? {...result.cycle,project:history.present} : null;
+  return result.routeId;
 }
 
 function portFloorPoint(componentId, portId) {
@@ -6001,6 +6008,7 @@ function cancelActivePointer() {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
+  if (decentralisedCablePointDragState) { decentralisedCablePointDragState = null; render(); }
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -6242,7 +6250,76 @@ function exportThreeDDrawing() {
   interactionMessage = "Schematic 3D SVG exported from the current saved design state";
 }
 
+function updateComponentDragPointer(event) {
+  const proposed = layoutPointerPosition(eventToSvgWorld(event), {
+    snapEnabled, gridMm: GRID_SNAP_MM,
+    drag: { pointerStart: componentDragState.pointerStart, start: componentDragState.start },
+  });
+  const component = history.present.components.find(c => c.id === componentDragState.componentId);
+  grilleAlignmentPreview = !componentDragState.assemblyId ? grilleAlignment(component, proposed) : null;
+  componentDragState.preview = grilleAlignmentPreview?.point ?? proposed;
+}
+
+function componentDragProject() {
+  if (!componentDragState) return history.present;
+  return {...history.present, components:history.present.components.map(component => {
+    if (!componentDragState.memberIds.includes(component.id)) return component;
+    const delta = componentDisplayDragDelta(component.id);
+    return {...component, positionMm:{...component.positionMm,x:component.positionMm.x+delta.x,y:component.positionMm.y+delta.y}};
+  })};
+}
+
+function modelGroup(kind, id) {
+  const key = `${kind}:${id}`;
+  const group = svgElement("g", {"data-render-kind":kind,"data-render-id":id});
+  const previous = renderedModelGroups.get(key);
+  if (dragPreviewRendering && previous?.parentNode === modelLayer) previous.replaceWith(group);
+  else modelLayer.append(group);
+  renderedModelGroups.set(key, group);
+  return group;
+}
+
+// Only disposable drawing nodes change during a drag. Expensive topology,
+// coordination, inspector and schedules are checked once after commit/cancel.
+function renderDragPreview() {
+  if (activeTask !== "ventilation" || !(componentDragState || routePointDragState || decentralisedCablePointDragState)) {
+    if (referenceCropState?.pointerId != null) renderDraft();
+    else if (floorAreaDragState) renderFloorAreas();
+    else if (dragState) {
+      const point = dragState.preview;
+      for (const wall of history.present.walls) {
+        if (wall.startNodeId !== dragState.nodeId && wall.endNodeId !== dragState.nodeId) continue;
+        const line = [...modelLayer.children].find(element => element.dataset.wallId === wall.id);
+        if (line) { const end = wall.startNodeId === dragState.nodeId ? 1 : 2; line.setAttribute(`x${end}`,toView(point.x)); line.setAttribute(`y${end}`,toView(point.y)); }
+      }
+      const node = [...modelLayer.children].find(element => element.dataset.nodeId === dragState.nodeId);
+      if (node) { node.setAttribute("cx",toView(point.x)); node.setAttribute("cy",toView(point.y)); }
+    }
+    return;
+  }
+  dragPreviewRendering = true;
+  dragPreviewProject = componentDragProject();
+  try {
+    if (componentDragState) {
+      for (const component of history.present.components.filter(item=>componentDragState.memberIds.includes(item.id))) renderComponent(component);
+      if (componentDragState.assemblyId) renderEquipmentAssemblyServiceZone(history.present.equipmentAssemblies.find(item=>item.id===componentDragState.assemblyId));
+    }
+    const affectedRoutes = history.present.routes.filter(route => route.id === routePointDragState?.routeId || componentDragState && [route.startAttachment,route.endAttachment].some(endpoint=>componentDragState.memberIds.includes(endpoint?.componentId)));
+    for (const route of affectedRoutes) { renderDuctRoute(route); renderRouteCeilingElbows(route); }
+    const selectedRoute = affectedRoutes.find(route=>route.id===selectedRouteId);
+    if (selectedRoute) renderRouteEditHandles(selectedRoute);
+    for (const cable of history.present.decentralisedCables.filter(cable=>cable.id===decentralisedCablePointDragState?.cableId || componentDragState && [cable.controllerId,cable.unitComponentId].some(id=>componentDragState.memberIds.includes(id)))) {
+      renderDecentralisedCable(cable);
+      if (cable.id===selectedDecentralisedCableId) renderDecentralisedCableEditHandles(cable);
+    }
+    renderGrilleAlignmentGuides();
+  } finally { dragPreviewRendering = false; dragPreviewProject = null; }
+}
+
 function render() {
+  dragPreviewFrame.cancel();
+  dragPreviewProject = null;
+  renderedModelGroups.clear();
   if(activeTask==="account"){renderStorageState();updateStatus();return;}
   if (activeTask === "three-d") {
     renderThreeDWorkspace();
@@ -6292,25 +6369,8 @@ function render() {
     if (selectedRoute && routeIsVisible(selectedRoute) && activeTool === "select") renderRouteEditHandles(selectedRoute);
     const selectedCable = history.present.decentralisedCables.find((cable) => cable.id === selectedDecentralisedCableId);
     if (selectedCable && activeTool === "select") renderDecentralisedCableEditHandles(selectedCable);
-    if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
-      for(const guide of grilleAlignmentPreview.guides)modelLayer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
-      const p=grilleAlignmentPreview.point,label=svgElement("text",{x:toView(p.x),y:toView(p.y)-30*unitsPerPixel,"font-size":11*unitsPerPixel,"text-anchor":"middle",fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","pointer-events":"none"});
-      label.textContent="Intake + exhaust aligned";modelLayer.append(label);
-    }
-    const displayedRoutes=history.present.routes.filter(routeIsVisible).map(route=>({...route,points:routeDisplayPoints(route)}));
-    for(const elbow of deriveHrvCeilingElbows(displayedRoutes,history.present.components.filter(componentIsVisible))) {
-      const selected=selectedRouteId===elbow.routeId;
-      const drawing=svgElement("g",{transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,class:`hrv-ceiling-elbow${selected?" selected":""}`,"data-hrv-ceiling-elbow":elbow.portId,"data-route-id":elbow.routeId,"data-alignment-status":"typed-port-centred","aria-label":"90° HRV top elbow centred on typed unit port · route tangent follows first plan leg"});
-      if(selected)drawing.append(svgElement("circle",{cx:0,cy:0,r:elbow.nominalSizeMm*.82,fill:"none",stroke:"#f0a43c","stroke-width":10,"stroke-dasharray":"18 10","data-part":"selected-elbow-halo"}));
-      for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
-      const title=svgElement("title",{});title.textContent="Typed port centre aligned · 90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);modelLayer.append(drawing);
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
-      const side=["extract","exhaust"].includes(elbow.stream)?-1:1;
-      const label=svgElement("text",{x:toView(elbow.xMm+side*elbow.nominalSizeMm*.9),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-7*unitsPerPixel,"font-size":9*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":side<0?"end":"start","pointer-events":"none","data-ventilation-label":"ceiling-elbow","data-route-id":elbow.routeId});
-      label.textContent="↑90°";
-      if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
-    }
+    renderGrilleAlignmentGuides();
+    for (const route of history.present.routes) renderRouteCeilingElbows(route);
   }
   for (const node of activeTask === "plan" ? history.present.wallNodes : []) {
     const position = displayPosition(node.id);
@@ -6331,6 +6391,34 @@ function render() {
   renderStorageState();
   updateStatus();
   if (activeTask === "checks") renderChecksWorkspace();
+}
+
+function renderGrilleAlignmentGuides() {
+  const layer = modelGroup("alignment-guides", "current");
+    if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
+      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      for(const guide of grilleAlignmentPreview.guides)layer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
+      const p=grilleAlignmentPreview.point,label=svgElement("text",{x:toView(p.x),y:toView(p.y)-30*unitsPerPixel,"font-size":11*unitsPerPixel,"text-anchor":"middle",fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","pointer-events":"none"});
+      label.textContent="Intake + exhaust aligned";layer.append(label);
+    }
+}
+
+function renderRouteCeilingElbows(route) {
+  const layer = modelGroup("route-elbows", route.id);
+  if (!routeIsVisible(route)) return;
+  const displayProject = dragPreviewProject ?? history.present;
+    for(const elbow of deriveHrvCeilingElbows([{...route,points:routeDisplayPoints(route)}],displayProject.components.filter(componentIsVisible))) {
+      const selected=selectedRouteId===elbow.routeId;
+      const drawing=svgElement("g",{transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,class:`hrv-ceiling-elbow${selected?" selected":""}`,"data-hrv-ceiling-elbow":elbow.portId,"data-route-id":elbow.routeId,"data-alignment-status":"typed-port-centred","aria-label":"90° HRV top elbow centred on typed unit port · route tangent follows first plan leg"});
+      if(selected)drawing.append(svgElement("circle",{cx:0,cy:0,r:elbow.nominalSizeMm*.82,fill:"none",stroke:"#f0a43c","stroke-width":10,"stroke-dasharray":"18 10","data-part":"selected-elbow-halo"}));
+      for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
+      const title=svgElement("title",{});title.textContent="Typed port centre aligned · 90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);layer.append(drawing);
+      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      const side=["extract","exhaust"].includes(elbow.stream)?-1:1;
+      const label=svgElement("text",{x:toView(elbow.xMm+side*elbow.nominalSizeMm*.9),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-7*unitsPerPixel,"font-size":9*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":side<0?"end":"start","pointer-events":"none","data-ventilation-label":"ceiling-elbow","data-route-id":elbow.routeId});
+      label.textContent="↑90°";
+      if (!hiddenVentilationGroups.has("bend-labels")) layer.append(label);
+    }
 }
 
 function componentRendersAboveDucts(component) {
@@ -6420,10 +6508,11 @@ function renderRoutingExclusions() {
     ? "Not set · checks prevent envelope overlap only and report this limitation."
     : `${setting.clearSpacingMm.valueMm} mm additional clear gap · ${setting.clearSpacingMm.state}.`;
   const coordination = inspectRoutingCoordination(history.present, floor.id);
+  routeCoordinationDiagnostics = coordination.diagnostics;
   const errors = coordination.diagnostics.filter((item) => item.severity === "error").length;
   const warnings = coordination.diagnostics.filter((item) => item.severity === "warning").length;
   routingCoordinationStatus.textContent = errors || warnings
-    ? `${errors} coordination conflict${errors === 1 ? "" : "s"} · ${warnings} height review warning${warnings === 1 ? "" : "s"}. Open Checks for details.`
+    ? `${errors} coordination conflict${errors === 1 ? "" : "s"} · ${warnings} review warning${warnings === 1 ? "" : "s"}. Open Checks for details.`
     : "No clashes found against marked exclusions or modelled duct envelopes on this floor.";
 }
 
@@ -6594,6 +6683,7 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
 }
 
 function renderDuctRoute(route) {
+  const layer = modelGroup("route", route.id);
   if (!routeIsVisible(route)) return;
   const family = routeFamilyForKind(route.ductKind);
   const geometry = routeBodyGeometry(route, family);
@@ -6605,7 +6695,7 @@ function renderDuctRoute(route) {
   if (geometry.scaled) {
     const bodyWidth = toView(geometry.diameterMm);
     for (const points of lanePointStrings) {
-      modelLayer.append(svgElement("polyline", {
+      layer.append(svgElement("polyline", {
         points,
         class: "duct-body-underlay",
         "stroke-width": bodyWidth + 2,
@@ -6613,7 +6703,7 @@ function renderDuctRoute(route) {
       }));
     }
     for (const points of lanePointStrings) {
-      modelLayer.append(svgElement("polyline", {
+      layer.append(svgElement("polyline", {
         points,
         class: `duct-body ${serviceClass}${arrangementClass}${selectedClass}`,
         "stroke-width": bodyWidth,
@@ -6624,32 +6714,37 @@ function renderDuctRoute(route) {
     }
   }
   const sweepPoints = routePointString(geometry.sampledCentreline);
-  modelLayer.append(svgElement("polyline", {
+  layer.append(svgElement("polyline", {
     points: sweepPoints,
     class: `mechanical-route ${route.ductKind} ${serviceClass}${selectedClass}`,
     "data-route-id": route.id,
     "aria-hidden": "true",
   }));
   for (const elbow of geometry.elbows ?? []) {
-    for (const seam of elbow.seams) modelLayer.append(svgElement("line", {
+    for (const seam of elbow.seams) layer.append(svgElement("line", {
       x1:toView(seam.a.x), y1:toView(seam.a.y), x2:toView(seam.b.x), y2:toView(seam.b.y),
       stroke:"#263f46", "stroke-width":1.2, "data-route-id":route.id, "data-epp-elbow-joint":"true",
     }));
     if (elbow.halfCutGuide) {
       const cut = elbow.halfCutGuide;
-      modelLayer.append(svgElement("line", {x1:toView(cut.a.x),y1:toView(cut.a.y),x2:toView(cut.b.x),y2:toView(cut.b.y),
+      layer.append(svgElement("line", {x1:toView(cut.a.x),y1:toView(cut.a.y),x2:toView(cut.b.x),y2:toView(cut.b.y),
         stroke:"#263f46","stroke-width":0.8,"stroke-dasharray":"2 1.5","data-epp-half-cut-guide":"true","pointer-events":"none"}));
     }
     const belongsToCeilingElbow = ceilingElbows.some((candidate) => Math.hypot(candidate.xMm-elbow.vertex.x,candidate.yMm-elbow.vertex.y) <= candidate.nominalSizeMm*2.5);
     if (!belongsToCeilingElbow) {
       const label = svgElement("text", {x:toView(elbow.vertex.x)+8,y:toView(elbow.vertex.y)-8,"font-size":9,fill:elbow.drawable ? "#263f46" : "#a04b22",stroke:"white","stroke-width":3,"paint-order":"stroke","data-route-id":route.id,"data-ventilation-label":"bend"});
       label.textContent = elbow.drawable ? `${elbow.angleDegrees}°` : "Review bend";
-      if (!hiddenVentilationGroups.has("bend-labels")) modelLayer.append(label);
+      if (!hiddenVentilationGroups.has("bend-labels")) layer.append(label);
     }
+  }
+  const selfWarning = routeCoordinationDiagnostics.find(item => item.routeId === route.id && item.code.startsWith("route-self-crossing"));
+  if (selfWarning) {
+    layer.append(svgElement("polyline", {points:sweepPoints,class:"route-self-crossing-warning","data-route-warning":route.id}));
+    const title = svgElement("title", {}); title.textContent = selfWarning.title; layer.append(title);
   }
   const hitLines = geometry.arrangement === "twin" ? lanePointStrings : [sweepPoints];
   for (const points of hitLines) {
-    modelLayer.append(svgElement("polyline", {
+    layer.append(svgElement("polyline", {
       points,
       class: "mechanical-route-hit",
       "data-route-id": route.id,
@@ -6670,25 +6765,27 @@ function decentralisedCableDisplayPoints(cable) {
 }
 
 function renderDecentralisedCable(cable) {
+  const layer = modelGroup("cable", cable.id);
   const points = decentralisedCableDisplayPoints(cable);
   const pointString = routePointString(points);
   const selected = selectedDecentralisedCableId === cable.id ? " selected" : "";
-  modelLayer.append(
+  layer.append(
     svgElement("polyline", { points: pointString, class: `decentralised-cable${selected}`, "data-decentralised-cable-id": cable.id, "data-cable-kind": cable.cableKind, "aria-hidden": "true" }),
     svgElement("polyline", { points: pointString, class: "decentralised-cable-hit", "data-decentralised-cable-id": cable.id, "aria-label": `${cable.cableKind} controller cable plan route · electrical design unverified` }),
   );
 }
 
 function renderDecentralisedCableEditHandles(cable) {
+  const layer = modelGroup("cable-handles", cable.id);
   const points = decentralisedCableDisplayPoints(cable);
   const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
   for (let index = 0; index < points.length - 1; index += 1) {
     const midpoint = { x: (points[index].x + points[index + 1].x) / 2, y: (points[index].y + points[index + 1].y) / 2 };
     const add = svgElement("g", { class: "decentralised-cable-add-point", transform: `translate(${toView(midpoint.x)} ${toView(midpoint.y)})`, "data-decentralised-cable-id": cable.id, "data-segment-index": index, "aria-label": `Add cable bend point after segment ${index + 1}` });
     add.append(svgElement("circle", { cx: 0, cy: 0, r: 7 * unitsPerPixel, fill: "white", stroke: "#735c8f", "stroke-width": 1.5 * unitsPerPixel }), svgElement("line", { x1: -3 * unitsPerPixel, y1: 0, x2: 3 * unitsPerPixel, y2: 0, stroke: "#735c8f", "stroke-width": 1.4 * unitsPerPixel }), svgElement("line", { x1: 0, y1: -3 * unitsPerPixel, x2: 0, y2: 3 * unitsPerPixel, stroke: "#735c8f", "stroke-width": 1.4 * unitsPerPixel }));
-    modelLayer.append(add);
+    layer.append(add);
   }
-  points.forEach((point, index) => modelLayer.append(svgElement("circle", { cx: toView(point.x), cy: toView(point.y), r: 5 * unitsPerPixel, class: `decentralised-cable-point-handle ${index > 0 && index < points.length - 1 ? "intermediate" : "endpoint locked"}`, "data-decentralised-cable-id": cable.id, "data-point-index": index, "aria-label": index > 0 && index < points.length - 1 ? `Drag cable point ${index}` : "Cable endpoint locked to marker" })));
+  points.forEach((point, index) => layer.append(svgElement("circle", { cx: toView(point.x), cy: toView(point.y), r: 5 * unitsPerPixel, class: `decentralised-cable-point-handle ${index > 0 && index < points.length - 1 ? "intermediate" : "endpoint locked"}`, "data-decentralised-cable-id": cable.id, "data-point-index": index, "aria-label": index > 0 && index < points.length - 1 ? `Drag cable point ${index}` : "Cable endpoint locked to marker" })));
 }
 
 function routeBodyGeometry(route, family = routeFamilyForKind(route.ductKind)) {
@@ -6712,31 +6809,24 @@ function ductServiceClass(route) {
 }
 
 function routeDisplayPoints(route) {
-  const points = route.points.map((point) => ({ x: point.x, y: point.y }));
   if (routePointDragState?.routeId === route.id) {
-    points[routePointDragState.pointIndex] = { ...routePointDragState.preview };
+    const points = route.points.map((point, index) => index === routePointDragState.pointIndex ? {...point, ...routePointDragState.preview} : point);
+    return previewDuctRouteGeometry(history.present, {...route, points}).points;
   }
-  if (!componentDragState) return /^epp-rigid-dn/.test(route.ductKind) && routePointDragState?.routeId === route.id ? constrainEppPlanPoints(points) : points;
-  const delta = {
-    x: componentDragState.preview.x - componentDragState.start.x,
-    y: componentDragState.preview.y - componentDragState.start.y,
-  };
-  if (componentDragState.memberIds.includes(route.startAttachment?.componentId)) {
-    points[0].x += delta.x;
-    points[0].y += delta.y;
+  if (componentDragState && (componentDragState.memberIds.includes(route.startAttachment?.componentId) || componentDragState.memberIds.includes(route.endAttachment?.componentId))) {
+    return previewDuctRouteGeometry(dragPreviewProject ?? componentDragProject(), route).points;
   }
-  if (componentDragState.memberIds.includes(route.endAttachment?.componentId)) {
-    points[points.length - 1].x += delta.x;
-    points[points.length - 1].y += delta.y;
-  }
-  return points;
+  return route.points;
 }
 
 function renderRouteEditHandles(route) {
+  const layer = modelGroup("route-handles", route.id);
   const points = routeDisplayPoints(route);
+  const body = routeBodyGeometry(route);
+  for (const lane of body.lanes) layer.append(svgElement("polyline", {points:routePointString(lane),class:"route-selection-halo","stroke-width":toView(body.diameterMm ?? 0)+5}));
   const rect = canvas.getBoundingClientRect();
   const viewUnitsPerCssPixel = camera.width / Math.max(rect.width, 1);
-  modelLayer.append(svgElement("polyline", {
+  layer.append(svgElement("polyline", {
     points: routePointString(points),
     class: "route-control-cage",
     "aria-hidden": "true",
@@ -6768,11 +6858,11 @@ function renderRouteEditHandles(route) {
       x2: midpoint.x,
       y2: midpoint.y + 3.5 * viewUnitsPerCssPixel,
     }));
-    modelLayer.append(group);
+    layer.append(group);
   }
   for (const [pointIndex, point] of points.entries()) {
     const intermediate = pointIndex > 0 && pointIndex < points.length - 1;
-    modelLayer.append(svgElement("circle", {
+    layer.append(svgElement("circle", {
       cx: toView(point.x),
       cy: toView(point.y),
       r: (intermediate && selectedRoutePointIndex === pointIndex ? 7 : 5) * viewUnitsPerCssPixel,
@@ -6787,6 +6877,7 @@ function renderRouteEditHandles(route) {
 }
 
 function renderComponent(component) {
+  const layer = modelGroup("component", component.id);
   if (!componentIsVisible(component)) return;
   const selected = mechanicalState.selectedComponentId === component.id;
   const dragDelta = componentDisplayDragDelta(component.id);
@@ -6923,15 +7014,15 @@ function renderComponent(component) {
       label.style.fontSize = `${11*unitsPerPixel}px`;
       label.style.strokeWidth = `${3*unitsPerPixel}px`;
     }
-    modelLayer.append(group);
+    layer.append(group);
     if (
       planGraphic.graphicId !== GENERIC_CW_PLAN_GRAPHIC_ID ||
       planGraphic.partType === "attenuator" ||
       planGraphic.partType === "combined"
-    ) modelLayer.append(label);
+    ) layer.append(label);
   } else {
     group.append(label);
-    modelLayer.append(group);
+    layer.append(group);
   }
 
   for (const port of component.ports) {
@@ -6944,7 +7035,7 @@ function renderComponent(component) {
         style:`fill:transparent;stroke:${port.stream==="supply"?"#2020ff":"#ff2020"};stroke-width:1.5;pointer-events:all`,
         "data-component-id":component.id,"data-port-id":port.id,"data-terminal-circle":"true",
         "aria-label":`${port.role} port, DN90, continuous circle rim, ${usage.occupied?"connected":"available"}`});
-      modelLayer.append(ring);continue;
+      layer.append(ring);continue;
     }
     if(port.drawingEntries?.length && activeTool==="route") {
       const usage=portUsage(component.id,port.id),routeState=portRouteState(port,usage);
@@ -6953,7 +7044,7 @@ function renderComponent(component) {
           class:`component-port ${portRoleClass(port.role)}${usage.occupied?" occupied":""}${routeState?` route-${routeState}`:""}`,
           "data-component-id":component.id,"data-port-id":port.id,"data-terminal-entry":entry.id,
           "aria-label":`${port.role} port, DN90, ${entry.label}, ${usage.occupied?"connected":"available"}`});
-        modelLayer.append(circle);
+        layer.append(circle);
       }
       continue;
     }
@@ -6974,7 +7065,7 @@ function renderComponent(component) {
       const evidencedOutsideRadiusViewUnits = Number.isFinite(port.interface?.outsideDiameterMm)
         ? port.interface.outsideDiameterMm / 2 / MILLIMETRES_PER_VIEW_UNIT
         : 0;
-      modelLayer.append(svgElement("circle", {
+      layer.append(svgElement("circle", {
         cx: toView(portPosition.x + dragDelta.x),
         cy: toView(portPosition.y + dragDelta.y),
         r: Math.max(minimumRadiusViewUnits, evidencedOutsideRadiusViewUnits),
@@ -6998,7 +7089,7 @@ function renderComponent(component) {
     const title = svgElement("title", {});
     title.textContent = `${port.role} · ${size} · ${availability}`;
     circle.append(title);
-    modelLayer.append(circle);
+    layer.append(circle);
     if (component.catalogueItemId === "synthetic-mvhr-placeholder" || isRemoteEppEndPlatePort(component, port)) {
       const direction = portTransform.direction;
       const remoteEpp = isRemoteEppEndPlatePort(component, port);
@@ -7013,7 +7104,7 @@ function renderComponent(component) {
       label.textContent = remoteEpp
         ? `${shortPortRole(port.role)} EPP ${size}`
         : `${shortPortRole(port.role)} ${size}`;
-      modelLayer.append(label);
+      layer.append(label);
     }
   }
 }
@@ -7380,6 +7471,7 @@ function componentDisplayDragDelta(componentId) {
 }
 
 function renderEquipmentAssemblyServiceZone(assembly) {
+  const layer = modelGroup("assembly", assembly.id);
   const centre = equipmentAssemblyCentre(history.present, assembly);
   const firstComponent = history.present.components.find((component) => component.id === assembly.componentIds[0]);
   if (!firstComponent || !componentIsVisible(firstComponent)) return;
@@ -7414,7 +7506,7 @@ function renderEquipmentAssemblyServiceZone(assembly) {
     class: "equipment-service-zone-label",
   });
   label.textContent = `${assembly.stream} service allowance · provisional`;
-  modelLayer.append(group, label);
+  layer.append(group, label);
 }
 
 function renderCamera() {
@@ -7740,15 +7832,19 @@ function renderDraft() {
     }
   }
   if (activeTool === "route" && mechanicalState.routeDraft) {
-    const preview = mechanicalState.pointer
-      ? [...mechanicalState.routeDraft.points, mechanicalState.pointer]
-      : mechanicalState.routeDraft.points;
-    const sweptPreview = preview.length >= 2 ? deriveDuctBodyGeometry({ductKind:mechanicalState.ductKind,points:preview,parallelRunCount:1},routeFamilyForKind(mechanicalState.ductKind)).sampledCentreline : preview;
-    draftLayer.append(svgElement("polyline", {
-      points: routePointString(sweptPreview),
-      class: `draft-route ${mechanicalState.routeDraft.ductKind}`,
-    }));
+    const intent = mechanicalRoutePreview(mechanicalState, {point:routeHoverPoint ?? mechanicalState.pointer,hit:routeHoverHit});
+    if (intent && intent.points.some(point=>Math.hypot(point.x-intent.points[0].x,point.y-intent.points[0].y)>1e-6)) {
+      const previewRoute = previewDuctRouteGeometry(history.present, routeFromIntent(intent), {terminalEntrySelections:intent.terminalEntrySelections});
+      const geometry = deriveDuctBodyGeometry(previewRoute,routeFamilyForKind(intent.ductKind));
+      draftLayer.append(svgElement("polyline", {points:routePointString(geometry.sampledCentreline),class:`draft-route ${intent.ductKind}`,"data-route-preview":"normalized"}));
+      for (const elbow of deriveHrvCeilingElbows([previewRoute],history.present.components)) {
+        const group = svgElement("g", {transform:`translate(${toView(elbow.xMm)} ${toView(elbow.yMm)}) rotate(${elbow.angleDegrees}) scale(${1/MILLIMETRES_PER_VIEW_UNIT})`,"data-preview-hrv-elbow":elbow.portId,opacity:.75,"pointer-events":"none"});
+        for (const shape of hrvCeilingElbowShapes(elbow)) group.append(svgElement(shape.tag,shape.attributes));
+        draftLayer.append(group);
+      }
+    }
   }
+
   if (
     (activeTool === "wall" || activeTool === "room-divider" || activeTool === "floor-area") &&
     snapEnabled &&
@@ -9626,12 +9722,14 @@ function renderRouteInspector(route) {
   const sweepDifference = Math.abs(bodyGeometry.visualSweepLengthMm - planLengthMm);
   document.querySelector("#route-geometry-value").textContent = `${route.points.length} control points · ${formatMm(planLengthMm)} saved polyline length · ${formatMm(bodyGeometry.visualSweepLengthMm)} visual sweep${sweepDifference < 0.5 ? "" : " · display length only"}`;
   document.querySelector("#route-body-value").textContent = `${ductBodyDisplayLabel(bodyGeometry)} · ${bodyGeometry.rigidEpp ? "Straight EPP runs with plain-ended 90°/45° elbows, no fixed sleeve; dashed centre mark shows the 45° cut. Radius remains schematic" : "Smooth bounded sweep is visual only; no compliant radius or fitting is inferred"}${bodyGeometry.fallbackCornerCount > 0 ? ` · ${bodyGeometry.fallbackCornerCount} corner${bodyGeometry.fallbackCornerCount === 1 ? "" : "s"} need review (angle or space)` : ""}.`;
+  const selfWarning = routeCoordinationDiagnostics.find(item => item.routeId === route.id && item.code.startsWith("route-self-crossing"));
+  if (selfWarning) document.querySelector("#route-body-value").textContent += ` Warning: ${selfWarning.title}. Open Checks for details.`;
   const selectedIntermediate = Number.isSafeInteger(selectedRoutePointIndex) &&
     selectedRoutePointIndex > 0 && selectedRoutePointIndex < route.points.length - 1;
   removeRoutePointButton.disabled = !selectedIntermediate;
   routeEditDetail.textContent = selectedIntermediate
     ? `Point ${selectedRoutePointIndex} selected. Drag its round handle or remove it; start and end connections remain locked.`
-    : "Use the + controls on route segments to add a point, then drag round intermediate handles. Attached start and end points stay locked.";
+    : "Use + to add a point, then drag round intermediate handles. Alt-click to cycle overlapping ducts. Attached endpoints stay locked.";
   singleRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === 1));
   twinRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === 2));
   clearRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === null));

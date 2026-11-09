@@ -101,3 +101,77 @@ function scaledFixture() {
   project = applyCommand(project, { type: "reference.addImage", asset: { id: "asset", kind: "image", fileName: "fixture.png", mediaType: "image/png", byteLength: 3, sha256: "0".repeat(64), widthPx: 1000, heightPx: 600, dataUrl: "data:image/png;base64,AAAA" }, reference: { id: "reference", floorId: "ground", assetId: "asset", visible: true, locked: true, opacity: 0.5, transform: { translationMm: { x:0,y:0 }, rotationRad:0, scaleMmPerPixel:knownMm(10,"fixture") }, calibration:null } });
   return applyCommand(project, { type: "reference.calibrate", referenceId: "reference", sourcePointApx:{x:0,y:0}, sourcePointBpx:{x:1000,y:0}, knownDistanceMm:10000, inputUnit:"m", acceptedAtUtc:"2026-10-24T00:00:00.000Z", previewScaleMmPerPixel:10, rescaleFloorModel:false });
 }
+
+function selfWarnings(points, { elevation = unknownMm("pending"), diameter = 160, clearSpacingMm = 0, pointHeights } = {}) {
+  let project = addRoute(scaledFixture(), "self-route", points, elevation, diameter);
+  if (pointHeights) project = { ...project, routes: project.routes.map((route) => ({ ...route, points: route.points.map((point, i) => ({ ...point, z: pointHeights[i] })) })) };
+  if (clearSpacingMm) project = applyCommand(project, { type: "routingClearance.set", floorId: "ground", clearSpacingMm: knownMm(clearSpacingMm, "test") });
+  const before = structuredClone(project);
+  const inspection = inspectRoutingCoordination(project, "ground");
+  assert.deepEqual(project, before, "inspection must not mutate points or create connections");
+  return inspection.diagnostics.filter((item) => item.code.startsWith("route-self-crossing"));
+}
+
+const bowTie = [{x:1000,y:1000},{x:5000,y:5000},{x:1000,y:5000},{x:5000,y:1000}];
+
+test("self-crossings produce one stable warning and never imply a connection", () => {
+  const diagnostics = selfWarnings(bowTie);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].code, "route-self-crossing-height-unverified");
+  assert.equal(diagnostics[0].severity, "warning");
+  assert.equal(diagnostics[0].routeId, "self-route");
+  assert.equal(diagnostics[0].otherRouteId, undefined);
+  assert.match(diagnostics[0].detail, /does not create a connection/);
+  assert.equal(selfWarnings(bowTie)[0].id, diagnostics[0].id);
+});
+
+test("self-crossing heights remain honest for known, assumed, absent and varying heights", () => {
+  for (const elevation of [knownMm(2400, "survey"), assumedMm(2400, "routing level")]) {
+    assert.equal(selfWarnings(bowTie, { elevation })[0].code, "route-self-crossing");
+  }
+  assert.equal(selfWarnings(bowTie, { pointHeights: bowTie.map(() => knownMm(2400, "survey")) })[0].code, "route-self-crossing");
+  const varying = selfWarnings(bowTie, { pointHeights: [2400,2400,3000,3000].map((z) => knownMm(z, "survey")) });
+  assert.equal(varying[0].code, "route-self-crossing-height-unverified");
+  assert.match(varying[0].detail, /rise\/drop/);
+});
+
+test("retraced adjacent and non-adjacent duct lengths and repeated vertices warn", () => {
+  for (const points of [
+    [{x:0,y:0},{x:2000,y:0},{x:500,y:0}],
+    [{x:0,y:0},{x:3000,y:0},{x:3000,y:2000},{x:1000,y:2000},{x:1000,y:0},{x:2500,y:0}],
+    [{x:0,y:0},{x:3000,y:0},{x:3000,y:3000},{x:0,y:3000},{x:0,y:0}],
+  ]) assert.equal(selfWarnings(points).length, 1);
+});
+
+test("ordinary straight paths, shared vertices, smooth elbows and wide returns do not warn", () => {
+  for (const points of [
+    [{x:0,y:0},{x:5000,y:0}],
+    [{x:0,y:0},{x:1000,y:0},{x:2000,y:0},{x:3000,y:0}],
+    [{x:0,y:0},{x:3000,y:0},{x:3000,y:3000}],
+    [{x:0,y:0},{x:3000,y:0},{x:5000,y:2000}],
+    [{x:0,y:0},{x:3000,y:0},{x:3000,y:1000},{x:0,y:1000}],
+  ]) assert.equal(selfWarnings(points).length, 0, JSON.stringify(points));
+});
+
+test("separate returning lengths respect modelled duct diameter and clear spacing", () => {
+  const hairpin = (gap) => [{x:0,y:0},{x:4000,y:0},{x:4000,y:gap},{x:0,y:gap}];
+  assert.equal(selfWarnings(hairpin(100)).length, 1);
+  assert.equal(selfWarnings(hairpin(200)).length, 0);
+  assert.equal(selfWarnings(hairpin(200), {clearSpacingMm:100}).length, 1);
+});
+
+test("self-crossing inspection is floor-scoped", () => {
+  const project = addRoute(scaledFixture(), "self-route", bowTie, unknownMm("pending"), 160);
+  assert.equal(inspectRoutingCoordination(project, "other-floor").diagnostics.length, 0);
+});
+
+
+test("sampled radial curves avoid spurious self-collisions while true crossings still warn", () => {
+  const inspect = (points) => {
+    const family = routeFamilyForKind("semi-rigid-radial");
+    const route = { id: "radial", floorId: "ground", ductKind: family.id, connectionInterface: family.connectionInterface, parallelRunCount: 1, points: points.map((p) => ({...p, z: unknownMm("pending")})) };
+    return inspectRoutingCoordination({routes: [route]}, "ground").diagnostics;
+  };
+  assert.equal(inspect([{x:0,y:0},{x:3000,y:0},{x:3000,y:3000}]).length, 0);
+  assert.equal(inspect(bowTie).length, 1);
+});

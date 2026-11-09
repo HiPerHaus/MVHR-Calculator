@@ -4,10 +4,8 @@ import { deriveDuctBodyGeometry } from "./duct-body-geometry.mjs";
 const EPS = 1e-6;
 
 export function routingCoordinationInputs(project, floorId, options = {}) {
-  const setting = project.routingClearanceSettings?.find((candidate) => candidate.floorId === floorId);
-  const clearSpacingMm = setting?.clearSpacingMm?.state === "unknown" ? 0 : setting?.clearSpacingMm?.valueMm ?? 0;
+  const { clearSpacingMm, clearanceBasis, exclusions } = coordinationSettings(project, floorId);
   const excludedRouteIds = new Set(options.excludeRouteIds ?? []);
-  const exclusions = (project.routingExclusions ?? []).filter((candidate) => candidate.floorId === floorId);
   const forbiddenPolygons = exclusions.map(exclusionPolygon);
   const blockedSegments = [];
   for (const route of project.routes ?? []) {
@@ -23,16 +21,19 @@ export function routingCoordinationInputs(project, floorId, options = {}) {
     forbiddenPolygons: Object.freeze(forbiddenPolygons),
     blockedSegments: Object.freeze(blockedSegments),
     clearSpacingMm,
-    clearanceBasis: setting?.clearSpacingMm?.state === "unknown" || !setting ? "unset-zero-gap-only" : `${setting.clearSpacingMm.state}-${clearSpacingMm}mm`,
+    clearanceBasis,
     exclusions: Object.freeze(exclusions.map((item) => structuredClone(item))),
   });
 }
 
 export function inspectRoutingCoordination(project, floorId) {
-  const inputs = routingCoordinationInputs(project, floorId);
+  // Inspection needs settings, not the separately derived automatic-routing blockers.
+  const inputs = coordinationSettings(project, floorId);
   const routes = (project.routes ?? []).filter((route) => route.floorId === floorId).map(routeEnvelope);
   const diagnostics = [];
   for (const route of routes) {
+    const selfCrossing = selfCrossingDiagnostic(route, inputs.clearSpacingMm);
+    if (selfCrossing) diagnostics.push(selfCrossing);
     for (const exclusion of inputs.exclusions) {
       if (!polylineNearPolygon(route.points, exclusionPolygon(exclusion), route.radiusMm)) continue;
       const vertical = routeObstacleVerticalStatus(route, exclusion);
@@ -75,6 +76,69 @@ export function inspectRoutingCoordination(project, floorId) {
 export function exclusionPolygon(exclusion) {
   const { x, y, width, height } = exclusion.geometry;
   return Object.freeze([{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }].map(Object.freeze));
+}
+
+function coordinationSettings(project, floorId) {
+  const setting = project.routingClearanceSettings?.find((candidate) => candidate.floorId === floorId);
+  const clearSpacingMm = setting?.clearSpacingMm?.state === "unknown" ? 0 : setting?.clearSpacingMm?.valueMm ?? 0;
+  return {
+    clearSpacingMm,
+    clearanceBasis: setting?.clearSpacingMm?.state === "unknown" || !setting ? "unset-zero-gap-only" : `${setting.clearSpacingMm.state}-${clearSpacingMm}mm`,
+    exclusions: (project.routingExclusions ?? []).filter((candidate) => candidate.floorId === floorId),
+  };
+}
+
+function selfCrossingDiagnostic(envelope, clearSpacingMm) {
+  const { points, route } = envelope;
+  const required = envelope.radiusMm * 2 + clearSpacingMm;
+  const lengths = [0];
+  for (let i = 1; i < points.length; i += 1) lengths.push(lengths[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
+  let overlaps = false;
+  for (let i = 1; i < points.length && !overlaps; i += 1) {
+    const a = points[i - 1], b = points[i];
+    if (lengths[i] - lengths[i - 1] <= EPS) continue;
+    for (let j = i + 1; j < points.length; j += 1) {
+      const c = points[j - 1], d = points[j];
+      if (lengths[j] - lengths[j - 1] <= EPS) continue;
+      if (Math.max(a.x, b.x) + required + EPS < Math.min(c.x, d.x) || Math.max(c.x, d.x) + required + EPS < Math.min(a.x, b.x) || Math.max(a.y, b.y) + required + EPS < Math.min(c.y, d.y) || Math.max(c.y, d.y) + required + EPS < Math.min(a.y, b.y)) continue;
+      if (j === i + 1) {
+        // A shared vertex is normal; a reversal retraces positive duct length.
+        const ux = b.x - a.x, uy = b.y - a.y, vx = d.x - c.x, vy = d.y - c.y;
+        if (Math.abs(ux * vy - uy * vx) <= EPS && ux * vx + uy * vy < -EPS) overlaps = true;
+      } else if (segmentsIntersect(a, b, c, d)) {
+        overlaps = true;
+      } else if (required > 0 && nonlocalEnvelopeOverlap(a, b, c, d, lengths[i - 1], lengths[j - 1], required)) {
+        // Nearby samples on the same smooth elbow are one continuous body,
+        // not a collision. Only compare envelopes separated along the route.
+        overlaps = true;
+      }
+      if (overlaps) break;
+    }
+  }
+  if (!overlaps) return null;
+  const pointHeights = route.points.map((point) => point.z);
+  const commonPointHeight = pointHeights.length > 0 && pointHeights.every((height) => height?.state !== "unknown" && Number.isFinite(height?.valueMm) && Math.abs(height.valueMm - pointHeights[0].valueMm) <= EPS);
+  const knownHeight = envelope.elevation.state !== "unknown" && Number.isFinite(envelope.elevation.valueMm) || commonPointHeight;
+  return {
+    id: `route-self-crossing-${route.id}`,
+    code: knownHeight ? "route-self-crossing" : "route-self-crossing-height-unverified",
+    severity: "warning",
+    title: knownHeight ? "Duct route crosses or overlaps itself" : "Duct self-crossing needs height review",
+    detail: `${route.id} crosses or overlaps a separate part of its own plan path. ${knownHeight ? "The modelled route elevation does not separate these parts." : "A separating elevation is not confirmed; review any intended rise/drop or over/under crossing."} Visual overlap does not create a connection. Diameter basis: ${envelope.diameterBasis === "outside" ? "known outside diameter" : "nominal DN guide; external envelope unverified"}.`,
+    routeId: route.id,
+  };
+}
+
+function nonlocalEnvelopeOverlap(a, b, c, d, leftStart, rightStart, required) {
+  const leftLength = Math.hypot(b.x - a.x, b.y - a.y), rightLength = Math.hypot(d.x - c.x, d.y - c.y);
+  const projection = (p, start, end) => Math.max(0, Math.min(1, ((p.x - start.x) * (end.x - start.x) + (p.y - start.y) * (end.y - start.y)) / ((end.x - start.x) ** 2 + (end.y - start.y) ** 2)));
+  // Endpoint projections include both ends of parallel overlaps. Taking only
+  // the gap between segment indices would miss long, tight returning legs.
+  const candidates = [[0, projection(a, c, d)], [1, projection(b, c, d)], [projection(c, a, b), 0], [projection(d, a, b), 1]];
+  return candidates.some(([t, u]) => {
+    const separation = rightStart + u * rightLength - leftStart - t * leftLength;
+    return separation > required * 2 && Math.hypot(a.x + t * (b.x - a.x) - c.x - u * (d.x - c.x), a.y + t * (b.y - a.y) - c.y - u * (d.y - c.y)) + EPS < required;
+  });
 }
 
 function routeEnvelope(route) {

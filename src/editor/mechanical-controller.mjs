@@ -1,4 +1,3 @@
-import { constrainEppPlanPoints } from "../domain/epp-plan-constraints.mjs";
 import { DUCT_ROUTE_FAMILIES, routeFamilyForKind } from "./component-catalogue.mjs";
 
 const TOOL_NAMES = Object.freeze(["select", "place-component", "place-assembly", "route"]);
@@ -183,6 +182,37 @@ export function rigidRoutePoint(state, point) {
   return {x:origin.x+distance*Math.cos(angle),y:origin.y+distance*Math.sin(angle)};
 }
 
+// An exact eligible port is never angle-snapped. Free-space previews use the
+// same snap as a click; both then pass through domain geometry normalization.
+export function mechanicalRoutePreview(state, { point = state.pointer, hit = null } = {}) {
+  requireState(state);
+  const draft = state.routeDraft;
+  if (state.tool !== "route" || !draft || !point) return null;
+  const normalized = normalizeHit(hit);
+  const port = normalized?.kind === "port" && !normalized.occupied &&
+    !sameEndpoint(draft.start, endpointFromHit(normalized)) &&
+    !routeEndIncompatibility(draft, normalized, routeFamilyForKind(draft.ductKind))
+    ? normalized : null;
+  return routeIntent(draft, port ? normalizePoint(point) : rigidRoutePoint(state, normalizePoint(point)), port);
+}
+
+function routeIntent(draft, point, port) {
+  return {
+    type: "route.commit",
+    terminalEntrySelections: [draft.startTerminalEntry, port?.terminalEntry].filter(Boolean),
+    ductKind: draft.ductKind,
+    parallelRunCount: 1,
+    system: draft.system,
+    stream: draft.stream,
+    role: draft.role,
+    connectionInterface: draft.connectionInterface,
+    start: draft.start,
+    end: port ? endpointFromHit(port) : null,
+    // Normalize geometry once in the domain, not differently in preview/commit.
+    points: [...draft.points, point].map(value => ({ ...value })),
+  };
+}
+
 function handleRouteClick(state, point, hit) {
   const port = hit?.kind === "port" ? hit : null;
   if (state.routeDraft === null) {
@@ -245,19 +275,7 @@ function handleRouteClick(state, point, hit) {
     if (incompatibility) return { state, intent: null, message: incompatibility };
     return {
       state: { ...state, routeDraft: null, pointer: point },
-      intent: {
-        type: "route.commit",
-        terminalEntrySelections:[draft.startTerminalEntry,port.terminalEntry].filter(Boolean),
-        ductKind: draft.ductKind,
-        parallelRunCount: 1,
-        system: draft.system,
-        stream: draft.stream,
-        role: draft.role,
-        connectionInterface: draft.connectionInterface,
-        start: draft.start,
-        end,
-        points: /^epp-rigid-dn/.test(draft.ductKind) ? constrainEppPlanPoints([...draft.points, point]) : [...draft.points, point],
-      },
+      intent: routeIntent(draft, point, port),
       message: "Typed route commit requested",
     };
   }
