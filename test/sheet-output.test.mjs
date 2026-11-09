@@ -6,7 +6,7 @@ import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs"
 import { createA3SheetModel } from "../src/sheets/a3-sheet.mjs";
 import { createSheetOutputPages, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
 
-test("sheet output plans one exact A3 drawing followed by exact A4 parts-list pages", () => {
+test("sheet output plans an A3 drawing and installation details followed by exact A4 parts-list pages", () => {
   let project = applyCommand(createProject("pdf-output-test"), {
     type: "floor.add",
     floor: {
@@ -40,11 +40,13 @@ test("sheet output plans one exact A3 drawing followed by exact A4 parts-list pa
     pages.map(({ kind, widthMm, heightMm, orientation }) => ({ kind, widthMm, heightMm, orientation })),
     [
       { kind: "drawing", widthMm: 420, heightMm: 297, orientation: "landscape" },
+      { kind: "installation-details", widthMm: 420, heightMm: 297, orientation: "landscape" },
       { kind: "parts-list", widthMm: 210, heightMm: 297, orientation: "portrait" },
     ],
   );
-  assert.match(pages[0].svg, /Page 1 of 2 · A3/u);
-  assert.match(pages[1].svg, /Page 2 of 2 · A4/u);
+  assert.match(pages[0].svg, /Page 1 of 3 · A3/u);
+  assert.match(pages[1].svg, /Page 2 of 3 · A3/u);
+  assert.match(pages[2].svg, /Page 3 of 3 · A4/u);
 });
 
 test("PDF filenames remain portable and retain useful project and drawing identity", () => {

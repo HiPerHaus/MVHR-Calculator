@@ -11,7 +11,8 @@ test("print CSS keeps the drawing A3 and falls subsequent parts pages back to A4
   const css = await readFile(styleUrl, "utf8");
 
   assert.match(css, /@page\s*\{\s*size:\s*A4 portrait;\s*margin:\s*0;\s*\}/u);
-  assert.match(css, /@page\s+:first\s*\{\s*size:\s*A3 landscape;\s*margin:\s*0;\s*\}/u);
+  assert.doesNotMatch(css, /@page\s+:first/u);
+  assert.match(css, /@page drawing-portrait \{ size: A3 portrait; margin: 0; \}/u);
   assert.match(css, /@page\s+drawing\s*\{\s*size:\s*A3 landscape;\s*margin:\s*0;\s*\}/u);
   assert.match(css, /@page\s+parts\s*\{\s*size:\s*A4 portrait;\s*margin:\s*0;\s*\}/u);
   assert.match(css, /\.sheet-page\.sheet-a3\s*\{\s*page:drawing;\s*width:420mm;\s*height:297mm;\s*\}/u);
@@ -21,7 +22,7 @@ test("print CSS keeps the drawing A3 and falls subsequent parts pages back to A4
 test("sheet preview describes the mixed print sizes before browser printing", async () => {
   const source = await readFile(mainUrl, "utf8");
 
-  assert.match(source, /1 A3 drawing \+ \$\{partsPageCount\} A4 parts-list page/u);
+  assert.match(source, /1 A3 drawing \+ 1 A3 installation detail sheet \+ \$\{partsPageCount\} A4 parts-list page/u);
   assert.match(source, /window\.print\(\)/u);
 });
 

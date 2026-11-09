@@ -43,8 +43,11 @@ try {
   const pagePlan = await evaluate(cdp, "window.__pagePlan");
   assert.equal(pagePlan[0].widthMm, 420);
   assert.equal(pagePlan[0].heightMm, 297);
-  assert.ok(pagePlan.length >= 3, `Expected drawing plus multiple parts pages, got ${pagePlan.length}`);
-  assert.equal(pagePlan.slice(1).every((page) => page.widthMm === 210 && page.heightMm === 297), true);
+  assert.ok(pagePlan.length >= 4, `Expected drawing, installation details and multiple parts pages, got ${pagePlan.length}`);
+  assert.equal(pagePlan.slice(2).every((page) => page.widthMm === 210 && page.heightMm === 297), true);
+  assert.equal(pagePlan[1].kind, "installation-details");
+  assert.equal(pagePlan[1].widthMm, 420);
+  assert.equal(pagePlan[1].heightMm, 297);
   const outputText = await evaluate(cdp, "window.__outputText");
   assert.doesNotMatch(outputText, /Synthetic Ground Floor|three per job|Supplier pages show rounded stock items|EPP includes standard HRV port allowances|CW branches require O-rings|Job totals and packs/i);
   assert.match(outputText, /Ground Floor/);
@@ -110,6 +113,8 @@ try {
   await evaluate(cdp, `(()=>{const form=document.querySelector('#project-details-form');form.elements.name.value='QA House';form.elements.drawingTitle.value='';form.elements.drawnBy.value='QA Designer';form.elements.checkedBy.value='';form.requestSubmit();})()`);
   await evaluate(cdp, "document.querySelector('#sheets-nav').click()");
   await waitFor(cdp, "!document.querySelector('#sheet-preview-panel')?.hidden && document.querySelectorAll('#sheet-preview-host .sheet-page').length >= 2");
+  assert.match(await evaluate(cdp, "document.querySelectorAll('#sheet-preview-host .sheet-page')[1].textContent"), /INSTALLATION DETAILS/);
+  assert.match(await evaluate(cdp, "document.querySelector('#sheet-preview-status').textContent"), /1 A3 installation detail sheet/);
   const appSheetText = await evaluate(cdp, "document.querySelector('#sheet-preview-host .sheet-page')?.textContent");
   assert.match(appSheetText, /QA House - Ground Floor - Ventilation Layout/);
   assert.match(appSheetText, /DRAWN BY QA Designer · CHECKED BY —/);
@@ -119,6 +124,12 @@ try {
   await writeFile(previewOutputPath,Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
   await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
   await waitForDownloadCount(downloadDirectory, 2);
+  await evaluate(cdp, "document.querySelector('#export-all-options-pdf').click()");
+  await waitForDownloadCount(downloadDirectory, 3);
+  assert.equal(await evaluate(cdp, "document.querySelector('#export-all-options-pdf').disabled"), false);
+  const previewBeforeClose=await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent");
+  await evaluate(cdp, "document.querySelector('#close-sheet-preview').click(); document.querySelector('#sheets-nav').click()");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent"),previewBeforeClose);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
   process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
@@ -189,6 +200,7 @@ async function startQaServer() {
     document.querySelector("#download").addEventListener("click",()=>downloadPdfBlob(blob,"pdf-browser-qa.pdf"));
     const access={state:"approved",user:{id:"pdf-qa-user",email:"pdf-qa@example.test"},memberships:[{role:"owner",status:"active",workspace:{id:"pdf-qa-workspace",name:"PDF QA"}}]};
     setBootAccess(access);
+    project=domain.applyCommand(project,{type:"designOption.duplicate",id:"qa-empty-option",name:"No equipment option",copyScopes:["plan"],activate:false});
     const store=createWorkingSessionStore(indexedDB,{tabId:workingTabId(sessionStorage)});
     await store.write({userId:access.user.id,workspaceId:access.memberships[0].workspace.id},{projectJson:domain.serializeProject(project),name:"PDF browser QA",dirty:true,cloudRecord:null,task:"ventilation",camera:{x:0,y:0,width:20,height:20},catalogueGroup:"all"});
     await store.flush();

@@ -56,7 +56,7 @@ export function partsListRows(schedule){
  if(local.length)result.push({section:true,description:'Local supply',height:7},...local.map(row=>({...row,localSupply:true})));
  return result;
 }
-export function createA4PartsListPages(sheet){
+export function createA4PartsListPages(sheet,{firstPageNumber=2,totalPageCount=null}={}){
  const rows=partsListRows(sheet.partsSchedule),pages=[];let current=[],y=65;
  for(let i=0;i<rows.length;i++){
   const row=rows[i],needed=row.height+(row.section?(rows[i+1]?.height??0):0);
@@ -64,7 +64,7 @@ export function createA4PartsListPages(sheet){
   current.push(row);y+=row.height;
  }
  if(current.length)pages.push(current);
- return pages.map((rows,index)=>({kind:'a4-parts-list',widthMm:210,heightMm:297,pageNumber:index+2,totalPageCount:pages.length+1,rows}));
+ return pages.map((rows,index)=>({kind:'a4-parts-list',widthMm:210,heightMm:297,pageNumber:index+firstPageNumber,totalPageCount:totalPageCount??pages.length+firstPageNumber-1,rows}));
 }
 export function renderA4PartsListSvg(sheet,page){
  const m=sheet.metadata,out=[`<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" role="img" aria-label="A4 parts list page ${page.pageNumber}"><rect width="210" height="297" fill="white"/><rect x="10" y="10" width="190" height="277" fill="none" stroke="#5e7079" stroke-width=".3"/>`];

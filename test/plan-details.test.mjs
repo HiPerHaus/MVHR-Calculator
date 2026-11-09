@@ -5,7 +5,7 @@ import { applyCommand, createProject, identityQuaternion, knownMm, serializeProj
 import { designOptionProjects } from "../src/domain/design-options.mjs";
 import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs";
 import { createA3SheetModel, renderA3SheetSvg } from "../src/sheets/a3-sheet.mjs";
-import { createSheetOutputPages } from "../src/sheets/sheet-output.mjs";
+import { createSheetOutputPages, createSheetOutputDocument } from "../src/sheets/sheet-output.mjs";
 import { layoutPlanDetails, PLAN_DETAIL_REFERENCES, renderPlanDetails, selectPlanDetails } from "../src/sheets/plan-details.mjs";
 
 const metadata = { floorId:"ground", orientation:"landscape", includeSchedule:false, projectName:"Details QA", issueDate:"2026-11-09", drawingTitle:"Ventilation", drawingId:"V01", status:"Preliminary — not for construction", revision:"A", revisionText:"Detail review" };
@@ -23,10 +23,10 @@ test("each A3 plan carries vector terminal dimensions without changing source da
   const project = fixture(), before = serializeProject(project);
   for (const floorId of ["ground","upper"]) {
     const sheet = createA3SheetModel(project,{...metadata,floorId}), svg = renderA3SheetSvg(sheet);
-    assert.deepEqual(ids(sheet.planDetails),["ceiling-tva","wall-housing","equipment-notes"]);
-    for (const value of [128,140,120,115]) assert.match(svg,new RegExp(`>${value}</text>`));
-    assert.match(svg,/>Ø90</);
-    assert.match(svg,/cut off after plastering/);
+    assert.deepEqual(ids(sheet.planDetails),["ceiling-tva","wall-housing"]);
+    for (const value of [128,140,120,115]) assert.match(svg,new RegExp(String(value)));
+    assert.match(svg,/Ø90 duct spigot/);
+    assert.match(svg,/after plastering/);
     assert.equal(sheet.partsSchedule.componentLines.length,0);
     assert.ok(Object.isFrozen(sheet.planDetails.cards[0]));
   }
@@ -67,7 +67,7 @@ test("repeated matching units deduplicate and floor/option references remain ind
   assert.deepEqual(ids(selectPlanDetails(project,"upper")),["ceiling-tva","wall-housing","af-cw520"]);
   project=applyCommand(project,{type:"designOption.duplicate",id:"af-option",name:"AF only",copyScopes:["plan"],activate:true});
   project=unit(project,"aerofresh-450-hrv","520","af-only");
-  const pages=designOptionProjects(project).map(({project})=>createSheetOutputPages(createA3SheetModel(project,metadata))[0]);
+  const pages=designOptionProjects(project).map(({project})=>createSheetOutputPages(createA3SheetModel(project,metadata))[1]);
   assert.match(pages[0].svg,/data-detail-id="q-cw320"/);assert.doesNotMatch(pages[0].svg,/data-detail-id="af-cw520"/);
   assert.match(pages[1].svg,/data-detail-id="af-cw520"/);assert.doesNotMatch(pages[1].svg,/data-detail-id="q-cw320"/);
 });
@@ -79,8 +79,8 @@ test("unknown AF300 assembly values and Q wiring remain explicitly unresolved", 
   const svg=renderPlanDetails(layoutPlanDetails(details,{xMm:10,yMm:10,widthMm:325,heightMm:277}));
   assert.match(svg,/dimension arrows are blank/);assert.doesNotMatch(svg,/>660<|>443<|>760<|>150</);
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
-  assert.match(renderA3SheetSvg(q),/Wiring source unreadable/);
-  assert.match(renderA3SheetSvg(q),/Drain space: not dimensioned/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Wiring source unreadable/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned/);
   assert.equal(PLAN_DETAIL_REFERENCES.q320.drainAllowanceMm,null);
   assert.equal(PLAN_DETAIL_REFERENCES.af520.drainAllowanceMm,150);
 });
@@ -94,11 +94,9 @@ test("detail panels reserve space outside the plan, legend, title and optional s
     assert.ok(d.yMm+d.heightMm+4<=b.yMm);
     assert.ok(b.xMm+b.widthMm<=sheet.legendBounds.xMm);
     assert.ok(b.yMm+b.heightMm<= (includeSchedule?sheet.scheduleBounds.yMm:sheet.printableBounds.yMm+sheet.printableBounds.heightMm));
-    for (const card of sheet.planDetails.cards) {
-      assert.ok(card.bounds.widthMm>=60);
-      assert.ok(card.bounds.xMm>=b.xMm && card.bounds.xMm+card.bounds.widthMm<=b.xMm+b.widthMm+1e-8);
-      assert.ok(card.bounds.yMm+card.bounds.heightMm<=b.yMm+b.heightMm);
-    }
+    assert.equal(b.heightMm,32);
+    assert.ok(d.heightMm>150);
+    assert.match(renderA3SheetSvg(sheet),/See next sheet: INSTALLATION DETAILS/);
   }
 });
 
@@ -117,16 +115,18 @@ test("export pages preserve exact A3 orientation and shared detail SVG while A4 
   for (const orientation of ["landscape","portrait"]) {
     const sheet=createA3SheetModel(unit(fixture(),"q350-hrv","320"),{...metadata,orientation}),pages=createSheetOutputPages(sheet);
     assert.equal(pages[0].widthMm,sheet.page.widthMm);assert.equal(pages[0].heightMm,sheet.page.heightMm);assert.equal(pages[0].orientation,orientation);
-    assert.match(pages[0].svg,/data-detail-id="ceiling-tva"/);assert.match(pages[0].svg,/data-detail-id="q-cw320"/);
-    assert.ok(pages.slice(1).every(page=>page.widthMm===210&&page.heightMm===297&&!page.svg.includes('id="plan-details"')));
+    assert.match(pages[1].svg,/data-detail-id="ceiling-tva"/);assert.match(pages[1].svg,/data-detail-id="q-cw320"/);
+    assert.equal(pages[1].widthMm,sheet.page.widthMm);assert.equal(pages[1].heightMm,sheet.page.heightMm);
+    assert.doesNotMatch(pages[0].svg,/data-detail-id="q-cw320"/);
+    assert.ok(pages.slice(2).every(page=>page.widthMm===210&&page.heightMm===297&&!page.svg.includes('id="plan-details"')));
     assert.match(pages[0].svg,new RegExp(`y="${sheet.page.heightMm-4}"[^>]*>Page 1`));
   }
 });
 
 test("a mixed matched AF and unmatched Q retains the unreadable Q wiring warning", () => {
  const project=unit(unit(fixture(),"q350-hrv","625"),"aerofresh-450-hrv","520");
- const svg=renderA3SheetSvg(createA3SheetModel(project,metadata));
- assert.match(svg,/Q-series wiring source unreadable; original drawing required/);
+ const svg=createSheetOutputPages(createA3SheetModel(project,metadata))[1].svg;
+ assert.match(svg,/Q-series wiring source unreadable. Original wiring drawing required/);
  assert.match(svg,/data-detail-id="af-cw520"/);
  assert.doesNotMatch(svg,/data-detail-id="q-cw320"/);
 });
@@ -150,4 +150,34 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   assert.match(render("q-cw320"),/data-dimension="unresolved"/);
   assert.match(render("af300-remote"),/data-dimension="unresolved"/);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
+});
+
+
+test("engineering page includes only conceptual insulation and explicit project unknowns", () => {
+  const sheet=createA3SheetModel(fixture(),metadata),pages=createSheetOutputPages(sheet);
+  assert.equal(pages[1].kind,"installation-details");
+  assert.match(pages[1].svg,/Project material, thickness, R-value and vapour-control detail: not specified./);
+  assert.match(pages[1].svg,/concept-not-project-specification/);
+  assert.match(pages[1].svg,/No matching central unit/);
+  assert.doesNotMatch(pages[1].svg,/R[0-9]|R-value[:=] ?[0-9]/);
+});
+
+test("all-options documents have global numbering with independent per-option details", () => {
+  const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
+  const af=createA3SheetModel(unit(fixture(),"aerofresh-450-hrv","520"),{...metadata,orientation:"portrait"});
+  const pages=createSheetOutputDocument([q,af]);
+  for(const [index,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length} · A[34]`));
+  assert.deepEqual(pages.map(p=>p.kind),["drawing","installation-details","parts-list","drawing","installation-details","parts-list"]);
+  assert.match(pages[1].svg,/q-cw320/);assert.doesNotMatch(pages[1].svg,/af-cw520/);
+  assert.match(pages[4].svg,/af-cw520/);assert.doesNotMatch(pages[4].svg,/q-cw320/);
+  assert.match(pages[4].className,/sheet-a3-portrait/);
+});
+
+test("multi-page A4 lists start after both A3 pages and retain every row", () => {
+  const sheet=structuredClone(createA3SheetModel(fixture(),metadata));
+  sheet.partsSchedule.componentLines=Array.from({length:80},(_,i)=>({section:"mvhr",ref:`HRV-${i}`,description:`Distinct equipment ${i}`,quantity:1,partNumber:"ZEN-TEST"}));
+  const pages=createSheetOutputPages(sheet);
+  assert.ok(pages.length>4);
+  for(const [i,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${i+1} of ${pages.length} · A[34]`));
+  for(let i=0;i<80;i++)assert.equal(pages.slice(2).filter(p=>p.svg.includes(`>Distinct equipment ${i}</text>`)).length,1);
 });

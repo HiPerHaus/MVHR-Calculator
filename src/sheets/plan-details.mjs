@@ -143,3 +143,26 @@ function paragraphs(values, bounds, startY) {
 function xml(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
+
+// A compact, legible dimension key stays on every plan. Full sections are on
+// the immediately following installation sheet, not in the title block.
+export function layoutPlanDimensionReference(details, area) {
+  const heightMm = 32;
+  return { ...details, cards: details.cards.filter(card => ["ceiling-tva", "wall-housing"].includes(card.id)),
+    bounds: { xMm: area.xMm, yMm: area.yMm + area.heightMm - heightMm, widthMm: area.widthMm, heightMm } };
+}
+
+export function renderPlanDimensionReference(details) {
+  const b = details.bounds, half = b.widthMm / 2;
+  return `<g id="plan-details" data-evidence-boundary="owner-reference-not-installation-approval">
+    <rect x="${b.xMm}" y="${b.yMm}" width="${b.widthMm}" height="${b.heightMm}" fill="white" stroke="#75858c" stroke-width=".25"/>
+    ${text(b.xMm + 3, b.yMm + 5, "TERMINAL DIMENSIONS · mm · source sections NTS", 2.8, 'font-weight="700"')}
+    ${text(b.xMm + 3, b.yMm + 11, "01  Ceiling TVA housing", 2.8, 'font-weight="700"')}
+    ${text(b.xMm + 3, b.yMm + 16, "128 horizontal × 140 vertical", 2.8)}
+    ${text(b.xMm + 3, b.yMm + 21, "Leave below plaster; trim after plastering.", 2.5)}
+    ${text(b.xMm + half + 3, b.yMm + 11, "02  Wall / floor / bulkhead housing", 2.8, 'font-weight="700"')}
+    ${text(b.xMm + half + 3, b.yMm + 16, "120 horizontal · 115 inner · 140 overall", 2.5)}
+    ${text(b.xMm + half + 3, b.yMm + 21, "Ø90 duct spigot · not cutout or face sizes", 2.5)}
+    ${text(b.xMm + 3, b.yMm + 28, "See next sheet: INSTALLATION DETAILS, sections 01–02 and applicable unit assembly.", 2.5)}
+  </g>`;
+}

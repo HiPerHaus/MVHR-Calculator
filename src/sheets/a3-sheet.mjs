@@ -33,10 +33,10 @@ import {
 import { ventilationProjectTypeLabel } from "../domain/ventilation-project-type.mjs";
 import { floorAreaValueLabel, inspectSheetFloorArea } from "./floor-area-key.mjs";
 
-import { layoutPlanDetails, renderPlanDetails, selectPlanDetails } from "./plan-details.mjs";
+import { layoutPlanDimensionReference, renderPlanDimensionReference, selectPlanDetails } from "./plan-details.mjs";
 
 export const A3_DIMENSIONS_MM = Object.freeze({ short: 297, long: 420 });
-export const SHEET_TEMPLATE_ID = "hiper-a3-plan-details-v4";
+export const SHEET_TEMPLATE_ID = "hiper-a3-engineering-details-v5";
 export const ISSUE_STATUSES = Object.freeze([
   "Preliminary — not for construction",
   "Issued for review — not for construction",
@@ -83,7 +83,8 @@ export function createA3SheetModel(project, metadata) {
   const legendBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:printableBounds.heightMm-128});
   const scheduleBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm+printableBounds.heightMm-SCHEDULE_HEIGHT_MM,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-DRAWING_GAP_MM,heightMm:SCHEDULE_HEIGHT_MM});
   const drawingArea=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
-  const planDetails = layoutPlanDetails(selectPlanDetails(sourceProject, normalized.floorId), drawingArea);
+  const installationDetails = selectPlanDetails(sourceProject, normalized.floorId);
+  const planDetails = layoutPlanDimensionReference(installationDetails, drawingArea);
   const drawingBounds = Object.freeze({ ...drawingArea, heightMm: drawingArea.heightMm - planDetails.bounds.heightMm - DRAWING_GAP_MM });
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId });
   const printScene = buildPrintScene(sourceProject, normalized.floorId, partsSchedule);
@@ -103,6 +104,7 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     planDetails,
+    installationDetails,
     printScene,
     partsSchedule,
     fit,
@@ -122,6 +124,7 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     planDetails,
+    installationDetails,
     printScene,
     partsSchedule,
     fit,
@@ -196,7 +199,7 @@ export function renderA3SheetSvg(sheet) {
   body.push(renderPrintScene(sheet));
   body.push("</g>");
   body.push(renderWatermark(sheet));
-  body.push(renderPlanDetails(sheet.planDetails));
+  body.push(renderPlanDimensionReference(sheet.planDetails));
   if(sheet.metadata.includeSchedule)body.push(renderPartsSchedule(sheet));
   body.push(renderSheetLegend(sheet,sheet.legendBounds));
   body.push(renderTitleBlock(sheet, title));

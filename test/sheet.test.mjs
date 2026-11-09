@@ -385,9 +385,9 @@ test("a calibrated PNG uses its saved model transform in the clipped print scene
   const project = addReference(projectWithFloor(), { calibrated: true, translationX: 500, translationY: 1000 });
   const sheet = createA3SheetModel(project, metadata());
   const svg = renderA3SheetSvg(sheet);
-  assert.equal(sheet.fit.label, "1:75");
+  assert.equal(sheet.fit.label, "1:40");
   assert.match(svg, /data-calibration="calibrated"/);
-  assert.match(svg, /transform="matrix\(0\.133333 0 0 0\.133333 /);
+  assert.match(svg, /transform="matrix\(0\.25 0 0 0\.25 /);
   assert.match(svg, /data-kind="reference"/);
 });
 

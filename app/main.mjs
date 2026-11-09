@@ -2,7 +2,7 @@ import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
-import { createSheetOutputPages, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { createSheetOutputPages, createSheetOutputDocument, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
 import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
@@ -3041,8 +3041,8 @@ function openSheetPreview({ designStage = false } = {}) {
       fileName: sheetPdfFileName(sheet.metadata.projectName, sheet.metadata.drawingId),
     };
     exportAllOptionsPdfButton.hidden=history.present.designOptions.length<2;
-    const partsPageCount = pages.length - 1;
-    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · 1 A3 drawing + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
+    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · 1 A3 drawing + 1 A3 installation detail sheet + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -3153,10 +3153,8 @@ async function exportAllDesignOptionsPdf() {
   const previousLabel=exportAllOptionsPdfButton.textContent;
   exportAllOptionsPdfButton.disabled=true;exportAllOptionsPdfButton.textContent="Creating all options…";
   try {
-    const pages=[];
-    for(const {option,project} of designOptionProjects(history.present)) {
-      pages.push(...createSheetOutputPages(createSheetForDesignOption(project,option)));
-    }
+    const pages=createSheetOutputDocument(designOptionProjects(history.present)
+      .map(({option,project})=>createSheetForDesignOption(project,option)));
     const fileName=sheetPdfFileName(history.present.projectDetails.name||currentProjectName,"all-design-options");
     const blob=await createMixedPagePdfBlob(pages,{title:`${history.present.projectDetails.name||currentProjectName} · all design options`,subject:"Independent ventilation design options · preliminary · not for construction",author:cloudSession?.companyProfile?.details?.name||"HiPer Studio",fileName});
     downloadPdfBlob(blob,fileName);

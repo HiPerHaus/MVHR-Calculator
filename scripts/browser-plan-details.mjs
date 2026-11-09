@@ -7,35 +7,40 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root=resolve(fileURLToPath(new URL("..",import.meta.url)));
-const output=resolve(root,"../tmp/install-reference-fidelity-qa");
+const output=resolve(root,"../tmp/engineering-sheet-qa");
 const profile=await mkdtemp(join(tmpdir(),"studio-detail-qa-"));
-const page = `<!doctype html><meta charset="utf-8"><style>body{margin:0;background:white}svg{display:block}#pages>svg{page-break-after:always}@page{size:A3 landscape;margin:0}</style><div id="pages"></div><script type="module">
+const page = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/app/style.css"><style>body{margin:0;background:white;min-width:0}.sheet-page{margin:0;box-shadow:none}svg{display:block}</style><div id="pages"></div><script type="module">
 import * as d from "/src/domain/spatial.mjs";
 import {createConfiguredMvhrComponent} from "/src/editor/mvhr-placement.mjs";
 import {createA3SheetModel,renderA3SheetSvg} from "/src/sheets/a3-sheet.mjs";
-import {createSheetOutputPages} from "/src/sheets/sheet-output.mjs";
-import {layoutPlanDetails,PLAN_DETAIL_REFERENCES,renderPlanDetails} from "/src/sheets/plan-details.mjs";
+import {createSheetOutputPages,createSheetOutputDocument} from "/src/sheets/sheet-output.mjs";
+import {PLAN_DETAIL_REFERENCES} from "/src/sheets/plan-details.mjs";
+import {renderInstallationDetailSheetSvg} from "/src/sheets/installation-detail-sheet.mjs";
 import {createMixedPagePdfBlob} from "/app/sheet-pdf-export.mjs";
 let project=d.applyCommand(d.createProject("detail-browser"),{type:"floor.add",floor:{id:"ground",name:"Ground floor",transform:{translationMm:{x:0,y:0,z:d.knownMm(0,"test")},orientation:d.identityQuaternion()}}});
 for(const [i,[model,cwSize]]of [["q350-hrv","320"],["aerofresh-450-hrv","520"],["q350-hrv","625"]].entries())project=d.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model,mounting:"vertical",handing:i%2?"right":"left",layout:"unit-mounted-cw",cwSize},{id:"unit-"+i,floorId:"ground",xMm:2000+i*4000,yMm:3000})});
 const meta={floorId:"ground",orientation:"landscape",includeSchedule:false,projectName:"A3 drawing details",siteName:"Synthetic verification fixture",clientName:"QA",issueDate:"2026-11-09",drawingTitle:"Mixed Q and AeroFresh references",drawingId:"V01",status:"Preliminary — not for construction",revision:"A",revisionText:"QA"};
 const sheet=createA3SheetModel(project,meta),pages=createSheetOutputPages(sheet);
-document.querySelector("#pages").innerHTML=pages[0].svg;
+document.querySelector("#pages").innerHTML=pages[1].svg;
 window.__pages=pages;
 window.__sheet=sheet;
 window.__svgText=document.querySelector("#pages").textContent;
-window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="plan-detail"]')].map(card=>{
+window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="installation-detail"]')].map(card=>{
 const bounds=card.querySelector("rect").getBoundingClientRect();
 const illustration=card.querySelector("[data-illustration]")?.getBoundingClientRect(),notes=card.querySelector("[data-role=detail-notes]")?.getBoundingClientRect();
 return {id:card.dataset.detailId,notesOverlap:!!(illustration&&notes&&illustration.bottom>notes.top-1),overflow:[...card.querySelectorAll("text")].filter(node=>{const r=node.getBoundingClientRect();return r.left<bounds.left-1||r.right>bounds.right+1||r.top<bounds.top-1||r.bottom>bounds.bottom+1;}).map(n=>n.textContent)};});
 const second=createA3SheetModel(project,{...meta,orientation:"portrait"});
 window.__portraitPages=createSheetOutputPages(second);
+window.__documentPages=createSheetOutputDocument([sheet,second]);
+window.__showPage=(index)=>{document.querySelector("#pages").innerHTML=window.__documentPages[index].svg;};
+window.__printPages=()=>{document.querySelector("#pages").innerHTML=window.__documentPages.map(p=>'<section class="sheet-page '+p.className+'">'+p.svg+'</section>').join("");};
 window.__allFive=(portrait=false)=>{
-const details=layoutPlanDetails({cards:Object.values(PLAN_DETAIL_REFERENCES),unmatchedComponentIds:[],hasQ:true,hasAeroFresh:true},{xMm:10,yMm:10,widthMm:portrait?202:325,heightMm:portrait?400:277});
-document.querySelector("#pages").innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="'+(portrait?297:420)+'mm" height="'+(portrait?420:297)+'mm" viewBox="0 0 '+(portrait?'297 420':'420 297')+'">'+renderPlanDetails(details)+'</svg>';
+const target=structuredClone(portrait?second:sheet);
+target.installationDetails={cards:Object.values(PLAN_DETAIL_REFERENCES),unmatchedComponentIds:["unmatched"],hasQ:true,hasAeroFresh:true};
+document.querySelector("#pages").innerHTML=renderInstallationDetailSheetSvg(target);
 };
 window.__makePdf=async()=>{
-const blob=await createMixedPagePdfBlob([...pages,...window.__portraitPages],{title:"Drawing detail browser QA"});
+const blob=await createMixedPagePdfBlob(window.__documentPages,{title:"Drawing detail browser QA"});
 return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
 };
 window.__renderPdf=async (data,pageNumber=1)=>{
@@ -79,8 +84,9 @@ try{
  assert.deepEqual(layout.flatMap(c=>c.overflow),[],JSON.stringify(layout));
  assert.ok(layout.every(c=>!c.notesOverlap),JSON.stringify(layout));
  await capture("mixed-preview-actual-size.png",1588,1123);
+ await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
- await writeFile(join(output,"print-a3.pdf"),Buffer.from(print.data,"base64"));
+ await writeFile(join(output,"print-mixed-a3-a4.pdf"),Buffer.from(print.data,"base64"));
  await evaluate("window.__allFive()");
  const fiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(fiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(fiveLayout));
@@ -101,12 +107,23 @@ try{
  assert.ok(Math.abs(evidence[0].height-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].width-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].height-420*72/25.4)<.1);
- for(const i of [0,firstPartCount])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
- await capture("pdf-a3-actual-size.png",1588,1123);
- await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(firstPartCount+1)+")");
- await capture("pdf-a3-portrait-actual-size.png",1123,1588);
+ for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
+ for(const [i,p] of evidence.entries())assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Page number missing "+i);
+ await capture("pdf-plan-actual-size.png",1588,1123);
+ await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
+ await capture("pdf-details-actual-size.png",1588,1123);
+ await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(firstPartCount+2)+")");
+ await capture("pdf-details-portrait-actual-size.png",1123,1588);
+ await evaluate("window.__renderPdf("+JSON.stringify(print.data)+")");
+ const printed=await evaluate("window.__pdfEvidence");
+ assert.equal(printed.length,evidence.length,"Print must have no extra blank pages");
+ for(const [i,p] of printed.entries()){
+  assert.ok(Math.abs(p.width-evidence[i].width)<1, "Print width "+i);
+  assert.ok(Math.abs(p.height-evidence[i].height)<1, "Print height "+i);
+  assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Print numbering "+i);
+ }
  assert.deepEqual(errors,[]);
- await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));
+ await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,printPageSizes:printed.map(p=>({width:p.width,height:p.height})),pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));
  console.log(JSON.stringify({output,layout,fiveLayout,portraitFiveLayout,pages:evidence.length,errors},null,2));
 }finally{
  cdp?.close();chrome.kill("SIGTERM");await delay(1000);await new Promise(r=>server.close(r));await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:100});
