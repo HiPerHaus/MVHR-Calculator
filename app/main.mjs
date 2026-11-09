@@ -181,7 +181,7 @@ import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import { createEngineeringEditGuard } from "../src/editor/engineering-edit-guard.mjs";
 import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
 import { normalizeStudioDesignStage, transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
-import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace } from "../src/editor/ventilation-workspace.mjs";
+import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   engineeringComponentFingerprint,
@@ -2536,7 +2536,7 @@ function setTask(task, { designNavigation = false } = {}) {
   }
   setTool("select");
   interactionMessage = task === "ventilation"
-      ? `${ventilationProjectTypeLabel(activeVentilationWorkspace)} tools active · place and connect on the same plan`
+      ? `${ventilationWorkspaceLabel(activeVentilationWorkspace)} tools active · place and connect on the same plan`
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
   render();
   initialCameraFit.request();
@@ -2629,8 +2629,8 @@ function applyVentilationProjectType(type) {
   const previous=history.present.ventilationDesignType;
   if(type===previous) return renderProjectWorkspace();
   commitCommand({type:"project.setVentilationDesignType",ventilationDesignType:type},`${ventilationProjectTypeLabel(type)} project type applied · geometry and ventilation objects preserved`);
-  if (["centralised", "decentralised"].includes(type)) {
-    activeVentilationWorkspace = type;
+  if (["centralised", "decentralised", "mixed"].includes(type)) {
+    activeVentilationWorkspace = type === "mixed" ? "combined" : type;
     selectedCatalogueGroup = null;
     catalogueSearchInput.value = "";
   }
@@ -8070,7 +8070,7 @@ function selectVentilationWorkspace(workspace) {
   catalogueSearchInput.value = "";
   if (keepToolsOpen) setTabletPanel("tools");
   ventilationWorkspaceButtons.find(button => button.dataset.ventilationTab === workspace)?.focus({ preventScroll: true });
-  interactionMessage = `${ventilationProjectTypeLabel(workspace)} tools active · both systems remain on the plan`;
+  interactionMessage = `${ventilationWorkspaceLabel(workspace)} tools active · both systems remain on the plan`;
   renderCataloguePalette();
   queueWorkingSession();
   render();
@@ -8100,15 +8100,15 @@ function renderCataloguePalette() {
 
   ];
   const projectType = history.present.ventilationDesignType;
-  const workspaceEntries = allEntries.filter(item => catalogueEntryWorkspace(item) === activeVentilationWorkspace);
+  const workspaceEntries = allEntries.filter(item => ventilationWorkspaceIncludes(activeVentilationWorkspace, catalogueEntryWorkspace(item)));
   const groups = [...new Set(workspaceEntries.map(item => item.group))];
-  if (activeVentilationWorkspace === "centralised") groups.push("Duct");
+  if (ventilationWorkspaceIncludes(activeVentilationWorkspace, "centralised")) groups.push("Duct");
   if (!groups.includes(selectedCatalogueGroup)) selectedCatalogueGroup = groups[0];
-  const workspaceLabel = ventilationProjectTypeLabel(activeVentilationWorkspace);
+  const workspaceLabel = ventilationWorkspaceLabel(activeVentilationWorkspace);
   document.querySelector("#ventilation-tools-heading").textContent = `${workspaceLabel} tools`;
   for (const button of ventilationWorkspaceButtons) button.setAttribute("aria-pressed", String(button.dataset.ventilationTab === activeVentilationWorkspace));
-  for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = panel.dataset.ventilationWorkspace !== activeVentilationWorkspace;
-  catalogueSearchInput.placeholder = activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
+  for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = !ventilationWorkspaceIncludes(activeVentilationWorkspace, panel.dataset.ventilationWorkspace);
+  catalogueSearchInput.placeholder = activeVentilationWorkspace === "combined" ? "e.g. Q350, Lunos, controller, EPP" : activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
   ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools. Both systems stay on the same plan and are included in exports. Switching tabs does not change the project type.`;
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
@@ -8140,7 +8140,7 @@ function renderCataloguePalette() {
   });
   const ductPanel=document.querySelector("#duct-parts");
   const matchingDuctButtons=routeButtons.filter(button=>!query || button.textContent.toLowerCase().includes(query));
-  const showDuct=activeVentilationWorkspace === "centralised" && (query ? matchingDuctButtons.length>0 : selectedCatalogueGroup==="Duct");
+  const showDuct=ventilationWorkspaceIncludes(activeVentilationWorkspace, "centralised") && (query ? matchingDuctButtons.length>0 : selectedCatalogueGroup==="Duct");
   ductPanel.hidden=!showDuct;
   for(const button of routeButtons)button.hidden=Boolean(query) && !matchingDuctButtons.includes(button);
   catalogueGroups.replaceChildren();
@@ -9532,8 +9532,8 @@ function focusCheckTarget(item) {
   temporaryCheckReveal = target;
   returnToCheckButton.hidden = false;
   activeDesignStage = ["route", "component"].includes(target.kind) ? "draw" : "plan";
-  if (target.kind === "route") activeVentilationWorkspace = "centralised";
-  if (target.kind === "component") activeVentilationWorkspace = resolved.value.decentralisedMvhr || resolved.value.decentralisedController ? "decentralised" : "centralised";
+  if (activeVentilationWorkspace !== "combined" && target.kind === "route") activeVentilationWorkspace = "centralised";
+  if (activeVentilationWorkspace !== "combined" && target.kind === "component") activeVentilationWorkspace = resolved.value.decentralisedMvhr || resolved.value.decentralisedController ? "decentralised" : "centralised";
   setTask(target.kind === "room" || target.kind === "zone" ? "plan" : "ventilation", { designNavigation: true });
   mechanicalState = clearMechanicalSelection(mechanicalState);
   selectedRouteId = null;

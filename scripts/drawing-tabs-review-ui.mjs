@@ -55,16 +55,28 @@ tabsQaButton('Run tab checks', async () => {
   await tabsQaReady();const passed=[];
   for (const type of ['centralised','decentralised','mixed']) {
     tabsQaFixture(type);const original=tabsQaStable();
-    tabsQaEqual(activeVentilationWorkspace,type==='decentralised'?'decentralised':'centralised',`${type} default`);
-    for (const workspace of ['decentralised','centralised','decentralised','centralised']) {
+    tabsQaEqual(activeVentilationWorkspace,type==='mixed'?'combined':type,`${type} default`);
+    for (const workspace of ['decentralised','centralised','combined','decentralised','combined','centralised']) {
       tabsQaClick(`[data-ventilation-tab="${workspace}"]`);
       tabsQaEqual(tabsQaStable(),original,`${type} ${workspace}: view-only switch mutated model/history/camera/visibility`);
       tabsQaAssert(document.querySelector(`[data-ventilation-tab="${workspace}"]`).getAttribute('aria-pressed')==='true','Tab pressed state');
-      tabsQaAssert([...catalogueCategories.children].every(button => workspace==='centralised' ? !button.textContent.includes('Decentralised')&&!button.textContent.includes('Controls') : /Decentralised|Controls/.test(button.textContent)), 'Cross-system categories');
+      tabsQaAssert(workspace==='combined' || [...catalogueCategories.children].every(button => workspace==='centralised' ? !button.textContent.includes('Decentralised')&&!button.textContent.includes('Controls') : /Decentralised|Controls/.test(button.textContent)), 'Cross-system categories');
       tabsQaAssert(document.querySelector('#automatic-routing-section').hidden===(workspace==='decentralised'),'Auto-route scope');
       tabsQaAssert([...canvas.querySelectorAll('[data-component-id]')].length>0,'Shared plan lost equipment');
-      catalogueSearchInput.value = workspace==='centralised'?'Lunos':'EPP';catalogueSearchInput.dispatchEvent(new Event('input'));
-      tabsQaAssert(catalogueGroups.querySelectorAll('button').length===0&&document.querySelector('#duct-parts').hidden,'Cross-system search results');
+      if(workspace==='combined') {
+        for(const category of ['Units','Terminals','Distribution','Decentralised','Controls','Duct']) tabsQaCategory(category);
+        tabsQaAssert(!document.querySelector('#duct-parts').hidden,'Combined duct tools hidden');
+        tabsQaAssert([...document.querySelectorAll('[data-ventilation-workspace]')].every(panel=>!panel.hidden),'Combined system panel hidden');
+        for(const query of ['Lunos','Q350','controller','EPP']) {
+          catalogueSearchInput.value=query;catalogueSearchInput.dispatchEvent(new Event('input'));
+          tabsQaAssert(catalogueGroups.querySelectorAll('button').length>0 || !document.querySelector('#duct-parts').hidden,`Combined search lost ${query}`);
+        }
+      } else {
+        catalogueSearchInput.value = workspace==='centralised'?'Lunos':'EPP';catalogueSearchInput.dispatchEvent(new Event('input'));
+        tabsQaAssert(catalogueGroups.querySelectorAll('button').length===0&&document.querySelector('#duct-parts').hidden,'Cross-system search results');
+      }
+      const visibleIds=[...new Set([...canvas.querySelectorAll('[data-component-id]')].map(item=>item.dataset.componentId))].sort();
+      tabsQaEqual(visibleIds,history.present.components.map(item=>item.id).sort(),'Shared plan lost a system');
       catalogueSearchInput.value='';catalogueSearchInput.dispatchEvent(new Event('input'));
     }
     tabsQaClick('#plan-nav');tabsQaClick('#ventilation-nav');tabsQaClick('#checks-nav');tabsQaClick('#ventilation-nav');
@@ -77,15 +89,19 @@ tabsQaButton('Run tab checks', async () => {
     tabsQaClick('#centralised-tools-tab');tabsQaClick('#sheets-nav');
     tabsQaEqual(sheetPreviewPages.map(page=>page.svg),sheetBefore,`${type}: output changed with tool tab`);
     if(type==='mixed') tabsQaAssert(sheetBefore.join('').includes('data-system="decentralised-mvhr"')&&sheetBefore.join('').includes('data-id="qa-duct"'),'Mixed export lacks a system');
-    tabsQaClick('#close-sheet-preview');tabsQaEqual(tabsQaStable(),original,`${type}: export mutated model`);
-    passed.push(`${type}: defaults, 4 switches, scoped search, plan/check/export return, identical outputs`);
+    tabsQaClick('#close-sheet-preview');
+    tabsQaClick('#combined-tools-tab');tabsQaClick('#sheets-nav');
+    tabsQaEqual(sheetPreviewPages.map(page=>page.svg),sheetBefore,`${type}: Combined changed export`);
+    tabsQaClick('#close-sheet-preview');tabsQaEqual(activeVentilationWorkspace,'combined','Export lost Combined tab');
+    tabsQaEqual(tabsQaStable(),original,`${type}: export mutated model`);
+    passed.push(`${type}: defaults, 6 switches, combined/scoped search, plan/check/export return, identical outputs`);
   }
   const original=tabsQaStable();tabsQaCategory('Terminals');tabsQaClick('.terminal-service-tool-supply');
   tabsQaClick('#ventilation-nav');tabsQaAssert(terminalPlacementMode?.service==='supply','Repeated Draw reset placement');
-  tabsQaClick('#centralised-tools-tab');tabsQaAssert(terminalPlacementMode?.service==='supply','Repeated tab reset placement');
+  tabsQaClick('#combined-tools-tab');tabsQaAssert(terminalPlacementMode?.service==='supply','Repeated Combined tab reset placement');
   tabsQaClick('#decentralised-tools-tab');tabsQaAssert(activeTool==='select'&&terminalPlacementMode===null,'System switch did not cancel placement');
   tabsQaEqual(tabsQaStable(),original,'Cancelled placement changed project');
-  tabsQaClick('#centralised-tools-tab');tabsQaCategory('Duct');tabsQaClick('[data-duct-kind="semi-rigid-radial"]');
+  tabsQaClick('#combined-tools-tab');tabsQaCategory('Duct');tabsQaClick('[data-duct-kind="semi-rigid-radial"]');
   mechanicalState={...mechanicalState,routeDraft:{points:[{x:10,y:10}],startAttachment:null}};
   tabsQaClick('#decentralised-tools-tab');tabsQaAssert(activeTool==='select'&&mechanicalState.routeDraft===null,'System switch retained unfinished route');
   tabsQaEqual(tabsQaStable(),original,'Cancelled route changed project');
@@ -96,11 +112,16 @@ tabsQaButton('Run tab checks', async () => {
   tabsQaAssert(!document.querySelector('#decentralised-system-field').hidden,'Pair/controller inspector inaccessible');
   focusCheckTarget({target:{kind:'route',id:'qa-duct'}});tabsQaEqual(activeVentilationWorkspace,'centralised','Route focus chose wrong tools');
   tabsQaClick('#return-to-check');tabsQaClick('#ventilation-nav');
-  passed.push('Check links select correct system tools; pairing/controller inspector retained');
-  tabsQaClick('#decentralised-tools-tab');await tabsQaSave();
+  tabsQaClick('#combined-tools-tab');
+  focusCheckTarget({target:{kind:'component',id:'qa-lunos-a'}});tabsQaEqual(activeVentilationWorkspace,'combined','Combined lost on decentralised Check focus');
+  tabsQaAssert(!document.querySelector('#decentralised-system-field').hidden,'Combined pairing inspector inaccessible');
+  focusCheckTarget({target:{kind:'route',id:'qa-duct'}});tabsQaEqual(activeVentilationWorkspace,'combined','Combined lost on route Check focus');
+  tabsQaClick('#return-to-check');tabsQaClick('#ventilation-nav');
+  passed.push('Check links choose system tools or retain Combined; pairing/controller inspector retained');
+  tabsQaClick('#combined-tools-tab');await tabsQaSave();
   const stored=await workingSessions.read(workingContext());
   tabsQaEqual(stored.projectJson,serializeProject(history.present),'Stored model changed');
-  tabsQaEqual(stored.ventilationWorkspace,'decentralised','Stored tool tab missing');
+  tabsQaEqual(stored.ventilationWorkspace,'combined','Stored tool tab missing');
   tabsQaAssert(ventilationWorkspaceButtons.every(button=>button.getBoundingClientRect().height>=43.9),'Tab touch height <44');
   tabsQaAssert(document.documentElement.scrollWidth<=innerWidth,'Horizontal page overflow');
   tabsQaAssert(canvas.getBoundingClientRect().width <= planWorkspace.getBoundingClientRect().width + 0.1, 'Canvas intrinsic grid overflow');
@@ -111,7 +132,7 @@ tabsQaButton('Run tab checks', async () => {
   tabsQaOutput.textContent=`PASS ${innerWidth} × ${innerHeight}\n`+passed.join('\n');
 });
 tabsQaButton('Prepare reload', async () => {
-  await tabsQaReady();tabsQaFixture('mixed');tabsQaClick('#decentralised-tools-tab');tabsQaCategory('Controls');await tabsQaSave();
+  await tabsQaReady();tabsQaFixture('mixed');tabsQaClick('#combined-tools-tab');tabsQaCategory('Controls');await tabsQaSave();
   sessionStorage.setItem('tabs-qa-reload',JSON.stringify({project:serializeProject(history.present),workspace:activeVentilationWorkspace,group:selectedCatalogueGroup}));
   tabsQaOutput.textContent='Reload prepared. Reload this page, then choose Check restored.';
 });
@@ -119,7 +140,7 @@ tabsQaButton('Check restored', async () => {
   await tabsQaReady();const expected=JSON.parse(sessionStorage.getItem('tabs-qa-reload'));
   tabsQaAssert(expected,'Prepare reload first');tabsQaEqual(serializeProject(history.present),expected.project,'Reload changed mixed model');
   tabsQaEqual(activeVentilationWorkspace,expected.workspace,'Reload lost selected tab');tabsQaEqual(selectedCatalogueGroup,expected.group,'Reload lost category');
-  tabsQaEqual(activeDesignStage,'draw','Reload lost Draw');tabsQaAssert(document.querySelector('#decentralised-tools-tab').getAttribute('aria-pressed')==='true','Recovered palette not rendered');
-  tabsQaEqual(tabsQaErrors,[],'Browser errors after reload');tabsQaOutput.textContent=`PASS reload ${innerWidth} × ${innerHeight}: mixed units, ducts, pairs, controller, cable, Draw, Decentralised and Controls restored.`;
+  tabsQaEqual(activeDesignStage,'draw','Reload lost Draw');tabsQaAssert(document.querySelector('#combined-tools-tab').getAttribute('aria-pressed')==='true','Recovered palette not rendered');
+  tabsQaEqual(tabsQaErrors,[],'Browser errors after reload');tabsQaOutput.textContent=`PASS reload ${innerWidth} × ${innerHeight}: mixed units, ducts, pairs, controller, cable, Draw, Combined and Controls restored.`;
 });
 tabsQaPanel.append(tabsQaOutput);

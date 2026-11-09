@@ -55,6 +55,11 @@ test('Draw workspace and selected system survive recovery without altering mixed
  const restored=await store.read(context);
  assert.equal(restored.designStage,'draw');assert.equal(restored.ventilationWorkspace,'decentralised');
  assert.equal(restored.catalogueGroup,'Decentralised controls');assert.equal(restored.projectJson,source.projectJson);
+ for (const ventilationWorkspace of ['centralised','combined']) {
+  await store.write(context,{...source,ventilationWorkspace});
+  const choice=await store.read(context);
+  assert.equal(choice.ventilationWorkspace,ventilationWorkspace);assert.equal(choice.projectJson,source.projectJson);
+ }
  await store.write(context,{...source,ventilationWorkspace:'mixed'});
  await assert.rejects(store.read(context),/Invalid recovery ventilation workspace/);
 });
