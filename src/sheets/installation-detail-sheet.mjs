@@ -1,5 +1,6 @@
 import { escapeXml, wrapSheetText } from "./a3-sheet.mjs";
 import { renderInstallReferenceIllustration } from "./install-reference-illustrations.mjs";
+import { renderInsulationReferenceIllustration } from "./insulation-reference-illustrations.mjs";
 
 // These sheets are reference annotations, not project engineering inputs.
 // Only the labelled dimensions in the owner sources are specified values.
@@ -39,7 +40,7 @@ function referenceCard(card, number, b) {
   const scale = Math.min(1.6, (b.w - 12) / 59, (b.h - 43) / 60);
   const artX = b.x + (b.w - 58 * scale) / 2, artY = b.y + 13;
   const notes = {
-    "ceiling-tva": ["Leave housing below plaster line; cut off after plastering.", "Source section dimensions only. Not a cutout specification."],
+    "ceiling-tva": ["Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["AeroFresh grille housing · Ø90 duct spigot.", "120, 115 and 140 follow source endpoints, not cutout or face sizes."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "Wiring: original diagram required; fine labels not transcribed."],
@@ -52,17 +53,31 @@ function referenceCard(card, number, b) {
 }
 
 function insulationCard(b) {
-  const cx = b.x + b.w / 2, cy = b.y + 34;
-  const ring = (r, fill, stroke = "#52616a") => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width=".35"/>`;
-  return [panelStart(b, "03  Insulation concept", "insulation-concept", "concept-not-project-specification"),
-    ring(17, "#e4e9ec"), ring(11, "white"), ring(9, "white"),
-    `<path d="M${cx + 13} ${cy - 10} L${cx + 23} ${cy - 19} H${b.x + b.w - 4}" fill="none" stroke="#52616a" stroke-width=".3"/>`,
-    text(b.x + 4, b.y + 57, "Duct / insulation / outer vapour-control layer", 2.5),
+  const sideBySide = b.w >= 110;
+  const cellWidth = sideBySide ? (b.w - 12) / 2 : b.w - 8;
+  const scale = Math.min(1, cellWidth / 58);
+  const artHeight = 44 * scale;
+  const rowHeight = artHeight + 12;
+  const sections = [
+    ["service-zone", "Dropped ceiling / service zone"],
+    ["insulation-cover", "Ducts protected by insulation"],
+  ];
+  const diagrams = sections.map(([arrangement, label], i) => {
+    const cellX = b.x + 4 + (sideBySide ? i * (cellWidth + 4) : 0);
+    const labelY = b.y + 16 + (sideBySide ? 0 : i * rowHeight);
+    const artX = cellX + (cellWidth - 58 * scale) / 2;
+    return lines(label, cellX, labelY, cellWidth, 2.6, 2).join("")
+      + `<g transform="translate(${artX} ${labelY + 6}) scale(${scale})">${renderInsulationReferenceIllustration(arrangement)}</g>`;
+  }).join("");
+  const notesY = b.y + (sideBySide ? 73 : 16 + rowHeight * 2 + 1);
+  return [panelStart(b, "03  Ducts within thermal envelope", "insulation-concept", "owner-mvhr-guide-v1-page-4"),
+    '<g data-evidence-boundary="concept-not-project-specification">', diagrams, "</g>",
     `<g data-role="detail-notes">${paragraphs([
-      "Concept only. Continuity at joints and penetrations must be designed for the location and condensation risk.",
+      "Guide p. 4: alternative ceiling arrangements (NTS).",
+      "Keep ducts inside the thermal envelope, below continuous insulation or fully covered by the insulation strategy.",
       "Project material, thickness, R-value and vapour-control detail: not specified.",
-      "Confirm whether the selected duct already provides the required insulation. No additional layer is specified here.",
-    ], b, b.y + 64)}</g>`, "</g>"].join("");
+      "Seal airtight-layer penetrations; external ducts need specified insulation.",
+    ], b, notesY)}</g>`, "</g>"].join("");
 }
 
 function coordinationCard(details, b) {

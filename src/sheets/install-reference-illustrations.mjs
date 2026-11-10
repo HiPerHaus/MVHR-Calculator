@@ -17,23 +17,28 @@ export function renderInstallReferenceIllustration(id) {
 }
 
 function ceilingHousing() {
+  // Finished section: the housing and plasterboard share the same face datum.
+  // The owner requested this trim relationship on 2026-11-10; NTS artwork only.
+  const finishedFaceY = 39;
   return [
     // Insulation and timber backing retain the source section's relationship.
     hatch(4, 1, 44, 13),
     box(20, 13, 10, 3, "#eee8df"), hatch(20, 13, 10, 3, 2),
     box(4, 16, 7, 20, "#dbdbdb"),
     ...[4.5, 5.7, 7.3, 8.8, 10.2].map(x => seg(x, 16, x, 36, .25)),
-    path("M11 14 H38 V36 H12 V33 H11 Z", "#828282"),
+    `<g data-source-feature="tva-body" data-finish-y="${finishedFaceY}">${path(`M11 14 H38 V${finishedFaceY} H12 V33 H11 Z`, "#828282")}</g>`,
     path("M12 15 C16 19 17 22 17 25 C17 30 15 33 12 35", "none", .25),
     box(23.5, 16, 3.5, 16.5, "#333333"),
     box(24.3, 14.5, 1.9, 20.5, "#919191"),
     circle(25.25, 19.3, .8, "#c4b83a"), circle(25.25, 26.7, .8, "#c4b83a"),
-    box(4, 36, 8, 3, "#eeeeee"), hatch(4, 36, 8, 3, 2),
-    box(38, 36, 10, 3, "#eeeeee"), hatch(38, 36, 10, 3, 2),
-    box(16.5, 35, 19, 5, "#ffffff"),
-    text(26, 38.2, "TVA housing", 2.5, 'text-anchor="middle"'),
+    `<g data-source-feature="plasterboard" data-finish-y="${finishedFaceY}">`,
+    box(4, 36, 8, finishedFaceY - 36, "#eeeeee"), hatch(4, 36, 8, finishedFaceY - 36, 2),
+    box(38, 36, 10, finishedFaceY - 36, "#eeeeee"), hatch(38, 36, 10, finishedFaceY - 36, 2),
+    "</g>",
+    box(16.5, 30, 19, 5, "#ffffff"),
+    text(26, 33.2, "TVA housing", 2.5, 'text-anchor="middle"'),
     dimH(16.5, 38, 42.8, "128", RED, 40),
-    dimV(14, 36, 52, "140", RED, 48),
+    dimV(14, finishedFaceY, 52, "140", RED, 48),
     // Separate lower grille profile from the same source, not a second housing.
     path("M18 47 H37 L39 49 H16 Z", "#dddddd", .15),
     box(18.8, 44.8, 17.4, 2.1, "#707070", .15),

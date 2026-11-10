@@ -181,3 +181,40 @@ test("multi-page A4 lists start after both A3 pages and retain every row", () =>
   for(const [i,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${i+1} of ${pages.length} · A[34]`));
   for(let i=0;i<80;i++)assert.equal(pages.slice(2).filter(p=>p.svg.includes(`>Distinct equipment ${i}</text>`)).length,1);
 });
+
+
+test("TVA finished body and plasterboard share a flush face without changing source dimensions", async () => {
+  const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
+  const svg = render("ceiling-tva");
+  const bodyY = Number(svg.match(/data-source-feature="tva-body" data-finish-y="([^"]+)"/)[1]);
+  const faceY = Number(svg.match(/data-source-feature="plasterboard" data-finish-y="([^"]+)"/)[1]);
+  assert.equal(bodyY, faceY);
+  assert.match(svg, new RegExp(`M11 14 H38 V${faceY} H12`));
+  assert.deepEqual([...svg.matchAll(/data-dimension="(\d+)"/g)].map(m => Number(m[1])), [128, 140]);
+  const sheet = createA3SheetModel(fixture(), metadata);
+  assert.match(createSheetOutputPages(sheet)[1].svg, /Finished body flush with plasterboard face/);
+  assert.match(renderA3SheetSvg(sheet), /Trim flush with plasterboard after plastering/);
+});
+
+
+test("insulation reference shows the guide's two three-duct ceiling arrangements", async () => {
+  const { renderInsulationReferenceIllustration: render } = await import("../src/sheets/insulation-reference-illustrations.mjs");
+  for (const arrangement of ["service-zone", "insulation-cover"]) {
+    const svg = render(arrangement);
+    assert.equal((svg.match(/data-duct-section="distribution-duct"/g) || []).length, 3);
+    assert.match(svg, /data-visual-basis="owner-mvhr-guide-page-4"/);
+    assert.match(svg, /data-source-feature="finished-ceiling-lining"/);
+    assert.doesNotMatch(svg, /R[0-9]|thickness=.*\d/);
+  }
+  assert.match(render("service-zone"), /data-source-feature="internal-service-zone"/);
+  assert.doesNotMatch(render("insulation-cover"), /data-source-feature="internal-service-zone"/);
+  assert.match(render("insulation-cover"), /data-source-feature="continuous-insulation-cover"/);
+  assert.throws(() => render("unknown"), /Unknown insulation arrangement/);
+  for (const orientation of ["landscape", "portrait"]) {
+    const svg = createSheetOutputPages(createA3SheetModel(fixture(), {...metadata, orientation}))[1].svg;
+    assert.match(svg, /Dropped ceiling \/ service zone/);
+    assert.match(svg, /Ducts protected by insulation/);
+    assert.match(svg, /owner-mvhr-guide-v1-page-4/);
+    assert.doesNotMatch(svg, /Duct \/ insulation \/ outer vapour-control layer/);
+  }
+});

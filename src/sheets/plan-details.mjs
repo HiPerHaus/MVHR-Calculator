@@ -91,7 +91,7 @@ function renderCard(card, details) {
   const top = b.yMm + 13;
   if (card.id === "ceiling-tva") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
-    out.push(paragraphs(["Leave housing below the plaster line; cut off after plastering.", "Section dimensions, not a cutout specification."], b, top + 55));
+    out.push(paragraphs(["Leave proud at first fix; trim flush with plasterboard after plastering.", "Section dimensions, not a cutout specification."], b, top + 55));
   } else if (card.id === "wall-housing") {
     out.push(text(b.xMm + 3, b.yMm + 9, "AeroFresh grille housing", 2.5));
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
@@ -159,7 +159,7 @@ export function renderPlanDimensionReference(details) {
     ${text(b.xMm + 3, b.yMm + 5, "TERMINAL DIMENSIONS · mm · source sections NTS", 2.8, 'font-weight="700"')}
     ${text(b.xMm + 3, b.yMm + 11, "01  Ceiling TVA housing", 2.8, 'font-weight="700"')}
     ${text(b.xMm + 3, b.yMm + 16, "128 horizontal × 140 vertical", 2.8)}
-    ${text(b.xMm + 3, b.yMm + 21, "Leave below plaster; trim after plastering.", 2.5)}
+    ${text(b.xMm + 3, b.yMm + 21, "Trim flush with plasterboard after plastering.", 2.5)}
     ${text(b.xMm + half + 3, b.yMm + 11, "02  Wall / floor / bulkhead housing", 2.8, 'font-weight="700"')}
     ${text(b.xMm + half + 3, b.yMm + 16, "120 horizontal · 115 inner · 140 overall", 2.5)}
     ${text(b.xMm + half + 3, b.yMm + 21, "Ø90 duct spigot · not cutout or face sizes", 2.5)}

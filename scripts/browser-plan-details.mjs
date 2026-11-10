@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root=resolve(fileURLToPath(new URL("..",import.meta.url)));
-const output=resolve(root,"../tmp/engineering-sheet-qa");
+const output=resolve(root,"../tmp/insulation-tva-qa-20261110");
 const profile=await mkdtemp(join(tmpdir(),"studio-detail-qa-"));
 const page = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/app/style.css"><style>body{margin:0;background:white;min-width:0}.sheet-page{margin:0;box-shadow:none}svg{display:block}</style><div id="pages"></div><script type="module">
 import * as d from "/src/domain/spatial.mjs";
@@ -27,8 +27,9 @@ window.__sheet=sheet;
 window.__svgText=document.querySelector("#pages").textContent;
 window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="installation-detail"]')].map(card=>{
 const bounds=card.querySelector("rect").getBoundingClientRect();
-const illustration=card.querySelector("[data-illustration]")?.getBoundingClientRect(),notes=card.querySelector("[data-role=detail-notes]")?.getBoundingClientRect();
-return {id:card.dataset.detailId,notesOverlap:!!(illustration&&notes&&illustration.bottom>notes.top-1),overflow:[...card.querySelectorAll("text")].filter(node=>{const r=node.getBoundingClientRect();return r.left<bounds.left-1||r.right>bounds.right+1||r.top<bounds.top-1||r.bottom>bounds.bottom+1;}).map(n=>n.textContent)};});
+const illustrations=[...card.querySelectorAll("[data-illustration]")].map(node=>node.getBoundingClientRect()),notes=card.querySelector("[data-role=detail-notes]")?.getBoundingClientRect();
+const body=card.querySelector('[data-source-feature="tva-body"]')?.getBoundingClientRect(),plaster=card.querySelector('[data-source-feature="plasterboard"]')?.getBoundingClientRect();
+return {id:card.dataset.detailId,finishedFaceGap:body&&plaster?body.bottom-plaster.bottom:null,notesOverlap:!!(notes&&illustrations.some(illustration=>illustration.bottom>notes.top-1)),overflow:[...card.querySelectorAll("text")].filter(node=>{const r=node.getBoundingClientRect();return r.left<bounds.left-1||r.right>bounds.right+1||r.top<bounds.top-1||r.bottom>bounds.bottom+1;}).map(n=>n.textContent)};});
 const second=createA3SheetModel(project,{...meta,orientation:"portrait"});
 window.__portraitPages=createSheetOutputPages(second);
 window.__documentPages=createSheetOutputDocument([sheet,second]);
@@ -83,6 +84,7 @@ try{
  const layout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(layout.flatMap(c=>c.overflow),[],JSON.stringify(layout));
  assert.ok(layout.every(c=>!c.notesOverlap),JSON.stringify(layout));
+ assert.ok(layout.filter(c=>c.finishedFaceGap!==null).every(c=>Math.abs(c.finishedFaceGap)<.1),JSON.stringify(layout));
  await capture("mixed-preview-actual-size.png",1588,1123);
  await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
@@ -107,7 +109,7 @@ try{
  assert.ok(Math.abs(evidence[0].height-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].width-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].height-420*72/25.4)<.1);
- for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
+ for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
  for(const [i,p] of evidence.entries())assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Page number missing "+i);
  await capture("pdf-plan-actual-size.png",1588,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
