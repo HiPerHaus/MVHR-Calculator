@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { applyCommand, createProject, identityQuaternion, knownMm, serializeProject } from "../src/domain/spatial.mjs";
 import { designOptionProjects } from "../src/domain/design-options.mjs";
+import { createCatalogueComponent } from "../src/editor/component-catalogue.mjs";
 import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs";
 import { createA3SheetModel, renderA3SheetSvg } from "../src/sheets/a3-sheet.mjs";
 import { createSheetOutputPages, createSheetOutputDocument } from "../src/sheets/sheet-output.mjs";
@@ -216,5 +217,28 @@ test("insulation reference shows the guide's two three-duct ceiling arrangements
     assert.match(svg, /Ducts protected by insulation/);
     assert.match(svg, /owner-mvhr-guide-v1-page-4/);
     assert.doesNotMatch(svg, /Duct \/ insulation \/ outer vapour-control layer/);
+  }
+});
+
+
+test("engineering artwork stays on a separate page for all sheet variations", () => {
+  const central = unit(fixture(), "q350-hrv", "320");
+  const mixed = applyCommand(central, {type:"component.add",component:createCatalogueComponent("lunos-e2-60-decentralised",{id:"decentralised",floorId:"ground",xMm:4500,yMm:2000})});
+  for (const project of [fixture(), central, mixed]) for (const orientation of ["landscape", "portrait"]) for (const includeSchedule of [false, true]) {
+    const document = createSheetOutputDocument(["ground", "upper"].map(floorId => createA3SheetModel(project, {...metadata, orientation, includeSchedule, floorId})));
+    for (const [i, page] of document.entries()) {
+      if (page.kind === "drawing") {
+        assert.doesNotMatch(page.svg, /data-kind="installation-detail"|data-illustration=|Ducts within thermal envelope/);
+        assert.equal(document[i + 1].kind, "installation-details");
+      } else if (page.kind === "installation-details") {
+        assert.equal(document[i - 1].kind, "drawing");
+        assert.match(page.svg, /data-illustration="ceiling-tva"/);
+        assert.match(page.svg, /data-illustration="insulation-service-zone"/);
+        assert.doesNotMatch(page.svg, /id="drawing-content"|TERMINAL DIMENSIONS/);
+        assert.equal(document[i + 1].kind, "parts-list");
+      } else {
+        assert.doesNotMatch(page.svg, /data-kind="installation-detail"|data-illustration=/);
+      }
+    }
   }
 });

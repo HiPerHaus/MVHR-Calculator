@@ -12,7 +12,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"));
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
-const outputDirectory = resolve(root, "../tmp/pdf-export-qa");
+const outputDirectory = resolve(root, "../tmp/detail-page-separation-qa-20261110");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
 const canvasOutputPath = resolve(outputDirectory, "grille-canvas.png");
 const previewOutputPath = resolve(outputDirectory, "grille-print-preview.png");
@@ -114,6 +114,8 @@ try {
   await evaluate(cdp, "document.querySelector('#sheets-nav').click()");
   await waitFor(cdp, "!document.querySelector('#sheet-preview-panel')?.hidden && document.querySelectorAll('#sheet-preview-host .sheet-page').length >= 2");
   assert.match(await evaluate(cdp, "document.querySelectorAll('#sheet-preview-host .sheet-page')[1].textContent"), /INSTALLATION DETAILS/);
+  assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child [data-kind="installation-detail"], #sheet-preview-host .sheet-page:first-child [data-illustration]').length`), 0, "Engineering artwork must not share the drawing page");
+  assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:nth-child(2) #drawing-content').length`), 0, "Detail page must not contain the plan");
   assert.match(await evaluate(cdp, "document.querySelector('#sheet-preview-status').textContent"), /1 A3 installation detail sheet/);
   const appSheetText = await evaluate(cdp, "document.querySelector('#sheet-preview-host .sheet-page')?.textContent");
   assert.match(appSheetText, /QA House - Ground Floor - Ventilation Layout/);
@@ -130,9 +132,19 @@ try {
   const previewBeforeClose=await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent");
   await evaluate(cdp, "document.querySelector('#close-sheet-preview').click(); document.querySelector('#sheets-nav').click()");
   assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent"),previewBeforeClose);
+  const pdfSeparation = [];
+  for (const name of (await readdir(downloadDirectory)).filter(name=>name.endsWith(".pdf"))) {
+    const source=join(downloadDirectory,name);
+    const evidence=await verifyPdfPageSeparation(source);
+    pdfSeparation.push({file:name,...evidence});
+    await copyFile(source,join(outputDirectory,name));
+  }
+  assert.equal(pdfSeparation.length,3);
+  assert.ok(pdfSeparation.some(result=>result.planPages.length===2),"All-options export should retain separate plan/detail pairs");
+  await writeFile(join(outputDirectory,"page-separation-evidence.json"),JSON.stringify(pdfSeparation,null,2));
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -270,3 +282,31 @@ async function connectCdp(url) { const socket = new WebSocket(url); await new Pr
 async function evaluate(cdp, expression) { const result = await cdp.send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text); return result.result.value; }
 async function waitFor(cdp, expression, timeoutMs = 10_000) { const started = Date.now(); while (Date.now() - started < timeoutMs) { if (await evaluate(cdp, `Boolean(${expression})`)) return; await delay(50); } throw new Error(`Timed out waiting for: ${expression}`); }
 function delay(ms) { return new Promise((resolveDelay) => setTimeout(resolveDelay, ms)); }
+
+
+async function verifyPdfPageSeparation(path) {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = getDocument({data:new Uint8Array(await readFile(path)),standardFontDataUrl:resolve(root,"node_modules/pdfjs-dist/standard_fonts")+"/"});
+  const pdf = await loadingTask.promise;
+  const pages = [];
+  for (let pageNumber=1; pageNumber<=pdf.numPages; pageNumber++) {
+    const page=await pdf.getPage(pageNumber);
+    const text=(await page.getTextContent()).items.map(item=>item.str).join(" ").replace(/\s+/g," ");
+    const isPlan=text.includes("TERMINAL DIMENSIONS"),isDetails=text.includes("Ducts within thermal envelope");
+    assert.equal(isPlan&&isDetails,false,`Plan and engineering details share PDF page ${pageNumber}`);
+    if (isPlan) assert.ok(!text.includes("Ceiling insulation"),`Insulation detail leaked onto plan page ${pageNumber}`);
+    if (isDetails) assert.ok(!text.includes("SYMBOL KEY"),`Drawing key leaked onto engineering page ${pageNumber}`);
+    assert.ok(text.includes(`Page ${pageNumber} of ${pdf.numPages}`),`Global numbering missing on page ${pageNumber}`);
+    pages.push({pageNumber,kind:isPlan?"drawing":isDetails?"installation-details":"parts-list"});
+  }
+  assert.equal(pages[0].kind,"drawing");
+  for (const [i,page] of pages.entries()) {
+    if (page.kind==="drawing") assert.equal(pages[i+1]?.kind,"installation-details");
+    if (page.kind==="installation-details") {
+      assert.equal(pages[i-1]?.kind,"drawing");
+      assert.equal(pages[i+1]?.kind,"parts-list");
+    }
+  }
+  await loadingTask.destroy();
+  return {pageCount:pages.length,planPages:pages.filter(p=>p.kind==="drawing").map(p=>p.pageNumber),detailPages:pages.filter(p=>p.kind==="installation-details").map(p=>p.pageNumber),pages};
+}

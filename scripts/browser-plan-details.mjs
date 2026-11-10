@@ -111,6 +111,7 @@ try{
  assert.ok(Math.abs(evidence[firstPartCount].height-420*72/25.4)<.1);
  for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
  for(const [i,p] of evidence.entries())assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Page number missing "+i);
+ assertPageSeparation(evidence,firstPartCount);
  await capture("pdf-plan-actual-size.png",1588,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
  await capture("pdf-details-actual-size.png",1588,1123);
@@ -119,6 +120,7 @@ try{
  await evaluate("window.__renderPdf("+JSON.stringify(print.data)+")");
  const printed=await evaluate("window.__pdfEvidence");
  assert.equal(printed.length,evidence.length,"Print must have no extra blank pages");
+ assertPageSeparation(printed,firstPartCount);
  for(const [i,p] of printed.entries()){
   assert.ok(Math.abs(p.width-evidence[i].width)<1, "Print width "+i);
   assert.ok(Math.abs(p.height-evidence[i].height)<1, "Print height "+i);
@@ -134,3 +136,14 @@ async function capture(name,width,height){const shot=await cdp.send("Page.captur
 async function evaluate(expression){const r=await cdp.send("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description??r.exceptionDetails.text);return r.result.value;}
 async function connect(url){const socket=new WebSocket(url);await new Promise((r,j)=>{socket.addEventListener("open",r,{once:true});socket.addEventListener("error",j,{once:true});});let id=0;const pending=new Map(),events=new Map();socket.addEventListener("message",e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(m.error.message)):p.resolve(m.result);}else for(const f of events.get(m.method)??[])f(m.params);});return{send(method,params={}){const n=++id;socket.send(JSON.stringify({id:n,method,params}));return new Promise((resolve,reject)=>pending.set(n,{resolve,reject}));},on(event,f){events.set(event,[...(events.get(event)??[]),f]);},close(){socket.close();}};}
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
+
+
+function assertPageSeparation(pages, firstPartCount) {
+ for (const start of [0, firstPartCount]) {
+  assert.ok(pages[start].text.includes("TERMINAL DIMENSIONS"));
+  assert.ok(!pages[start].text.includes("Ducts within thermal envelope"),"Engineering details must not share the plan page");
+  assert.ok(pages[start+1].text.includes("Ducts within thermal envelope"));
+  assert.ok(!pages[start+1].text.includes("TERMINAL DIMENSIONS"),"The engineering page must not contain the plan's key");
+  assert.ok(!pages[start+1].text.includes("SYMBOL KEY"),"The engineering page must not contain the plan");
+ }
+}
