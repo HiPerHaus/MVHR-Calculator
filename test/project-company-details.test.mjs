@@ -12,10 +12,10 @@ test('project identity and deliberate drawing attribution persist without invent
  const old=structuredClone(original);old.schemaVersion=19;delete old.projectDetails;assert.deepEqual(deserializeProject(JSON.stringify(old)).projectDetails,original.projectDetails);
  assert.throws(()=>applyCommand(original,{type:'project.updateDetails',details:{name:'x'.repeat(121)}}),/Invalid project name/);
 });
-test('default sheet reserves detail space and puts project identity and branding in the right column',()=>{
+test('default sheet gives the plan full height and puts project identity and branding in the right column',()=>{
  const p=applyCommand(project(),{type:'project.updateDetails',details:{name:'Example home',address:'12 Example Road',clientName:'Example client',projectReference:'EX01'}});
  const sheet=createA3SheetModel(p,{...metadata,company:{companyName:'Example & Co',contactName:'Designer',email:'office@example.test'},companyLogoDataUrl:logo});
- assert.equal(sheet.drawingBounds.heightMm + sheet.planDetails.bounds.heightMm + 5,sheet.printableBounds.heightMm);
+ assert.equal(sheet.drawingBounds.heightMm,sheet.printableBounds.heightMm);
  assert.equal(sheet.legendBounds.xMm,sheet.titleBlockBounds.xMm);
  assert.equal(sheet.legendBounds.yMm+sheet.legendBounds.heightMm,sheet.titleBlockBounds.yMm);
  const svg=renderA3SheetSvg(sheet);assert.match(svg,/Example home/);assert.match(svg,/12 Example Road/);assert.match(svg,/Example client/);assert.match(svg,/Example &amp; Co/);assert.match(svg,/data-kind="company-logo"/);assert.doesNotMatch(svg,/id="parts-schedule"/);assert.match(svg,/SYMBOL KEY/);

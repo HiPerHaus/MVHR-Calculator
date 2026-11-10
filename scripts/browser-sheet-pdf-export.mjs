@@ -12,7 +12,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"));
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
-const outputDirectory = resolve(root, "../tmp/detail-page-separation-qa-20261110");
+const outputDirectory = resolve(root, "../tmp/fitting-export-qa-20261110");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
 const canvasOutputPath = resolve(outputDirectory, "grille-canvas.png");
 const previewOutputPath = resolve(outputDirectory, "grille-print-preview.png");
@@ -292,9 +292,13 @@ async function verifyPdfPageSeparation(path) {
   for (let pageNumber=1; pageNumber<=pdf.numPages; pageNumber++) {
     const page=await pdf.getPage(pageNumber);
     const text=(await page.getTextContent()).items.map(item=>item.str).join(" ").replace(/\s+/g," ");
-    const isPlan=text.includes("TERMINAL DIMENSIONS"),isDetails=text.includes("Ducts within thermal envelope");
+    const isPlan=text.includes("SYMBOL KEY"),isDetails=text.includes("Ducts within thermal envelope");
     assert.equal(isPlan&&isDetails,false,`Plan and engineering details share PDF page ${pageNumber}`);
-    if (isPlan) assert.ok(!text.includes("Ceiling insulation"),`Insulation detail leaked onto plan page ${pageNumber}`);
+    if (isPlan) for (const detail of ["Ceiling insulation","TERMINAL DIMENSIONS","128 horizontal","120 horizontal","after plastering"]) assert.ok(!text.includes(detail),`Terminal detail leaked onto plan page ${pageNumber}: ${detail}`);
+    if (isDetails) {
+      assert.ok(text.includes("128 horizontal × 140 vertical"));
+      assert.ok(text.includes("120 horizontal · 115 inner · 140 overall"));
+    }
     if (isDetails) assert.ok(!text.includes("SYMBOL KEY"),`Drawing key leaked onto engineering page ${pageNumber}`);
     assert.ok(text.includes(`Page ${pageNumber} of ${pdf.numPages}`),`Global numbering missing on page ${pageNumber}`);
     pages.push({pageNumber,kind:isPlan?"drawing":isDetails?"installation-details":"parts-list"});

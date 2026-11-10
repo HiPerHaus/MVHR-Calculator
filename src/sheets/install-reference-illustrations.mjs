@@ -18,31 +18,34 @@ export function renderInstallReferenceIllustration(id) {
 
 function ceilingHousing() {
   // Finished section: the housing and plasterboard share the same face datum.
-  // The owner requested this trim relationship on 2026-11-10; NTS artwork only.
-  const finishedFaceY = 39;
+  // Only the owner's 128/140 labels are dimensional evidence; artwork is NTS.
+  const finishedFaceY = 39, outletLeft = 16.5, outletRight = 38;
+  const outletWidth = outletRight - outletLeft, outletCentre = (outletLeft + outletRight) / 2;
   return [
-    // Insulation and timber backing retain the source section's relationship.
     hatch(4, 1, 44, 13),
     box(20, 13, 10, 3, "#eee8df"), hatch(20, 13, 10, 3, 2),
-    box(4, 16, 7, 20, "#dbdbdb"),
-    ...[4.5, 5.7, 7.3, 8.8, 10.2].map(x => seg(x, 16, x, 36, .25)),
-    `<g data-source-feature="tva-body" data-finish-y="${finishedFaceY}">${path(`M11 14 H38 V${finishedFaceY} H12 V33 H11 Z`, "#828282")}</g>`,
-    path("M12 15 C16 19 17 22 17 25 C17 30 15 33 12 35", "none", .25),
+    `<g data-source-feature="tva-body" data-finish-y="${finishedFaceY}">${path(`M11 14 H${outletRight} V${finishedFaceY} H${outletLeft} V35 H12 V33 H11 Z`, "#828282")}</g>`,
+    // A smaller corrugated branch meets the side spigot, not the full body height.
+    `<g data-source-feature="tva-side-duct">${box(4, 18, 6.3, 15, "#dbdbdb")}`,
+    ...[4.5, 5.7, 7.3, 8.8, 10].map(x => seg(x, 18, x, 33, .25)), "</g>",
+    `<g data-source-feature="tva-side-spigot">${box(10.3, 17.5, 1.7, 16, "#bdbdbd")}</g>`,
+    path("M12 17.5 C16 20 17 22 17 25 C17 29 16 32 16.5 35", "none", .25),
     box(23.5, 16, 3.5, 16.5, "#333333"),
     box(24.3, 14.5, 1.9, 20.5, "#919191"),
     circle(25.25, 19.3, .8, "#c4b83a"), circle(25.25, 26.7, .8, "#c4b83a"),
     `<g data-source-feature="plasterboard" data-finish-y="${finishedFaceY}">`,
-    box(4, 36, 8, finishedFaceY - 36, "#eeeeee"), hatch(4, 36, 8, finishedFaceY - 36, 2),
-    box(38, 36, 10, finishedFaceY - 36, "#eeeeee"), hatch(38, 36, 10, finishedFaceY - 36, 2),
+    box(4, 36, outletLeft - 4, finishedFaceY - 36, "#eeeeee"), hatch(4, 36, outletLeft - 4, finishedFaceY - 36, 2),
+    box(outletRight, 36, 48 - outletRight, finishedFaceY - 36, "#eeeeee"), hatch(outletRight, 36, 48 - outletRight, finishedFaceY - 36, 2),
     "</g>",
-    box(16.5, 30, 19, 5, "#ffffff"),
-    text(26, 33.2, "TVA housing", 2.5, 'text-anchor="middle"'),
-    dimH(16.5, 38, 42.8, "128", RED, 40),
+    `<g data-source-feature="tva-outlet-opening">${seg(outletLeft, finishedFaceY, outletRight, finishedFaceY)}</g>`,
+    box(17.5, 30, 18.5, 5, "#ffffff"),
+    text(outletCentre, 33.2, "TVA housing", 2.5, 'text-anchor="middle"'),
+    dimH(outletLeft, outletRight, 42.8, "128", RED, finishedFaceY + .5),
     dimV(14, finishedFaceY, 52, "140", RED, 48),
-    // Separate lower grille profile from the same source, not a second housing.
-    path("M18 47 H37 L39 49 H16 Z", "#dddddd", .15),
-    box(18.8, 44.8, 17.4, 2.1, "#707070", .15),
-    seg(17, 44.8, 38, 44.8, .25),
+    // Exploded grille: its insertion collar matches the outlet; the face overlaps it.
+    `<g data-source-feature="tva-grille-collar">${box(outletLeft, 44.8, outletWidth, 2.1, "#707070", .15)}</g>`,
+    seg(outletLeft - 1, 44.8, outletRight + 1, 44.8, .25),
+    path(`M${outletLeft - 1} 47 H${outletRight + 1} L${outletRight + 3} 49 H${outletLeft - 3} Z`, "#dddddd", .15),
   ].join("");
 }
 
@@ -58,7 +61,6 @@ function wallHousing() {
     text(22, 29.8, "spigot", 2.5, 'text-anchor="middle"', RED),
     circle(33.4, 17.2, .42, "#555555", .1), circle(33.4, 37.1, .42, "#555555", .1),
     seg(11, 3.5, 11, 44, .15, RED, 'stroke-dasharray=".8 .8"'),
-    seg(8.5, 20.2, 39.5, 20.2, .15, RED, 'stroke-dasharray=".8 .8"'),
     dimH(11, 32, 4.8, "120", RED, 11),
     dimV(18, 36, 43, "115", RED, 37),
     dimV(16.5, 37.5, 54, "140", RED, 37),

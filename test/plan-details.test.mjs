@@ -20,16 +20,17 @@ function unit(project, model, cwSize, id = model, floorId = "ground", layout = "
 }
 const ids = details => details.cards.map(card=>card.id);
 
-test("each A3 plan carries vector terminal dimensions without changing source data or parts", () => {
+test("terminal dimensions belong to matching fittings on the separate sheet without changing data or parts", () => {
   const project = fixture(), before = serializeProject(project);
   for (const floorId of ["ground","upper"]) {
-    const sheet = createA3SheetModel(project,{...metadata,floorId}), svg = renderA3SheetSvg(sheet);
-    assert.deepEqual(ids(sheet.planDetails),["ceiling-tva","wall-housing"]);
+    const sheet = createA3SheetModel(project,{...metadata,floorId}), plan = renderA3SheetSvg(sheet), svg = createSheetOutputPages(sheet)[1].svg;
+    assert.deepEqual(ids(sheet.installationDetails).filter(id=>id!=="equipment-notes"),["ceiling-tva","wall-housing"]);
     for (const value of [128,140,120,115]) assert.match(svg,new RegExp(String(value)));
     assert.match(svg,/Ø90 duct spigot/);
     assert.match(svg,/after plastering/);
+    assert.doesNotMatch(plan,/TERMINAL DIMENSIONS|Ceiling TVA housing|128 horizontal|Ø90 duct spigot|after plastering/);
     assert.equal(sheet.partsSchedule.componentLines.length,0);
-    assert.ok(Object.isFrozen(sheet.planDetails.cards[0]));
+    assert.ok(Object.isFrozen(sheet.installationDetails.cards[0]));
   }
   assert.equal(serializeProject(project),before);
 });
@@ -86,18 +87,15 @@ test("unknown AF300 assembly values and Q wiring remain explicitly unresolved", 
   assert.equal(PLAN_DETAIL_REFERENCES.af520.drainAllowanceMm,150);
 });
 
-test("detail panels reserve space outside the plan, legend, title and optional schedule", () => {
+test("moving the terminal strip restores the full plan area without affecting optional schedules", () => {
   const project=unit(unit(fixture(),"q350-hrv","320"),"aerofresh-450-hrv","520");
   for (const orientation of ["landscape","portrait"]) for (const includeSchedule of [false,true]) {
-    const sheet=createA3SheetModel(project,{...metadata,orientation,includeSchedule});
-    const b=sheet.planDetails.bounds,d=sheet.drawingBounds;
-    assert.ok(d.heightMm>60);
-    assert.ok(d.yMm+d.heightMm+4<=b.yMm);
-    assert.ok(b.xMm+b.widthMm<=sheet.legendBounds.xMm);
-    assert.ok(b.yMm+b.heightMm<= (includeSchedule?sheet.scheduleBounds.yMm:sheet.printableBounds.yMm+sheet.printableBounds.heightMm));
-    assert.equal(b.heightMm,32);
-    assert.ok(d.heightMm>150);
-    assert.match(renderA3SheetSvg(sheet),/See next sheet: INSTALLATION DETAILS/);
+    const sheet=createA3SheetModel(project,{...metadata,orientation,includeSchedule}),d=sheet.drawingBounds;
+    assert.equal(d.yMm,sheet.printableBounds.yMm);
+    assert.equal(d.yMm+d.heightMm,includeSchedule?sheet.scheduleBounds.yMm-4:sheet.printableBounds.yMm+sheet.printableBounds.heightMm);
+    assert.ok(d.xMm+d.widthMm<=sheet.legendBounds.xMm);
+    assert.doesNotMatch(renderA3SheetSvg(sheet),/id="plan-details"|TERMINAL DIMENSIONS|Ceiling TVA housing/);
+    assert.match(createSheetOutputPages(sheet)[1].svg,/128 horizontal × 140 vertical/);
   }
 });
 
@@ -190,11 +188,11 @@ test("TVA finished body and plasterboard share a flush face without changing sou
   const bodyY = Number(svg.match(/data-source-feature="tva-body" data-finish-y="([^"]+)"/)[1]);
   const faceY = Number(svg.match(/data-source-feature="plasterboard" data-finish-y="([^"]+)"/)[1]);
   assert.equal(bodyY, faceY);
-  assert.match(svg, new RegExp(`M11 14 H38 V${faceY} H12`));
+  assert.match(svg, new RegExp(`M11 14 H38 V${faceY} H16.5`));
   assert.deepEqual([...svg.matchAll(/data-dimension="(\d+)"/g)].map(m => Number(m[1])), [128, 140]);
   const sheet = createA3SheetModel(fixture(), metadata);
   assert.match(createSheetOutputPages(sheet)[1].svg, /Finished body flush with plasterboard face/);
-  assert.match(renderA3SheetSvg(sheet), /Trim flush with plasterboard after plastering/);
+  assert.doesNotMatch(renderA3SheetSvg(sheet), /after plastering/);
 });
 
 
@@ -241,4 +239,21 @@ test("engineering artwork stays on a separate page for all sheet variations", ()
       }
     }
   }
+});
+
+
+test("TVA duct meets its smaller side spigot and grille collar fits the dimensioned outlet", async () => {
+  const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
+  const svg=render("ceiling-tva");
+  assert.match(svg, /data-source-feature="tva-side-duct"><rect x="4" y="18" width="6.3" height="15"/);
+  assert.match(svg, /data-source-feature="tva-side-spigot"><rect x="10.3" y="17.5" width="1.7" height="16"/);
+  assert.match(svg, /data-source-feature="tva-outlet-opening"><line x1="16.5" y1="39" x2="38" y2="39"/);
+  assert.match(svg, /data-source-feature="tva-grille-collar"><rect x="16.5" y="44.8" width="21.5"/);
+  assert.match(svg, /data-dimension="128"><line x1="16.5"/);
+  assert.deepEqual([...svg.matchAll(/data-dimension="(\d+)"/g)].map(m=>Number(m[1])),[128,140]);
+  const wall=render("wall-housing");
+  const dashed=[...wall.matchAll(/<line[^>]+stroke-dasharray="[^"]+"[^>]*>/g)].map(match=>match[0]);
+  assert.equal(dashed.length,1,"Only the vertical source datum remains");
+  assert.match(dashed[0],/x1="11"[^>]+x2="11"/);
+  assert.deepEqual([...wall.matchAll(/data-dimension="(\d+)"/g)].map(m=>Number(m[1])),[120,115,140]);
 });

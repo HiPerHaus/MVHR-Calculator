@@ -40,8 +40,8 @@ function referenceCard(card, number, b) {
   const scale = Math.min(1.6, (b.w - 12) / 59, (b.h - 43) / 60);
   const artX = b.x + (b.w - 58 * scale) / 2, artY = b.y + 13;
   const notes = {
-    "ceiling-tva": ["Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
-    "wall-housing": ["AeroFresh grille housing · Ø90 duct spigot.", "120, 115 and 140 follow source endpoints, not cutout or face sizes."],
+    "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
+    "wall-housing": ["120 horizontal · 115 inner · 140 overall (mm).", "AeroFresh grille housing · Ø90 duct spigot.", "120, 115 and 140 follow source endpoints, not cutout or face sizes."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "Wiring: original diagram required; fine labels not transcribed."],
     "af300-remote": ["Source dimension arrows are blank. Assembly dimensions required.", "Bare-unit dimensions are not the assembled installation size."],

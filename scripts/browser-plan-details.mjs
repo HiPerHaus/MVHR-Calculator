@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root=resolve(fileURLToPath(new URL("..",import.meta.url)));
-const output=resolve(root,"../tmp/insulation-tva-qa-20261110");
+const output=resolve(root,"../tmp/fitting-details-qa-20261110");
 const profile=await mkdtemp(join(tmpdir(),"studio-detail-qa-"));
 const page = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/app/style.css"><style>body{margin:0;background:white;min-width:0}.sheet-page{margin:0;box-shadow:none}svg{display:block}</style><div id="pages"></div><script type="module">
 import * as d from "/src/domain/spatial.mjs";
@@ -29,7 +29,9 @@ window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="installat
 const bounds=card.querySelector("rect").getBoundingClientRect();
 const illustrations=[...card.querySelectorAll("[data-illustration]")].map(node=>node.getBoundingClientRect()),notes=card.querySelector("[data-role=detail-notes]")?.getBoundingClientRect();
 const body=card.querySelector('[data-source-feature="tva-body"]')?.getBoundingClientRect(),plaster=card.querySelector('[data-source-feature="plasterboard"]')?.getBoundingClientRect();
-return {id:card.dataset.detailId,finishedFaceGap:body&&plaster?body.bottom-plaster.bottom:null,notesOverlap:!!(notes&&illustrations.some(illustration=>illustration.bottom>notes.top-1)),overflow:[...card.querySelectorAll("text")].filter(node=>{const r=node.getBoundingClientRect();return r.left<bounds.left-1||r.right>bounds.right+1||r.top<bounds.top-1||r.bottom>bounds.bottom+1;}).map(n=>n.textContent)};});
+const opening=card.querySelector('[data-source-feature="tva-outlet-opening"]')?.getBoundingClientRect(),collar=card.querySelector('[data-source-feature="tva-grille-collar"]')?.getBoundingClientRect(),duct=card.querySelector('[data-source-feature="tva-side-duct"]')?.getBoundingClientRect(),spigot=card.querySelector('[data-source-feature="tva-side-spigot"]')?.getBoundingClientRect();
+const fittingNotes=card.querySelector('[data-role="detail-notes"]')?.textContent??"";
+return {id:card.dataset.detailId,collarOpeningGap:opening&&collar?Math.max(Math.abs(opening.left-collar.left),Math.abs(opening.right-collar.right)):null,ductSpigotGap:duct&&spigot?Math.abs(duct.right-spigot.left):null,ductSmallerThanSpigot:duct&&spigot?duct.height<spigot.height:null,fittingNotes,finishedFaceGap:body&&plaster?body.bottom-plaster.bottom:null,notesOverlap:!!(notes&&illustrations.some(illustration=>illustration.bottom>notes.top-1)),overflow:[...card.querySelectorAll("text")].filter(node=>{const r=node.getBoundingClientRect();return r.left<bounds.left-1||r.right>bounds.right+1||r.top<bounds.top-1||r.bottom>bounds.bottom+1;}).map(n=>n.textContent)};});
 const second=createA3SheetModel(project,{...meta,orientation:"portrait"});
 window.__portraitPages=createSheetOutputPages(second);
 window.__documentPages=createSheetOutputDocument([sheet,second]);
@@ -84,7 +86,7 @@ try{
  const layout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(layout.flatMap(c=>c.overflow),[],JSON.stringify(layout));
  assert.ok(layout.every(c=>!c.notesOverlap),JSON.stringify(layout));
- assert.ok(layout.filter(c=>c.finishedFaceGap!==null).every(c=>Math.abs(c.finishedFaceGap)<.1),JSON.stringify(layout));
+ assertFittingGeometry(layout);
  await capture("mixed-preview-actual-size.png",1588,1123);
  await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
@@ -93,11 +95,13 @@ try{
  const fiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(fiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(fiveLayout));
  assert.ok(fiveLayout.every(c=>!c.notesOverlap),JSON.stringify(fiveLayout));
+ assertFittingGeometry(fiveLayout);
  await capture("all-five-detail-panel.png",1588,1123);
  await evaluate("window.__allFive(true)");
  const portraitFiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(portraitFiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(portraitFiveLayout));
  assert.ok(portraitFiveLayout.every(c=>!c.notesOverlap),JSON.stringify(portraitFiveLayout));
+ assertFittingGeometry(portraitFiveLayout);
  await capture("all-five-portrait-panel.png",1123,1588);
  const pdf=await evaluate("window.__makePdf()");
  await writeFile(join(output,"mixed-a3-a4-details.pdf"),Buffer.from(pdf,"base64"));
@@ -140,10 +144,26 @@ function delay(ms){return new Promise(r=>setTimeout(r,ms));}
 
 function assertPageSeparation(pages, firstPartCount) {
  for (const start of [0, firstPartCount]) {
-  assert.ok(pages[start].text.includes("TERMINAL DIMENSIONS"));
+  assert.ok(pages[start].text.includes("SYMBOL KEY"));
+  assert.ok(!pages[start].text.includes("TERMINAL DIMENSIONS"));
+  assert.ok(!pages[start].text.includes("128 horizontal"));
+  assert.ok(!pages[start].text.includes("after plastering"));
   assert.ok(!pages[start].text.includes("Ducts within thermal envelope"),"Engineering details must not share the plan page");
   assert.ok(pages[start+1].text.includes("Ducts within thermal envelope"));
-  assert.ok(!pages[start+1].text.includes("TERMINAL DIMENSIONS"),"The engineering page must not contain the plan's key");
+  assert.ok(pages[start+1].text.includes("128 horizontal × 140 vertical"));
+  assert.ok(pages[start+1].text.includes("120 horizontal · 115 inner · 140 overall"));
   assert.ok(!pages[start+1].text.includes("SYMBOL KEY"),"The engineering page must not contain the plan");
  }
+}
+
+
+function assertFittingGeometry(layout) {
+ const tva=layout.find(card=>card.id==="ceiling-tva"),wall=layout.find(card=>card.id==="wall-housing");
+ assert.ok(Math.abs(tva.finishedFaceGap)<.1,JSON.stringify(tva));
+ assert.ok(tva.collarOpeningGap<.1,JSON.stringify(tva));
+ assert.ok(tva.ductSpigotGap<.1&&tva.ductSmallerThanSpigot,JSON.stringify(tva));
+ assert.ok(tva.fittingNotes.includes("128 horizontal × 140 vertical"));
+ assert.ok(!tva.fittingNotes.includes("120 horizontal"));
+ assert.ok(wall.fittingNotes.includes("120 horizontal · 115 inner · 140 overall"));
+ assert.ok(!wall.fittingNotes.includes("128 horizontal"));
 }
