@@ -1,5 +1,5 @@
-// Presentation only: switching tool palettes never mutates a project or filters
-// the shared plan, checks, quantities or exports.
+// Presentation only: workspace tabs filter tools and the drawing, never the
+// authoritative project, checks, quantities or exports.
 export const VENTILATION_WORKSPACES = Object.freeze(["centralised", "decentralised", "combined"]);
 
 export function normalizeVentilationWorkspace(value) {
@@ -14,6 +14,11 @@ export function ventilationWorkspaceLabel(workspace) {
 
 export function ventilationWorkspaceIncludes(workspace, system) {
   return workspace === "combined" || workspace === system;
+}
+
+export function componentVentilationWorkspace(component) {
+  return component?.decentralisedMvhr || component?.decentralisedController
+    ? "decentralised" : "centralised";
 }
 
 export function catalogueEntryWorkspace(entry) {

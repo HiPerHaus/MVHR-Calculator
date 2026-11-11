@@ -27,6 +27,7 @@ function tabsQaButton(label, action) {
 function tabsQaFixture(type) {
   let project = createInitialProject(`synthetic-tabs-${type}`);
   project.projectDetails.name = `Synthetic ${type} review`;
+  project = applyCommand(project, { type: 'floorArea.create', outline: { id: 'qa-outline', floorId: 'floor-ground', name: 'Shared floor plan', geometrySource: 'manual-floor-area-outline', purpose: 'preliminary-quoting', areaConvention: 'closed-plan-outline', measurementBasis: 'floor-local-plan-mm', holes: [], vertices: [{x:0,y:0},{x:10000,y:0},{x:10000,y:7500},{x:0,y:7500}].map((point,index)=>({id:`qa-v-${index}`,positionMm:{...point,z:knownMm(0,'synthetic')}})) } });
   project = applyCommand(project, {type:'project.setVentilationDesignType', ventilationDesignType:type});
   const add = (catalogueItemId, id, xMm, yMm) => { project = applyCommand(project, {type:'component.add', component:createCatalogueComponent(catalogueItemId,{id,floorId:'floor-ground',xMm,yMm})}); };
   if (type !== 'decentralised') {
@@ -62,7 +63,7 @@ tabsQaButton('Run tab checks', async () => {
       tabsQaAssert(document.querySelector(`[data-ventilation-tab="${workspace}"]`).getAttribute('aria-pressed')==='true','Tab pressed state');
       tabsQaAssert(workspace==='combined' || [...catalogueCategories.children].every(button => workspace==='centralised' ? !button.textContent.includes('Decentralised')&&!button.textContent.includes('Controls') : /Decentralised|Controls/.test(button.textContent)), 'Cross-system categories');
       tabsQaAssert(document.querySelector('#automatic-routing-section').hidden===(workspace==='decentralised'),'Auto-route scope');
-      tabsQaAssert([...canvas.querySelectorAll('[data-component-id]')].length>0,'Shared plan lost equipment');
+      tabsQaAssert(canvas.querySelector('[data-floor-area-id="qa-outline"]'),'Shared floor plan disappeared');
       if(workspace==='combined') {
         for(const category of ['Units','Terminals','Distribution','Decentralised','Controls','Duct']) tabsQaCategory(category);
         tabsQaAssert(!document.querySelector('#duct-parts').hidden,'Combined duct tools hidden');
@@ -76,7 +77,16 @@ tabsQaButton('Run tab checks', async () => {
         tabsQaAssert(catalogueGroups.querySelectorAll('button').length===0&&document.querySelector('#duct-parts').hidden,'Cross-system search results');
       }
       const visibleIds=[...new Set([...canvas.querySelectorAll('[data-component-id]')].map(item=>item.dataset.componentId))].sort();
-      tabsQaEqual(visibleIds,history.present.components.map(item=>item.id).sort(),'Shared plan lost a system');
+      const expectedComponents=history.present.components.filter(item=>workspace==='combined'||(item.decentralisedMvhr||item.decentralisedController?'decentralised':'centralised')===workspace);
+      tabsQaEqual(visibleIds,expectedComponents.map(item=>item.id).sort(),'Plan has missing or cross-system components');
+      const visibleRoutes=[...new Set([...canvas.querySelectorAll('[data-route-id]')].map(item=>item.dataset.routeId))].sort();
+      tabsQaEqual(visibleRoutes,workspace==='decentralised'?[]:history.present.routes.map(item=>item.id).sort(),'Plan has missing or cross-system ducts');
+      const visibleCables=[...new Set([...canvas.querySelectorAll('[data-decentralised-cable-id]')].map(item=>item.dataset.decentralisedCableId))].sort();
+      tabsQaEqual(visibleCables,workspace==='centralised'?[]:history.present.decentralisedCables.map(item=>item.id).sort(),'Plan has missing or cross-system cables');
+      for(const component of history.present.components) {
+        const hit=mechanicalHitFromTarget({dataset:{componentId:component.id}});
+        tabsQaEqual(Boolean(hit),expectedComponents.includes(component),'Hidden direct component hit');
+      }
       catalogueSearchInput.value='';catalogueSearchInput.dispatchEvent(new Event('input'));
     }
     tabsQaClick('#plan-nav');tabsQaClick('#ventilation-nav');tabsQaClick('#checks-nav');tabsQaClick('#ventilation-nav');
@@ -94,8 +104,59 @@ tabsQaButton('Run tab checks', async () => {
     tabsQaEqual(sheetPreviewPages.map(page=>page.svg),sheetBefore,`${type}: Combined changed export`);
     tabsQaClick('#close-sheet-preview');tabsQaEqual(activeVentilationWorkspace,'combined','Export lost Combined tab');
     tabsQaEqual(tabsQaStable(),original,`${type}: export mutated model`);
-    passed.push(`${type}: defaults, 6 switches, combined/scoped search, plan/check/export return, identical outputs`);
+    passed.push(`${type}: defaults, 6 switches, clean system plan, shared outline, hidden-hit rejection, search, navigation, identical exports`);
   }
+  tabsQaFixture('mixed');tabsQaClick('#combined-tools-tab');
+  const selectionOriginal=tabsQaStable();
+  for(const kind of ['component','route','cable']) {
+    tabsQaClick('#combined-tools-tab');
+    mechanicalState={...mechanicalState,selectedComponentId:kind==='component'?'qa-hrv':null};
+    selectedRouteId=kind==='route'?'qa-duct':null;selectedDecentralisedCableId=kind==='cable'?'qa-cable':null;render();
+    tabsQaClick(kind==='cable'?'#centralised-tools-tab':'#decentralised-tools-tab');
+    tabsQaAssert(!mechanicalState.selectedComponentId&&!selectedRouteId&&!selectedDecentralisedCableId,'Hidden selection survived switching');
+    canvas.focus();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true}));
+    tabsQaEqual(tabsQaStable(),selectionOriginal,'Delete after switching changed model');
+    tabsQaAssert(!canvas.querySelector('.route-point-handle,.decentralised-cable-point-handle'),'Hidden edit handles remained');
+  }
+  tabsQaClick('#combined-tools-tab');
+  openComponentContextAt(history.present.components.find(item=>item.id==='qa-hrv'),400,300);
+  tabsQaAssert(!componentContext.hidden,'Context menu did not open');
+  tabsQaClick('#decentralised-tools-tab');
+  tabsQaAssert(componentContext.hidden,'Keyboard system switch retained hidden-item context actions');
+  tabsQaEqual(tabsQaStable(),selectionOriginal,'Closing hidden context menu changed model');
+  // A stale check reveal must not leak a component when moving to the opposite tab.
+  focusCheckTarget({target:{kind:'component',id:'qa-lunos-a'}});tabsQaClick('#centralised-tools-tab');
+  tabsQaAssert(!canvas.querySelector('[data-component-id="qa-lunos-a"]')&&!temporaryCheckReveal,'Check reveal leaked across system tabs');
+  tabsQaClick('#return-to-check');tabsQaClick('#ventilation-nav');
+  tabsQaClick('#combined-tools-tab');
+  hiddenVentilationGroups.add('hrv');render();
+  tabsQaAssert(!canvas.querySelector('[data-component-id="qa-hrv"]'),'View option not respected');
+  tabsQaClick('#decentralised-tools-tab');tabsQaClick('#combined-tools-tab');
+  tabsQaAssert(!canvas.querySelector('[data-component-id="qa-hrv"]'),'Combined reset view option');
+  hiddenVentilationGroups.clear();render();
+  // Hit testing and snapping must ignore hidden centralised equipment and ducts.
+  tabsQaClick('#decentralised-tools-tab');
+  const routePoint=canvas.createSVGPoint();routePoint.x=400;routePoint.y=250;
+  const routeClient=routePoint.matrixTransform(canvas.getScreenCTM());
+  tabsQaEqual(routeIdFromPointerEvent({target:canvas,clientX:routeClient.x,clientY:routeClient.y}),null,'Hidden duct selected by proximity');
+  const unit=history.present.components.find(item=>item.id==='qa-hrv');
+  const intake=unit.ports.find(port=>port.stream==='intake'),exhaust=unit.ports.find(port=>port.stream==='exhaust');
+  const a=floorPortTransform(history.present,unit.id,intake.id),b=floorPortTransform(history.present,unit.id,exhaust.id);
+  const proposed={x:(a.positionMm.x+b.positionMm.x)/2+a.direction.x*3000,y:(a.positionMm.y+b.positionMm.y)/2+a.direction.y*3000};
+  const grille=createCatalogueComponent('generic-external-grille-combined-dn160',{id:'qa-preview-grille',floorId:'floor-ground',xMm:proposed.x,yMm:proposed.y});
+  tabsQaEqual(grilleAlignment(grille,proposed,true),null,'Hidden HRV attracted grille snapping');
+  const portPoint=canvas.createSVGPoint();portPoint.x=toView(a.positionMm.x);portPoint.y=toView(a.positionMm.y);
+  const portClient=portPoint.matrixTransform(canvas.getScreenCTM());
+  activeTool='route';tabsQaEqual(mechanicalHitFromPointerEvent({target:canvas,clientX:portClient.x,clientY:portClient.y}),null,'Hidden port attracted duct snapping');setTool('select');
+  tabsQaClick('#centralised-tools-tab');tabsQaAssert(grilleAlignment(grille,proposed,true),'Visible HRV lost grille snapping');
+  tabsQaClick('#combined-tools-tab');
+  const beforeDrag=tabsQaStable();
+  componentDragState={componentId:unit.id,memberIds:[unit.id],assemblyId:null,pointerId:999,start:{x:2000,y:2000},preview:{x:2400,y:2300}};
+  renderDragPreview();tabsQaClick('#decentralised-tools-tab');
+  tabsQaAssert(!componentDragState&&!routePointDragState&&!decentralisedCablePointDragState,'Drag preview survived tab switch');
+  tabsQaEqual(tabsQaStable(),beforeDrag,'Interrupted drag changed model');
+  tabsQaClick('#combined-tools-tab');
+  passed.push('Selection/delete safety, handles, check reveal, view options, hidden route/port/grille snapping and cancelled drag');
   const original=tabsQaStable();tabsQaCategory('Terminals');tabsQaClick('.terminal-service-tool-supply');
   tabsQaClick('#ventilation-nav');tabsQaAssert(terminalPlacementMode?.service==='supply','Repeated Draw reset placement');
   tabsQaClick('#combined-tools-tab');tabsQaAssert(terminalPlacementMode?.service==='supply','Repeated Combined tab reset placement');
@@ -132,7 +193,7 @@ tabsQaButton('Run tab checks', async () => {
   tabsQaOutput.textContent=`PASS ${innerWidth} × ${innerHeight}\n`+passed.join('\n');
 });
 tabsQaButton('Prepare reload', async () => {
-  await tabsQaReady();tabsQaFixture('mixed');tabsQaClick('#combined-tools-tab');tabsQaCategory('Controls');await tabsQaSave();
+  await tabsQaReady();tabsQaFixture('mixed');tabsQaClick('#decentralised-tools-tab');tabsQaCategory('Controls');await tabsQaSave();
   sessionStorage.setItem('tabs-qa-reload',JSON.stringify({project:serializeProject(history.present),workspace:activeVentilationWorkspace,group:selectedCatalogueGroup}));
   tabsQaOutput.textContent='Reload prepared. Reload this page, then choose Check restored.';
 });
@@ -140,7 +201,8 @@ tabsQaButton('Check restored', async () => {
   await tabsQaReady();const expected=JSON.parse(sessionStorage.getItem('tabs-qa-reload'));
   tabsQaAssert(expected,'Prepare reload first');tabsQaEqual(serializeProject(history.present),expected.project,'Reload changed mixed model');
   tabsQaEqual(activeVentilationWorkspace,expected.workspace,'Reload lost selected tab');tabsQaEqual(selectedCatalogueGroup,expected.group,'Reload lost category');
-  tabsQaEqual(activeDesignStage,'draw','Reload lost Draw');tabsQaAssert(document.querySelector('#combined-tools-tab').getAttribute('aria-pressed')==='true','Recovered palette not rendered');
-  tabsQaEqual(tabsQaErrors,[],'Browser errors after reload');tabsQaOutput.textContent=`PASS reload ${innerWidth} × ${innerHeight}: mixed units, ducts, pairs, controller, cable, Draw, Combined and Controls restored.`;
+  tabsQaEqual(activeDesignStage,'draw','Reload lost Draw');tabsQaAssert(document.querySelector('#decentralised-tools-tab').getAttribute('aria-pressed')==='true','Recovered palette not rendered');
+  tabsQaAssert(!canvas.querySelector('[data-component-id="qa-hrv"],[data-route-id]')&&canvas.querySelector('[data-component-id="qa-lunos-a"]'),'Recovered plan does not respect system tab');
+  tabsQaEqual(tabsQaErrors,[],'Browser errors after reload');tabsQaOutput.textContent=`PASS reload ${innerWidth} × ${innerHeight}: mixed units, ducts, pairs, controller, cable, Draw, clean Decentralised plan and Controls restored.`;
 });
 tabsQaPanel.append(tabsQaOutput);

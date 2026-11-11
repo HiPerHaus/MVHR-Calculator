@@ -181,7 +181,7 @@ import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import { createEngineeringEditGuard } from "../src/editor/engineering-edit-guard.mjs";
 import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
 import { normalizeStudioDesignStage, transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
-import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
+import { catalogueEntryWorkspace, componentVentilationWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   engineeringComponentFingerprint,
@@ -607,12 +607,14 @@ let sheetPreviewPdfMetadata = null;
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
-const componentIsVisible = component => temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
-  ? true
-  : !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
-const routeIsVisible = route => temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
-  ? true
-  : !hiddenVentilationGroups.has(routeVisibilityGroup(route));
+const componentIsVisible = component => ventilationWorkspaceIncludes(activeVentilationWorkspace, componentVentilationWorkspace(component))
+  && (temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
+    || !hiddenVentilationGroups.has(ventilationVisibilityGroup(component)));
+const routeIsVisible = route => ventilationWorkspaceIncludes(activeVentilationWorkspace, "centralised")
+  && (temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
+    || !hiddenVentilationGroups.has(routeVisibilityGroup(route)));
+const cableIsVisible = cable => ventilationWorkspaceIncludes(activeVentilationWorkspace, "decentralised")
+  && cable.floorId === currentFloorId();
 const viewOptionsAnchor = document.querySelector("#view-options-anchor");
 const viewOptionsToggle = document.querySelector("#view-options-toggle");
 const viewOptionsBackdrop = document.querySelector("#view-options-backdrop");
@@ -1187,7 +1189,7 @@ document.querySelector("#external-grille-form").addEventListener("change",update
 function grilleAlignment(component,point,allowHandingChange=false) {
   if(!snapEnabled)return null;
   const rect=canvas.getBoundingClientRect(),pixelsPerViewUnit=Math.min(rect.width/camera.width,rect.height/camera.height);
-  return findCombinedGrilleAlignment(history.present,component,point,{toleranceMm:12*MILLIMETRES_PER_VIEW_UNIT/Math.max(pixelsPerViewUnit,1e-6),allowHandingChange,allowRotation:allowHandingChange});
+  return findCombinedGrilleAlignment({...history.present,components:history.present.components.filter(componentIsVisible)},component,point,{toleranceMm:12*MILLIMETRES_PER_VIEW_UNIT/Math.max(pixelsPerViewUnit,1e-6),allowHandingChange,allowRotation:allowHandingChange});
 }
 function grillePlacementAlignment(point) {
   if(externalGrillePlacement!=="combined")return null;
@@ -1617,7 +1619,7 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointIndex = Number.parseInt(routePointHandle.dataset.pointIndex, 10);
     const route = history.present.routes.find((candidate) => candidate.id === routeId);
     const point = route?.points[pointIndex];
-    if (!route || !point || pointIndex < 1 || pointIndex >= route.points.length - 1) return;
+    if (!route || !routeIsVisible(route) || !point || pointIndex < 1 || pointIndex >= route.points.length - 1) return;
     selectedRouteId = route.id;
     selectedRoutePointIndex = pointIndex;
     mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -1640,7 +1642,7 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointIndex = Number.parseInt(cablePointHandle.dataset.pointIndex, 10);
     const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
     const point = cable?.points[pointIndex];
-    if (!cable || !point || pointIndex < 1 || pointIndex >= cable.points.length - 1) return;
+    if (!cable || !cableIsVisible(cable) || !point || pointIndex < 1 || pointIndex >= cable.points.length - 1) return;
     selectedDecentralisedCableId = cable.id;
     selectedDecentralisedCablePointIndex = pointIndex;
     selectedRouteId = null;
@@ -2034,7 +2036,7 @@ canvas.addEventListener("click", (event) => {
       const cableId = cableAddPointTarget.dataset.decentralisedCableId;
       const segmentIndex = Number.parseInt(cableAddPointTarget.dataset.segmentIndex, 10);
       const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
-      if (cable && Number.isSafeInteger(segmentIndex)) {
+      if (cable && cableIsVisible(cable) && Number.isSafeInteger(segmentIndex)) {
         const start = cable.points[segmentIndex];
         const end = cable.points[segmentIndex + 1];
         commitCommand({ type: "decentralisedCable.insertPoint", cableId, segmentIndex, point: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } }, "Controller cable bend point added");
@@ -2060,7 +2062,8 @@ canvas.addEventListener("click", (event) => {
       selectedDecentralisedCablePointIndex = null;
       interactionMessage = "Catalogue component selected";
     } else {
-      const cableId = event.target.closest?.("[data-decentralised-cable-id]")?.dataset.decentralisedCableId ?? null;
+      const candidateCableId = event.target.closest?.("[data-decentralised-cable-id]")?.dataset.decentralisedCableId ?? null;
+      const cableId = history.present.decentralisedCables.some(cable => cable.id === candidateCableId && cableIsVisible(cable)) ? candidateCableId : null;
       const routeId = routeIdFromPointerEvent(event);
       mechanicalState = clearMechanicalSelection(mechanicalState);
       selectedDecentralisedCableId = cableId;
@@ -2630,7 +2633,7 @@ function applyVentilationProjectType(type) {
   if(type===previous) return renderProjectWorkspace();
   commitCommand({type:"project.setVentilationDesignType",ventilationDesignType:type},`${ventilationProjectTypeLabel(type)} project type applied · geometry and ventilation objects preserved`);
   if (["centralised", "decentralised", "mixed"].includes(type)) {
-    activeVentilationWorkspace = type === "mixed" ? "combined" : type;
+    selectVentilationWorkspace(type === "mixed" ? "combined" : type);
     selectedCatalogueGroup = null;
     catalogueSearchInput.value = "";
   }
@@ -4498,7 +4501,7 @@ function addRoutePointAtSegment(target) {
   const routeId = target.dataset.routeId;
   const segmentIndex = Number.parseInt(target.dataset.routeInsertIndex, 10);
   const route = history.present.routes.find((candidate) => candidate.id === routeId);
-  if (!route || route.id !== selectedRouteId || !Number.isSafeInteger(segmentIndex)) return;
+  if (!route || !routeIsVisible(route) || route.id !== selectedRouteId || !Number.isSafeInteger(segmentIndex)) return;
   const start = route.points[segmentIndex];
   const end = route.points[segmentIndex + 1];
   if (!start || !end) return;
@@ -4548,6 +4551,7 @@ function interpolatedRouteElevation(start, end) {
 function mechanicalHitFromTarget(target) {
   const componentId = target?.dataset?.componentId;
   const portId = target?.dataset?.portId;
+  if (componentId && !history.present.components.some(component => component.id === componentId && componentIsVisible(component))) return null;
   if (componentId && portId) {
     const component = history.present.components.find((candidate) => candidate.id === componentId);
     const port = component?.ports.find((candidate) => candidate.id === portId);
@@ -6095,7 +6099,12 @@ function cancelActivePointer() {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
-  if (decentralisedCablePointDragState) { decentralisedCablePointDragState = null; render(); }
+  if (decentralisedCablePointDragState) {
+    const pointerId = decentralisedCablePointDragState.pointerId;
+    decentralisedCablePointDragState = null;
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    render();
+  }
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -6853,6 +6862,7 @@ function decentralisedCableDisplayPoints(cable) {
 
 function renderDecentralisedCable(cable) {
   const layer = modelGroup("cable", cable.id);
+  if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
   const pointString = routePointString(points);
   const selected = selectedDecentralisedCableId === cable.id ? " selected" : "";
@@ -6864,6 +6874,7 @@ function renderDecentralisedCable(cable) {
 
 function renderDecentralisedCableEditHandles(cable) {
   const layer = modelGroup("cable-handles", cable.id);
+  if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
   const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
   for (let index = 0; index < points.length - 1; index += 1) {
@@ -6908,6 +6919,7 @@ function routeDisplayPoints(route) {
 
 function renderRouteEditHandles(route) {
   const layer = modelGroup("route-handles", route.id);
+  if (!routeIsVisible(route)) return;
   const points = routeDisplayPoints(route);
   const body = routeBodyGeometry(route);
   for (const lane of body.lanes) layer.append(svgElement("polyline", {points:routePointString(lane),class:"route-selection-halo","stroke-width":toView(body.diameterMm ?? 0)+5}));
@@ -8056,6 +8068,7 @@ function selectVentilationWorkspace(workspace) {
   normalizeVentilationWorkspace(workspace);
   if (activeVentilationWorkspace === workspace) return;
   const keepToolsOpen = planWorkspace.classList.contains("tablet-tools-open");
+  closeComponentContext();
   cancelActivePointer();
   setTool("select");
   mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -8064,11 +8077,15 @@ function selectVentilationWorkspace(workspace) {
   selectedDecentralisedCableId = null;
   selectedDecentralisedCablePointIndex = null;
   activeVentilationWorkspace = workspace;
+  temporaryCheckReveal = null;
+  routePickCycle = null;
   selectedCatalogueGroup = null;
   catalogueSearchInput.value = "";
   if (keepToolsOpen) setTabletPanel("tools");
   ventilationWorkspaceButtons.find(button => button.dataset.ventilationTab === workspace)?.focus({ preventScroll: true });
-  interactionMessage = `${ventilationWorkspaceLabel(workspace)} tools active · both systems remain on the plan`;
+  interactionMessage = workspace === "combined"
+    ? "Combined tools and plan · both systems visible"
+    : `${ventilationWorkspaceLabel(workspace)} tools and plan · other system hidden, not deleted`;
   renderCataloguePalette();
   queueWorkingSession();
   render();
@@ -8107,7 +8124,7 @@ function renderCataloguePalette() {
   for (const button of ventilationWorkspaceButtons) button.setAttribute("aria-pressed", String(button.dataset.ventilationTab === activeVentilationWorkspace));
   for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = !ventilationWorkspaceIncludes(activeVentilationWorkspace, panel.dataset.ventilationWorkspace);
   catalogueSearchInput.placeholder = activeVentilationWorkspace === "combined" ? "e.g. Q350, Lunos, controller, EPP" : activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
-  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools. Both systems stay on the same plan and are included in exports. Switching tabs does not change the project type.`;
+  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools and plan. ${activeVentilationWorkspace === "combined" ? "Both systems are visible." : "Only this system is visible; the other system is preserved."} Checks, parts lists and exports still include both systems. Switching tabs does not change the project type.`;
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
     const button = document.createElement("button");
@@ -9535,6 +9552,9 @@ function focusCheckTarget(item) {
   setTask(target.kind === "room" || target.kind === "zone" ? "plan" : "ventilation", { designNavigation: true });
   mechanicalState = clearMechanicalSelection(mechanicalState);
   selectedRouteId = null;
+  selectedRoutePointIndex = null;
+  selectedDecentralisedCableId = null;
+  selectedDecentralisedCablePointIndex = null;
   selectedRoomId = null;
   selectedZoneId = null;
   if (target.kind === "component") mechanicalState = { ...mechanicalState, selectedComponentId: target.id };
@@ -9729,9 +9749,9 @@ function renderInspector() {
   const wall = history.present.walls.find((candidate) => candidate.id === selectedWallId);
   const node = history.present.wallNodes.find((candidate) => candidate.id === selectedNodeId);
   const component = history.present.components.find(
-    (candidate) => candidate.id === mechanicalState.selectedComponentId,
+    (candidate) => candidate.id === mechanicalState.selectedComponentId && componentIsVisible(candidate),
   );
-  const route = history.present.routes.find((candidate) => candidate.id === selectedRouteId);
+  const route = history.present.routes.find((candidate) => candidate.id === selectedRouteId && routeIsVisible(candidate));
   const room = history.present.rooms.find((candidate) => candidate.id === selectedRoomId);
   const zone = history.present.zones.find((candidate) => candidate.id === selectedZoneId);
   const floorArea = history.present.floorAreaOutlines.find(
@@ -10376,7 +10396,7 @@ function projectBounds() {
       points.push({ x: toView(vertex.positionMm.x), y: toView(vertex.positionMm.y) });
     }
   }
-  for (const component of history.present.components) {
+  for (const component of history.present.components.filter(component => activeTask !== "ventilation" || componentIsVisible(component))) {
     points.push({ x: toView(component.positionMm.x), y: toView(component.positionMm.y) });
     const bounds = deriveComponentPlanGraphic(component)?.drawingBoundsMm;
     if (bounds) {
@@ -10386,11 +10406,14 @@ function projectBounds() {
       }
     }
   }
-  for (const route of history.present.routes) {
+  for (const route of history.present.routes.filter(route => activeTask !== "ventilation" || routeIsVisible(route))) {
     const geometry = deriveDuctBodyGeometry(route, routeFamilyForKind(route.ductKind));
     for (const lane of geometry.lanes) {
       for (const point of lane) points.push({ x: toView(point.x), y: toView(point.y) });
     }
+  }
+  for (const cable of history.present.decentralisedCables.filter(cable => activeTask !== "ventilation" || cableIsVisible(cable))) {
+    for (const point of cable.points) points.push({ x: toView(point.x), y: toView(point.y) });
   }
   for (const reference of history.present.floorReferences) {
     if (!reference.visible) continue;
