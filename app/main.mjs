@@ -2,7 +2,8 @@ import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
-import { createSheetOutputPages, createSheetOutputDocument, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
 import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
@@ -59,7 +60,6 @@ import {
   inspectVentilationProjectType,
   ventilationProjectTypeLabel,
 } from "../src/domain/ventilation-project-type.mjs";
-import { designOptionProjects } from "../src/domain/design-options.mjs";
 import {
   bytesToDataUrl,
   exportPortableProject,
@@ -597,6 +597,8 @@ const convertProjectSummary = document.querySelector("#convert-project-summary")
 const confirmProjectConversionButton = document.querySelector("#confirm-project-conversion");
 const sheetPreviewHost = document.querySelector("#sheet-preview-host");
 const sheetPreviewStatus = document.querySelector("#sheet-preview-status");
+const sheetOptionNavigation = document.querySelector("#sheet-option-navigation");
+const sheetPreviewNote = document.querySelector("#sheet-preview-note");
 const exportSheetPdfButton = document.querySelector("#export-sheet-pdf");
 const exportPartsCsvButton = document.querySelector("#export-parts-csv");
 const exportAllOptionsPdfButton = document.querySelector("#export-all-options-pdf");
@@ -604,6 +606,7 @@ const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 let sheetPreviewPages = [];
 let sheetPreviewPdfMetadata = null;
+let sheetPreviewOptionProject = null;
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
@@ -1451,6 +1454,12 @@ threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
+sheetOptionNavigation.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-export-option]");
+  if (!button || button.getAttribute("aria-pressed") === "true") return;
+  try { renderSheetOptionPreview(button.dataset.exportOption || null); }
+  catch (error) { sheetPreviewStatus.textContent = `Option preview unavailable: ${error.message}`; }
+});
 printSheetPreviewButton.addEventListener("click", printSheetPreview);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 returnToCheckButton.addEventListener("click", returnToDesignCheck);
@@ -3024,28 +3033,7 @@ function signedCount(value) {
 function openSheetPreview({ designStage = false } = {}) {
   if (hasEngineeringEdits()) return requestEngineeringTransition(() => openSheetPreview({ designStage }));
   try {
-    const activeOption=history.present.designOptions.find((option)=>option.id===history.present.activeDesignOptionId);
-    const sheet=createSheetForDesignOption(history.present,activeOption);
-    const parser = new DOMParser();
-    const pages = createSheetOutputPages(sheet);
-    const elements=pages.map(page=>{
-      const documentSvg=parser.parseFromString(page.svg,"image/svg+xml");
-      if(documentSvg.querySelector("parsererror"))throw new TypeError("Generated sheet SVG could not be parsed");
-      const element=document.createElement("section");element.className=`sheet-page ${page.className}`;
-      const label=document.createElement("div");label.className="sheet-page-label";label.textContent=page.label;
-      element.append(label,document.importNode(documentSvg.documentElement,true));return element;
-    });
-    sheetPreviewHost.replaceChildren(...elements);
-    sheetPreviewPages = pages;
-    sheetPreviewPdfMetadata = {
-      title: `${sheet.metadata.projectName} · ${sheet.metadata.drawingId}`,
-      subject: `${sheet.metadata.drawingTitle} · ${sheet.metadata.status}`,
-      author: sheet.metadata.company?.name || "HiPer Studio",
-      fileName: sheetPdfFileName(sheet.metadata.projectName, sheet.metadata.drawingId),
-    };
-    exportAllOptionsPdfButton.hidden=history.present.designOptions.length<2;
-    const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · 1 A3 drawing + 1 A3 installation detail sheet + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    renderSheetOptionPreview(history.present.activeDesignOptionId);
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -3071,6 +3059,64 @@ function openSheetPreview({ designStage = false } = {}) {
     interactionMessage = `Sheet preview unavailable: ${error.message}`;
     updateStatus();
   }
+}
+
+function renderSheetOptionPreview(optionId) {
+  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, createSheet: createSheetForDesignOption });
+  const allOptions = optionId === null;
+  const parser = new DOMParser();
+  const elements = pages.map(page => {
+    const documentSvg = parser.parseFromString(page.svg, "image/svg+xml");
+    if (documentSvg.querySelector("parsererror")) throw new TypeError("Generated sheet SVG could not be parsed");
+    const element = document.createElement("section");
+    element.className = `sheet-page ${page.className}`;
+    element.dataset.optionId = page.optionId;
+    element.dataset.pageKind = page.kind;
+    const label = document.createElement("div");
+    label.className = "sheet-page-label";
+    label.textContent = page.label;
+    element.append(label, document.importNode(documentSvg.documentElement, true));
+    return element;
+  });
+  const selected = entries[0];
+  const projectName = selected.sheet.metadata.projectName;
+  const metadata = allOptions ? {
+    title: `${projectName} · all design options`,
+    subject: "Independent ventilation design options · preliminary · not for construction",
+    author: selected.sheet.metadata.company?.name || "HiPer Studio",
+    fileName: sheetPdfFileName(projectName, "all-design-options"),
+  } : {
+    title: `${projectName} · ${selected.sheet.metadata.drawingId}`,
+    subject: `${selected.sheet.metadata.drawingTitle} · ${selected.sheet.metadata.status}`,
+    author: selected.sheet.metadata.company?.name || "HiPer Studio",
+    fileName: sheetPdfFileName(projectName, selected.sheet.metadata.drawingId),
+  };
+  sheetPreviewHost.replaceChildren(...elements);
+  sheetPreviewPages = pages;
+  sheetPreviewPdfMetadata = metadata;
+  sheetPreviewOptionProject = allOptions ? null : selected.project;
+  const choices = history.present.designOptions.map(option => ({ id: option.id, label: `${option.name} · ${option.revision}` }));
+  if (choices.length > 1) choices.push({ id: "", label: "All options" });
+  // Keep existing buttons on selection changes so keyboard focus is not lost.
+  const previousChoices = [...sheetOptionNavigation.children].map(button => [button.dataset.exportOption, button.textContent]);
+  if (JSON.stringify(previousChoices) !== JSON.stringify(choices.map(choice => [choice.id, choice.label]))) {
+    sheetOptionNavigation.replaceChildren(...choices.map(choice => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.exportOption = choice.id;
+      button.textContent = choice.label;
+      button.setAttribute("aria-controls", "sheet-preview-host");
+      return button;
+    }));
+  }
+  for (const button of sheetOptionNavigation.children) button.setAttribute("aria-pressed", String(button.dataset.exportOption === (optionId ?? "")));
+  exportAllOptionsPdfButton.hidden = history.present.designOptions.length < 2 || allOptions;
+  exportPartsCsvButton.disabled = allOptions;
+  exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, all floors, project packs counted once, no prices`;
+  const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
+  sheetPreviewStatus.textContent = `${allOptions ? `All ${entries.length} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : selected.sheet.fit.label}`;
+  sheetPreviewNote.textContent = `Working draft only · not for construction · print at 100% and verify physical scale. ${allOptions ? "Choose one option for its parts CSV." : "Parts CSV: selected option, all floors, no prices."} Export selection does not change your drawing.`;
+  document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
 function createSheetForDesignOption(project,option) {
@@ -3105,10 +3151,10 @@ function printSheetPreview() {
 }
 
 function exportPartsCsv() {
-  if (sheetPreviewPanel.hidden) return;
+  if (sheetPreviewPanel.hidden || !sheetPreviewOptionProject) return;
   exportPartsCsvButton.disabled = true;
   try {
-    const project = history.present;
+    const project = sheetPreviewOptionProject;
     const option = project.designOptions.find(candidate => candidate.id === project.activeDesignOptionId);
     const projectName = project.projectDetails.name || currentProjectName;
     const csv = createPartsCsv(project, { projectName });
@@ -3135,13 +3181,16 @@ function exportPartsCsv() {
 
 async function exportSheetPreviewPdf() {
   if (sheetPreviewPanel.hidden || !sheetPreviewPages.length || !sheetPreviewPdfMetadata) return;
+  if (exportSheetPdfButton.disabled) return;
+  const pages = sheetPreviewPages;
+  const metadata = sheetPreviewPdfMetadata;
   const previousLabel = exportSheetPdfButton.textContent;
   exportSheetPdfButton.disabled = true;
   exportSheetPdfButton.textContent = "Creating PDF…";
   try {
-    const blob = await createMixedPagePdfBlob(sheetPreviewPages, sheetPreviewPdfMetadata);
-    downloadPdfBlob(blob, sheetPreviewPdfMetadata.fileName);
-    interactionMessage = `Downloaded ${sheetPreviewPdfMetadata.fileName} with exact A3/A4 page sizes`;
+    const blob = await createMixedPagePdfBlob(pages, metadata);
+    downloadPdfBlob(blob, metadata.fileName);
+    interactionMessage = `Downloaded ${metadata.fileName} with exact A3/A4 page sizes`;
   } catch (error) {
     interactionMessage = `PDF export failed: ${error.message}`;
   } finally {
@@ -3153,11 +3202,11 @@ async function exportSheetPreviewPdf() {
 
 async function exportAllDesignOptionsPdf() {
   if(history.present.designOptions.length<2){interactionMessage="Add another design option before exporting all options.";updateStatus();return;}
+  if (exportAllOptionsPdfButton.disabled) return;
   const previousLabel=exportAllOptionsPdfButton.textContent;
   exportAllOptionsPdfButton.disabled=true;exportAllOptionsPdfButton.textContent="Creating all options…";
   try {
-    const pages=createSheetOutputDocument(designOptionProjects(history.present)
-      .map(({option,project})=>createSheetForDesignOption(project,option)));
+    const { pages } = createDesignOptionOutput(history.present, { optionId: null, createSheet: createSheetForDesignOption });
     const fileName=sheetPdfFileName(history.present.projectDetails.name||currentProjectName,"all-design-options");
     const blob=await createMixedPagePdfBlob(pages,{title:`${history.present.projectDetails.name||currentProjectName} · all design options`,subject:"Independent ventilation design options · preliminary · not for construction",author:cloudSession?.companyProfile?.details?.name||"HiPer Studio",fileName});
     downloadPdfBlob(blob,fileName);

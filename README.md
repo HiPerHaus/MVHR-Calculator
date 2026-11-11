@@ -42,6 +42,8 @@ The A3 sheet gives the marked-up plan the full drawing area, with a right-hand s
 
 Account contains workspace company details, primary contact and a PNG/JPEG logo (up to 2 MB). Workspace owners can save branding; members can view it. Branding is private to the workspace and fills new sheet previews. Refresh the sheet preview after changing details. The sheet remains a preliminary working draft, not an issued construction drawing.
 
+Export has a separate page selector for every design option, plus All options. Each selection previews its own A3 drawing, installation details and A4 parts, and PDF or Print outputs exactly the selected preview. The parts CSV follows the selected option across all floors; choose one option before exporting CSV. Export selection never switches the editable option or uses Centralised/Decentralised drawing filters as alternatives.
+
 Sheets includes the A3 marked-up drawing, the A3 installation detail sheet, then an A4 parts list with continuation pages when needed. Print and PDF retain exact A3 landscape/portrait and A4 portrait page sizes. All-options PDF numbering runs continuously while each option keeps its own plan, details and parts list. The list includes placed equipment, measured duct routes, EPP stock/bend/sleeve allowances and radial accessories. Every CW branch receives one O-ring; unused branches receive one pipe stub and cap. Connected 90 mm TVA/Luna and Aerofresh ducts receive an O-ring per duct. Each unused CW branch allows a 100 mm pipe stub, included in the project-wide 90 mm duct total before rounding up to 50 m coils. Unknown Single/Twin quantities remain pending.
 
 
@@ -56,7 +58,7 @@ Standard project allowances include HRV-DRAIN per HRV, PLU-SURGE per eligible HR
 
 ## Spreadsheet parts handoff
 
-Export → **Export parts CSV** downloads an Excel-compatible UTF-8 table for the active design option across all floors. Project packs and allowances appear once, with explicit quantity bases, working revision and floor labels. Measured duct/cable lengths, assembly references, cut pieces already included in stock and unresolved items are labelled separately to avoid double counting. Pending quantities are not zero, and no prices are added. Select each design option separately to export independent alternatives. This preliminary handoff does not establish product compatibility or authorize an order.
+Export → **Export parts CSV** downloads an Excel-compatible UTF-8 table for the active design option across all floors. Project packs and allowances appear once, with explicit quantity bases, working revision and floor labels. Measured duct/cable lengths, assembly references, cut pieces already included in stock and unresolved items are labelled separately to avoid double counting. Pending quantities are not zero, and no prices are added. Select its page in Export to download an independent alternative without switching the editable drawing. This preliminary handoff does not establish product compatibility or authorize an order.
 
 ## Drawing workspace
 

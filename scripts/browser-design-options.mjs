@@ -69,16 +69,16 @@ try {
   const pdfPath=await waitForDownload(downloads);
   const pdfTask=pdfjs.getDocument({data:new Uint8Array(await readFile(pdfPath)),disableWorker:true});
   const pdf=await pdfTask.promise;
-  assert.equal(pdf.numPages,4,"Two options must export one A3 drawing and one A4 parts page each");
+  assert.equal(pdf.numPages,6,"Two options must export separate A3 drawing, A3 details and A4 parts pages each");
   const pageWidths=[];
   for(let pageNumber=1;pageNumber<=pdf.numPages;pageNumber++){
     const page=await pdf.getPage(pageNumber);pageWidths.push(Math.round(page.getViewport({scale:1}).width));
   }
-  assert.deepEqual(pageWidths,[1191,595,1191,595],"All-options export keeps separate A3/A4 page sets");
+  assert.deepEqual(pageWidths,[1191,1191,595,1191,1191,595],"All-options export keeps separate A3/A4 page sets");
   await pdfTask.destroy();
   assert.deepEqual(exceptions,[],`Browser exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(JSON.stringify({ok:true,options:2,isolatedWalls:true,activePreview:"Option B · B1",pdfPages:4,pageWidths},null,2)+"\n");
+  process.stdout.write(JSON.stringify({ok:true,options:2,isolatedWalls:true,activePreview:"Option B · B1",pdfPages:6,pageWidths},null,2)+"\n");
 } catch(error) {
   process.stderr.write(`${error.stack??error}\n`);if(stderr)process.stderr.write(stderr.slice(-4000));process.exitCode=1;
 } finally {

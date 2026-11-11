@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
@@ -12,7 +12,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"));
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
-const outputDirectory = resolve(root, "../tmp/fitting-export-qa-20261110");
+const outputDirectory = resolve(root, "tmp/option-export-qa-20261111");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
 const canvasOutputPath = resolve(outputDirectory, "grille-canvas.png");
 const previewOutputPath = resolve(outputDirectory, "grille-print-preview.png");
@@ -38,6 +38,11 @@ try {
   cdp.on("Runtime.exceptionThrown", (params) => exceptions.push(params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text ?? "Runtime exception"));
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
+  cdp.on("Fetch.requestPaused", params => {
+    const allowed = params.request.url.startsWith(`http://127.0.0.1:${address.port}/`) || /^(data:|blob:|about:)/.test(params.request.url);
+    cdp.send(allowed ? "Fetch.continueRequest" : "Fetch.failRequest", { requestId: params.requestId, ...(allowed ? {} : { errorReason: "BlockedByClient" }) }).catch(error => exceptions.push(error.message));
+  });
+  await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
   await cdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloadDirectory, eventsEnabled: true });
   await waitFor(cdp, "window.__pdfReady === true", 30_000);
   const pagePlan = await evaluate(cdp, "window.__pagePlan");
@@ -89,7 +94,9 @@ try {
   assert.equal(electricalEvidence.genericLegend, false);
   assert.equal(electricalEvidence.singleColumn, true);
   assert.equal(electricalEvidence.compactOnly, true);
-  assert.match(electricalEvidence.visibleText, /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
+  assert.match(electricalEvidence.visibleText, /DECENTRALISED MVHR ELECTRICAL CONNECTION/);
+  assert.match(electricalEvidence.visibleText, /Cable from control location to head units - LiYY 3 × 0\.75 mm² or equivalent/);
+  assert.doesNotMatch(electricalEvidence.visibleText, /ELECTRICAL CONNECTION · PRELIMINARY|Verify current supplied manual and AU requirements/);
   assert.match(electricalEvidence.visibleText, /230 V to controller location/);
   assert.doesNotMatch(electricalEvidence.visibleText, /controller\/PSU arrangement|exact arrangement manual-required|via specified separate PSU|\(C[0-9]+ [^)]+\) —/iu);
   assert.match(await evaluate(cdp, "window.__outputText"), /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
@@ -129,6 +136,73 @@ try {
   await evaluate(cdp, "document.querySelector('#export-all-options-pdf').click()");
   await waitForDownloadCount(downloadDirectory, 3);
   assert.equal(await evaluate(cdp, "document.querySelector('#export-all-options-pdf').disabled"), false);
+  const originalOptionId = await evaluate(cdp, "document.querySelector('#design-option-select').value");
+  assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-option-navigation button').length"), 3);
+  const printEvidence = [];
+  for (const [name, optionId, drawings] of [["selected-empty", "qa-empty-option", 1], ["all-options", "", 2], ["selected-original", originalOptionId, 1]]) {
+    await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="${optionId}"]').click()`);
+    assert.equal(await evaluate(cdp, "document.querySelector('#design-option-select').value"), originalOptionId, "Export selection must not change the editable design");
+    assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host [data-page-kind="drawing"]').length`), drawings);
+    assert.equal(await evaluate(cdp, "document.querySelector('#export-parts-csv').disabled"), optionId === "");
+    const beforeRepeat = await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML");
+    await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="${optionId}"]').click()`);
+    assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"), beforeRepeat, "Repeated option clicks are idempotent");
+    if (name === "selected-empty") {
+      assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-preview-host #drawing-content [data-kind=component]').length"), 0, "Empty alternative cannot contain another option's equipment");
+      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
+      await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="${originalOptionId}"]').click()`);
+      await waitForDownloadCount(downloadDirectory, 4);
+      await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="qa-empty-option"]').click()`);
+      await evaluate(cdp, "document.querySelector('#export-parts-csv').click()");
+      await waitForFileCount(downloadDirectory, ".csv", 1);
+      const csvName = (await readdir(downloadDirectory)).find(name => name.endsWith(".csv"));
+      const csv = await readFile(join(downloadDirectory, csvName), "utf8");
+      assert.match(csv, /No equipment option/);
+      assert.doesNotMatch(csv, /AeroFresh 30 Compact|ComfoAir 70/);
+    }
+    if (name === "all-options") {
+      // Headless Chrome may overwrite a same-name download. Preserve the earlier
+      // all-options-button output before testing Export PDF from the All page.
+      const previousAll = (await readdir(downloadDirectory)).find(file => file.includes("all-design-options") && file.endsWith(".pdf"));
+      await rename(join(downloadDirectory, previousAll), join(downloadDirectory, "qa-all-options-button.pdf"));
+      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
+      await waitForDownloadCount(downloadDirectory, 5);
+    }
+    const print = await cdp.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false });
+    const printPath = join(outputDirectory, `${name}-print.pdf`);
+    await writeFile(printPath, Buffer.from(print.data, "base64"));
+    const evidence = await verifyPdfPageSeparation(printPath);
+    assert.equal(evidence.planPages.length, drawings);
+    printEvidence.push({ name, ...evidence });
+  }
+  const electricalLayout = await evaluate(cdp, `(()=>{
+    const block=document.querySelector('#sheet-preview-host .sheet-page:first-child #electrical-connection-notes');
+    const box=block.querySelector('rect').getBBox();
+    const text=[...block.querySelectorAll('text')];
+    return {lines:[text[0].textContent,...text.slice(1).flatMap(node=>[...node.querySelectorAll('tspan')].map(line=>line.textContent))],fits:text.every(node=>{const b=node.getBBox();return b.x>=box.x&&b.x+b.width<=box.x+box.width-2&&b.y>=box.y&&b.y+b.height<=box.y+box.height;})};
+  })()`);
+  const longCableLayout = await evaluate(cdp, `(async()=>{
+    const {createA3SheetModel,renderA3SheetSvg}=await import('/src/sheets/a3-sheet.mjs');
+    const domain=await import('/src/domain/spatial.mjs');
+    const {createCatalogueComponent}=await import('/src/editor/component-catalogue.mjs');
+    let project=domain.applyCommand(domain.createProject('long-cable-qa'),{type:'floor.add',floor:{id:'ground',name:'Ground Floor',transform:{translationMm:{x:0,y:0,z:domain.knownMm(0,'QA')},orientation:domain.identityQuaternion()}}});
+    for(const [id,item,x] of [['head','lunos-e2-60-decentralised',1000],['control','manual-decentralised-controller',2000]])project=domain.applyCommand(project,{type:'component.add',component:createCatalogueComponent(item,{id,floorId:'ground',xMm:x,yMm:1000})});
+    project=domain.applyCommand(project,{type:'decentralisedCable.add',cable:{id:'long-cable',floorId:'ground',controllerId:'control',unitComponentId:'head',cableKind:'unspecified',topologyStatus:'unverified-model-specific',maximumRouteLengthMm:null,specification:{status:'unverified-manual-input',label:'W'.repeat(240),source:'Synthetic wrap test'},points:[{x:2000,y:1000},{x:1000,y:1000}]}});
+    const host=document.createElement('div');host.innerHTML=renderA3SheetSvg(createA3SheetModel(project,{floorId:'ground',orientation:'landscape',projectName:'Wrap QA',drawingTitle:'Wrap QA',drawingId:'W',issueDate:'2026-11-11',revision:'A',revisionText:'QA',status:'Preliminary — not for construction'}));document.body.append(host);
+    const block=host.querySelector('#electrical-connection-notes'),box=block.querySelector('rect').getBBox(),text=[...block.querySelectorAll('text')];
+    const result={lines:block.querySelectorAll('tspan').length,fits:text.every(node=>{const b=node.getBBox();return b.x>=box.x&&b.x+b.width<=box.x+box.width-2&&b.y>=box.y&&b.y+b.height<=box.y+box.height;})};host.remove();return result;
+  })()`);
+  assert.ok(longCableLayout.lines>2);assert.ok(longCableLayout.fits,"Long custom cable specification must remain inside the electrical note");
+  assert.equal(electricalLayout.lines[0], "DECENTRALISED MVHR ELECTRICAL CONNECTION");
+  assert.ok(electricalLayout.lines.includes("Cable from control location to head units - LiYY 3 × 0.75 mm² or equivalent"));
+  assert.ok(electricalLayout.fits, "Electrical wording must fit its box without wrapping or clipping");
+  await writeFile(join(outputDirectory, "electrical-wording.png"), Buffer.from((await cdp.send("Page.captureScreenshot", {format:"png",clip:await evaluate(cdp, `(()=>{const b=document.querySelector('#sheet-preview-host .sheet-page:first-child #electrical-connection-notes').getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height,scale:3};})()`) })).data,"base64"));
+  for (const [name,width,height] of [["desktop",1440,900],["tablet",1024,768]]) {
+    await cdp.send("Emulation.setDeviceMetricsOverride", {width,height,deviceScaleFactor:1,mobile:false});
+    const layout=await evaluate(cdp, `(()=>{const buttons=[...document.querySelectorAll('#sheet-option-navigation button')];return {overflow:document.documentElement.scrollWidth>innerWidth,touch:buttons.every(b=>b.getBoundingClientRect().height>=44),preview:document.querySelector('.sheet-preview-stage').getBoundingClientRect().height};})()`);
+    assert.equal(layout.overflow,false);assert.equal(layout.touch,true);assert.ok(layout.preview>300);
+    await writeFile(join(outputDirectory, `option-preview-${name}.png`),Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
+  }
   const previewBeforeClose=await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent");
   await evaluate(cdp, "document.querySelector('#close-sheet-preview').click(); document.querySelector('#sheets-nav').click()");
   assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').textContent"),previewBeforeClose);
@@ -139,12 +213,23 @@ try {
     pdfSeparation.push({file:name,...evidence});
     await copyFile(source,join(outputDirectory,name));
   }
-  assert.equal(pdfSeparation.length,3);
+  assert.equal(pdfSeparation.length,5);
   assert.ok(pdfSeparation.some(result=>result.planPages.length===2),"All-options export should retain separate plan/detail pairs");
+  const reviewBytes = (await readFile(join(outputDirectory,"QA-House-V-Option-A.pdf"))).toString("base64");
+  for (const pageNumber of [1,2]) {
+    const rendered = await evaluate(cdp, `(async()=>{
+      const pdfjs=await import('/node_modules/pdfjs-dist/legacy/build/pdf.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc='/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs';
+      const loading=pdfjs.getDocument({data:Uint8Array.from(atob('${reviewBytes}'),c=>c.charCodeAt(0)),standardFontDataUrl:'/node_modules/pdfjs-dist/standard_fonts/'});
+      const pdf=await loading.promise,page=await pdf.getPage(${pageNumber}),viewport=page.getViewport({scale:1.25}),canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+      await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;const image=canvas.toDataURL('image/png');await loading.destroy();return image.split(',')[1];
+    })()`);
+    await writeFile(join(outputDirectory,`actual-pdf-page-${pageNumber}.png`),Buffer.from(rendered,"base64"));
+  }
   await writeFile(join(outputDirectory,"page-separation-evidence.json"),JSON.stringify(pdfSeparation,null,2));
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, printEvidence, electricalLayout, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -301,7 +386,10 @@ async function verifyPdfPageSeparation(path) {
     }
     if (isDetails) assert.ok(!text.includes("SYMBOL KEY"),`Drawing key leaked onto engineering page ${pageNumber}`);
     assert.ok(text.includes(`Page ${pageNumber} of ${pdf.numPages}`),`Global numbering missing on page ${pageNumber}`);
-    pages.push({pageNumber,kind:isPlan?"drawing":isDetails?"installation-details":"parts-list"});
+    const viewport=page.getViewport({scale:1}),width=Math.round(viewport.width),height=Math.round(viewport.height);
+    assert.equal(width,isPlan||isDetails?1191:595,`Correct A3/A4 width on page ${pageNumber}`);
+    assert.equal(height,842,`Correct landscape A3/portrait A4 height on page ${pageNumber}`);
+    pages.push({pageNumber,kind:isPlan?"drawing":isDetails?"installation-details":"parts-list",width,height});
   }
   assert.equal(pages[0].kind,"drawing");
   for (const [i,page] of pages.entries()) {
@@ -314,3 +402,5 @@ async function verifyPdfPageSeparation(path) {
   await loadingTask.destroy();
   return {pageCount:pages.length,planPages:pages.filter(p=>p.kind==="drawing").map(p=>p.pageNumber),detailPages:pages.filter(p=>p.kind==="installation-details").map(p=>p.pageNumber),pages};
 }
+
+async function waitForFileCount(directory, extension, count) { for(let i=0;i<200;i++){ if((await readdir(directory)).filter(name=>name.endsWith(extension)).length>=count)return; await delay(50); } throw Error(`Missing ${extension} download`); }

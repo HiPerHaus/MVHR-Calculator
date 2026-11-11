@@ -114,7 +114,7 @@ function parseCsv(source) {
   assert.equal(quoted, false); return records;
 }
 
-test("real download handler uses current option, restores repeated-click state and revokes URLs", async () => {
+test("real download handler uses the export option without switching the drawing and revokes URLs", async () => {
   const { readFileSync } = await import("node:fs");
   const { runInNewContext } = await import("node:vm");
   const source = readFileSync(new URL("../app/main.mjs", import.meta.url), "utf8");
@@ -123,7 +123,7 @@ test("real download handler uses current option, restores repeated-click state a
   const downloads = [], timers = [], revoked = [], clicks = [], buttons = { disabled: false };
   const context = {
     sheetPreviewPanel: { hidden: false }, exportPartsCsvButton: buttons,
-    history: { present: addUnit(base()) }, currentProjectName: "CSV review",
+    sheetPreviewOptionProject: addUnit(base()), history: { present: base() }, currentProjectName: "CSV review",
     createPartsCsv, partsCsvFileName, Blob, interactionMessage: "", sheetPreviewStatus: { textContent: "" },
     URL: { createObjectURL(blob) { downloads.push(blob); return `blob:csv-${downloads.length}`; }, revokeObjectURL(url) { revoked.push(url); } },
     document: { createElement() { return { click() { assert.equal(buttons.disabled, true); clicks.push({ href: this.href, fileName: this.download }); }, remove() { this.removed = true; } }; }, body: { append() {} } },
@@ -135,10 +135,15 @@ test("real download handler uses current option, restores repeated-click state a
   assert.equal(downloads[0].type, "text/csv;charset=utf-8");
   assert.match(await downloads[0].text(), /ZEN-Q350HRV/);
   assert.match(context.sheetPreviewStatus.textContent, /all floors.*no prices/);
-  context.history.present = applyCommand(context.history.present, { type: "designOption.duplicate", id: "empty-ui-option", name: "Empty alternative", revision: "B", copyScopes: [], activate: true });
+  const drawingBefore = structuredClone(context.history.present);
+  context.sheetPreviewOptionProject = applyCommand(context.sheetPreviewOptionProject, { type: "designOption.duplicate", id: "empty-ui-option", name: "Empty alternative", revision: "B", copyScopes: [], activate: true });
   handler();
   assert.match(clicks[2].fileName, /Empty-alternative-parts.csv/);
   assert.doesNotMatch(await downloads[2].text(), /ZEN-Q350HRV/);
+  assert.deepEqual(context.history.present, drawingBefore);
+  const selectedProject = context.sheetPreviewOptionProject;
+  context.sheetPreviewOptionProject = null; handler(); assert.equal(downloads.length, 3, "All-options preview cannot mix CSV quantities");
+  context.sheetPreviewOptionProject = selectedProject;
   context.sheetPreviewPanel.hidden = true; handler(); assert.equal(downloads.length, 3);
   timers.forEach(callback => callback()); assert.deepEqual(revoked, ["blob:csv-1", "blob:csv-2", "blob:csv-3"]);
   context.sheetPreviewPanel.hidden = false;

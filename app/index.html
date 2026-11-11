@@ -711,17 +711,18 @@
           </div>
           <div class="sheet-preview-actions">
             <button id="export-sheet-pdf" type="button">Export PDF</button>
-            <button id="export-parts-csv" type="button" title="Excel-compatible CSV: active design option, all floors, project packs counted once, no prices">Export parts CSV</button>
+            <button id="export-parts-csv" type="button" title="Excel-compatible CSV: selected export option, all floors, project packs counted once, no prices">Export parts CSV</button>
             <button id="export-all-options-pdf" type="button">All-options PDF</button>
             <button id="print-sheet-preview" type="button">Print</button>
             <button id="close-sheet-preview" type="button">Return to plan</button>
           </div>
         </header>
+        <nav id="sheet-option-navigation" class="sheet-option-navigation" aria-label="Design option export pages"></nav>
         <div class="sheet-preview-stage">
           <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
         </div>
-        <footer class="sheet-preview-note">
-          Working draft only · not an issued revision · not for construction · print at 100% and verify physical scale. Parts CSV: active option, all floors, no prices; opens in Excel.
+        <footer id="sheet-preview-note" class="sheet-preview-note">
+          Working draft only · not for construction · print at 100% and verify physical scale. Parts CSV: selected option, all floors, no prices.
         </footer>
       </section>
     </div>

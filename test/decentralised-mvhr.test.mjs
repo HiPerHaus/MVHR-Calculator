@@ -176,7 +176,9 @@ test("controller markers and cable routes survive move rotate edit save and opti
   assert.match(svg, /Controller Cable - LiYY 3 × 0\.75 mm² or equivalent/);
   assert.match(svg, /Decentralised MVHR - AeroFresh 30 Compact/);
   assert.match(svg, /Controller - sMove/);
-  assert.match(svg, /ELECTRICAL CONNECTION · PRELIMINARY/);
+  assert.match(svg, /DECENTRALISED MVHR ELECTRICAL CONNECTION/);
+  assert.match(svg, />Cable from control location to head units - LiYY 3 × 0\.75 mm² or equivalent<\/tspan>/);
+  assert.doesNotMatch(svg, /ELECTRICAL CONNECTION · PRELIMINARY|Verify current supplied manual and AU requirements/);
   assert.match(svg, /230 V to controller location/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);
   assert.doesNotMatch(svg, /C1 sMove\) —|controller\/PSU arrangement|exact arrangement manual-required|via specified separate PSU|Do not connect a fan directly to 230 V|LV\/control -|Topology -|Terminals -|Evidence -|Source -|Limit -/);

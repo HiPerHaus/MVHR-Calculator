@@ -22,7 +22,9 @@ test("print CSS keeps the drawing A3 and falls subsequent parts pages back to A4
 test("sheet preview describes the mixed print sizes before browser printing", async () => {
   const source = await readFile(mainUrl, "utf8");
 
-  assert.match(source, /1 A3 drawing \+ 1 A3 installation detail sheet \+ \$\{partsPageCount\} A4 parts-list page/u);
+  assert.match(source, /\$\{entries\.length\} A3 drawing/u);
+  assert.match(source, /\$\{entries\.length\} A3 installation detail sheet/u);
+  assert.match(source, /\$\{partsPageCount\} A4 parts-list page/u);
   assert.match(source, /window\.print\(\)/u);
 });
 
@@ -34,7 +36,9 @@ test("sheet preview exposes separate direct PDF and browser print actions", asyn
   ]);
   assert.match(index, /id="export-sheet-pdf"[^>]*>Export PDF</u);
   assert.match(index, /id="print-sheet-preview"[^>]*>Print</u);
-  assert.match(main, /createMixedPagePdfBlob\(sheetPreviewPages, sheetPreviewPdfMetadata\)/u);
+  assert.match(main, /const pages = sheetPreviewPages/u);
+  assert.match(main, /const metadata = sheetPreviewPdfMetadata/u);
+  assert.match(main, /createMixedPagePdfBlob\(pages, metadata\)/u);
   assert.match(pdfExport, /new jsPDF/u);
   assert.match(pdfExport, /pdf\.addPage\(\[page\.widthMm, page\.heightMm\], page\.orientation\)/u);
   assert.match(pdfExport, /pdf\.output\("blob"\)/u);
