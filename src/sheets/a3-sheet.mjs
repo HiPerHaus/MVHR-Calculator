@@ -1,3 +1,5 @@
+import { ventilationOutputView } from "../editor/ventilation-output-scope.mjs";
+import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import {normalizeCompanyProfile,validateLogoDataUrl} from "../persistence/company-profile.mjs";
 import { CA200_GRAPHIC_ID, ca200Shapes } from "../editor/ca200-profile.mjs";
 import { deriveHrvCeilingElbows, hrvCeilingElbowShapes } from "../editor/hrv-ceiling-elbows.mjs";
@@ -83,10 +85,11 @@ export function createA3SheetModel(project, metadata) {
   const legendBounds=Object.freeze({xMm:sidebarX,yMm:printableBounds.yMm,widthMm:TITLE_BLOCK_WIDTH_MM,heightMm:printableBounds.heightMm-128});
   const scheduleBounds=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm+printableBounds.heightMm-SCHEDULE_HEIGHT_MM,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-DRAWING_GAP_MM,heightMm:SCHEDULE_HEIGHT_MM});
   const drawingArea=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
-  const installationDetails = selectPlanDetails(sourceProject, normalized.floorId);
+  const outputProject = ventilationOutputView(sourceProject, normalized.systemScope);
+  const installationDetails = selectPlanDetails(outputProject, normalized.floorId);
   const drawingBounds = drawingArea;
-  const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId });
-  const printScene = buildPrintScene(sourceProject, normalized.floorId, partsSchedule);
+  const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId, systemScope: normalized.systemScope });
+  const printScene = buildPrintScene(outputProject, normalized.floorId, partsSchedule);
   const fit = calculateSheetFit(printScene.modelBoundsMm, drawingBounds, {
     forceNotToScale: printScene.hasUncalibratedReference,
   });
@@ -1039,8 +1042,9 @@ function normalizeMetadata(project, metadata) {
     company:normalizeCompanyProfile(metadata.company),
     companyLogoDataUrl:validateLogoDataUrl(metadata.companyLogoDataUrl),
     floorId,
+    systemScope: normalizeVentilationWorkspace(metadata.systemScope ?? "combined"),
     ventilationDesignType:project.ventilationDesignType,
-    ventilationDesignTypeLabel:ventilationProjectTypeLabel(project.ventilationDesignType),
+    ventilationDesignTypeLabel:metadata.systemScope && metadata.systemScope !== "combined" ? `${ventilationWorkspaceLabel(metadata.systemScope)} export` : ventilationProjectTypeLabel(project.ventilationDesignType),
     projectName: sanitizeXmlText(metadata.projectName ?? project.projectDetails?.name, "Project name", true),
     siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
     clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),

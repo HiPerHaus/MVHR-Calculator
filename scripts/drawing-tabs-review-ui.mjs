@@ -93,18 +93,22 @@ tabsQaButton('Run tab checks', async () => {
     tabsQaEqual(tabsQaStable(),original,`${type}: navigation mutated model`);
     tabsQaClick('#decentralised-tools-tab');tabsQaClick('#sheets-nav');
     tabsQaAssert(!sheetPreviewPanel.hidden,'Export did not open');
-    const sheetBefore=sheetPreviewPages.map(page=>page.svg);
+    const decSheet=sheetPreviewPages.map(page=>page.svg).join('');
+    tabsQaEqual(sheetExportSystemScope,'decentralised','Export should inherit Decentralised');
+    tabsQaAssert(!decSheet.includes('data-id="qa-duct"'),'Decentralised export has central duct');
     tabsQaClick('#close-sheet-preview');tabsQaEqual(activeDesignStage,'draw','Export return');
     tabsQaEqual(activeVentilationWorkspace,'decentralised','Export lost system tab');
     tabsQaClick('#centralised-tools-tab');tabsQaClick('#sheets-nav');
-    tabsQaEqual(sheetPreviewPages.map(page=>page.svg),sheetBefore,`${type}: output changed with tool tab`);
-    if(type==='mixed') tabsQaAssert(sheetBefore.join('').includes('data-system="decentralised-mvhr"')&&sheetBefore.join('').includes('data-id="qa-duct"'),'Mixed export lacks a system');
+    tabsQaEqual(sheetExportSystemScope,'centralised','Export should inherit Centralised');
+    tabsQaAssert(!sheetPreviewPages.map(page=>page.svg).join('').includes('data-system="decentralised-mvhr"'),'Centralised export has decentralised equipment');
     tabsQaClick('#close-sheet-preview');
     tabsQaClick('#combined-tools-tab');tabsQaClick('#sheets-nav');
-    tabsQaEqual(sheetPreviewPages.map(page=>page.svg),sheetBefore,`${type}: Combined changed export`);
+    tabsQaEqual(sheetExportSystemScope,'combined','Export should inherit Combined');
+    const combinedSheet=sheetPreviewPages.map(page=>page.svg).join('');
+    if(type==='mixed') tabsQaAssert(combinedSheet.includes('data-system="decentralised-mvhr"')&&combinedSheet.includes('data-id="qa-duct"'),'Combined export lacks a system');
     tabsQaClick('#close-sheet-preview');tabsQaEqual(activeVentilationWorkspace,'combined','Export lost Combined tab');
     tabsQaEqual(tabsQaStable(),original,`${type}: export mutated model`);
-    passed.push(`${type}: defaults, 6 switches, clean system plan, shared outline, hidden-hit rejection, search, navigation, identical exports`);
+    passed.push(`${type}: defaults, 6 switches, clean system plan, shared outline, hidden-hit rejection, search, navigation, scoped exports with unchanged model`);
   }
   tabsQaFixture('mixed');tabsQaClick('#combined-tools-tab');
   const selectionOriginal=tabsQaStable();

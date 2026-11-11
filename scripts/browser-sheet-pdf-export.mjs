@@ -13,7 +13,7 @@ const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"));
 const subsetDownloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-subsets-"));
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
-const outputDirectory = resolve(root, "tmp/option-export-qa-20261111");
+const outputDirectory = resolve(root, "tmp/system-export-qa-20261111");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
 const canvasOutputPath = resolve(outputDirectory, "grille-canvas.png");
 const previewOutputPath = resolve(outputDirectory, "grille-print-preview.png");
@@ -216,7 +216,7 @@ try {
   }
   assert.equal(pdfSeparation.length,5);
   assert.ok(pdfSeparation.some(result=>result.planPages.length===2),"All-options export should retain separate plan/detail pairs");
-  const reviewBytes = (await readFile(join(outputDirectory,"QA-House-V-Option-A.pdf"))).toString("base64");
+  const reviewBytes = (await readFile(join(outputDirectory,"QA-House-V-Option-A-combined.pdf"))).toString("base64");
   for (const pageNumber of [1,2]) {
     const rendered = await evaluate(cdp, `(async()=>{
       const pdfjs=await import('/node_modules/pdfjs-dist/legacy/build/pdf.mjs');
@@ -229,9 +229,10 @@ try {
   }
   await writeFile(join(outputDirectory,"page-separation-evidence.json"),JSON.stringify(pdfSeparation,null,2));
   const subsetEvidence = await verifyPagePicker(cdp, subsetDownloadDirectory);
+  const systemScopeEvidence = await verifySystemScopes(cdp, subsetDownloadDirectory);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, printEvidence, electricalLayout, subsetEvidence, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, printEvidence, electricalLayout, subsetEvidence, systemScopeEvidence, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -380,10 +381,10 @@ async function verifyPdfPageSeparation(path) {
   for (let pageNumber=1; pageNumber<=pdf.numPages; pageNumber++) {
     const page=await pdf.getPage(pageNumber);
     const text=(await page.getTextContent()).items.map(item=>item.str).join(" ").replace(/\s+/g," ");
-    const isPlan=text.includes("SYMBOL KEY"),isDetails=text.includes("Ducts within thermal envelope");
+    const isPlan=text.includes("SYMBOL KEY"),isDetails=text.includes("INSTALLATION DETAILS");
     assert.equal(isPlan&&isDetails,false,`Plan and engineering details share PDF page ${pageNumber}`);
     if (isPlan) for (const detail of ["Ceiling insulation","TERMINAL DIMENSIONS","128 horizontal","120 horizontal","after plastering"]) assert.ok(!text.includes(detail),`Terminal detail leaked onto plan page ${pageNumber}: ${detail}`);
-    if (isDetails) {
+    if (isDetails && !text.includes("DECENTRALISED INSTALLATION DETAILS")) {
       assert.ok(text.includes("128 horizontal × 140 vertical"));
       assert.ok(text.includes("120 horizontal · 115 inner · 140 overall"));
     }
@@ -486,7 +487,7 @@ async function inspectSelectedPdf(path, expectedKinds) {
   const pages=[];
   for(let index=0;index<pdf.numPages;index++){
     const page=await pdf.getPage(index+1),text=(await page.getTextContent()).items.map(item=>item.str).join(" ").replace(/\s+/g," ");
-    const kind=text.includes("SYMBOL KEY")?"drawing":text.includes("Ducts within thermal envelope")?"installation-details":"parts-list";
+    const kind=text.includes("SYMBOL KEY")?"drawing":text.includes("INSTALLATION DETAILS")?"installation-details":"parts-list";
     assert.equal(kind,expectedKinds[index]);assert.ok(text.includes(`Page ${index+1} of ${pdf.numPages}`));
     if(path.includes("parts-continuation-only")) assert.ok(text.includes("Parts sheet 2 of 2 for this option"));
     const width=Math.round(page.getViewport({scale:1}).width),height=Math.round(page.getViewport({scale:1}).height);
@@ -506,4 +507,104 @@ async function renderPdfReview(cdp, path, pageNumber, name) {
     await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;const result=canvas.toDataURL('image/png').split(',')[1];await task.destroy();return result;
   })()`);
   await writeFile(join(outputDirectory,name),Buffer.from(image,"base64"));
+}
+
+async function verifySystemScopes(cdp, downloadRoot) {
+  const click = selector => evaluate(cdp, `document.querySelector(${JSON.stringify(selector)}).click()`);
+  const activeOption = await evaluate(cdp, "document.querySelector('#design-option-select').value");
+  const results = [];
+  for (const scope of ["centralised", "decentralised", "combined"]) {
+    await click("#close-sheet-preview");
+    await click("#ventilation-nav");
+    await click(`[data-ventilation-tab="${scope}"]`);
+    await click("#sheets-nav");
+    assert.equal(await evaluate(cdp, `document.querySelector('[data-export-system="${scope}"]').getAttribute('aria-pressed')`), "true", "Export must inherit Draw scope");
+    const counts = await evaluate(cdp, `(()=>{const h=document.querySelector('#sheet-preview-host'),p=h.querySelector('[data-page-kind="drawing"]');return {central:p.querySelectorAll('#drawing-content [data-id="unit"]').length,dec:p.querySelectorAll('#drawing-content [data-id^="decentralised-"]').length,controllers:p.querySelectorAll('#drawing-content [data-id^="controller-"]').length,cables:p.querySelectorAll('#drawing-content [data-kind="decentralised-cable"]').length,routes:p.querySelectorAll('#drawing-content [data-kind="route"]').length,references:p.querySelectorAll('#drawing-content image').length,parts:[...h.querySelectorAll('[data-page-kind="parts-list"]')].map(n=>n.textContent).join(' '),details:h.querySelector('[data-page-kind="installation-details"]').textContent};})()`);
+    assert.equal(counts.central, scope === "decentralised" ? 0 : 1);
+    assert.equal(counts.dec, scope === "centralised" ? 0 : 4);
+    assert.equal(counts.controllers, scope === "centralised" ? 0 : 2);
+    assert.equal(counts.cables, scope === "centralised" ? 0 : 2);
+    assert.ok(counts.references > 0, "Shared imported floor plan remains visible");
+    if (scope === "centralised") assert.doesNotMatch(counts.parts, /AeroFresh 30 Compact|LiYY|J-Y\(St\)Y/);
+    if (scope === "decentralised") {
+      assert.equal(counts.routes, 0);
+      assert.doesNotMatch(counts.parts, /Q350|ZEN-C90-CSET|ZEN-CT90|HRV-DRAIN|CW320/);
+      assert.doesNotMatch(counts.details, /Ceiling TVA|128 horizontal|Ducts within thermal envelope|Q350/);
+      assert.match(counts.parts, /AeroFresh 30 Compact/);
+    } else assert.match(counts.parts, /Q350/);
+    const preview = await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML");
+    await click(`[data-export-system="${scope}"]`);
+    assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"), preview, "Repeated scope selection is idempotent");
+    for (const [surface, width, height] of [["desktop",1440,900],["tablet",1024,768]]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
+      const layout = await evaluate(cdp, `(()=>{const s=document.querySelector('.sheet-preview-stage'),r=s.getBoundingClientRect(),n=document.querySelector('#sheet-system-navigation').getBoundingClientRect();s.scrollTop=s.scrollHeight;const scroll=s.scrollTop;s.scrollTop=0;return {inside:r.bottom<=innerHeight&&r.height>200,nav:n.height<90,scroll};})()`);
+      assert.ok(layout.inside && layout.nav && layout.scroll > 0, `Scrollable ${surface} Export layout: ${JSON.stringify(layout)}`);
+      await writeFile(join(outputDirectory,`${scope}-${surface}.png`),Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    }
+    const directory = join(downloadRoot, `scope-${scope}`); await mkdir(directory);
+    await cdp.send("Browser.setDownloadBehavior", { behavior:"allow", downloadPath:directory });
+    await click("#export-sheet-pdf");
+    assert.match(await evaluate(cdp, "document.querySelector('#sheet-output-pages legend').textContent"), new RegExp(scope, "i"));
+    await click("#select-all-sheet-pages"); await click("#confirm-sheet-output");
+    const file = await waitForDownload(directory);
+    assert.ok(file.endsWith(`-${scope}.pdf`));
+    const pdfEvidence = await verifyPdfPageSeparation(file);
+    await assertPdfScope(file, scope);
+    await copyFile(file,join(outputDirectory,`${scope}.pdf`));
+    for (const page of [1,2,3]) await renderPdfReview(cdp,file,page,`${scope}-pdf-page-${page}.png`);
+    await click("#export-parts-csv"); await waitForFileCount(directory,".csv",1);
+    const csvName=(await readdir(directory)).find(n=>n.endsWith('.csv'));
+    assert.match(csvName,new RegExp(`-${scope}-parts\\.csv$`));
+    const csv=await readFile(join(directory,csvName),'utf8');
+    if(scope==='centralised')assert.doesNotMatch(csv,/AeroFresh 30 Compact|LiYY|J-Y\(St\)Y/);
+    if(scope==='decentralised')assert.doesNotMatch(csv,/Q350|ZEN-C90-CSET|HRV-DRAIN/);
+    await copyFile(join(directory,csvName),join(outputDirectory,`${scope}-parts.csv`));
+    await click("#print-sheet-preview"); await click("#select-all-sheet-pages");
+    await evaluate(cdp,"window.__savedPrint=window.print;window.print=()=>{window.__scopePrintCalled=true;}");
+    await click("#confirm-sheet-output");
+    assert.equal(await evaluate(cdp,"window.__scopePrintCalled"),true);
+    const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true,displayHeaderFooter:false});
+    const printPath=join(outputDirectory,`${scope}-print.pdf`);await writeFile(printPath,Buffer.from(print.data,'base64'));
+    await verifyPdfPageSeparation(printPath);await assertPdfScope(printPath,scope);
+    await evaluate(cdp,"window.dispatchEvent(new Event('afterprint'));window.print=window.__savedPrint;window.__scopePrintCalled=false");
+    assert.equal(await evaluate(cdp,"document.querySelector('#sheet-preview-host').innerHTML"),preview);
+    assert.equal(await evaluate(cdp,"document.querySelector('#design-option-select').value"),activeOption);
+    results.push({scope,counts:{...counts,parts:undefined,details:undefined},pdfEvidence});
+  }
+  // Switching only the export scope leaves the Draw tab and editable option untouched.
+  await click('[data-export-system="centralised"]');
+  await click('#print-sheet-preview');await click('#clear-sheet-pages');
+  await evaluate(cdp,"document.querySelector('#sheet-output-pages input').checked=true;document.querySelector('#sheet-output-pages input').dispatchEvent(new Event('change',{bubbles:true}));");
+  await evaluate(cdp,"window.__savedPrint=window.print;window.print=()=>{};");
+  await click('#confirm-sheet-output');
+  assert.equal(await evaluate(cdp,"document.querySelectorAll('#sheet-print-host .sheet-page').length"),1);
+  await evaluate(cdp,"window.dispatchEvent(new Event('afterprint'));window.print=window.__savedPrint;");
+  await click('[data-export-system="decentralised"]');await click('#export-sheet-pdf');
+  assert.equal(await evaluate(cdp,"document.querySelectorAll('#sheet-output-pages input:checked').length"),await evaluate(cdp,"document.querySelectorAll('#sheet-output-pages input').length"));
+  await click('#cancel-sheet-output');
+  await click('#sheet-option-navigation [data-export-option=""]');
+  assert.equal(await evaluate(cdp,"document.querySelectorAll('#sheet-preview-host [data-page-kind=\"drawing\"]').length"),2);
+  assert.equal(await evaluate(cdp,"document.querySelector('#sheet-preview-host [data-option-id=\"qa-empty-option\"] [data-kind=\"component\"]')"),null);
+  assert.doesNotMatch(await evaluate(cdp,"document.querySelector('#sheet-preview-host').textContent"),/Q350|ZEN-C90-CSET|HRV-DRAIN/);
+  const allDirectory=join(downloadRoot,'decentralised-all-options');await mkdir(allDirectory);
+  await cdp.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:allDirectory});
+  await click('#export-sheet-pdf');await click('#select-all-sheet-pages');await click('#confirm-sheet-output');
+  const allFile=await waitForDownload(allDirectory);const allEvidence=await verifyPdfPageSeparation(allFile);
+  assert.equal(allEvidence.planPages.length,2);await assertPdfScope(allFile,'decentralised');
+  await copyFile(allFile,join(outputDirectory,'decentralised-all-options.pdf'));
+  await click('#close-sheet-preview');await click('#ventilation-nav');
+  assert.equal(await evaluate(cdp,"document.querySelector('[data-ventilation-tab=\"combined\"]').getAttribute('aria-pressed')"),'true');
+  return results;
+}
+
+async function assertPdfScope(path, scope) {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task=getDocument({data:new Uint8Array(await readFile(path)),standardFontDataUrl:resolve(root,'node_modules/pdfjs-dist/standard_fonts')+'/'}),pdf=await task.promise;
+  let all='';
+  for(let i=1;i<=pdf.numPages;i++)all+=(await(await pdf.getPage(i)).getTextContent()).items.map(x=>x.str).join(' ')+' ';
+  if(scope==='centralised')assert.doesNotMatch(all,/AeroFresh 30 Compact|LiYY|J-Y\(St\)Y/);
+  if(scope==='decentralised')assert.doesNotMatch(all,/Q350|ZEN-C90-CSET|HRV-DRAIN|Ceiling TVA|Ducts within thermal envelope/);
+  if(scope!=='centralised')assert.match(all,/AeroFresh 30 Compact/);
+  if(scope!=='decentralised')assert.match(all,/Q350/);
+  await task.destroy();
 }

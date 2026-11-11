@@ -718,6 +718,12 @@
           </div>
         </header>
         <nav id="sheet-option-navigation" class="sheet-option-navigation" aria-label="Design option export pages"></nav>
+        <nav id="sheet-system-navigation" class="sheet-option-navigation" aria-label="Export system scope">
+          <span class="sheet-system-label">Export system</span>
+          <button type="button" data-export-system="centralised" aria-pressed="false" aria-controls="sheet-preview-host">Centralised</button>
+          <button type="button" data-export-system="decentralised" aria-pressed="false" aria-controls="sheet-preview-host">Decentralised</button>
+          <button type="button" data-export-system="combined" aria-pressed="true" aria-controls="sheet-preview-host">Combined</button>
+        </nav>
         <div class="sheet-preview-stage">
           <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
           <div id="sheet-print-host" class="sheet-print-host"></div>

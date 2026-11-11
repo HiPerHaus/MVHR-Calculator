@@ -829,6 +829,8 @@ let checkFocusReturnStage = null;
 let temporaryCheckReveal = null;
 let selectedCatalogueGroup = "Units";
 let activeVentilationWorkspace = "centralised";
+let sheetExportSystemScope = "combined";
+let sheetExportOptionId = null;
 let snapEnabled = true;
 let draftPoints = [];
 let floorAreaDraftPoints = [];
@@ -1466,6 +1468,18 @@ sheetOptionNavigation.addEventListener("click", (event) => {
   if (!button || button.getAttribute("aria-pressed") === "true") return;
   try { renderSheetOptionPreview(button.dataset.exportOption || null); }
   catch (error) { sheetPreviewStatus.textContent = `Option preview unavailable: ${error.message}`; }
+});
+document.querySelector("#sheet-system-navigation").addEventListener("click", event => {
+  const button = event.target.closest("button[data-export-system]");
+  if (!button || button.getAttribute("aria-pressed") === "true") return;
+  const previous = sheetExportSystemScope;
+  try {
+    sheetExportSystemScope = normalizeVentilationWorkspace(button.dataset.exportSystem);
+    renderSheetOptionPreview(sheetExportOptionId);
+  } catch (error) {
+    sheetExportSystemScope = previous;
+    sheetPreviewStatus.textContent = `System preview unavailable: ${error.message}`;
+  }
 });
 printSheetPreviewButton.addEventListener("click", () => openSheetOutputPicker("print"));
 sheetOutputForm.addEventListener("submit", confirmSheetOutput);
@@ -3069,6 +3083,7 @@ function openSheetPreview({ designStage = false } = {}) {
   if (hasEngineeringEdits()) return requestEngineeringTransition(() => openSheetPreview({ designStage }));
   try {
     sheetPageSelections.clear();
+    sheetExportSystemScope = activeVentilationWorkspace;
     clearSelectedSheetPrint();
     renderSheetOptionPreview(history.present.activeDesignOptionId);
     projectWorkspace.hidden = true;
@@ -3117,7 +3132,8 @@ function createSheetPageElements(pages) {
 
 function renderSheetOptionPreview(optionId) {
   clearSelectedSheetPrint();
-  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, createSheet: createSheetForDesignOption });
+  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, systemScope: sheetExportSystemScope, createSheet: createSheetForDesignOption });
+  const scopeLabel = ventilationWorkspaceLabel(sheetExportSystemScope);
   const allOptions = optionId === null;
   const elements = createSheetPageElements(pages);
   const selected = entries[0];
@@ -3126,7 +3142,7 @@ function renderSheetOptionPreview(optionId) {
     title: `${projectName} · all design options`,
     subject: "Independent ventilation design options · preliminary · not for construction",
     author: selected.sheet.metadata.company?.name || "HiPer Studio",
-    fileName: sheetPdfFileName(projectName, "all-design-options"),
+    fileName: sheetPdfFileName(projectName, `all-design-options-${sheetExportSystemScope}`),
   } : {
     title: `${projectName} · ${selected.sheet.metadata.drawingId}`,
     subject: `${selected.sheet.metadata.drawingTitle} · ${selected.sheet.metadata.status}`,
@@ -3134,6 +3150,8 @@ function renderSheetOptionPreview(optionId) {
     fileName: sheetPdfFileName(projectName, selected.sheet.metadata.drawingId),
   };
   sheetPreviewHost.replaceChildren(...elements);
+  sheetExportOptionId = optionId;
+  for (const button of document.querySelectorAll("[data-export-system]")) button.setAttribute("aria-pressed", String(button.dataset.exportSystem === sheetExportSystemScope));
   sheetPreviewPages = pages;
   sheetPreviewPdfMetadata = metadata;
   sheetPreviewOptionProject = allOptions ? null : selected.project;
@@ -3154,24 +3172,24 @@ function renderSheetOptionPreview(optionId) {
   for (const button of sheetOptionNavigation.children) button.setAttribute("aria-pressed", String(button.dataset.exportOption === (optionId ?? "")));
   exportAllOptionsPdfButton.hidden = history.present.designOptions.length < 2 || allOptions;
   exportPartsCsvButton.disabled = allOptions;
-  exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, all floors, project packs counted once, no prices`;
+  exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-  sheetPreviewStatus.textContent = `${allOptions ? `All ${entries.length} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : selected.sheet.fit.label}`;
-  sheetPreviewNote.textContent = `Working draft only · not for construction · print at 100% and verify physical scale. ${allOptions ? "Choose one option for its parts CSV." : "Parts CSV: selected option, all floors, no prices."} Export selection does not change your drawing.`;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${entries.length} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : selected.sheet.fit.label}`;
+  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
-function createSheetForDesignOption(project,option) {
+function createSheetForDesignOption(project,option,{systemScope = "combined"} = {}) {
   const floor=project.floors.find((candidate)=>candidate.id==="floor-ground")??project.floors[0];
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
   const optionRevision=option?.revision??"Working";
   const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
   return createA3SheetModel(project,{
-    floorId:floor.id,orientation:"landscape",projectName:project.projectDetails.name||currentProjectName,
+    floorId:floor.id,orientation:"landscape",systemScope,projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
-    drawingTitle:`${baseTitle} · ${optionName}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}`,
+    drawingTitle:`${baseTitle} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}`,
     issueDate:new Date().toISOString().slice(0,10),status:"Preliminary — not for construction",revision:optionRevision,
     revisionText:`${optionName} working-draft preview`,drawnBy:project.projectDetails.drawnBy||"",checkedBy:project.projectDetails.checkedBy||"",
   });
@@ -3201,7 +3219,7 @@ function openSheetOutputPicker(action, output = null) {
     if (!fieldset) {
       fieldset = document.createElement("fieldset");
       const legend = document.createElement("legend");
-      legend.textContent = `${page.optionName} · ${page.optionRevision}`;
+      legend.textContent = `${page.optionName} · ${page.optionRevision} · ${ventilationWorkspaceLabel(page.systemScope)}`;
       fieldset.append(legend);
       groups.set(page.optionId, fieldset);
     }
@@ -3273,8 +3291,8 @@ function exportPartsCsv() {
     const project = sheetPreviewOptionProject;
     const option = project.designOptions.find(candidate => candidate.id === project.activeDesignOptionId);
     const projectName = project.projectDetails.name || currentProjectName;
-    const csv = createPartsCsv(project, { projectName });
-    const fileName = partsCsvFileName(projectName, option?.name);
+    const csv = createPartsCsv(project, { projectName, systemScope: sheetExportSystemScope });
+    const fileName = partsCsvFileName(projectName, `${option?.name ?? "option"}-${sheetExportSystemScope}`);
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -3285,7 +3303,7 @@ function exportPartsCsv() {
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     }
-    interactionMessage = `Downloaded ${fileName} · ${option?.name ?? "Active option"} · all floors · quantities and unresolved items, no prices`;
+    interactionMessage = `Downloaded ${fileName} · ${option?.name ?? "Active option"} · ${ventilationWorkspaceLabel(sheetExportSystemScope)} · all floors · quantities and unresolved items, no prices`;
   } catch (error) {
     interactionMessage = `Parts CSV export failed: ${error.message}`;
   } finally {
@@ -3316,11 +3334,11 @@ async function exportSheetPreviewPdf(pages, metadata) {
 function exportAllDesignOptionsPdf() {
   if (history.present.designOptions.length < 2 || sheetOutputDialog.open || exportSheetPdfButton.disabled) return;
   try {
-    const { pages } = createDesignOptionOutput(history.present, { optionId: null, createSheet: createSheetForDesignOption });
+    const { pages } = createDesignOptionOutput(history.present, { optionId: null, systemScope: sheetExportSystemScope, createSheet: createSheetForDesignOption });
     const projectName = history.present.projectDetails.name || currentProjectName;
     openSheetOutputPicker("pdf", { pages, metadata: {
       title: `${projectName} · all design options`, subject: "Independent ventilation design options · preliminary · not for construction",
-      author: cloudSession?.companyProfile?.details?.name || "HiPer Studio", fileName: sheetPdfFileName(projectName, "all-design-options"),
+      author: cloudSession?.companyProfile?.details?.name || "HiPer Studio", fileName: sheetPdfFileName(projectName, `all-design-options-${sheetExportSystemScope}`),
     } });
   } catch (error) {
     interactionMessage = `All-options PDF unavailable: ${error.message}`;
@@ -8287,7 +8305,7 @@ function renderCataloguePalette() {
   for (const button of ventilationWorkspaceButtons) button.setAttribute("aria-pressed", String(button.dataset.ventilationTab === activeVentilationWorkspace));
   for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = !ventilationWorkspaceIncludes(activeVentilationWorkspace, panel.dataset.ventilationWorkspace);
   catalogueSearchInput.placeholder = activeVentilationWorkspace === "combined" ? "e.g. Q350, Lunos, controller, EPP" : activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
-  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools and plan. ${activeVentilationWorkspace === "combined" ? "Both systems are visible." : "Only this system is visible; the other system is preserved."} Checks, parts lists and exports still include both systems. Switching tabs does not change the project type.`;
+  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools and plan. ${activeVentilationWorkspace === "combined" ? "Both systems are visible." : "Only this system is visible; the other system is preserved."} Checks still cover the complete design. Export starts with this system and has its own system selector for drawings and parts. Switching tabs does not change the project type.`;
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
     const button = document.createElement("button");

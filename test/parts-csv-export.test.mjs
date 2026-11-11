@@ -123,6 +123,7 @@ test("real download handler uses the export option without switching the drawing
   const downloads = [], timers = [], revoked = [], clicks = [], buttons = { disabled: false };
   const context = {
     sheetPreviewPanel: { hidden: false }, exportPartsCsvButton: buttons,
+    sheetExportSystemScope: "combined", ventilationWorkspaceLabel: value => value[0].toUpperCase() + value.slice(1),
     sheetPreviewOptionProject: addUnit(base()), history: { present: base() }, currentProjectName: "CSV review",
     createPartsCsv, partsCsvFileName, Blob, interactionMessage: "", sheetPreviewStatus: { textContent: "" },
     URL: { createObjectURL(blob) { downloads.push(blob); return `blob:csv-${downloads.length}`; }, revokeObjectURL(url) { revoked.push(url); } },
@@ -138,7 +139,7 @@ test("real download handler uses the export option without switching the drawing
   const drawingBefore = structuredClone(context.history.present);
   context.sheetPreviewOptionProject = applyCommand(context.sheetPreviewOptionProject, { type: "designOption.duplicate", id: "empty-ui-option", name: "Empty alternative", revision: "B", copyScopes: [], activate: true });
   handler();
-  assert.match(clicks[2].fileName, /Empty-alternative-parts.csv/);
+  assert.match(clicks[2].fileName, /Empty-alternative-combined-parts.csv/);
   assert.doesNotMatch(await downloads[2].text(), /ZEN-Q350HRV/);
   assert.deepEqual(context.history.present, drawingBefore);
   const selectedProject = context.sheetPreviewOptionProject;

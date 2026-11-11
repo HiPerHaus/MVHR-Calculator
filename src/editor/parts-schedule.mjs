@@ -1,3 +1,4 @@
+import { ventilationOutputView } from "./ventilation-output-scope.mjs";
 import {componentQuoteCode,quoteCodeEvidence} from "./quote-product-codes.mjs";
 import {deriveProjectAccessories} from "./project-accessories.mjs";
 import {deriveRadialAccessories} from "./radial-accessories.mjs";
@@ -34,6 +35,7 @@ const GENERIC_COMFOWELL_REFERENCE = Object.freeze({
  */
 export function createPartsSchedule(project, options = {}) {
   validateProject(project);
+  project = ventilationOutputView(project, options.systemScope);
   const floorId = options.floorId;
   const floor = project.floors.find((candidate) => candidate.id === floorId);
   if (!floor) throw new TypeError(`Parts-schedule floor not found: ${String(floorId)}`);

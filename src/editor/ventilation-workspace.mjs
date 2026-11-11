@@ -1,5 +1,6 @@
 // Presentation only: workspace tabs filter tools and the drawing, never the
-// authoritative project, checks, quantities or exports.
+// authoritative project or checks. Export inherits the tab as its initial scope;
+// its separate selector filters report quantities without changing the design.
 export const VENTILATION_WORKSPACES = Object.freeze(["centralised", "decentralised", "combined"]);
 
 export function normalizeVentilationWorkspace(value) {

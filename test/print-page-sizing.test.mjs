@@ -54,7 +54,7 @@ test("all-options preparation reports an unrenderable alternative without changi
   const handlerSource = source.slice(source.indexOf("function exportAllDesignOptionsPdf() {"), source.indexOf("function createStore() {"));
   let opened = false, updated = false;
   const context = {
-    history: { present: { designOptions: [{id:"a"},{id:"b"}] } }, sheetOutputDialog: { open:false }, exportSheetPdfButton:{disabled:false},
+    sheetExportSystemScope: "centralised", history: { present: { designOptions: [{id:"a"},{id:"b"}] } }, sheetOutputDialog: { open:false }, exportSheetPdfButton:{disabled:false},
     createSheetForDesignOption() {}, createDesignOptionOutput() { throw new TypeError("Too many symbols for the sheet legend"); },
     openSheetOutputPicker() { opened = true; }, sheetPreviewStatus:{textContent:"Existing preview"}, interactionMessage:"", updateStatus(){updated = true;},
   };

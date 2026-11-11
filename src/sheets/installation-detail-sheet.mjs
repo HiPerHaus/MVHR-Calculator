@@ -5,6 +5,7 @@ import { renderInsulationReferenceIllustration } from "./insulation-reference-il
 // These sheets are reference annotations, not project engineering inputs.
 // Only the labelled dimensions in the owner sources are specified values.
 export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalPageCount = 3 } = {}) {
+  if (sheet.metadata.systemScope === "decentralised") return renderDecentralisedDetailSheet(sheet, { pageNumber, totalPageCount });
   const { widthMm: width, heightMm: height } = sheet.page;
   const m = sheet.metadata, details = sheet.installationDetails;
   const gap = 4, x = 10, top = 43, contentWidth = width - 20;
@@ -108,3 +109,28 @@ function lines(value, x, y, width, size, maxLines) {
 }
 function rect(x, y, w, h) { return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#687880" stroke-width=".25"/>`; }
 function text(x, y, value, size = 2.6, attrs = "") { return `<text x="${x}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${size}" fill="#243b46" ${attrs}>${escapeXml(String(value))}</text>`; }
+
+// No central-unit, terminal housing or duct installation references belong on
+// a decentralised-only export. Do not infer electrical or assembly details.
+function renderDecentralisedDetailSheet(sheet, { pageNumber, totalPageCount }) {
+  const { widthMm: width, heightMm: height } = sheet.page, m = sheet.metadata;
+  const units = sheet.printScene.components.filter(component => component.decentralisedMvhr);
+  const unitNames = [...new Set(units.map(component => component.displayName))];
+  const b = { x: 15, y: 48, w: width - 30, h: height - 80 };
+  return [`<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="Decentralised installation details for ${escapeXml(m.drawingId)}">`,
+    '<rect width="100%" height="100%" fill="white"/>', rect(10, 10, width - 20, height - 20),
+    text(15, 19, "DECENTRALISED INSTALLATION DETAILS", 5.5, 'font-weight="700"'),
+    ...lines(`${m.projectName} · ${sheet.printScene.floorName}`, 15, 26, width - 30, 3.2, 2),
+    ...lines(`${m.drawingId} / DETAILS · Revision ${m.revision} · ${m.issueDate} · ${m.drawingTitle}`, 15, 35, width - 30, 2.8, 1),
+    text(15, 40, "Read with the corresponding plan · Preliminary reference notes only", 2.8),
+    panelStart(b, "MODEL-SPECIFIC INSTALLATION REVIEW", "decentralised-reference-notes", "placed-models-not-installation-approval"),
+    paragraphs([
+      unitNames.length ? `Placed unit types: ${unitNames.join("; ")}.` : "No decentralised units are placed on this floor in the selected design option.",
+      "Use current manufacturer instructions for the exact unit, controller, wall sleeve and external termination. Wall opening dimensions, falls, sealing and clearances are not specified by this sheet.",
+      "Controller locations, connected units and marked cable types are shown on the corresponding drawing and in its parts list. Missing or unverified information remains pending; do not infer a wiring connection from proximity.",
+      "Electrical supply, protection, isolation, cable suitability and final connections require review by the responsible electrician against the current model-specific instructions.",
+      "The selected export system limits this drawing and its quantities only. It does not establish airflow performance, electrical compliance, whole-building design approval or commissioning.",
+    ], b, b.y + 18), "</g>",
+    text(12, height - 4, m.status, 2.5),
+    text(width - 12, height - 4, `Page ${pageNumber} of ${totalPageCount} · A3`, 2.5, 'text-anchor="end" data-output-page-number="true"'), "</svg>"].join("");
+}

@@ -1,3 +1,4 @@
+import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
 import { partsListRows } from "./a4-parts-list.mjs";
 import { reportFloorName } from "./a3-sheet.mjs";
@@ -15,7 +16,8 @@ export const PARTS_CSV_COLUMNS = Object.freeze([
 const BOUNDARY = "Preliminary working draft; not for construction. No prices. Product identity, availability and installation compatibility require review. Assembly references, cut pieces and measured routes are not additional purchase quantities. This is not an engineering or commissioning report.";
 
 /** Export only the active option. All floors share project packs exactly once. */
-export function createPartsCsvRows(project, { projectName, exportedAt = new Date().toISOString() } = {}) {
+export function createPartsCsvRows(project, { projectName, systemScope = "combined", exportedAt = new Date().toISOString() } = {}) {
+  normalizeVentilationWorkspace(systemScope);
   const option = project.designOptions.find(candidate => candidate.id === project.activeDesignOptionId);
   if (!option) throw new TypeError("An active design option is required for parts export");
   const metadata = {
@@ -23,8 +25,8 @@ export function createPartsCsvRows(project, { projectName, exportedAt = new Date
     projectReference: project.projectDetails.projectReference || "",
     optionName: option.name, revision: option.revision, exportedAt,
   };
-  const schedules = project.floors.map(floor => createPartsSchedule(project, { floorId: floor.id }));
-  const rows = [{ ...metadata, scope: "Active option / all floors", section: "Export scope", kind: "note", description: BOUNDARY, basis: "Committed model records only. Other design options are excluded. Unsaved form fields are excluded." }];
+  const schedules = project.floors.map(floor => createPartsSchedule(project, { floorId: floor.id, systemScope }));
+  const rows = [{ ...metadata, scope: `Active option / all floors / ${ventilationWorkspaceLabel(systemScope)}`, section: "Export scope", kind: "note", description: BOUNDARY, basis: "Committed model records only. Other design options and systems outside the selected export scope are excluded. The complete saved design is unchanged. Unsaved form fields are excluded." }];
   for (const schedule of schedules) {
     const floor = { ...metadata, floorName: reportFloorName(schedule.floorName) };
     let section = "";
