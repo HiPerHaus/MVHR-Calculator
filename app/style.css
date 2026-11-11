@@ -511,6 +511,27 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
 .sheet-preview-host svg { display: block; width: 100%; height: auto; }
 .sheet-preview-note { padding: 8px 14px; text-align: center; display: flex; align-items: center; justify-content: center; border-top: 1px solid #c5ced2; background: #f6f8f9; color: #65767d; font-size: 11px; }
 
+.sheet-print-host { display: none; }
+.sheet-output-dialog { box-sizing: border-box; width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; }
+.sheet-output-dialog form { display: flex; flex-direction: column; max-height: calc(100dvh - 44px); margin: 0; }
+.sheet-output-dialog header, .sheet-output-tools, .sheet-output-dialog footer { flex-shrink: 0; }
+.sheet-output-dialog header { padding: 18px 20px 8px; }
+.sheet-output-dialog h2 { margin: 0 0 8px; }
+.sheet-output-dialog p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.sheet-output-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 20px 12px; }
+.sheet-output-tools button, .sheet-output-dialog .dialog-actions button { min-height: 44px; }
+.sheet-output-tools span { font-size: 12px; color: #344e5a; }
+.sheet-output-pages { overflow-y: auto; min-height: 0; padding: 0 20px; }
+.sheet-output-pages fieldset { margin: 0 0 12px; padding: 4px 12px 8px; border: 1px solid #c5ced2; border-radius: 8px; }
+.sheet-output-pages legend { padding: 0 4px; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.sheet-output-page-choice { display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 0; cursor: pointer; }
+.sheet-output-page-choice input { width: 20px; height: 20px; flex: 0 0 20px; margin: 0; accent-color: var(--teal); }
+.sheet-output-page-choice span { display: grid; gap: 3px; }
+.sheet-output-page-choice strong { font-size: 13px; }
+.sheet-output-page-choice small { font-size: 11px; color: var(--muted); }
+.sheet-output-dialog footer { padding: 12px 20px 18px; border-top: 1px solid #c5ced2; }
+.sheet-output-dialog .dialog-actions { margin-top: 10px; }
+
 @page { size: A4 portrait; margin: 0; }
 @page drawing { size: A3 landscape; margin: 0; }
 @page drawing-portrait { size: A3 portrait; margin: 0; }
@@ -529,6 +550,9 @@ kbd { display: grid; place-items: center; width: 24px; height: 24px; border: 1px
   .sheet-page.sheet-a3-portrait { page:drawing-portrait; width:297mm; height:420mm; }
   .sheet-page.sheet-a4 { page:parts; width:210mm; height:297mm; }
   .sheet-page svg { width:100%; height:100%; }
+  body[data-selected-sheet-print] .sheet-preview-host { display: none; }
+  body[data-selected-sheet-print] .sheet-print-host { display: block; }
+  .sheet-output-dialog { display: none !important; }
 }
 
 .empty-state { margin-top: 18px; padding: 18px 12px; border: 1px dashed #cad4d8; border-radius: 8px; text-align: center; color: var(--muted); }

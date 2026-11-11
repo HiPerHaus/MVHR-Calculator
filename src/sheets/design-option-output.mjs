@@ -18,7 +18,7 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
     if (page.kind === "drawing") entryIndex += 1;
     const { option } = entries[entryIndex];
     return Object.freeze({
-      ...page, optionId: option.id, optionName: option.name, optionRevision: option.revision,
+      ...page, pageKey: JSON.stringify([option.id, page.kind, page.partsPageNumber ?? 0]), optionId: option.id, optionName: option.name, optionRevision: option.revision,
       label: `${option.name} · ${option.revision} · ${page.label}`,
     });
   });

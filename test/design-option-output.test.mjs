@@ -5,6 +5,7 @@ import { createCatalogueComponent } from "../src/editor/component-catalogue.mjs"
 import { createConfiguredMvhrComponent } from "../src/editor/mvhr-placement.mjs";
 import { createA3SheetModel } from "../src/sheets/a3-sheet.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
+import { createSheetOutputPages, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createPartsCsv } from "../src/sheets/parts-csv-export.mjs";
 
 function fixture() {
@@ -72,4 +73,41 @@ test("legacy single-option exports work and invalid selection cannot silently ex
   assert.equal(output.entries[0].option.name, "Option A");
   assert.throws(() => createDesignOptionOutput(project, { optionId: "missing", createSheet }), /unavailable/);
   assert.throws(() => createDesignOptionOutput(project), /sheet factory/);
+});
+
+
+test("selected output pages keep source order with consecutive numbering and unchanged input", () => {
+  const output = createDesignOptionOutput(fixture(), { optionId: null, createSheet });
+  const before = structuredClone(output.pages);
+  const secondDrawing = output.pages.findIndex(page => page.optionId === "alternative" && page.kind === "drawing");
+  const indices = [output.pages.length - 1, 1, secondDrawing];
+  const selected = selectSheetOutputPages(output.pages, indices);
+  assert.deepEqual(selected.map(page => page.kind), ["installation-details", "drawing", "parts-list"]);
+  assert.deepEqual(selected.map(page => page.pageNumber), [1, 2, 3]);
+  assert.deepEqual(selected.map(page => page.sourcePageNumber), [2, secondDrawing + 1, output.pages.length]);
+  for (const [index, page] of selected.entries()) assert.match(page.svg, new RegExp(`Page ${index + 1} of 3`));
+  assert.match(selected[2].svg, /aria-label="A4 parts list page 3"/);
+  assert.match(selected[0].svg, /Read with the corresponding plan/);
+  assert.deepEqual(output.pages, before);
+  assert.throws(() => selectSheetOutputPages(output.pages, []), /at least one/);
+  for (const invalid of [[-1], [999], [0, 0], [0.5]]) assert.throws(() => selectSheetOutputPages(output.pages, invalid), /unique and available/);
+});
+
+test("a selected continuation page retains every parts row while page numbers and user titles stay correct", () => {
+  const project = fixture();
+  const sheet = createSheet(project, { ...project.designOptions[1], name: "Page 7 of 99 · customer title" });
+  const line = sheet.partsSchedule.componentLines[0];
+  const longSheet = { ...sheet, metadata: { ...sheet.metadata, projectName: "Page 7 of 99 · customer title" }, partsSchedule: { ...sheet.partsSchedule, componentLines: Array.from({ length: 100 }, (_, index) => ({ ...line, ref: `QA${index}`, description: `Independent parts row ${index}` })) } };
+  const pages = createSheetOutputPages(longSheet);
+  assert.ok(pages.length > 5);
+  const last = pages.length - 1;
+  const selected = selectSheetOutputPages(pages, [last]);
+  assert.equal(selected[0].kind, "parts-list");
+  assert.equal(selected[0].partsPageNumber, pages[last].partsPageNumber);
+  assert.equal(selected[0].partsPageCount, pages.length - 2);
+  assert.ok(selected[0].svg.includes(`Parts sheet ${pages.length - 2} of ${pages.length - 2} for this option`));
+  assert.match(selected[0].svg, /Page 1 of 1/);
+  assert.match(selected[0].svg, /Page 7 of 99 · customer title/);
+  const normalize = value => value.replace(/Page \d+ of \d+ · A4/u, "FOOTER").replace(/aria-label="A4 parts list page \d+"/u, "ARIA");
+  assert.equal(normalize(selected[0].svg), normalize(pages[last].svg));
 });

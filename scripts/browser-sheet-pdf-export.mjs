@@ -11,6 +11,7 @@ import { isPathInside, resolveStaticRequestPath } from "../src/dev/static-path.m
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const profileDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-profile-"));
+const subsetDownloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-subsets-"));
 const downloadDirectory = await mkdtemp(join(tmpdir(), "hiper-sheet-pdf-download-"));
 const outputDirectory = resolve(root, "tmp/option-export-qa-20261111");
 const outputPath = resolve(outputDirectory, "mixed-centralised-decentralised.pdf");
@@ -131,9 +132,9 @@ try {
   assert.equal(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child [data-kind="legend-external-grille"] [data-part="airflow-label"]').length`),4,"Print key should retain the matching external airflow labels");
   assert.ok(await evaluate(cdp, `document.querySelectorAll('#sheet-preview-host .sheet-page:first-child [data-part="luna-duct-mask"]').length`)>=2,"Print preview and key should retain Luna duct masks");
   await writeFile(previewOutputPath,Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
-  await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
+  await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click(); document.querySelector('#confirm-sheet-output').click()");
   await waitForDownloadCount(downloadDirectory, 2);
-  await evaluate(cdp, "document.querySelector('#export-all-options-pdf').click()");
+  await evaluate(cdp, "document.querySelector('#export-all-options-pdf').click(); document.querySelector('#confirm-sheet-output').click()");
   await waitForDownloadCount(downloadDirectory, 3);
   assert.equal(await evaluate(cdp, "document.querySelector('#export-all-options-pdf').disabled"), false);
   const originalOptionId = await evaluate(cdp, "document.querySelector('#design-option-select').value");
@@ -149,7 +150,7 @@ try {
     assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"), beforeRepeat, "Repeated option clicks are idempotent");
     if (name === "selected-empty") {
       assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-preview-host #drawing-content [data-kind=component]').length"), 0, "Empty alternative cannot contain another option's equipment");
-      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
+      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click(); document.querySelector('#confirm-sheet-output').click()");
       await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="${originalOptionId}"]').click()`);
       await waitForDownloadCount(downloadDirectory, 4);
       await evaluate(cdp, `document.querySelector('#sheet-option-navigation [data-export-option="qa-empty-option"]').click()`);
@@ -165,7 +166,7 @@ try {
       // all-options-button output before testing Export PDF from the All page.
       const previousAll = (await readdir(downloadDirectory)).find(file => file.includes("all-design-options") && file.endsWith(".pdf"));
       await rename(join(downloadDirectory, previousAll), join(downloadDirectory, "qa-all-options-button.pdf"));
-      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click()");
+      await evaluate(cdp, "document.querySelector('#export-sheet-pdf').click(); document.querySelector('#confirm-sheet-output').click()");
       await waitForDownloadCount(downloadDirectory, 5);
     }
     const print = await cdp.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false });
@@ -227,9 +228,10 @@ try {
     await writeFile(join(outputDirectory,`actual-pdf-page-${pageNumber}.png`),Buffer.from(rendered,"base64"));
   }
   await writeFile(join(outputDirectory,"page-separation-evidence.json"),JSON.stringify(pdfSeparation,null,2));
+  const subsetEvidence = await verifyPagePicker(cdp, subsetDownloadDirectory);
   assert.deepEqual(exceptions, [], `Browser runtime exceptions: ${exceptions.join("; ")}`);
   cdp.close();
-  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, printEvidence, electricalLayout, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, outputPath, canvasOutputPath, previewOutputPath, pagePlan, pdfSeparation, printEvidence, electricalLayout, subsetEvidence, bytes: (await stat(outputPath)).size, appExportButton: true, separatePrintButton: true }, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.stack ?? error}\n`);
   if (browserStderr) process.stderr.write(`Chrome diagnostics:\n${browserStderr.slice(-3000)}\n`);
@@ -241,6 +243,7 @@ try {
   await new Promise((resolveClose) => server.close(resolveClose));
   await rm(profileDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   await rm(downloadDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  await rm(subsetDownloadDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 async function startQaServer() {
@@ -404,3 +407,103 @@ async function verifyPdfPageSeparation(path) {
 }
 
 async function waitForFileCount(directory, extension, count) { for(let i=0;i<200;i++){ if((await readdir(directory)).filter(name=>name.endsWith(extension)).length>=count)return; await delay(50); } throw Error(`Missing ${extension} download`); }
+
+
+async function verifyPagePicker(cdp, downloadRoot) {
+  const previewBefore = await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML");
+  const activeOption = await evaluate(cdp, "document.querySelector('#design-option-select').value");
+  const click = selector => evaluate(cdp, `document.querySelector(${JSON.stringify(selector)}).click()`);
+  await click("#export-sheet-pdf");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-output-dialog').open"), true);
+  assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-output-pages input:checked').length"), 4);
+  await click("#clear-sheet-pages");
+  assert.equal(await evaluate(cdp, "document.querySelector('#confirm-sheet-output').disabled"), true);
+  assert.match(await evaluate(cdp, "document.querySelector('#sheet-output-count').textContent"), /at least one/);
+  await evaluate(cdp, "document.querySelector('#sheet-output-form').requestSubmit()");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-output-dialog').open"), true, "Empty selection cannot create a PDF");
+  const shortcut = await evaluate(cdp, `(()=>{const event=new KeyboardEvent('keydown',{key:'p',ctrlKey:true,bubbles:true,cancelable:true});document.dispatchEvent(event);return event.defaultPrevented;})()`);
+  assert.equal(shortcut,true,"Print shortcut in picker must not bypass selection");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-output-title').textContent"),"Choose pages to print");
+  await cdp.send("Input.dispatchKeyEvent", { type:"keyDown", key:"Escape", code:"Escape", windowsVirtualKeyCode:27 });
+  await cdp.send("Input.dispatchKeyEvent", { type:"keyUp", key:"Escape", code:"Escape" });
+  await waitFor(cdp, "!document.querySelector('#sheet-output-dialog').open");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-panel').hidden"), false, "Escape cancels the picker, not Export");
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"), previewBefore);
+  const evidence = [];
+  for (const [name, indices, kinds, all] of [
+    ["drawing-only", [0], ["drawing"], false],
+    ["details-only", [1], ["installation-details"], false],
+    ["parts-continuation-only", [3], ["parts-list"], false],
+    ["selected-across-options", [0,5,6], ["drawing","installation-details","parts-list"], true],
+  ]) {
+    const directory = join(downloadRoot, name);await mkdir(directory);
+    await cdp.send("Browser.setDownloadBehavior", { behavior:"allow", downloadPath:directory });
+    await click(all ? "#export-all-options-pdf" : "#export-sheet-pdf");
+    if (name === "drawing-only") assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-output-pages input:checked').length"), 4, "Cancel discards pending selection changes");
+    await evaluate(cdp, `(()=>{const selected=${JSON.stringify(indices)};for(const input of document.querySelectorAll('#sheet-output-pages input'))input.checked=selected.includes(Number(input.dataset.pageIndex));document.querySelector('#sheet-output-pages input').dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-output-pages input:checked').length"), indices.length);
+    if (all) {
+      assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-output-pages fieldset').length"),2);
+      for (const [surface,width,height] of [["desktop",1440,900],["tablet",1024,768]]) {
+        await cdp.send("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
+        const layout=await evaluate(cdp, `(()=>{const d=document.querySelector('#sheet-output-dialog').getBoundingClientRect(),b=document.querySelector('#confirm-sheet-output').getBoundingClientRect();return {fits:d.x>=0&&d.right<=innerWidth&&d.y>=0&&d.bottom<=innerHeight,button:b.bottom<=innerHeight&&b.height>=44};})()`);
+        assert.ok(layout.fits&&layout.button,"Page-picker dialog and action must fit the viewport");
+        await writeFile(join(outputDirectory,`page-picker-${surface}.png`),Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png"})).data,"base64"));
+      }
+    }
+    await click("#confirm-sheet-output");
+    const file = await waitForDownload(directory);
+    const result = await inspectSelectedPdf(file, kinds);
+    evidence.push({name,...result});
+    await copyFile(file,join(outputDirectory,`${name}.pdf`));
+    if (name === "parts-continuation-only" || name === "details-only") await renderPdfReview(cdp, file, 1, `${name}.png`);
+    assert.equal(await evaluate(cdp, "document.querySelector('#design-option-select').value"),activeOption);
+    assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"),previewBefore);
+  }
+  // Print uses the same remembered selections, but never removes preview pages.
+  await click('#sheet-option-navigation [data-export-option=""]');
+  const allPreview=await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML");
+  await click("#print-sheet-preview");
+  assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-output-pages input:checked').length"),3);
+  await evaluate(cdp, "window.__savedPrint=window.print;window.print=()=>{window.__selectedPrintCalled=true;}");
+  await click("#confirm-sheet-output");
+  assert.equal(await evaluate(cdp, "window.__selectedPrintCalled"),true);
+  assert.equal(await evaluate(cdp, "document.querySelectorAll('#sheet-print-host .sheet-page').length"),3);
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"),allPreview);
+  const printed = await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true,displayHeaderFooter:false});
+  const printPath=join(outputDirectory,"selected-pages-print.pdf");await writeFile(printPath,Buffer.from(printed.data,"base64"));
+  evidence.push({name:"selected-pages-print",...await inspectSelectedPdf(printPath,["drawing","installation-details","parts-list"])});
+  await evaluate(cdp, "window.dispatchEvent(new Event('afterprint'));window.print=window.__savedPrint");
+  assert.equal(await evaluate(cdp, "document.body.hasAttribute('data-selected-sheet-print')"),false);
+  assert.equal(await evaluate(cdp, "document.querySelector('#sheet-preview-host').innerHTML"),allPreview);
+  return evidence;
+}
+
+async function inspectSelectedPdf(path, expectedKinds) {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task=getDocument({data:new Uint8Array(await readFile(path)),standardFontDataUrl:resolve(root,"node_modules/pdfjs-dist/standard_fonts")+"/"});
+  const pdf=await task.promise;assert.equal(pdf.numPages,expectedKinds.length);
+  const pages=[];
+  for(let index=0;index<pdf.numPages;index++){
+    const page=await pdf.getPage(index+1),text=(await page.getTextContent()).items.map(item=>item.str).join(" ").replace(/\s+/g," ");
+    const kind=text.includes("SYMBOL KEY")?"drawing":text.includes("Ducts within thermal envelope")?"installation-details":"parts-list";
+    assert.equal(kind,expectedKinds[index]);assert.ok(text.includes(`Page ${index+1} of ${pdf.numPages}`));
+    if(path.includes("parts-continuation-only")) assert.ok(text.includes("Parts sheet 2 of 2 for this option"));
+    const width=Math.round(page.getViewport({scale:1}).width),height=Math.round(page.getViewport({scale:1}).height);
+    assert.equal(width,kind==="parts-list"?595:1191);assert.equal(height,842);
+    pages.push({page:index+1,kind,width,height});
+  }
+  await task.destroy();return {pages};
+}
+
+
+async function renderPdfReview(cdp, path, pageNumber, name) {
+  const bytes=(await readFile(path)).toString("base64");
+  const image=await evaluate(cdp, `(async()=>{
+    const pdfjs=await import('/node_modules/pdfjs-dist/legacy/build/pdf.mjs');pdfjs.GlobalWorkerOptions.workerSrc='/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs';
+    const task=pdfjs.getDocument({data:Uint8Array.from(atob('${bytes}'),c=>c.charCodeAt(0)),standardFontDataUrl:'/node_modules/pdfjs-dist/standard_fonts/'});
+    const pdf=await task.promise,page=await pdf.getPage(${pageNumber}),viewport=page.getViewport({scale:1.25}),canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+    await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;const result=canvas.toDataURL('image/png').split(',')[1];await task.destroy();return result;
+  })()`);
+  await writeFile(join(outputDirectory,name),Buffer.from(image,"base64"));
+}

@@ -66,6 +66,8 @@ try {
   assert.match(await value(cdp,`document.querySelector("#sheet-preview-status")?.textContent`),/Option B.*B1/u);
   assert.equal(await value(cdp,`document.querySelector("#export-all-options-pdf")?.hidden`),false);
   await click(cdp,"#export-all-options-pdf");
+  await waitFor(cdp, `document.querySelector("#sheet-output-dialog").open`);
+  await click(cdp,"#confirm-sheet-output");
   const pdfPath=await waitForDownload(downloads);
   const pdfTask=pdfjs.getDocument({data:new Uint8Array(await readFile(pdfPath)),disableWorker:true});
   const pdf=await pdfTask.promise;

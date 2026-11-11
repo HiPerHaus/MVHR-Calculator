@@ -118,7 +118,7 @@ test("real download handler uses the export option without switching the drawing
   const { readFileSync } = await import("node:fs");
   const { runInNewContext } = await import("node:vm");
   const source = readFileSync(new URL("../app/main.mjs", import.meta.url), "utf8");
-  const handlerSource = source.slice(source.indexOf("function exportPartsCsv() {"), source.indexOf("async function exportSheetPreviewPdf() {"));
+  const handlerSource = source.slice(source.indexOf("function exportPartsCsv() {"), source.indexOf("async function exportSheetPreviewPdf("));
   assert.match(source, /exportPartsCsvButton\.addEventListener\("click", exportPartsCsv\)/);
   const downloads = [], timers = [], revoked = [], clicks = [], buttons = { disabled: false };
   const context = {

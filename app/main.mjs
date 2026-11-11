@@ -2,7 +2,7 @@ import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
-import { sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
 import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
@@ -607,6 +607,13 @@ const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 let sheetPreviewPages = [];
 let sheetPreviewPdfMetadata = null;
 let sheetPreviewOptionProject = null;
+const sheetPrintHost = document.querySelector("#sheet-print-host");
+const sheetOutputDialog = document.querySelector("#sheet-output-dialog");
+const sheetOutputForm = document.querySelector("#sheet-output-form");
+const sheetOutputPageList = document.querySelector("#sheet-output-pages");
+const confirmSheetOutputButton = document.querySelector("#confirm-sheet-output");
+let pendingSheetOutput = null;
+const sheetPageSelections = new Map();
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
@@ -1451,7 +1458,7 @@ threeDHost.addEventListener("pointerdown", startThreeDPointer);
 threeDHost.addEventListener("pointermove", moveThreeDPointer);
 threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
-exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
+exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"));
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
 sheetOptionNavigation.addEventListener("click", (event) => {
@@ -1460,7 +1467,18 @@ sheetOptionNavigation.addEventListener("click", (event) => {
   try { renderSheetOptionPreview(button.dataset.exportOption || null); }
   catch (error) { sheetPreviewStatus.textContent = `Option preview unavailable: ${error.message}`; }
 });
-printSheetPreviewButton.addEventListener("click", printSheetPreview);
+printSheetPreviewButton.addEventListener("click", () => openSheetOutputPicker("print"));
+sheetOutputForm.addEventListener("submit", confirmSheetOutput);
+sheetOutputPageList.addEventListener("change", updateSheetOutputSelection);
+for (const [id, checked] of [["select-all-sheet-pages", true], ["clear-sheet-pages", false]]) {
+  document.querySelector(`#${id}`).addEventListener("click", () => {
+    for (const input of sheetOutputPageList.querySelectorAll("input")) input.checked = checked;
+    updateSheetOutputSelection();
+  });
+}
+document.querySelector("#cancel-sheet-output").addEventListener("click", () => sheetOutputDialog.close());
+sheetOutputDialog.addEventListener("close", () => { if (!sheetOutputDialog.open) pendingSheetOutput = null; });
+window.addEventListener("afterprint", clearSelectedSheetPrint);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 returnToCheckButton.addEventListener("click", returnToDesignCheck);
 workflowOpenPlanButton.addEventListener("click", () => selectDesignStage("plan"));
@@ -2167,7 +2185,24 @@ canvas.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (mvhrDialog.open) return;
+  if (sheetOutputDialog.open) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      sheetOutputDialog.close();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      if (pendingSheetOutput) pendingSheetOutput.action = "print";
+      document.querySelector("#sheet-output-title").textContent = "Choose pages to print";
+      updateSheetOutputSelection();
+    }
+    return;
+  }
   if (!sheetPreviewPanel.hidden) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      openSheetOutputPicker("print");
+      return;
+    }
     if (event.key === "Escape") {
       closeSheetPreview();
       event.preventDefault();
@@ -3033,6 +3068,8 @@ function signedCount(value) {
 function openSheetPreview({ designStage = false } = {}) {
   if (hasEngineeringEdits()) return requestEngineeringTransition(() => openSheetPreview({ designStage }));
   try {
+    sheetPageSelections.clear();
+    clearSelectedSheetPrint();
     renderSheetOptionPreview(history.present.activeDesignOptionId);
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
@@ -3061,11 +3098,9 @@ function openSheetPreview({ designStage = false } = {}) {
   }
 }
 
-function renderSheetOptionPreview(optionId) {
-  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, createSheet: createSheetForDesignOption });
-  const allOptions = optionId === null;
+function createSheetPageElements(pages) {
   const parser = new DOMParser();
-  const elements = pages.map(page => {
+  return pages.map(page => {
     const documentSvg = parser.parseFromString(page.svg, "image/svg+xml");
     if (documentSvg.querySelector("parsererror")) throw new TypeError("Generated sheet SVG could not be parsed");
     const element = document.createElement("section");
@@ -3078,6 +3113,13 @@ function renderSheetOptionPreview(optionId) {
     element.append(label, document.importNode(documentSvg.documentElement, true));
     return element;
   });
+}
+
+function renderSheetOptionPreview(optionId) {
+  clearSelectedSheetPrint();
+  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, createSheet: createSheetForDesignOption });
+  const allOptions = optionId === null;
+  const elements = createSheetPageElements(pages);
   const selected = entries[0];
   const projectName = selected.sheet.metadata.projectName;
   const metadata = allOptions ? {
@@ -3140,14 +3182,88 @@ function defaultDrawingTitle(projectName, floorName) {
 }
 
 function closeSheetPreview() {
+  clearSelectedSheetPrint();
   const target = sheetReturnStage === "export" ? lastCanvasDesignStage : sheetReturnStage;
   activeDesignStage = target;
   setTask(transitionStudioDesignStage("export", target).task, { designNavigation: true });
 }
 
-function printSheetPreview() {
-  if (sheetPreviewPanel.hidden) return;
-  window.print();
+function openSheetOutputPicker(action, output = null) {
+  if (sheetPreviewPanel.hidden || sheetOutputDialog.open || exportSheetPdfButton.disabled) return;
+  clearSelectedSheetPrint();
+  const source = output ?? { pages: sheetPreviewPages, metadata: sheetPreviewPdfMetadata };
+  if (!source.pages.length || !source.metadata) return;
+  pendingSheetOutput = { ...source, action };
+  document.querySelector("#sheet-output-title").textContent = action === "print" ? "Choose pages to print" : "Choose PDF pages";
+  const groups = new Map();
+  source.pages.forEach((page, index) => {
+    let fieldset = groups.get(page.optionId);
+    if (!fieldset) {
+      fieldset = document.createElement("fieldset");
+      const legend = document.createElement("legend");
+      legend.textContent = `${page.optionName} · ${page.optionRevision}`;
+      fieldset.append(legend);
+      groups.set(page.optionId, fieldset);
+    }
+    const label = document.createElement("label");
+    label.className = "sheet-output-page-choice";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.pageIndex = String(index);
+    input.checked = sheetPageSelections.get(page.pageKey) !== false;
+    const description = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    const detail = document.createElement("small");
+    detail.textContent = `Page ${index + 1} · ${page.kind === "parts-list" ? "A4" : "A3"} ${page.orientation}`;
+    description.append(title, detail);
+    label.append(input, description);
+    fieldset.append(label);
+  });
+  sheetOutputPageList.replaceChildren(...groups.values());
+  updateSheetOutputSelection();
+  sheetOutputDialog.showModal();
+  sheetOutputPageList.scrollTop = 0;
+}
+
+function updateSheetOutputSelection() {
+  if (!pendingSheetOutput) return;
+  const selected = sheetOutputPageList.querySelectorAll("input:checked").length;
+  document.querySelector("#sheet-output-count").textContent = selected ? `${selected} of ${pendingSheetOutput.pages.length} pages selected` : "Select at least one page";
+  confirmSheetOutputButton.disabled = selected === 0;
+  confirmSheetOutputButton.textContent = `${pendingSheetOutput.action === "print" ? "Print" : "Export"} ${selected} page${selected === 1 ? "" : "s"}`;
+}
+
+function confirmSheetOutput(event) {
+  event.preventDefault();
+  if (!pendingSheetOutput) return;
+  const selection = [...sheetOutputPageList.querySelectorAll("input:checked")].map(input => Number(input.dataset.pageIndex));
+  if (!selection.length) return updateSheetOutputSelection();
+  const source = pendingSheetOutput;
+  const pages = selectSheetOutputPages(source.pages, selection);
+  for (const input of sheetOutputPageList.querySelectorAll("input")) sheetPageSelections.set(source.pages[Number(input.dataset.pageIndex)].pageKey, input.checked);
+  const metadata = { ...source.metadata };
+  if (pages.length !== source.pages.length) metadata.fileName = metadata.fileName.replace(/\.pdf$/u, "-selected-pages.pdf");
+  sheetOutputDialog.close();
+  if (source.action === "print") printSelectedSheetPages(pages);
+  else exportSheetPreviewPdf(pages, metadata);
+}
+
+function clearSelectedSheetPrint() {
+  document.body.removeAttribute("data-selected-sheet-print");
+  sheetPrintHost.replaceChildren();
+}
+
+function printSelectedSheetPages(pages) {
+  try {
+    sheetPrintHost.replaceChildren(...createSheetPageElements(pages));
+    document.body.setAttribute("data-selected-sheet-print", "true");
+    window.print();
+  } catch (error) {
+    clearSelectedSheetPrint();
+    interactionMessage = `Print unavailable: ${error.message}`;
+    sheetPreviewStatus.textContent = interactionMessage;
+  }
 }
 
 function exportPartsCsv() {
@@ -3179,11 +3295,8 @@ function exportPartsCsv() {
   }
 }
 
-async function exportSheetPreviewPdf() {
-  if (sheetPreviewPanel.hidden || !sheetPreviewPages.length || !sheetPreviewPdfMetadata) return;
-  if (exportSheetPdfButton.disabled) return;
-  const pages = sheetPreviewPages;
-  const metadata = sheetPreviewPdfMetadata;
+async function exportSheetPreviewPdf(pages, metadata) {
+  if (!pages.length || !metadata || exportSheetPdfButton.disabled) return;
   const previousLabel = exportSheetPdfButton.textContent;
   exportSheetPdfButton.disabled = true;
   exportSheetPdfButton.textContent = "Creating PDF…";
@@ -3200,19 +3313,20 @@ async function exportSheetPreviewPdf() {
   }
 }
 
-async function exportAllDesignOptionsPdf() {
-  if(history.present.designOptions.length<2){interactionMessage="Add another design option before exporting all options.";updateStatus();return;}
-  if (exportAllOptionsPdfButton.disabled) return;
-  const previousLabel=exportAllOptionsPdfButton.textContent;
-  exportAllOptionsPdfButton.disabled=true;exportAllOptionsPdfButton.textContent="Creating all options…";
+function exportAllDesignOptionsPdf() {
+  if (history.present.designOptions.length < 2 || sheetOutputDialog.open || exportSheetPdfButton.disabled) return;
   try {
     const { pages } = createDesignOptionOutput(history.present, { optionId: null, createSheet: createSheetForDesignOption });
-    const fileName=sheetPdfFileName(history.present.projectDetails.name||currentProjectName,"all-design-options");
-    const blob=await createMixedPagePdfBlob(pages,{title:`${history.present.projectDetails.name||currentProjectName} · all design options`,subject:"Independent ventilation design options · preliminary · not for construction",author:cloudSession?.companyProfile?.details?.name||"HiPer Studio",fileName});
-    downloadPdfBlob(blob,fileName);
-    interactionMessage=`Downloaded ${history.present.designOptions.length} independent design options without combining their parts lists`;
-  } catch(error) { interactionMessage=`All-options PDF export failed: ${error.message}`; }
-  finally {exportAllOptionsPdfButton.disabled=false;exportAllOptionsPdfButton.textContent=previousLabel;updateStatus();}
+    const projectName = history.present.projectDetails.name || currentProjectName;
+    openSheetOutputPicker("pdf", { pages, metadata: {
+      title: `${projectName} · all design options`, subject: "Independent ventilation design options · preliminary · not for construction",
+      author: cloudSession?.companyProfile?.details?.name || "HiPer Studio", fileName: sheetPdfFileName(projectName, "all-design-options"),
+    } });
+  } catch (error) {
+    interactionMessage = `All-options PDF unavailable: ${error.message}`;
+    sheetPreviewStatus.textContent = interactionMessage;
+    updateStatus();
+  }
 }
 
 function createStore() {

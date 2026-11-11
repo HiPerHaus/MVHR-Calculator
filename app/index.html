@@ -720,6 +720,7 @@
         <nav id="sheet-option-navigation" class="sheet-option-navigation" aria-label="Design option export pages"></nav>
         <div class="sheet-preview-stage">
           <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
+          <div id="sheet-print-host" class="sheet-print-host"></div>
         </div>
         <footer id="sheet-preview-note" class="sheet-preview-note">
           Working draft only · not for construction · print at 100% and verify physical scale. Parts CSV: selected option, all floors, no prices.
@@ -730,6 +731,14 @@
     <input id="reference-file" type="file" accept="image/png,.png" hidden />
     <input id="pdf-reference-file" type="file" accept="application/pdf,.pdf" hidden />
     <input id="dxf-reference-file" type="file" accept=".dxf,application/dxf,text/plain" hidden />
+    <dialog id="sheet-output-dialog" class="sheet-output-dialog" aria-labelledby="sheet-output-title" aria-describedby="sheet-output-help">
+      <form id="sheet-output-form">
+        <header><h2 id="sheet-output-title">Choose PDF pages</h2><p id="sheet-output-help">Choose the drawing, engineering details and parts pages to include. Selected pages are renumbered in order.</p></header>
+        <div class="sheet-output-tools"><button id="select-all-sheet-pages" type="button">Select all</button><button id="clear-sheet-pages" type="button">Clear selection</button><span id="sheet-output-count" role="status"></span></div>
+        <div id="sheet-output-pages" class="sheet-output-pages"></div>
+        <footer><p>Page choices apply to PDF and Print. Parts CSV always contains the full selected option.</p><div class="dialog-actions"><button id="cancel-sheet-output" type="button">Cancel</button><button id="confirm-sheet-output" type="submit" class="primary-action">Export PDF</button></div></footer>
+      </form>
+    </dialog>
     <dialog id="open-confirm-dialog" aria-labelledby="open-confirm-title">
       <form method="dialog">
         <h2 id="open-confirm-title">Save changes first?</h2>
