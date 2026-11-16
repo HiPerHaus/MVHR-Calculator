@@ -904,9 +904,13 @@ function updateMvhrPreview() {
   const generic = mvhrModel.value === "generic";
   const ca200=mvhrModel.value === "ca200";
   const germanBim=/^q(?:350|450)-de-(?:hrv|erv)$/u.test(mvhrModel.value);
-  mvhrHanding.disabled = generic;
-  mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = generic || ca200 || germanBim;
-  if ((generic || ca200 || germanBim) && mvhrLayout.value === "unit-mounted-cw") mvhrLayout.value = "unit-only";
+  const aerofresh300 = mvhrModel.value.startsWith("aerofresh-300");
+  const remoteOnly = generic || ca200 || germanBim || aerofresh300;
+  mvhrHanding.disabled = generic || aerofresh300;
+  mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = remoteOnly;
+  if (remoteOnly && mvhrLayout.value === "unit-mounted-cw") {
+    mvhrLayout.value = aerofresh300 ? "remote-attenuators" : "unit-only";
+  }
   document.querySelector("#mvhr-cw-size-label").hidden = mvhrLayout.value !== "unit-mounted-cw";
   const aerofresh = mvhrModel.value.startsWith("aerofresh-450");
   const accessoryNote = mvhrLayout.value === "unit-only" ? "" : mvhrLayout.value === "unit-mounted-cw"
@@ -917,6 +921,7 @@ function updateMvhrPreview() {
   mvhrSummary.textContent = generic
     ? `Generic ${mounting} planning symbol: 900 × 650 mm, four DN160 test ports. No manufacturer mounting dimensions or clearance are established.${accessoryNote}`
     : ca200 ? `CA200 manual version · ${mounting} · manufacturer ${mvhrHanding.value}-hand. Body 535 × 315 × 1108 mm; 1200 mm including spigots. Four DN125 drawing connections. Remote attenuators placed separately. Absolute port setout and installation fit require review.${accessoryNote}`
+    : aerofresh300 ? `Aerofresh 300 body: 660 × 443 × 760 mm. DN125 spigots. Port snap points are pending verified setout. Place attenuators and ComfoWell remotely.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
     : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
     : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
