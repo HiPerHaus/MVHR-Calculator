@@ -366,6 +366,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
     engineeringPassages: starEngineeringPassages("main", radialPortKeys("branch"), "Explicit generic manifold main-to-branch topology"),
     note: "One independently placeable extract-side fixture; no automatic count or pairing.",
   }),
+  ...["hrv", "erv"].map(aerofresh300Record),
   ...["hrv", "erv"].flatMap(type => ["left", "right"].map(handing => aerofresh450Record(type, handing))),
   ...[125,160].flatMap(size => ["intake","exhaust","combined"].map(service=>externalGrilleRecord(size,service))),
   ...[125,160].flatMap(size => ["intake","exhaust"].map(service=>zehnderSingleGrilleRecord(size,service))),
@@ -999,6 +1000,32 @@ function currentUkDistributionCandidates(profileId) {
       candidateSummary: `${profile.source.revision} · H/W/D ${component.manufacturerEnvelopeMm.height}/${component.manufacturerEnvelopeMm.width}/${component.manufacturerEnvelopeMm.depth} mm · ${connectionSummary} · plan setout pending`,
       note: "Current UK manufacturer evidence is kept separate from the Australian/local-code candidates and synthetic generic assembly. It is not placeable until installed orientation, complete footprint and routable port coordinates are approved.",
     };
+  });
+}
+
+function aerofresh300Record(type) {
+  const manual = AEROFRESH_MANUAL_EVIDENCE["300"];
+  return componentRecord({
+    id: `aerofresh-300-${type}-drawing-profile`,
+    versionId: `aerofresh-300-${type}.drawing.v1`,
+    group: "Units", category: "mvhr-unit-drawing-profile", manufacturer: "Aerofresh",
+    productId: type === "hrv" ? "AER-300HRV" : "AER-300ERV",
+    name: `Aerofresh 300 ${type.toUpperCase()}`,
+    status: "source-backed-drawing-footprint",
+    source: {
+      identifier: { ...INTERNAL_IDENTIFIER_SOURCE, locator: type === "hrv" ? "Price List!A177,C177" : "Price List!A179,C179" },
+      manual: { sourceId: manual.sourceId, title: manual.title, pages: [manual.dimensionPage, manual.servicePage] },
+    },
+    dimensions: {
+      unit: "mm", body: manual.body, service: manual.service,
+      spigotProtrusionMm: manual.spigotProtrusionMm,
+      nativeNominalSpigotDiameterMm: manual.nominalSpigotDiameterMm,
+      evidenceStatus: "manufacturer-body-dimensions",
+    },
+    symbol: { shape: "box", widthMm: manual.body.width, heightMm: manual.body.depth },
+    ports: [],
+    connectionSetout: { routable: false, localPortCoordinatesStatus: manual.portSetout.xOriginStatus },
+    note: "Scaled body footprint. Port snap points require verified absolute setout. Attenuators and ComfoWell are mounted remotely.",
   });
 }
 
