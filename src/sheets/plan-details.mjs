@@ -104,7 +104,7 @@ function renderCard(card, details) {
     out.push(paragraphs(notes, b, top + 52));
   } else if (card.id === "af300-remote") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
-    out.push(paragraphs(["470 depth includes wall bracket allowance."], b, top + 63));
+    out.push(paragraphs(["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."], b, top + 60));
   } else {
     out.push(paragraphs(details.unmatchedComponentIds.length
       ? ["No supplied setout matches the unit and arrangement on this floor.", "Select the exact model, mounting and CW size; obtain the matching assembly drawing.",
