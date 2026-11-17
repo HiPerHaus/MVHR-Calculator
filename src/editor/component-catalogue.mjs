@@ -366,7 +366,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
     engineeringPassages: starEngineeringPassages("main", radialPortKeys("branch"), "Explicit generic manifold main-to-branch topology"),
     note: "One independently placeable extract-side fixture; no automatic count or pairing.",
   }),
-  ...["hrv", "erv"].map(aerofresh300Record),
+  ...["hrv", "erv"].flatMap(type => ["right", "left"].map(handing => aerofresh300Record(type, handing))),
   ...["hrv", "erv"].flatMap(type => ["left", "right"].map(handing => aerofresh450Record(type, handing))),
   ...[125,160].flatMap(size => ["intake","exhaust","combined"].map(service=>externalGrilleRecord(size,service))),
   ...[125,160].flatMap(size => ["intake","exhaust"].map(service=>zehnderSingleGrilleRecord(size,service))),
@@ -1003,25 +1003,26 @@ function currentUkDistributionCandidates(profileId) {
   });
 }
 
-function aerofresh300Record(type) {
+function aerofresh300Record(type, handing) {
   const manual = AEROFRESH_MANUAL_EVIDENCE["300"];
   const { outerXSpanMm, innerXSpanMm, rearOffsetsMm } = manual.portSetout;
   const dn125 = interfaceDefinition("rigid-epp", manual.nominalSpigotDiameterMm, "nominal-drawing-connection-only", {
     drawingConnectionClass: "circular-dn125", installationCompatibilityStatus: "unverified",
   });
+  const centresX = [-outerXSpanMm / 2, -innerXSpanMm / 2, innerXSpanMm / 2, outerXSpanMm / 2];
   const roles = [
-    ["dwelling-supply", -outerXSpanMm / 2, "supply", "Dwelling supply"],
-    ["dwelling-extract", -innerXSpanMm / 2, "extract", "Dwelling extract"],
-    ["outdoor-intake", innerXSpanMm / 2, "intake", "Outdoor intake"],
-    ["outdoor-exhaust", outerXSpanMm / 2, "exhaust", "Outdoor exhaust"],
+    ["dwelling-supply", "supply", "Dwelling supply"],
+    ["dwelling-extract", "extract", "Dwelling extract"],
+    ["outdoor-intake", "intake", "Outdoor intake"],
+    ["outdoor-exhaust", "exhaust", "Outdoor exhaust"],
   ];
   return componentRecord({
-    id: `aerofresh-300-${type}-drawing-profile`,
-    versionId: `aerofresh-300-${type}.drawing.v2`,
+    id: `aerofresh-300-${type}${handing === "left" ? "-left" : ""}-drawing-profile`,
+    versionId: `aerofresh-300-${type}${handing === "left" ? "-left.drawing.v1" : ".drawing.v2"}`,
     group: "Units", category: "mvhr-unit-drawing-profile", manufacturer: "Aerofresh",
     productId: type === "hrv" ? "AER-300HRV" : "AER-300ERV",
     name: `Aerofresh 300 ${type.toUpperCase()}`,
-    handing: "manufacturer-right",
+    handing: `manufacturer-${handing}`,
     status: "source-backed-drawing-profile-provisional-setout",
     source: {
       identifier: { ...INTERNAL_IDENTIFIER_SOURCE, locator: type === "hrv" ? "Price List!A177,C177" : "Price List!A179,C179" },
@@ -1034,15 +1035,21 @@ function aerofresh300Record(type) {
       evidenceStatus: "manufacturer-body-dimensions",
     },
     symbol: { shape: "box", widthMm: manual.body.width, heightMm: manual.body.depth },
-    ports: roles.map(([key, x, stream, role], index) => ({
-      ...port(key, x, rearOffsetsMm[index] - manual.body.depth / 2, Math.sign(x), 0, stream, role, dn125),
-      coordinateEvidence: "Manual centre spacings and rear offsets. Horizontal centring and plan approach are drawing conventions.",
-    })),
+    ports: roles.map(([key, stream, role], index) => {
+      const slot = handing === "left" ? roles.length - 1 - index : index;
+      const x = centresX[slot];
+      return {
+        ...port(key, x, rearOffsetsMm[slot] - manual.body.depth / 2, Math.sign(x), 0, stream, role, dn125),
+        coordinateEvidence: "Manual centre spacings and rear offsets. Horizontal centring and plan approach are drawing conventions.",
+      };
+    }),
     connectionSetout: {
       routable: true, connectionScope: "drawing-only", localPortCoordinatesStatus: "centred-on-casing-provisional",
-      orientationConvention: "manufacturer-right", installationCompatibilityStatus: "unverified",
+      orientationConvention: handing === "left" ? "provisional-kinetic-advance-left" : "manufacturer-right", installationCompatibilityStatus: "unverified",
     },
-    note: "Right-hand DN125 drawing connections. ComfoWell and attenuators are mounted remotely.",
+    note: handing === "left"
+      ? "Provisional left-hand role map based on Vent-Axia Sentinel Kinetic Advance. Verify against the AeroFresh unit before installation."
+      : "Right-hand DN125 drawing connections. ComfoWell and attenuators are mounted remotely.",
   });
 }
 

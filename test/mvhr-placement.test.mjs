@@ -236,6 +236,11 @@ test("Aerofresh 300 exposes four provisional right-hand DN125 drawing targets", 
       ["exhaust", 251, 93, 125],
     ]);
     assert.equal(unit.catalogueSnapshot.connectionSetout.connectionScope, "drawing-only");
+    const left = createConfiguredMvhrComponent({ ...selection, handing: "left" }, placement);
+    assert.equal(left.mvhrDesignIntent.handing, "left");
+    assert.deepEqual(left.ports.map(port => port.id), unit.ports.map(port => port.id));
+    assert.deepEqual(left.ports.map(port => port.positionMm), unit.ports.map(port => port.positionMm).reverse());
+    assert.equal(left.catalogueSnapshot.connectionSetout.orientationConvention, "provisional-kinetic-advance-left");
     assert.throws(() => createConfiguredMvhrComponent({
       ...selection, layout: "unit-mounted-cw",
     }, placement), /remote only/);

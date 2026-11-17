@@ -82,8 +82,8 @@ export function deriveComponentPlanGraphic(component) {
   if (match) return deriveQ350PlanGraphic(component, recordId, match[2], match[1]);
   const aeroMatch = typeof recordId === "string" ? recordId.match(/^aerofresh-450-(?:hrv|erv)-(left|right)-drawing-profile$/u) : null;
   if (aeroMatch) return deriveQ350PlanGraphic(component, recordId, aeroMatch[1]);
-  if (/^aerofresh-300-(hrv|erv)-drawing-profile$/u.test(recordId) && component.ports?.length === 4) {
-    return deriveQ350PlanGraphic(component, recordId, "right");
+  if (/^aerofresh-300-(hrv|erv)(-left)?-drawing-profile$/u.test(recordId) && component.ports?.length === 4) {
+    return deriveQ350PlanGraphic(component, recordId, recordId.endsWith("-left-drawing-profile") ? "left" : "right");
   }
 
   const remoteMatch = typeof recordId === "string" ? recordId.match(GENERIC_REMOTE_PATTERN) : null;

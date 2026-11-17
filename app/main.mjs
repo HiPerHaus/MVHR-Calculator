@@ -920,8 +920,7 @@ function updateMvhrPreview() {
   const germanBim=/^q(?:350|450)-de-(?:hrv|erv)$/u.test(mvhrModel.value);
   const aerofresh300 = mvhrModel.value.startsWith("aerofresh-300");
   const remoteOnly = generic || ca200 || germanBim || aerofresh300;
-  mvhrHanding.disabled = generic || aerofresh300;
-  if (aerofresh300) mvhrHanding.value = "right";
+  mvhrHanding.disabled = generic;
   mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = remoteOnly;
   if (remoteOnly && mvhrLayout.value === "unit-mounted-cw") {
     mvhrLayout.value = aerofresh300 ? "remote-attenuators" : "unit-only";
@@ -936,7 +935,7 @@ function updateMvhrPreview() {
   mvhrSummary.textContent = generic
     ? `Generic ${mounting} planning symbol: 900 × 650 mm, four DN160 test ports. No manufacturer mounting dimensions or clearance are established.${accessoryNote}`
     : ca200 ? `CA200 manual version · ${mounting} · manufacturer ${mvhrHanding.value}-hand. Body 535 × 315 × 1108 mm; 1200 mm including spigots. Four DN125 drawing connections. Remote attenuators placed separately. Absolute port setout and installation fit require review.${accessoryNote}`
-    : aerofresh300 ? `Aerofresh 300 right-hand · 660 × 443 × 760 mm · four DN125 drawing connections. Side-to-centre setout is provisional. Place attenuators and ComfoWell remotely.${accessoryNote}`
+    : aerofresh300 ? `Aerofresh 300 ${mvhrHanding.value}-hand · 660 × 443 × 760 mm · four DN125 drawing connections. Side-to-centre setout is provisional.${mvhrHanding.value === "left" ? " Left-hand port roles are provisional. Verify against the unit before installation." : ""} Place attenuators and ComfoWell remotely.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
     : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
     : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
@@ -9906,7 +9905,7 @@ function componentEvidenceLabel(component) {
 }
 
 function componentEvidenceDescription(component) {
-  if (component.catalogueStatus === "source-backed-drawing-profile-provisional-setout") return "Manual centre spacings and rear offsets · provisional side-to-side setout · DN125 drawing connections · remote ComfoWell only";
+  if (component.catalogueStatus === "source-backed-drawing-profile-provisional-setout") return `Manual centre spacings and rear offsets · provisional side-to-side setout · DN125 drawing connections · remote ComfoWell only${component.mvhrDesignIntent?.handing === "left" ? " · provisional left-hand port roles, verify against the unit" : ""}`;
   if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
   if (component.decentralisedController) return `${component.decentralisedController.compatibilityStatus.replaceAll("-", " ")} · ${component.decentralisedController.sourceRevision} · cable routes are plan markup only · no electrical compliance or installation approval`;
   if (component.displaySymbol?.ca200Profile) return "Owner-selected CA200 manual dimensions and manufacturer handed role map · DN125 drawing ports · centred port setout interpretation and installation fit require review";
