@@ -303,6 +303,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     catalogueSnapshot: component.catalogueSnapshot ? structuredClone(component.catalogueSnapshot) : null,
     manufacturer: component.manufacturer ?? null,
     scheduleRef: componentRefById.get(component.id) ?? "P??",
+    ...(component.riserId ? { riserId: component.riserId } : {}),
     displayName: sanitizeXmlText(component.displayName ?? component.id, "Component display name"),
     catalogueStatus: sanitizeXmlText(component.catalogueStatus ?? "unclassified", "Component status"),
     positionMm: planPoint(component.positionMm, `Component ${component.id} position`),
@@ -352,8 +353,15 @@ function buildPrintScene(project, floorId, partsSchedule) {
       diagnosticCount: asset.diagnostics.length,
     };
   });
+  const floorGrilleFeeds = project.components
+    .filter(component => component.floorGrilleFeed?.floorId === floorId)
+    .map(component => ({
+      x: component.floorGrilleFeed.xMm, y: component.floorGrilleFeed.yMm,
+      servedFloor: reportFloorName(project.floors.find(item => item.id === component.floorId).name),
+    }));
   const allBounds = [
     ...walls.map(wallBounds),
+    pointsBounds(floorGrilleFeeds),
     ...floorAreas.map(outline=>pointsBounds(outline.vertices)),
     ...routingExclusions.map(exclusion=>({minX:exclusion.geometry.x,minY:exclusion.geometry.y,maxX:exclusion.geometry.x+exclusion.geometry.width,maxY:exclusion.geometry.y+exclusion.geometry.height})),
     ...routes.map(routeBounds),
@@ -368,6 +376,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     floorArea: inspectSheetFloorArea(project, floorId),
     walls,
     floorAreas,
+    floorGrilleFeeds,
     routingExclusions,
     routes,
     decentralisedCables,
@@ -519,6 +528,10 @@ function renderPrintScene(sheet) {
     out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-alignment-status="typed-port-centred" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
   }
   for (const component of scene.components.filter(component => [EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
+  for (const feed of scene.floorGrilleFeeds ?? []) {
+    const x = mapX(feed.x, transform), y = mapY(feed.y, transform);
+    out.push(`<g data-kind="floor-grille-feed"><circle cx="${x}" cy="${y}" r="1.5" fill="white" stroke="#176a73" stroke-width=".4"/><text x="${Number(x) + 2.5}" y="${Number(y) - 1.5}" font-size="2.5" fill="#176a73">↑ Floor grille · ${escapeXml(feed.servedFloor)}</text></g>`);
+  }
   if (scene.references.some((reference) => !reference.calibrated)) {
     out.push(`<text x="${formatNumber(sheet.drawingBounds.xMm + 4)}" y="${formatNumber(sheet.drawingBounds.yMm + sheet.drawingBounds.heightMm - 4)}" fill="#a14a2b" font-size="3.2">UNCALIBRATED REFERENCE · DISPLAY ONLY · NOT TO SCALE</text>`);
   }
@@ -673,6 +686,9 @@ function renderComponent(component, transform) {
     const height = component.symbol.heightMm * transform.scale;
     const markupId = component.decentralisedController.markupId ?? component.scheduleRef;
     return `<g data-kind="component" data-system="decentralised-controller" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#fff7dd" stroke="#8b6b16" stroke-width="0.75"/><line x1="${formatNumber(-width/2+1.5)}" y1="${formatNumber(-height/2+2)}" x2="${formatNumber(width/2-1.5)}" y2="${formatNumber(-height/2+2)}" stroke="#8b6b16" stroke-width="0.55" stroke-dasharray="1.5 1"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#6f5310" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#6f5310" font-size="1.8" font-weight="700">CTRL</text></g>`;
+  }
+  if (component.riserId) {
+    return `<g data-kind="duct-riser" transform="translate(${x} ${y})"><circle r="1.5" fill="white" stroke="#176a73" stroke-width=".4"/><text x="2.5" y="-.5" font-size="2.5" fill="#176a73" data-keep-on-drawing="true">${escapeXml(component.displayName)}</text></g>`;
   }
   if (component.planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID) {
     return renderQ350Component(component, transform, x, y, angle);

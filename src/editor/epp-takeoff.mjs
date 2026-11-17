@@ -1,4 +1,5 @@
 import { routeLengthSummary } from "../domain/spatial.mjs";
+import { deriveRiserTakeoff } from "./riser-takeoff.mjs";
 
 export const EPP_TAKEOFF_POLICY = Object.freeze({
   stockLengthMm: 1000,
@@ -109,16 +110,22 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
 }
 
 // Project purchasing totals combine streams and floors before rounding stock.
-export function deriveEppProjectTotals(project) {
+export function deriveEppProjectTotals(project, risers = deriveRiserTakeoff(project)) {
   const lines = [...deriveEppTakeoff(project.routes), ...deriveHrvEppConnectionAllowances(project.routes, project.components)];
   const elbows = deriveEppElbowStock(lines);
-  return [...new Set(lines.map(line => line.nominalSizeMm))].sort((a,b) => a-b).map(nominalSizeMm => {
+  const eppRisers = risers.filter(riser => [125, 160].includes(riser.nominalSizeMm));
+  const sizes = new Set([...lines, ...eppRisers].map(line => line.nominalSizeMm));
+  return [...sizes].sort((a,b) => a-b).map(nominalSizeMm => {
     const group = lines.filter(line => line.nominalSizeMm === nominalSizeMm);
     const known = group.filter(line => line.parallelRunCount !== null);
-    const knownTotalLengthMm = known.reduce((sum,line) => sum + (line.totalCentrelineMm ?? line.ductLengthMm ?? 0), 0);
-    const pendingCount = group.length - known.length;
+    const matchingRisers = eppRisers.filter(riser => riser.nominalSizeMm === nominalSizeMm);
+    const pendingRiserCount = matchingRisers.filter(riser => riser.lengthMm === null).length;
+    const knownRiserLengthMm = matchingRisers.reduce((sum, riser) => sum + (riser.lengthMm ?? 0), 0);
+    const pendingCount = group.length - known.length + pendingRiserCount;
+    const knownTotalLengthMm = known.reduce((sum,line) => sum + (line.totalCentrelineMm ?? line.ductLengthMm ?? 0), knownRiserLengthMm);
     return {
       nominalSizeMm, knownTotalLengthMm, totalLengthMm: pendingCount ? null : knownTotalLengthMm, pendingCount,
+      pendingRouteCount: group.length - known.length,
       stockLengthQuantity: Math.ceil(knownTotalLengthMm / EPP_TAKEOFF_POLICY.stockLengthMm),
       elbow90StockQuantity: elbows.find(line => line.nominalSizeMm === nominalSizeMm)?.elbow90StockQuantity ?? 0,
       extraSleeveQuantity: known.reduce((sum,line) => sum + line.extraSleeveQuantity, 0),

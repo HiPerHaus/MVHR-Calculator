@@ -197,6 +197,12 @@
               <button id="decentralised-tools-tab" type="button" data-ventilation-tab="decentralised" aria-pressed="false">Decentralised</button>
               <button id="combined-tools-tab" type="button" data-ventilation-tab="combined" aria-pressed="false">Combined</button>
             </div>
+            <div class="storey-controls" role="group" aria-label="Drawing storey">
+              <label for="drawing-storey">Storey</label>
+              <select id="drawing-storey"></select>
+              <button id="add-drawing-storey" type="button">Add storey</button>
+              <button id="add-duct-riser" type="button" hidden>Add duct riser</button>
+            </div>
             <div id="mode-prompt" role="status">Select a tool</div>
             <div class="tablet-panel-controls" aria-label="Drawing panels">
               <button id="tablet-tools-toggle" aria-controls="tools-panel" type="button" aria-expanded="false">Tools</button>
@@ -737,6 +743,30 @@
     <input id="reference-file" type="file" accept="image/png,.png" hidden />
     <input id="pdf-reference-file" type="file" accept="application/pdf,.pdf" hidden />
     <input id="dxf-reference-file" type="file" accept=".dxf,application/dxf,text/plain" hidden />
+    <dialog id="duct-riser-dialog" aria-labelledby="duct-riser-heading">
+      <form id="duct-riser-form">
+        <h2 id="duct-riser-heading">Add duct riser</h2>
+        <p><label for="riser-destination">Connect to storey</label> <select id="riser-destination" required></select></p>
+        <p><label for="riser-stream">Air service</label> <select id="riser-stream"><option value="supply">Supply</option><option value="extract">Extract</option></select></p>
+        <p><label for="riser-duct">Duct</label> <select id="riser-duct"><option value="epp-rigid-dn125">EPP DN125</option><option value="epp-rigid-dn160">EPP DN160</option><option value="semi-rigid-radial">Radial DN90</option></select></p>
+        <button type="button" id="cancel-duct-riser">Cancel</button>
+        <button type="submit">Place riser ends</button>
+      </form>
+    </dialog>
+
+    <dialog id="drawing-storey-dialog" aria-labelledby="drawing-storey-heading">
+      <form id="drawing-storey-form">
+        <h2 id="drawing-storey-heading">Add storey</h2>
+        <p><label for="drawing-storey-name">Name</label>
+          <input id="drawing-storey-name" maxlength="80" required></p>
+        <p><label for="drawing-storey-elevation">Floor level above Ground Floor (mm, optional)</label>
+          <input id="drawing-storey-elevation" type="number" step="any"></p>
+        <p id="drawing-storey-error" role="alert"></p>
+        <button id="cancel-drawing-storey" type="button">Cancel</button>
+        <button type="submit">Add storey</button>
+      </form>
+    </dialog>
+
     <dialog id="sheet-output-dialog" class="sheet-output-dialog" aria-labelledby="sheet-output-title" aria-describedby="sheet-output-help">
       <form id="sheet-output-form">
         <header><h2 id="sheet-output-title">Choose PDF pages</h2><p id="sheet-output-help">Choose the drawing, engineering details and parts pages to include. Selected pages are renumbered in order.</p></header>

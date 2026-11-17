@@ -23,6 +23,7 @@ import {
   redoCommand,
   undoCommand,
 } from "../src/domain/history.mjs";
+import { deriveProjectAccessories } from "../src/editor/project-accessories.mjs";
 import { createLocalProjectStore } from "../src/persistence/local-project-store.mjs";
 import {
   exportPortableProject,
@@ -620,3 +621,80 @@ function memoryStorage() {
     },
   };
 }
+
+test("an upper floor grille can accept a route from the ceiling plan below", () => {
+  let project = syntheticProject();
+  project = applyCommand(project, { type: "floor.add", floor: {
+    ...project.floors[0], id: "floor-upper", name: "Upper Floor",
+  } });
+  project = addComponent(project, component("component-a", "port-a", "supply", "Dwelling supply"));
+  project = addComponent(project, {
+    ...component("component-b", "port-b", "supply", "Dwelling supply"),
+    floorId: "floor-upper", displaySymbol: { shape: "wall-grille", widthMm: 140, heightMm: 120 },
+  });
+  assert.throws(() => applyCommand(project, attachedRouteCommand()), /same floor/);
+  project = applyCommand(project, { type: "component.setFloorGrilleFeed", componentId: "component-b", feed: {
+    floorId: "floor-ground", xMm: 4900, yMm: 2000,
+  } });
+  project = applyCommand(project, attachedRouteCommand());
+  assert.equal(project.components.find(item => item.id === "component-b").floorId, "floor-upper");
+  assert.equal(project.routes[0].floorId, "floor-ground");
+  assert.deepEqual(project.routes[0].points.at(-1), {
+    x: 4900, y: 2000, z: unknownMm("Floor grille feed elevation pending"),
+  });
+  assert.deepEqual(deserializeProject(serializeProject(project)), project);
+});
+
+test("riser ends are connected atomically across storeys and deleted together", () => {
+  let project = syntheticProject();
+  project = applyCommand(project, { type: "floor.add", floor: {
+    ...project.floors[0], id: "floor-upper", name: "Upper Floor",
+  } });
+  const first = { ...component("riser-test-a", "riser-port-a", "supply", "Dwelling supply"), riserId: "riser-test" };
+  const second = { ...component("riser-test-b", "riser-port-b", "supply", "Dwelling supply"), floorId: "floor-upper", riserId: "riser-test" };
+  const connection = { id: "riser-test", from: endpoint(first.id, first.ports[0].id), to: endpoint(second.id, second.ports[0].id) };
+  project = applyCommand(project, { type: "riser.add", ends: [first, second], connection });
+  assert.equal(arePortsConnected(project, connection.from, connection.to), true);
+  assert.deepEqual(deserializeProject(serializeProject(project)), project);
+  const inspection = inspectComponentDeletion(project, first.id);
+  assert.equal(inspection.componentIds.length, 2);
+  project = applyCommand(project, { type: "component.delete", componentId: first.id, confirmedScope: inspection });
+  assert.equal(project.components.length, 0);
+  assert.equal(project.connections.length, 0);
+});
+
+test("a straight riser contributes once to project duct stock when both ends are known", () => {
+  for (const size of [90, 125, 160]) {
+    let project = syntheticProject();
+    const ground = project.floors[0];
+    project = applyCommand(project, { type: "floor.add", floor: {
+      ...ground, id: "floor-upper", name: "Upper Floor",
+      transform: { ...ground.transform, translationMm: { ...ground.transform.translationMm, z: knownMm(5900, "Upper level") } },
+    } });
+    const first = component("riser-a", "vertical-a", "supply", "Dwelling supply");
+    const second = component("riser-b", "vertical-b", "supply", "Dwelling supply");
+    first.riserId = second.riserId = "riser-stock";
+    first.ports[0].interface = second.ports[0].interface = { family: size === 90 ? "radial" : "rigid", nominalSizeMm: size };
+    second.floorId = "floor-upper";
+    second.positionMm.z = unknownMm("Upper end pending");
+    const connection = { id: "riser-stock", from: endpoint(first.id, first.ports[0].id), to: endpoint(second.id, second.ports[0].id) };
+    project = applyCommand(project, { type: "riser.add", ends: [first, second], connection });
+    const accessories = (floorId = ground.id) => deriveProjectAccessories(project, { floorId });
+    const totals = () => size === 90 ? accessories().duct90 : accessories().eppTotals[0];
+    assert.equal(totals().totalLengthMm, null);
+    assert.equal(totals().pendingCount, 1);
+    project = applyCommand(project, { type: "component.setElevation", componentId: second.id, elevationMm: knownMm(600, "Upper connection offset") });
+    assert.equal(totals().totalLengthMm, 3200);
+    assert.equal(totals().pendingCount, 0);
+    assert.equal(accessories().duct90.showOnThisFloor, true);
+    assert.equal(accessories("floor-upper").duct90.showOnThisFloor, false);
+    if (size === 90) assert.equal(totals().coilQuantity, 1);
+    else {
+      assert.equal(totals().stockLengthQuantity, 4);
+      assert.equal(totals().elbow90StockQuantity, 0);
+      assert.equal(totals().extraSleeveQuantity, 0);
+    }
+    project.components.find(component => component.id === second.id).positionMm.x += 50;
+    assert.equal(totals().totalLengthMm, null);
+  }
+});

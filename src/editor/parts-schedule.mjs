@@ -48,7 +48,7 @@ export function createPartsSchedule(project, options = {}) {
     for (const componentId of assembly.componentIds) assemblyByComponentId.set(componentId, assembly.id);
   }
 
-  const componentLines = componentScheduleLines(components, assemblyByComponentId);
+  const componentLines = componentScheduleLines(components.filter(component => !component.riserId), assemblyByComponentId);
   const routeLines = routeScheduleLines(routes);
   const eppTakeoff = deriveEppTakeoff(routes);
   const eppUnitConnectionAllowances = deriveHrvEppConnectionAllowances(routes, components);
