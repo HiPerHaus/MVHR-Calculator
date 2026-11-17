@@ -22,7 +22,9 @@ test("print CSS keeps the drawing A3 and falls subsequent parts pages back to A4
 test("sheet preview describes the mixed print sizes before browser printing", async () => {
   const source = await readFile(mainUrl, "utf8");
 
-  assert.match(source, /1 A3 drawing \+ 1 A3 installation detail sheet \+ \$\{partsPageCount\} A4 parts-list page/u);
+  assert.match(source, /\$\{entries\.length\} A3 drawing/u);
+  assert.match(source, /\$\{entries\.length\} A3 installation detail sheet/u);
+  assert.match(source, /\$\{partsPageCount\} A4 parts-list page/u);
   assert.match(source, /window\.print\(\)/u);
 });
 
@@ -34,8 +36,30 @@ test("sheet preview exposes separate direct PDF and browser print actions", asyn
   ]);
   assert.match(index, /id="export-sheet-pdf"[^>]*>Export PDF</u);
   assert.match(index, /id="print-sheet-preview"[^>]*>Print</u);
-  assert.match(main, /createMixedPagePdfBlob\(sheetPreviewPages, sheetPreviewPdfMetadata\)/u);
+  assert.match(main, /pendingSheetOutput = \{ \.\.\.source, action \}/u);
+  assert.match(main, /const pages = selectSheetOutputPages\(source\.pages, selection\)/u);
+  assert.match(main, /exportSheetPreviewPdf\(pages, metadata\)/u);
+  assert.match(index, /id="sheet-output-dialog"/u);
+  assert.match(index, /id="clear-sheet-pages"/u);
+  assert.match(main, /createMixedPagePdfBlob\(pages, metadata\)/u);
   assert.match(pdfExport, /new jsPDF/u);
   assert.match(pdfExport, /pdf\.addPage\(\[page\.widthMm, page\.heightMm\], page\.orientation\)/u);
   assert.match(pdfExport, /pdf\.output\("blob"\)/u);
+});
+
+
+test("all-options preparation reports an unrenderable alternative without changing the preview", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const source = await readFile(mainUrl, "utf8");
+  const handlerSource = source.slice(source.indexOf("function exportAllDesignOptionsPdf() {"), source.indexOf("function createStore() {"));
+  let opened = false, updated = false;
+  const context = {
+    sheetExportSystemScope: "centralised", history: { present: { designOptions: [{id:"a"},{id:"b"}] } }, sheetOutputDialog: { open:false }, exportSheetPdfButton:{disabled:false},
+    createSheetForDesignOption() {}, createDesignOptionOutput() { throw new TypeError("Too many symbols for the sheet legend"); },
+    openSheetOutputPicker() { opened = true; }, sheetPreviewStatus:{textContent:"Existing preview"}, interactionMessage:"", updateStatus(){updated = true;},
+  };
+  const handler = runInNewContext(`${handlerSource}; exportAllDesignOptionsPdf`, context);
+  handler();
+  assert.equal(opened, false);assert.equal(updated, true);
+  assert.equal(context.sheetPreviewStatus.textContent, "All-options PDF unavailable: Too many symbols for the sheet legend");
 });

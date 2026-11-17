@@ -192,7 +192,7 @@
               <strong>Ground Floor</strong>
               <span>1 grid square = 1,000 mm</span>
             </div>
-            <div id="ventilation-workspace-tabs" class="ventilation-workspace-tabs" role="group" aria-label="Ventilation tools" hidden>
+            <div id="ventilation-workspace-tabs" class="ventilation-workspace-tabs" role="group" aria-label="Ventilation system view" hidden>
               <button id="centralised-tools-tab" type="button" data-ventilation-tab="centralised" aria-pressed="true">Centralised</button>
               <button id="decentralised-tools-tab" type="button" data-ventilation-tab="decentralised" aria-pressed="false">Decentralised</button>
               <button id="combined-tools-tab" type="button" data-ventilation-tab="combined" aria-pressed="false">Combined</button>
@@ -717,17 +717,25 @@
           </div>
           <div class="sheet-preview-actions">
             <button id="export-sheet-pdf" type="button">Export PDF</button>
-            <button id="export-parts-csv" type="button" title="Excel-compatible CSV: active design option, all floors, project packs counted once, no prices">Export parts CSV</button>
+            <button id="export-parts-csv" type="button" title="Excel-compatible CSV: selected export option, all floors, project packs counted once, no prices">Export parts CSV</button>
             <button id="export-all-options-pdf" type="button">All-options PDF</button>
             <button id="print-sheet-preview" type="button">Print</button>
             <button id="close-sheet-preview" type="button">Return to plan</button>
           </div>
         </header>
+        <nav id="sheet-option-navigation" class="sheet-option-navigation" aria-label="Design option export pages"></nav>
+        <nav id="sheet-system-navigation" class="sheet-option-navigation" aria-label="Export system scope">
+          <span class="sheet-system-label">Export system</span>
+          <button type="button" data-export-system="centralised" aria-pressed="false" aria-controls="sheet-preview-host">Centralised</button>
+          <button type="button" data-export-system="decentralised" aria-pressed="false" aria-controls="sheet-preview-host">Decentralised</button>
+          <button type="button" data-export-system="combined" aria-pressed="true" aria-controls="sheet-preview-host">Combined</button>
+        </nav>
         <div class="sheet-preview-stage">
           <div id="sheet-preview-host" class="sheet-preview-host" aria-live="polite"></div>
+          <div id="sheet-print-host" class="sheet-print-host"></div>
         </div>
-        <footer class="sheet-preview-note">
-          Working draft only · not an issued revision · not for construction · print at 100% and verify physical scale. Parts CSV: active option, all floors, no prices; opens in Excel.
+        <footer id="sheet-preview-note" class="sheet-preview-note">
+          Working draft only · not for construction · print at 100% and verify physical scale. Parts CSV: selected option, all floors, no prices.
         </footer>
       </section>
     </div>
@@ -759,6 +767,14 @@
       </form>
     </dialog>
 
+    <dialog id="sheet-output-dialog" class="sheet-output-dialog" aria-labelledby="sheet-output-title" aria-describedby="sheet-output-help">
+      <form id="sheet-output-form">
+        <header><h2 id="sheet-output-title">Choose PDF pages</h2><p id="sheet-output-help">Choose the drawing, engineering details and parts pages to include. Selected pages are renumbered in order.</p></header>
+        <div class="sheet-output-tools"><button id="select-all-sheet-pages" type="button">Select all</button><button id="clear-sheet-pages" type="button">Clear selection</button><span id="sheet-output-count" role="status"></span></div>
+        <div id="sheet-output-pages" class="sheet-output-pages"></div>
+        <footer><p>Page choices apply to PDF and Print. Parts CSV always contains the full selected option.</p><div class="dialog-actions"><button id="cancel-sheet-output" type="button">Cancel</button><button id="confirm-sheet-output" type="submit" class="primary-action">Export PDF</button></div></footer>
+      </form>
+    </dialog>
     <dialog id="open-confirm-dialog" aria-labelledby="open-confirm-title">
       <form method="dialog">
         <h2 id="open-confirm-title">Save changes first?</h2>

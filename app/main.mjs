@@ -2,7 +2,8 @@ import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
-import { createSheetOutputPages, createSheetOutputDocument, sheetPdfFileName } from "../src/sheets/sheet-output.mjs";
+import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
+import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
 import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
@@ -59,7 +60,6 @@ import {
   inspectVentilationProjectType,
   ventilationProjectTypeLabel,
 } from "../src/domain/ventilation-project-type.mjs";
-import { designOptionProjects } from "../src/domain/design-options.mjs";
 import {
   bytesToDataUrl,
   exportPortableProject,
@@ -181,7 +181,7 @@ import { inspectAirflowBalance } from "../src/editor/airflow-balance.mjs";
 import { createEngineeringEditGuard } from "../src/editor/engineering-edit-guard.mjs";
 import { createDesignCheckSummary } from "../src/editor/design-check-summary.mjs";
 import { normalizeStudioDesignStage, transitionStudioDesignStage } from "../src/editor/studio-design-stages.mjs";
-import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
+import { catalogueEntryWorkspace, componentVentilationWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
 import { resolveDesignCheckTarget } from "../src/editor/check-targets.mjs";
 import {
   engineeringComponentFingerprint,
@@ -597,6 +597,8 @@ const convertProjectSummary = document.querySelector("#convert-project-summary")
 const confirmProjectConversionButton = document.querySelector("#confirm-project-conversion");
 const sheetPreviewHost = document.querySelector("#sheet-preview-host");
 const sheetPreviewStatus = document.querySelector("#sheet-preview-status");
+const sheetOptionNavigation = document.querySelector("#sheet-option-navigation");
+const sheetPreviewNote = document.querySelector("#sheet-preview-note");
 const exportSheetPdfButton = document.querySelector("#export-sheet-pdf");
 const exportPartsCsvButton = document.querySelector("#export-parts-csv");
 const exportAllOptionsPdfButton = document.querySelector("#export-all-options-pdf");
@@ -604,15 +606,25 @@ const printSheetPreviewButton = document.querySelector("#print-sheet-preview");
 const closeSheetPreviewButton = document.querySelector("#close-sheet-preview");
 let sheetPreviewPages = [];
 let sheetPreviewPdfMetadata = null;
+let sheetPreviewOptionProject = null;
+const sheetPrintHost = document.querySelector("#sheet-print-host");
+const sheetOutputDialog = document.querySelector("#sheet-output-dialog");
+const sheetOutputForm = document.querySelector("#sheet-output-form");
+const sheetOutputPageList = document.querySelector("#sheet-output-pages");
+const confirmSheetOutputButton = document.querySelector("#confirm-sheet-output");
+let pendingSheetOutput = null;
+const sheetPageSelections = new Map();
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
-const componentIsVisible = component => onCurrentFloor(component) && (
-  temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
-  || !hiddenVentilationGroups.has(ventilationVisibilityGroup(component)));
-const routeIsVisible = route => onCurrentFloor(route) && (
-  temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
-  || !hiddenVentilationGroups.has(routeVisibilityGroup(route)));
+const componentIsVisible = component => onCurrentFloor(component) && ventilationWorkspaceIncludes(activeVentilationWorkspace, componentVentilationWorkspace(component))
+  && (temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
+    || !hiddenVentilationGroups.has(ventilationVisibilityGroup(component)));
+const routeIsVisible = route => onCurrentFloor(route) && ventilationWorkspaceIncludes(activeVentilationWorkspace, "centralised")
+  && (temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
+    || !hiddenVentilationGroups.has(routeVisibilityGroup(route)));
+const cableIsVisible = cable => ventilationWorkspaceIncludes(activeVentilationWorkspace, "decentralised")
+  && cable.floorId === currentFloorId();
 const viewOptionsAnchor = document.querySelector("#view-options-anchor");
 const viewOptionsToggle = document.querySelector("#view-options-toggle");
 const viewOptionsBackdrop = document.querySelector("#view-options-backdrop");
@@ -827,6 +839,8 @@ let checkFocusReturnStage = null;
 let temporaryCheckReveal = null;
 let selectedCatalogueGroup = "Units";
 let activeVentilationWorkspace = "centralised";
+let sheetExportSystemScope = "combined";
+let sheetExportOptionId = null;
 let snapEnabled = true;
 let draftPoints = [];
 let floorAreaDraftPoints = [];
@@ -1212,7 +1226,7 @@ document.querySelector("#external-grille-form").addEventListener("change",update
 function grilleAlignment(component,point,allowHandingChange=false) {
   if(!snapEnabled)return null;
   const rect=canvas.getBoundingClientRect(),pixelsPerViewUnit=Math.min(rect.width/camera.width,rect.height/camera.height);
-  return findCombinedGrilleAlignment(history.present,component,point,{toleranceMm:12*MILLIMETRES_PER_VIEW_UNIT/Math.max(pixelsPerViewUnit,1e-6),allowHandingChange,allowRotation:allowHandingChange});
+  return findCombinedGrilleAlignment({...history.present,components:history.present.components.filter(componentIsVisible)},component,point,{toleranceMm:12*MILLIMETRES_PER_VIEW_UNIT/Math.max(pixelsPerViewUnit,1e-6),allowHandingChange,allowRotation:allowHandingChange});
 }
 function grillePlacementAlignment(point) {
   if(externalGrillePlacement!=="combined")return null;
@@ -1471,10 +1485,39 @@ threeDHost.addEventListener("pointerdown", startThreeDPointer);
 threeDHost.addEventListener("pointermove", moveThreeDPointer);
 threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
-exportSheetPdfButton.addEventListener("click", exportSheetPreviewPdf);
+exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"));
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
-printSheetPreviewButton.addEventListener("click", printSheetPreview);
+sheetOptionNavigation.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-export-option]");
+  if (!button || button.getAttribute("aria-pressed") === "true") return;
+  try { renderSheetOptionPreview(button.dataset.exportOption || null); }
+  catch (error) { sheetPreviewStatus.textContent = `Option preview unavailable: ${error.message}`; }
+});
+document.querySelector("#sheet-system-navigation").addEventListener("click", event => {
+  const button = event.target.closest("button[data-export-system]");
+  if (!button || button.getAttribute("aria-pressed") === "true") return;
+  const previous = sheetExportSystemScope;
+  try {
+    sheetExportSystemScope = normalizeVentilationWorkspace(button.dataset.exportSystem);
+    renderSheetOptionPreview(sheetExportOptionId);
+  } catch (error) {
+    sheetExportSystemScope = previous;
+    sheetPreviewStatus.textContent = `System preview unavailable: ${error.message}`;
+  }
+});
+printSheetPreviewButton.addEventListener("click", () => openSheetOutputPicker("print"));
+sheetOutputForm.addEventListener("submit", confirmSheetOutput);
+sheetOutputPageList.addEventListener("change", updateSheetOutputSelection);
+for (const [id, checked] of [["select-all-sheet-pages", true], ["clear-sheet-pages", false]]) {
+  document.querySelector(`#${id}`).addEventListener("click", () => {
+    for (const input of sheetOutputPageList.querySelectorAll("input")) input.checked = checked;
+    updateSheetOutputSelection();
+  });
+}
+document.querySelector("#cancel-sheet-output").addEventListener("click", () => sheetOutputDialog.close());
+sheetOutputDialog.addEventListener("close", () => { if (!sheetOutputDialog.open) pendingSheetOutput = null; });
+window.addEventListener("afterprint", clearSelectedSheetPrint);
 closeSheetPreviewButton.addEventListener("click", closeSheetPreview);
 returnToCheckButton.addEventListener("click", returnToDesignCheck);
 workflowOpenPlanButton.addEventListener("click", () => selectDesignStage("plan"));
@@ -1642,7 +1685,7 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointIndex = Number.parseInt(routePointHandle.dataset.pointIndex, 10);
     const route = history.present.routes.find((candidate) => candidate.id === routeId);
     const point = route?.points[pointIndex];
-    if (!route || !point || pointIndex < 1 || pointIndex >= route.points.length - 1) return;
+    if (!route || !routeIsVisible(route) || !point || pointIndex < 1 || pointIndex >= route.points.length - 1) return;
     selectedRouteId = route.id;
     selectedRoutePointIndex = pointIndex;
     mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -1665,7 +1708,7 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointIndex = Number.parseInt(cablePointHandle.dataset.pointIndex, 10);
     const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
     const point = cable?.points[pointIndex];
-    if (!cable || !point || pointIndex < 1 || pointIndex >= cable.points.length - 1) return;
+    if (!cable || !cableIsVisible(cable) || !point || pointIndex < 1 || pointIndex >= cable.points.length - 1) return;
     selectedDecentralisedCableId = cable.id;
     selectedDecentralisedCablePointIndex = pointIndex;
     selectedRouteId = null;
@@ -2071,7 +2114,7 @@ canvas.addEventListener("click", (event) => {
       const cableId = cableAddPointTarget.dataset.decentralisedCableId;
       const segmentIndex = Number.parseInt(cableAddPointTarget.dataset.segmentIndex, 10);
       const cable = history.present.decentralisedCables.find((candidate) => candidate.id === cableId);
-      if (cable && Number.isSafeInteger(segmentIndex)) {
+      if (cable && cableIsVisible(cable) && Number.isSafeInteger(segmentIndex)) {
         const start = cable.points[segmentIndex];
         const end = cable.points[segmentIndex + 1];
         commitCommand({ type: "decentralisedCable.insertPoint", cableId, segmentIndex, point: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 } }, "Controller cable bend point added");
@@ -2097,7 +2140,8 @@ canvas.addEventListener("click", (event) => {
       selectedDecentralisedCablePointIndex = null;
       interactionMessage = "Catalogue component selected";
     } else {
-      const cableId = event.target.closest?.("[data-decentralised-cable-id]")?.dataset.decentralisedCableId ?? null;
+      const candidateCableId = event.target.closest?.("[data-decentralised-cable-id]")?.dataset.decentralisedCableId ?? null;
+      const cableId = history.present.decentralisedCables.some(cable => cable.id === candidateCableId && cableIsVisible(cable)) ? candidateCableId : null;
       const routeId = routeIdFromPointerEvent(event);
       mechanicalState = clearMechanicalSelection(mechanicalState);
       selectedDecentralisedCableId = cableId;
@@ -2192,7 +2236,24 @@ canvas.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (mvhrDialog.open) return;
+  if (sheetOutputDialog.open) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      sheetOutputDialog.close();
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      if (pendingSheetOutput) pendingSheetOutput.action = "print";
+      document.querySelector("#sheet-output-title").textContent = "Choose pages to print";
+      updateSheetOutputSelection();
+    }
+    return;
+  }
   if (!sheetPreviewPanel.hidden) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      openSheetOutputPicker("print");
+      return;
+    }
     if (event.key === "Escape") {
       closeSheetPreview();
       event.preventDefault();
@@ -2667,7 +2728,7 @@ function applyVentilationProjectType(type) {
   if(type===previous) return renderProjectWorkspace();
   commitCommand({type:"project.setVentilationDesignType",ventilationDesignType:type},`${ventilationProjectTypeLabel(type)} project type applied · geometry and ventilation objects preserved`);
   if (["centralised", "decentralised", "mixed"].includes(type)) {
-    activeVentilationWorkspace = type === "mixed" ? "combined" : type;
+    selectVentilationWorkspace(type === "mixed" ? "combined" : type);
     selectedCatalogueGroup = null;
     catalogueSearchInput.value = "";
   }
@@ -3058,28 +3119,10 @@ function signedCount(value) {
 function openSheetPreview({ designStage = false } = {}) {
   if (hasEngineeringEdits()) return requestEngineeringTransition(() => openSheetPreview({ designStage }));
   try {
-    const activeOption=history.present.designOptions.find((option)=>option.id===history.present.activeDesignOptionId);
-    const sheet=createSheetForDesignOption(history.present,activeOption);
-    const parser = new DOMParser();
-    const pages = createSheetOutputPages(sheet);
-    const elements=pages.map(page=>{
-      const documentSvg=parser.parseFromString(page.svg,"image/svg+xml");
-      if(documentSvg.querySelector("parsererror"))throw new TypeError("Generated sheet SVG could not be parsed");
-      const element=document.createElement("section");element.className=`sheet-page ${page.className}`;
-      const label=document.createElement("div");label.className="sheet-page-label";label.textContent=page.label;
-      element.append(label,document.importNode(documentSvg.documentElement,true));return element;
-    });
-    sheetPreviewHost.replaceChildren(...elements);
-    sheetPreviewPages = pages;
-    sheetPreviewPdfMetadata = {
-      title: `${sheet.metadata.projectName} · ${sheet.metadata.drawingId}`,
-      subject: `${sheet.metadata.drawingTitle} · ${sheet.metadata.status}`,
-      author: sheet.metadata.company?.name || "HiPer Studio",
-      fileName: sheetPdfFileName(sheet.metadata.projectName, sheet.metadata.drawingId),
-    };
-    exportAllOptionsPdfButton.hidden=history.present.designOptions.length<2;
-    const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · ${sheet.printScene.floorName} · 1 A3 drawing + 1 A3 installation detail sheet + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    sheetPageSelections.clear();
+    sheetExportSystemScope = activeVentilationWorkspace;
+    clearSelectedSheetPrint();
+    renderSheetOptionPreview(history.present.activeDesignOptionId);
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -3107,7 +3150,73 @@ function openSheetPreview({ designStage = false } = {}) {
   }
 }
 
-function createSheetForDesignOption(project,option) {
+function createSheetPageElements(pages) {
+  const parser = new DOMParser();
+  return pages.map(page => {
+    const documentSvg = parser.parseFromString(page.svg, "image/svg+xml");
+    if (documentSvg.querySelector("parsererror")) throw new TypeError("Generated sheet SVG could not be parsed");
+    const element = document.createElement("section");
+    element.className = `sheet-page ${page.className}`;
+    element.dataset.optionId = page.optionId;
+    element.dataset.pageKind = page.kind;
+    const label = document.createElement("div");
+    label.className = "sheet-page-label";
+    label.textContent = page.label;
+    element.append(label, document.importNode(documentSvg.documentElement, true));
+    return element;
+  });
+}
+
+function renderSheetOptionPreview(optionId) {
+  clearSelectedSheetPrint();
+  const { entries, pages } = createDesignOptionOutput(history.present, { optionId, systemScope: sheetExportSystemScope, createSheet: createSheetForDesignOption });
+  const scopeLabel = ventilationWorkspaceLabel(sheetExportSystemScope);
+  const allOptions = optionId === null;
+  const elements = createSheetPageElements(pages);
+  const selected = entries[0];
+  const projectName = selected.sheet.metadata.projectName;
+  const metadata = allOptions ? {
+    title: `${projectName} · all design options`,
+    subject: "Independent ventilation design options · preliminary · not for construction",
+    author: selected.sheet.metadata.company?.name || "HiPer Studio",
+    fileName: sheetPdfFileName(projectName, `all-design-options-${sheetExportSystemScope}`),
+  } : {
+    title: `${projectName} · ${selected.sheet.metadata.drawingId}`,
+    subject: `${selected.sheet.metadata.drawingTitle} · ${selected.sheet.metadata.status}`,
+    author: selected.sheet.metadata.company?.name || "HiPer Studio",
+    fileName: sheetPdfFileName(projectName, selected.sheet.metadata.drawingId),
+  };
+  sheetPreviewHost.replaceChildren(...elements);
+  sheetExportOptionId = optionId;
+  for (const button of document.querySelectorAll("[data-export-system]")) button.setAttribute("aria-pressed", String(button.dataset.exportSystem === sheetExportSystemScope));
+  sheetPreviewPages = pages;
+  sheetPreviewPdfMetadata = metadata;
+  sheetPreviewOptionProject = allOptions ? null : selected.project;
+  const choices = history.present.designOptions.map(option => ({ id: option.id, label: `${option.name} · ${option.revision}` }));
+  if (choices.length > 1) choices.push({ id: "", label: "All options" });
+  // Keep existing buttons on selection changes so keyboard focus is not lost.
+  const previousChoices = [...sheetOptionNavigation.children].map(button => [button.dataset.exportOption, button.textContent]);
+  if (JSON.stringify(previousChoices) !== JSON.stringify(choices.map(choice => [choice.id, choice.label]))) {
+    sheetOptionNavigation.replaceChildren(...choices.map(choice => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.exportOption = choice.id;
+      button.textContent = choice.label;
+      button.setAttribute("aria-controls", "sheet-preview-host");
+      return button;
+    }));
+  }
+  for (const button of sheetOptionNavigation.children) button.setAttribute("aria-pressed", String(button.dataset.exportOption === (optionId ?? "")));
+  exportAllOptionsPdfButton.hidden = history.present.designOptions.length < 2 || allOptions;
+  exportPartsCsvButton.disabled = allOptions;
+  exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
+  const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${entries.length} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : selected.sheet.fit.label}`;
+  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
+  document.querySelector(".sheet-preview-stage").scrollTop = 0;
+}
+
+function createSheetForDesignOption(project,option,{systemScope = "combined"} = {}) {
   const floor=project.floors.find(candidate => candidate.id === currentFloorId()) ?? project.floors[0];
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
@@ -3115,10 +3224,10 @@ function createSheetForDesignOption(project,option) {
   const floorSuffix = project.floors.length > 1 ? `-L${project.floors.indexOf(floor)}` : "";
   const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
   return createA3SheetModel(project,{
-    floorId:floor.id,orientation:"landscape",projectName:project.projectDetails.name||currentProjectName,
+    floorId:floor.id,orientation:"landscape",systemScope,projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
-    drawingTitle:`${baseTitle} · ${optionName}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}${floorSuffix}`,
+    drawingTitle:`${baseTitle} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}${floorSuffix}`,
     issueDate:new Date().toISOString().slice(0,10),status:"Preliminary — not for construction",revision:optionRevision,
     revisionText:`${optionName} working-draft preview`,drawnBy:project.projectDetails.drawnBy||"",checkedBy:project.projectDetails.checkedBy||"",
   });
@@ -3129,25 +3238,99 @@ function defaultDrawingTitle(projectName, floorName) {
 }
 
 function closeSheetPreview() {
+  clearSelectedSheetPrint();
   const target = sheetReturnStage === "export" ? lastCanvasDesignStage : sheetReturnStage;
   activeDesignStage = target;
   setTask(transitionStudioDesignStage("export", target).task, { designNavigation: true });
 }
 
-function printSheetPreview() {
-  if (sheetPreviewPanel.hidden) return;
-  window.print();
+function openSheetOutputPicker(action, output = null) {
+  if (sheetPreviewPanel.hidden || sheetOutputDialog.open || exportSheetPdfButton.disabled) return;
+  clearSelectedSheetPrint();
+  const source = output ?? { pages: sheetPreviewPages, metadata: sheetPreviewPdfMetadata };
+  if (!source.pages.length || !source.metadata) return;
+  pendingSheetOutput = { ...source, action };
+  document.querySelector("#sheet-output-title").textContent = action === "print" ? "Choose pages to print" : "Choose PDF pages";
+  const groups = new Map();
+  source.pages.forEach((page, index) => {
+    let fieldset = groups.get(page.optionId);
+    if (!fieldset) {
+      fieldset = document.createElement("fieldset");
+      const legend = document.createElement("legend");
+      legend.textContent = `${page.optionName} · ${page.optionRevision} · ${ventilationWorkspaceLabel(page.systemScope)}`;
+      fieldset.append(legend);
+      groups.set(page.optionId, fieldset);
+    }
+    const label = document.createElement("label");
+    label.className = "sheet-output-page-choice";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.pageIndex = String(index);
+    input.checked = sheetPageSelections.get(page.pageKey) !== false;
+    const description = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    const detail = document.createElement("small");
+    detail.textContent = `Page ${index + 1} · ${page.kind === "parts-list" ? "A4" : "A3"} ${page.orientation}`;
+    description.append(title, detail);
+    label.append(input, description);
+    fieldset.append(label);
+  });
+  sheetOutputPageList.replaceChildren(...groups.values());
+  updateSheetOutputSelection();
+  sheetOutputDialog.showModal();
+  sheetOutputPageList.scrollTop = 0;
+}
+
+function updateSheetOutputSelection() {
+  if (!pendingSheetOutput) return;
+  const selected = sheetOutputPageList.querySelectorAll("input:checked").length;
+  document.querySelector("#sheet-output-count").textContent = selected ? `${selected} of ${pendingSheetOutput.pages.length} pages selected` : "Select at least one page";
+  confirmSheetOutputButton.disabled = selected === 0;
+  confirmSheetOutputButton.textContent = `${pendingSheetOutput.action === "print" ? "Print" : "Export"} ${selected} page${selected === 1 ? "" : "s"}`;
+}
+
+function confirmSheetOutput(event) {
+  event.preventDefault();
+  if (!pendingSheetOutput) return;
+  const selection = [...sheetOutputPageList.querySelectorAll("input:checked")].map(input => Number(input.dataset.pageIndex));
+  if (!selection.length) return updateSheetOutputSelection();
+  const source = pendingSheetOutput;
+  const pages = selectSheetOutputPages(source.pages, selection);
+  for (const input of sheetOutputPageList.querySelectorAll("input")) sheetPageSelections.set(source.pages[Number(input.dataset.pageIndex)].pageKey, input.checked);
+  const metadata = { ...source.metadata };
+  if (pages.length !== source.pages.length) metadata.fileName = metadata.fileName.replace(/\.pdf$/u, "-selected-pages.pdf");
+  sheetOutputDialog.close();
+  if (source.action === "print") printSelectedSheetPages(pages);
+  else exportSheetPreviewPdf(pages, metadata);
+}
+
+function clearSelectedSheetPrint() {
+  document.body.removeAttribute("data-selected-sheet-print");
+  sheetPrintHost.replaceChildren();
+}
+
+function printSelectedSheetPages(pages) {
+  try {
+    sheetPrintHost.replaceChildren(...createSheetPageElements(pages));
+    document.body.setAttribute("data-selected-sheet-print", "true");
+    window.print();
+  } catch (error) {
+    clearSelectedSheetPrint();
+    interactionMessage = `Print unavailable: ${error.message}`;
+    sheetPreviewStatus.textContent = interactionMessage;
+  }
 }
 
 function exportPartsCsv() {
-  if (sheetPreviewPanel.hidden) return;
+  if (sheetPreviewPanel.hidden || !sheetPreviewOptionProject) return;
   exportPartsCsvButton.disabled = true;
   try {
-    const project = history.present;
+    const project = sheetPreviewOptionProject;
     const option = project.designOptions.find(candidate => candidate.id === project.activeDesignOptionId);
     const projectName = project.projectDetails.name || currentProjectName;
-    const csv = createPartsCsv(project, { projectName });
-    const fileName = partsCsvFileName(projectName, option?.name);
+    const csv = createPartsCsv(project, { projectName, systemScope: sheetExportSystemScope });
+    const fileName = partsCsvFileName(projectName, `${option?.name ?? "option"}-${sheetExportSystemScope}`);
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -3158,7 +3341,7 @@ function exportPartsCsv() {
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     }
-    interactionMessage = `Downloaded ${fileName} · ${option?.name ?? "Active option"} · all floors · quantities and unresolved items, no prices`;
+    interactionMessage = `Downloaded ${fileName} · ${option?.name ?? "Active option"} · ${ventilationWorkspaceLabel(sheetExportSystemScope)} · all floors · quantities and unresolved items, no prices`;
   } catch (error) {
     interactionMessage = `Parts CSV export failed: ${error.message}`;
   } finally {
@@ -3168,15 +3351,15 @@ function exportPartsCsv() {
   }
 }
 
-async function exportSheetPreviewPdf() {
-  if (sheetPreviewPanel.hidden || !sheetPreviewPages.length || !sheetPreviewPdfMetadata) return;
+async function exportSheetPreviewPdf(pages, metadata) {
+  if (!pages.length || !metadata || exportSheetPdfButton.disabled) return;
   const previousLabel = exportSheetPdfButton.textContent;
   exportSheetPdfButton.disabled = true;
   exportSheetPdfButton.textContent = "Creating PDF…";
   try {
-    const blob = await createMixedPagePdfBlob(sheetPreviewPages, sheetPreviewPdfMetadata);
-    downloadPdfBlob(blob, sheetPreviewPdfMetadata.fileName);
-    interactionMessage = `Downloaded ${sheetPreviewPdfMetadata.fileName} with exact A3/A4 page sizes`;
+    const blob = await createMixedPagePdfBlob(pages, metadata);
+    downloadPdfBlob(blob, metadata.fileName);
+    interactionMessage = `Downloaded ${metadata.fileName} with exact A3/A4 page sizes`;
   } catch (error) {
     interactionMessage = `PDF export failed: ${error.message}`;
   } finally {
@@ -3186,19 +3369,20 @@ async function exportSheetPreviewPdf() {
   }
 }
 
-async function exportAllDesignOptionsPdf() {
-  if(history.present.designOptions.length<2){interactionMessage="Add another design option before exporting all options.";updateStatus();return;}
-  const previousLabel=exportAllOptionsPdfButton.textContent;
-  exportAllOptionsPdfButton.disabled=true;exportAllOptionsPdfButton.textContent="Creating all options…";
+function exportAllDesignOptionsPdf() {
+  if (history.present.designOptions.length < 2 || sheetOutputDialog.open || exportSheetPdfButton.disabled) return;
   try {
-    const pages=createSheetOutputDocument(designOptionProjects(history.present)
-      .map(({option,project})=>createSheetForDesignOption(project,option)));
-    const fileName=sheetPdfFileName(history.present.projectDetails.name||currentProjectName,"all-design-options");
-    const blob=await createMixedPagePdfBlob(pages,{title:`${history.present.projectDetails.name||currentProjectName} · all design options`,subject:"Independent ventilation design options · preliminary · not for construction",author:cloudSession?.companyProfile?.details?.name||"HiPer Studio",fileName});
-    downloadPdfBlob(blob,fileName);
-    interactionMessage=`Downloaded ${history.present.designOptions.length} independent design options without combining their parts lists`;
-  } catch(error) { interactionMessage=`All-options PDF export failed: ${error.message}`; }
-  finally {exportAllOptionsPdfButton.disabled=false;exportAllOptionsPdfButton.textContent=previousLabel;updateStatus();}
+    const { pages } = createDesignOptionOutput(history.present, { optionId: null, systemScope: sheetExportSystemScope, createSheet: createSheetForDesignOption });
+    const projectName = history.present.projectDetails.name || currentProjectName;
+    openSheetOutputPicker("pdf", { pages, metadata: {
+      title: `${projectName} · all design options`, subject: "Independent ventilation design options · preliminary · not for construction",
+      author: cloudSession?.companyProfile?.details?.name || "HiPer Studio", fileName: sheetPdfFileName(projectName, `all-design-options-${sheetExportSystemScope}`),
+    } });
+  } catch (error) {
+    interactionMessage = `All-options PDF unavailable: ${error.message}`;
+    sheetPreviewStatus.textContent = interactionMessage;
+    updateStatus();
+  }
 }
 
 function createStore() {
@@ -4666,7 +4850,7 @@ function addRoutePointAtSegment(target) {
   const routeId = target.dataset.routeId;
   const segmentIndex = Number.parseInt(target.dataset.routeInsertIndex, 10);
   const route = history.present.routes.find((candidate) => candidate.id === routeId);
-  if (!route || route.id !== selectedRouteId || !Number.isSafeInteger(segmentIndex)) return;
+  if (!route || !routeIsVisible(route) || route.id !== selectedRouteId || !Number.isSafeInteger(segmentIndex)) return;
   const start = route.points[segmentIndex];
   const end = route.points[segmentIndex + 1];
   if (!start || !end) return;
@@ -4716,6 +4900,7 @@ function interpolatedRouteElevation(start, end) {
 function mechanicalHitFromTarget(target) {
   const componentId = target?.dataset?.componentId;
   const portId = target?.dataset?.portId;
+  if (componentId && !history.present.components.some(component => component.id === componentId && componentIsVisible(component))) return null;
   if (componentId && portId) {
     const component = history.present.components.find((candidate) => candidate.id === componentId);
     const port = component?.ports.find((candidate) => candidate.id === portId);
@@ -6282,7 +6467,12 @@ function cancelActivePointer() {
   if (floorAreaDragState) cancelFloorAreaPointEdit();
   if (componentDragState) cancelComponentMove();
   if (routePointDragState) cancelRoutePointMove();
-  if (decentralisedCablePointDragState) { decentralisedCablePointDragState = null; render(); }
+  if (decentralisedCablePointDragState) {
+    const pointerId = decentralisedCablePointDragState.pointerId;
+    decentralisedCablePointDragState = null;
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+    render();
+  }
   if (referenceCropState?.pointerId !== null && referenceCropState?.pointerId !== undefined) {
     referenceCropState.pointerId = null;
     referenceCropState.startSourcePoint = null;
@@ -7051,6 +7241,7 @@ function decentralisedCableDisplayPoints(cable) {
 
 function renderDecentralisedCable(cable) {
   const layer = modelGroup("cable", cable.id);
+  if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
   const pointString = routePointString(points);
   const selected = selectedDecentralisedCableId === cable.id ? " selected" : "";
@@ -7062,6 +7253,7 @@ function renderDecentralisedCable(cable) {
 
 function renderDecentralisedCableEditHandles(cable) {
   const layer = modelGroup("cable-handles", cable.id);
+  if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
   const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
   for (let index = 0; index < points.length - 1; index += 1) {
@@ -7106,6 +7298,7 @@ function routeDisplayPoints(route) {
 
 function renderRouteEditHandles(route) {
   const layer = modelGroup("route-handles", route.id);
+  if (!routeIsVisible(route)) return;
   const points = routeDisplayPoints(route);
   const body = routeBodyGeometry(route);
   for (const lane of body.lanes) layer.append(svgElement("polyline", {points:routePointString(lane),class:"route-selection-halo","stroke-width":toView(body.diameterMm ?? 0)+5}));
@@ -8255,6 +8448,7 @@ function selectVentilationWorkspace(workspace) {
   normalizeVentilationWorkspace(workspace);
   if (activeVentilationWorkspace === workspace) return;
   const keepToolsOpen = planWorkspace.classList.contains("tablet-tools-open");
+  closeComponentContext();
   cancelActivePointer();
   setTool("select");
   mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -8263,11 +8457,15 @@ function selectVentilationWorkspace(workspace) {
   selectedDecentralisedCableId = null;
   selectedDecentralisedCablePointIndex = null;
   activeVentilationWorkspace = workspace;
+  temporaryCheckReveal = null;
+  routePickCycle = null;
   selectedCatalogueGroup = null;
   catalogueSearchInput.value = "";
   if (keepToolsOpen) setTabletPanel("tools");
   ventilationWorkspaceButtons.find(button => button.dataset.ventilationTab === workspace)?.focus({ preventScroll: true });
-  interactionMessage = `${ventilationWorkspaceLabel(workspace)} tools active · both systems remain on the plan`;
+  interactionMessage = workspace === "combined"
+    ? "Combined tools and plan · both systems visible"
+    : `${ventilationWorkspaceLabel(workspace)} tools and plan · other system hidden, not deleted`;
   renderCataloguePalette();
   queueWorkingSession();
   render();
@@ -8306,7 +8504,7 @@ function renderCataloguePalette() {
   for (const button of ventilationWorkspaceButtons) button.setAttribute("aria-pressed", String(button.dataset.ventilationTab === activeVentilationWorkspace));
   for (const panel of document.querySelectorAll("[data-ventilation-workspace]")) panel.hidden = !ventilationWorkspaceIncludes(activeVentilationWorkspace, panel.dataset.ventilationWorkspace);
   catalogueSearchInput.placeholder = activeVentilationWorkspace === "combined" ? "e.g. Q350, Lunos, controller, EPP" : activeVentilationWorkspace === "decentralised" ? "e.g. Lunos, ComfoSpot, controller" : "e.g. Q350, terminal, EPP";
-  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools. Both systems stay on the same plan and are included in exports. Switching tabs does not change the project type.`;
+  ventilationProjectTypeContext.textContent = `${ventilationProjectTypeLabel(projectType)} project · ${workspaceLabel.toLowerCase()} tools and plan. ${activeVentilationWorkspace === "combined" ? "Both systems are visible." : "Only this system is visible; the other system is preserved."} Checks still cover the complete design. Export starts with this system and has its own system selector for drawings and parts. Switching tabs does not change the project type.`;
   catalogueCategories.replaceChildren();
   for (const groupName of groups) {
     const button = document.createElement("button");
@@ -9735,6 +9933,9 @@ function focusCheckTarget(item) {
   setTask(target.kind === "room" || target.kind === "zone" ? "plan" : "ventilation", { designNavigation: true });
   mechanicalState = clearMechanicalSelection(mechanicalState);
   selectedRouteId = null;
+  selectedRoutePointIndex = null;
+  selectedDecentralisedCableId = null;
+  selectedDecentralisedCablePointIndex = null;
   selectedRoomId = null;
   selectedZoneId = null;
   if (target.kind === "component") mechanicalState = { ...mechanicalState, selectedComponentId: target.id };
@@ -9931,9 +10132,9 @@ function renderInspector() {
   const wall = history.present.walls.find((candidate) => candidate.id === selectedWallId);
   const node = history.present.wallNodes.find((candidate) => candidate.id === selectedNodeId);
   const component = history.present.components.find(
-    (candidate) => candidate.id === mechanicalState.selectedComponentId,
+    (candidate) => candidate.id === mechanicalState.selectedComponentId && componentIsVisible(candidate),
   );
-  const route = history.present.routes.find((candidate) => candidate.id === selectedRouteId);
+  const route = history.present.routes.find((candidate) => candidate.id === selectedRouteId && routeIsVisible(candidate));
   const room = history.present.rooms.find((candidate) => candidate.id === selectedRoomId);
   const zone = history.present.zones.find((candidate) => candidate.id === selectedZoneId);
   const floorArea = history.present.floorAreaOutlines.find(
@@ -10578,7 +10779,7 @@ function projectBounds() {
       points.push({ x: toView(vertex.positionMm.x), y: toView(vertex.positionMm.y) });
     }
   }
-  for (const component of history.present.components.filter(onCurrentFloor)) {
+  for (const component of history.present.components.filter(component => onCurrentFloor(component) && (activeTask !== "ventilation" || componentIsVisible(component)))) {
     points.push({ x: toView(component.positionMm.x), y: toView(component.positionMm.y) });
     const bounds = deriveComponentPlanGraphic(component)?.drawingBoundsMm;
     if (bounds) {
@@ -10588,11 +10789,14 @@ function projectBounds() {
       }
     }
   }
-  for (const route of history.present.routes.filter(onCurrentFloor)) {
+  for (const route of history.present.routes.filter(route => onCurrentFloor(route) && (activeTask !== "ventilation" || routeIsVisible(route)))) {
     const geometry = deriveDuctBodyGeometry(route, routeFamilyForKind(route.ductKind));
     for (const lane of geometry.lanes) {
       for (const point of lane) points.push({ x: toView(point.x), y: toView(point.y) });
     }
+  }
+  for (const cable of history.present.decentralisedCables.filter(cable => activeTask !== "ventilation" || cableIsVisible(cable))) {
+    for (const point of cable.points) points.push({ x: toView(point.x), y: toView(point.y) });
   }
   for (const reference of history.present.floorReferences) {
     if (!reference.visible || !onCurrentFloor(reference)) continue;

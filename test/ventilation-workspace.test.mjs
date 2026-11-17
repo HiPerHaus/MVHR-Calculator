@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { COMPONENT_CATALOGUE } from "../src/editor/component-catalogue.mjs";
-import { catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
+import { componentVentilationWorkspace, catalogueEntryWorkspace, defaultVentilationWorkspace, normalizeVentilationWorkspace, ventilationWorkspaceIncludes, ventilationWorkspaceLabel } from "../src/editor/ventilation-workspace.mjs";
 
 test("every catalogue record remains available in exactly one tool workspace", () => {
   const central = COMPONENT_CATALOGUE.filter(item => catalogueEntryWorkspace(item) === "centralised");
@@ -53,4 +53,16 @@ test("mixed content defaults to Combined while saved single-system choices stay 
   assert.equal(defaultVentilationWorkspace({ components: [{ decentralisedController: {} }], routes: [{ id: "r" }] }), "combined");
   assert.equal(defaultVentilationWorkspace({ components: [] }, null, "Decentralised controls"), "decentralised");
   assert.deepEqual(project, before);
+});
+
+
+test("placed components have a stable workspace independent of catalogue groups", () => {
+  const central = [{ id: "unit", category: "mvhr-unit-vertical" }, { id: "terminal" }, { id: "legacy" }];
+  const decentral = [{ id: "wall-unit", decentralisedMvhr: {} }, { id: "controller", decentralisedController: {} }];
+  const components = [...central, ...decentral];
+  const before = structuredClone(components);
+  assert.deepEqual(components.filter(c => ventilationWorkspaceIncludes("centralised", componentVentilationWorkspace(c))), central);
+  assert.deepEqual(components.filter(c => ventilationWorkspaceIncludes("decentralised", componentVentilationWorkspace(c))), decentral);
+  assert.deepEqual(components.filter(c => ventilationWorkspaceIncludes("combined", componentVentilationWorkspace(c))), components);
+  assert.deepEqual(components, before);
 });

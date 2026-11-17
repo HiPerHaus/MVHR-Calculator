@@ -46,8 +46,8 @@ export function downloadPdfBlob(blob, fileName) {
 }
 
 function validatePages(pages) {
-  if (!Array.isArray(pages) || pages.length < 2) {
-    throw new TypeError("A drawing and at least one parts-list page are required");
+  if (!Array.isArray(pages) || pages.length < 1) {
+    throw new TypeError("Select at least one page to export");
   }
   for (const page of pages) {
     if (!Number.isFinite(page.widthMm) || page.widthMm <= 0 || !Number.isFinite(page.heightMm) || page.heightMm <= 0) {
