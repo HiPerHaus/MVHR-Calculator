@@ -11,7 +11,7 @@ export const PLAN_DETAIL_REFERENCES = Object.freeze({
   wall: Object.freeze({ id: "wall-housing", source: "owner-terminal-housings-2026-11-09", title: "Wall / floor / bulkhead", horizontalMm: 120, innerVerticalMm: 115, overallVerticalMm: 140, spigotMm: 90 }),
   q320: Object.freeze({ id: "q-cw320", source: "owner-q350-q450-cw320-2026-11-09", title: "Q350 / Q450 + CW320", widthMm: 791, depthMm: 566, heightMm: 1414, drainAllowanceMm: null }),
   af520: Object.freeze({ id: "af-cw520", source: "owner-aerofresh-450-600-cw520-2026-11-09", title: "AeroFresh 450 / 600 + CW520", widthMm: 870, depthMm: 650, heightMm: 1400, drainAllowanceMm: 150, suggestedCabinetryMm: 700 }),
-  af300: Object.freeze({ id: "af300-remote", source: "owner-aerofresh-300-2026-11-09", title: "AeroFresh 300 · remote", widthMm: null, depthMm: null, heightMm: null, drainAllowanceMm: null }),
+  af300: Object.freeze({ id: "af300-remote", source: "owner-aerofresh-300-layout-2026-11-17", title: "AeroFresh 300 · remote", widthMm: 660, depthMm: 470, heightMm: 760, drainAllowanceMm: 150 }),
 });
 
 function recordId(component) {
@@ -35,7 +35,7 @@ export function selectPlanDetails(project, floorId) {
       if (/^zehnder-q(350|450)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && intent.cwSize === "320") detail = PLAN_DETAIL_REFERENCES.q320;
       if (/^aerofresh-(450|600)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && intent.cwSize === "520") detail = PLAN_DETAIL_REFERENCES.af520;
     }
-    if (upright && /^aerofresh-300-(hrv|erv)(?:-(left|right)-drawing-profile)?$/u.test(record) && intent?.layout === "remote-attenuators") detail = PLAN_DETAIL_REFERENCES.af300;
+    if (upright && /^aerofresh-300-(hrv|erv)(?:-(?:left|right))?(?:-drawing-profile)?$/u.test(record) && intent?.layout === "remote-attenuators") detail = PLAN_DETAIL_REFERENCES.af300;
     if (detail) {
       if (!matches.has(detail.id)) matches.set(detail.id, { ...detail, componentIds: [] });
       matches.get(detail.id).componentIds.push(component.id);
@@ -104,7 +104,7 @@ function renderCard(card, details) {
     out.push(paragraphs(notes, b, top + 52));
   } else if (card.id === "af300-remote") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
-    out.push(paragraphs(["Source dimension arrows are blank.", "Assembly dimensions required."], b, top + 63));
+    out.push(paragraphs(["470 depth includes wall bracket allowance."], b, top + 63));
   } else {
     out.push(paragraphs(details.unmatchedComponentIds.length
       ? ["No supplied setout matches the unit and arrangement on this floor.", "Select the exact model, mounting and CW size; obtain the matching assembly drawing.",

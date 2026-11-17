@@ -74,12 +74,15 @@ test("repeated matching units deduplicate and floor/option references remain ind
   assert.match(pages[1].svg,/data-detail-id="af-cw520"/);assert.doesNotMatch(pages[1].svg,/data-detail-id="q-cw320"/);
 });
 
-test("unknown AF300 assembly values and Q wiring remain explicitly unresolved", () => {
-  const project={components:[{id:"af300",floorId:"ground",catalogueItemId:"aerofresh-300-hrv",mvhrDesignIntent:{mounting:"vertical",layout:"remote-attenuators"}}]};
+test("AF300 layout and controls reflect supplied references while Q wiring stays unresolved", () => {
+  const project={components:[{id:"af300",floorId:"ground",catalogueItemId:"aerofresh-300-hrv-drawing-profile",mvhrDesignIntent:{mounting:"vertical",layout:"remote-attenuators"}}]};
   const details=selectPlanDetails(project,"ground"), af=details.cards.find(card=>card.id==="af300-remote");
-  assert.equal(af.widthMm,null);assert.equal(af.depthMm,null);assert.equal(af.heightMm,null);assert.equal(af.drainAllowanceMm,null);
+  assert.deepEqual([af.widthMm, af.depthMm, af.heightMm, af.drainAllowanceMm], [660, 470, 760, 150]);
   const svg=renderPlanDetails(layoutPlanDetails(details,{xMm:10,yMm:10,widthMm:325,heightMm:277}));
-  assert.match(svg,/dimension arrows are blank/);assert.doesNotMatch(svg,/>660<|>443<|>760<|>150</);
+  assert.match(svg,/wall bracket allowance/);assert.match(svg,/>Min 300<.*>Min 500</);
+  const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground","remote-attenuators"),metadata);
+  const afSvg=createSheetOutputPages(afSheet)[1].svg;
+  assert.match(afSvg,/10 A GPO/);assert.match(afSvg,/15 A/);assert.match(afSvg,/2-core to SW1/);
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
   assert.match(createSheetOutputPages(q)[1].svg,/Wiring source unreadable/);
   assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned/);
@@ -134,7 +137,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
   const expected = {
     "ceiling-tva": [128,140], "wall-housing": [120,115,140],
-    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [],
+    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
   };
   for (const [id,values] of Object.entries(expected)) {
     const svg=render(id);
@@ -147,7 +150,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   assert.match(render("q-cw320"),/data-source-feature="q-mounting-set"/);
   assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
   assert.match(render("q-cw320"),/data-dimension="unresolved"/);
-  assert.match(render("af300-remote"),/data-dimension="unresolved"/);
+  assert.doesNotMatch(render("af300-remote"),/data-dimension="unresolved"/);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
 });
 
