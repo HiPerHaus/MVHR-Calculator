@@ -8771,7 +8771,7 @@ function renderCatalogueLibrary() {
     card.append(glyph, copy);
     catalogueLibraryRecords.append(card);
   }
-  if (entries.length === 0 && !showDuct) {
+  if (entries.length === 0) {
     catalogueLibraryRecords.append(htmlText("p", "No catalogue records match this search.", "catalogue-empty"));
   }
 }
