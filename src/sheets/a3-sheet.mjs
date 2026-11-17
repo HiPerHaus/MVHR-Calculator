@@ -92,6 +92,7 @@ export function createA3SheetModel(project, metadata) {
   const printScene = buildPrintScene(outputProject, normalized.floorId, partsSchedule);
   const fit = calculateSheetFit(printScene.modelBoundsMm, drawingBounds, {
     forceNotToScale: printScene.hasUncalibratedReference,
+    minimumDenominator: normalized.minimumScaleDenominator,
   });
   const projectJson = serializeProject(sourceProject);
   const sourceFingerprint = fnv1a32(projectJson);
@@ -152,7 +153,7 @@ export function calculateSheetFit(modelBoundsMm, drawingBounds, options = {}) {
   const modelWidth = Math.max(1, modelBoundsMm.maxX - modelBoundsMm.minX);
   const modelHeight = Math.max(1, modelBoundsMm.maxY - modelBoundsMm.minY);
   const requiredDenominator = Math.max(modelWidth / inner.widthMm, modelHeight / inner.heightMm);
-  const denominator = chooseScaleDenominator(requiredDenominator);
+  const denominator = chooseScaleDenominator(Math.max(requiredDenominator, options.minimumDenominator ?? 0));
   const transform = {
     scale: 1 / denominator,
     offsetX: inner.xMm + (inner.widthMm - modelWidth / denominator) / 2 - modelBoundsMm.minX / denominator,
@@ -1087,6 +1088,8 @@ function normalizeMetadata(project, metadata) {
   return {
     orientation: metadata.orientation ?? "landscape",
     includeSchedule:metadata.includeSchedule===true,
+    ...(Number.isFinite(metadata.minimumScaleDenominator) && metadata.minimumScaleDenominator > 0
+      ? { minimumScaleDenominator: metadata.minimumScaleDenominator } : {}),
     company:normalizeCompanyProfile(metadata.company),
     companyLogoDataUrl:validateLogoDataUrl(metadata.companyLogoDataUrl),
     floorId,

@@ -3216,7 +3216,7 @@ function renderSheetOptionPreview(optionId) {
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
-function createSheetForDesignOption(project,option,{systemScope = "combined", floorId} = {}) {
+function createSheetForDesignOption(project,option,{systemScope = "combined", floorId, minimumScaleDenominator} = {}) {
   const floor=project.floors.find(candidate => candidate.id === floorId);
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
@@ -3224,7 +3224,7 @@ function createSheetForDesignOption(project,option,{systemScope = "combined", fl
   const floorSuffix = project.floors.length > 1 ? `-L${project.floors.indexOf(floor)}` : "";
   const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
   return createA3SheetModel(project,{
-    floorId:floor.id,orientation:"landscape",systemScope,projectName:project.projectDetails.name||currentProjectName,
+    floorId:floor.id,orientation:"landscape",systemScope,minimumScaleDenominator,projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
     drawingTitle:`${baseTitle}${floorSuffix && project.projectDetails.drawingTitle ? ` · ${floor.name}` : ""} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}${floorSuffix}`,
