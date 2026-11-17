@@ -7382,32 +7382,20 @@ function renderComponent(component) {
       primaryClass: common.class,
     });
   } else if (component.decentralisedMvhr) {
-    const markupGlyph = svgElement("text", { x: 0, y: 3, class: "component-symbol-code decentralised-unit-id", "text-anchor": "middle", "data-component-id": component.id });
-    markupGlyph.textContent = component.decentralisedMvhr.markupId;
-    const modeGlyph = svgElement("text", { x: 0, y: 17, class: "decentralised-mode-code", "text-anchor": "middle", "data-component-id": component.id });
-    modeGlyph.textContent = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
-    const pairGlyph = svgElement("text", { x: 0, y: toView(symbol.heightMm) / 2 + 13, class: "decentralised-pair-code", "text-anchor": "middle", "data-component-id": component.id });
-    pairGlyph.textContent = component.decentralisedMvhr.pairGroupId ?? "";
+    const width = toView(symbol.widthMm);
+    const height = toView(symbol.heightMm);
     group.append(
-      svgElement("line", { x1: -toView(symbol.widthMm)/2-8, y1: -toView(symbol.heightMm)/2-5, x2: toView(symbol.widthMm)/2+8, y2: -toView(symbol.heightMm)/2-5, class: "component-wall-reference", "data-component-id": component.id }),
-      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 8, ...common, class: `${common.class} decentralised-unit-symbol` }),
-      svgElement("circle", { cx: 0, cy: -10, r: Math.max(8, toView(symbol.heightMm) * 0.22), class: "decentralised-unit-core", "data-component-id": component.id }),
-      svgElement("path", { d: "M -26 -10 L -15 -17 L -15 -3 Z M 26 -10 L 15 -17 L 15 -3 Z", class: "decentralised-airflow-glyph", "data-component-id": component.id }),
-      markupGlyph,
-      modeGlyph,
-      pairGlyph,
+      svgElement("line", { x1: -width / 2 - 8, y1: -height / 2 - 5, x2: width / 2 + 8, y2: -height / 2 - 5, class: "component-wall-reference" }),
+      svgElement("rect", { x: -width / 2, y: -height / 2, width, height, rx: 3, ...common, class: `${common.class} decentralised-unit-symbol` }),
+      svgElement("path", { d: "M -2 -3 V 3 M -4 1 L -2 3 L 0 1 M 2 3 V -3 M 0 -1 L 2 -3 L 4 -1", transform: `scale(${width / 12} ${height / 9})`, class: "decentralised-airflow-glyph" }),
     );
   } else if (component.decentralisedController) {
-    const markupGlyph = svgElement("text", { x: 0, y: 2, class: "component-symbol-code decentralised-controller-id", "text-anchor": "middle", "data-component-id": component.id });
-    markupGlyph.textContent = component.decentralisedController.markupId;
-    const controlGlyph = svgElement("text", { x: 0, y: 17, class: "decentralised-mode-code", "text-anchor": "middle", "data-component-id": component.id });
-    controlGlyph.textContent = "CTRL";
+    const width = toView(symbol.widthMm);
+    const height = toView(symbol.heightMm);
     group.setAttribute("data-system", "decentralised-controller");
     group.append(
-      svgElement("rect", { x: -toView(symbol.widthMm)/2, y: -toView(symbol.heightMm)/2, width: toView(symbol.widthMm), height: toView(symbol.heightMm), rx: 4, ...common, class: `${common.class} decentralised-controller-symbol` }),
-      svgElement("line", { x1: -toView(symbol.widthMm)/2+5, y1: -toView(symbol.heightMm)/2+8, x2: toView(symbol.widthMm)/2-5, y2: -toView(symbol.heightMm)/2+8, class: "decentralised-controller-terminal" }),
-      markupGlyph,
-      controlGlyph,
+      svgElement("rect", { x: -width / 2, y: -height / 2, width, height, rx: 4, ...common, class: `${common.class} decentralised-controller-symbol` }),
+      svgElement("line", { x1: -width / 3, y1: 0, x2: width / 3, y2: 0, class: "decentralised-controller-terminal" }),
     );
   } else if (symbol.shape === "circle") {
     group.append(svgElement("circle", {
@@ -7498,6 +7486,19 @@ function renderComponent(component) {
       planGraphic.partType === "attenuator" ||
       planGraphic.partType === "combined"
     ) layer.append(label);
+  } else if (component.decentralisedMvhr || component.decentralisedController) {
+    const unit = component.decentralisedMvhr;
+    const angle = componentYaw(component.orientation);
+    const halfWidth = Math.abs(Math.cos(angle)) * (toView(symbol.widthMm) / 2 + (unit ? 8 : 0))
+      + Math.abs(Math.sin(angle)) * (toView(symbol.heightMm) / 2 + (unit ? 5 : 0));
+    const mode = unit ? (unit.operatingMode === "alternating-paired" ? "ALT" : "BAL") : "CTRL";
+    label.textContent = [label.textContent || component.scheduleRef, mode, unit?.pairGroupId].filter(Boolean).join(" · ");
+    label.setAttribute("class", `decentralised-side-label ${unit ? "decentralised-unit-id" : "decentralised-controller-id"}`);
+    label.setAttribute("x", toView(position.x) + halfWidth + 7);
+    label.setAttribute("y", toView(position.y));
+    label.setAttribute("text-anchor", "start");
+    label.setAttribute("dominant-baseline", "central");
+    layer.append(group, label);
   } else {
     group.append(label);
     layer.append(group);
