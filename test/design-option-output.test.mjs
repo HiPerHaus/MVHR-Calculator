@@ -15,7 +15,7 @@ function fixture() {
   project = applyCommand(project, { type: "component.add", component: createCatalogueComponent("aerofresh-30-compact-decentralised", { id: "af-alternative", floorId: "ground", xMm: 2000, yMm: 1000 }) });
   return project;
 }
-const createSheet = (project, option) => createA3SheetModel(project, { floorId: "ground", orientation: "landscape", includeSchedule: false, projectName: "QA options", drawingTitle: option.name, drawingId: option.id, issueDate: "2026-11-11", revision: option.revision, revisionText: "Working draft", status: "Preliminary — not for construction" });
+const createSheet = (project, option, { floorId = "ground" } = {}) => createA3SheetModel(project, { floorId, orientation: "landscape", includeSchedule: false, projectName: "QA options", drawingTitle: option.name, drawingId: option.id, issueDate: "2026-11-11", revision: option.revision, revisionText: "Working draft", status: "Preliminary — not for construction" });
 
 test("selected export option has independent plan, engineering details, parts and CSV without switching the drawing", () => {
   const project = fixture(), before = serializeProject(project);
@@ -110,4 +110,32 @@ test("a selected continuation page retains every parts row while page numbers an
   assert.match(selected[0].svg, /Page 7 of 99 · customer title/);
   const normalize = value => value.replace(/Page \d+ of \d+ · A4/u, "FOOTER").replace(/aria-label="A4 parts list page \d+"/u, "ARIA");
   assert.equal(normalize(selected[0].svg), normalize(pages[last].svg));
+});
+
+test("multi-storey output includes each storey in preview and page selection", () => {
+  let project = fixture();
+  project = applyCommand(project, { type: "floor.add", floor: {
+    ...project.floors[0], id: "upper", name: "Upper Floor",
+  } });
+  project = applyCommand(project, { type: "component.add", component: createCatalogueComponent(
+    "aerofresh-30-compact-decentralised", { id: "upper-unit", floorId: "upper", xMm: 2000, yMm: 1000 },
+  ) });
+  const { pages } = createDesignOptionOutput(project, { createSheet });
+  assert.deepEqual(pages.map(page => page.kind), [
+    "drawing", "drawing", "installation-details", "installation-details", "parts-list", "parts-list",
+  ]);
+  for (const [index, page] of pages.entries()) {
+    assert.equal(page.pageNumber, index + 1);
+    assert.match(page.svg, new RegExp(`Page ${index + 1} of ${pages.length}`));
+  }
+  const drawings = pages.filter(page => page.kind === "drawing");
+  assert.deepEqual(drawings.map(page => page.floorId), ["ground", "upper"]);
+  assert.match(drawings[0].svg, /data-id="af-alternative"/);
+  assert.match(drawings[1].svg, /data-id="upper-unit"/);
+  assert.doesNotMatch(drawings[0].svg, /data-id="upper-unit"/);
+  assert.equal(new Set(pages.map(page => page.pageKey)).size, pages.length);
+  const selected = selectSheetOutputPages(pages, drawings.map(page => page.pageNumber - 1));
+  assert.match(selected[0].label, /Ground Floor/);
+  assert.match(selected[1].label, /Upper Floor/);
+  assert.match(selected[1].svg, /Page 2 of 2/);
 });

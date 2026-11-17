@@ -24,27 +24,29 @@ bindFormSubmit(document.querySelector("#login-form"), submit, createSignInAction
 
 document.querySelector("#signup-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  await submit(event.currentTarget, async (values) => {
+  const form = event.currentTarget;
+  await submit(form, async (values) => {
     await runWithStudioCaptcha(captcha, "signup", async (captchaToken) => {
       const result = await requestStudioSignup(client, values, { captchaToken });
       setStatus(result.needsEmailVerification
         ? "Check your email to verify the address. After verification, an administrator must approve your Studio access."
         : "Your verified access request is pending administrator approval.", "success");
-      event.currentTarget.reset();
+      form.reset();
     });
   });
 });
 
 document.querySelector("#recovery-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  await submit(event.currentTarget, async (values) => {
+  const form = event.currentTarget;
+  await submit(form, async (values) => {
     const redirectTo = new URL("/login/?recovery=1", location.origin).href;
     await runWithStudioCaptcha(captcha, "recovery", async (captchaToken) => {
       const options = withCaptchaToken({ redirectTo }, captchaToken);
       const result = await client.auth.resetPasswordForEmail(values.email.trim(), options);
       if (result.error) throw result.error;
       setStatus("If an account exists for that address, Supabase will send a recovery link.", "success");
-      event.currentTarget.reset();
+      form.reset();
     });
   });
 });
