@@ -87,6 +87,9 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
       if (!port || port.system !== "mvhr" || port.interface?.nominalSizeMm !== size) continue;
       const key = `${unit.id}\u0000${port.id}`;
       if (allowances.has(key)) continue;
+      const directSpigot = /^aerofresh-300-(?:hrv|erv)(?:-|$)/u.test(
+        unit.catalogueItemId ?? unit.catalogueSnapshot?.recordId ?? unit.mvhrDesignIntent?.model ?? "",
+      );
       allowances.set(key, {
         componentId: unit.id, componentName: unit.displayName ?? unit.id, portId: port.id,
         portRole: port.role, routeId: route.id, stream: port.stream, nominalSizeMm: size,
@@ -94,9 +97,11 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
         ductLengthMm: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.ductLengthMm,
         stockLengthQuantity: 1, includedSocketQuantity: 1,
         elbow90Quantity: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.elbow90Quantity, elbow45Quantity: 0,
-        extraSleeveQuantity: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.sleeveQuantity,
+        extraSleeveQuantity: directSpigot ? HRV_EPP_CONNECTION_ALLOWANCE_POLICY.elbow90Quantity : HRV_EPP_CONNECTION_ALLOWANCE_POLICY.sleeveQuantity,
         reviewRequired: true,
-        note: "Additional allowance per EPP-connected HRV/ERV port: 1 m duct, one 90° elbow and four loose sleeves. The length includes its own socket. Four sleeves are the complete port allowance; no fifth sleeve is added for this allowance elbow. Replace/reconcile this allowance when actual equipment and ceiling heights are designed; it is not measured route geometry.",
+        note: directSpigot
+          ? "Additional ceiling allowance: 1 m duct with socket and one 90° elbow with one sleeve. AeroFresh 300 spigots fit directly into the duct."
+          : "Additional allowance per EPP-connected HRV/ERV port: 1 m duct, one 90° elbow and four loose sleeves. The length includes its own socket. Four sleeves are the complete port allowance; no fifth sleeve is added for this allowance elbow. Replace/reconcile this allowance when actual equipment and ceiling heights are designed; it is not measured route geometry.",
       });
     }
   }

@@ -40,7 +40,7 @@ export function partsListRows(schedule){
    const size=line.nominalSizeMm,qty=value=>orderQuantity(value,line.pendingCount);
    add('EPP',`DN${size} EPP rigid duct · 1 m stock length · project quantity rounded up · socket included`,qty(line.stockLengthQuantity),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
    add('EPP',`DN${size} EPP 90° elbow stock · includes paired halves for 45° bends`,qty(line.elbow90StockQuantity),'ea',quotedCode(`AER-DUC-DN${size}-B90`)??'');
-   add('EPP',`DN${size} EPP additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
+   add('EPP',`DN${size} EPP additional sleeves · elbows and applicable connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
    if(line.otherBendQuantity)add('EPP',`DN${size} other bends · product selection required`,line.otherBendQuantity);
   }
  }

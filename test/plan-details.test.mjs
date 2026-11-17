@@ -161,7 +161,7 @@ test("engineering page includes only conceptual insulation and explicit project 
   assert.match(pages[1].svg,/Project material, thickness, R-value and vapour-control detail: not specified./);
   assert.match(pages[1].svg,/concept-not-project-specification/);
   assert.match(pages[1].svg,/No matching central unit/);
-  assert.doesNotMatch(pages[1].svg,/R[0-9]|R-value[:=] ?[0-9]/);
+  assert.doesNotMatch(pages[1].svg.replaceAll(/data:image\/jpeg;base64,[^"]+/g, ""),/R[0-9]|R-value[:=] ?[0-9]/);
 });
 
 test("all-options documents have global numbering with independent per-option details", () => {
@@ -203,20 +203,18 @@ test("insulation reference shows the guide's two three-duct ceiling arrangements
   const { renderInsulationReferenceIllustration: render } = await import("../src/sheets/insulation-reference-illustrations.mjs");
   for (const arrangement of ["service-zone", "insulation-cover"]) {
     const svg = render(arrangement);
-    assert.equal((svg.match(/data-duct-section="distribution-duct"/g) || []).length, 3);
-    assert.match(svg, /data-visual-basis="owner-mvhr-guide-page-4"/);
-    assert.match(svg, /data-source-feature="finished-ceiling-lining"/);
-    assert.doesNotMatch(svg, /R[0-9]|thickness=.*\d/);
+    assert.match(svg, new RegExp(`<image data-insulation-arrangement="${arrangement}"`));
+    const image = svg.match(/href="data:image\/jpeg;base64,([^"]+)"/)[1];
+    assert.equal(Buffer.from(image, "base64").subarray(0, 3).toString("hex"), "ffd8ff");
   }
-  assert.match(render("service-zone"), /data-source-feature="internal-service-zone"/);
-  assert.doesNotMatch(render("insulation-cover"), /data-source-feature="internal-service-zone"/);
-  assert.match(render("insulation-cover"), /data-source-feature="continuous-insulation-cover"/);
+  assert.notEqual(render("service-zone"), render("insulation-cover"));
   assert.throws(() => render("unknown"), /Unknown insulation arrangement/);
   for (const orientation of ["landscape", "portrait"]) {
     const svg = createSheetOutputPages(createA3SheetModel(fixture(), {...metadata, orientation}))[1].svg;
     assert.match(svg, /Dropped ceiling \/ service zone/);
     assert.match(svg, /Ducts protected by insulation/);
     assert.match(svg, /owner-mvhr-guide-v1-page-4/);
+    assert.equal((svg.match(/<image data-insulation-arrangement=/g) ?? []).length, 2);
     assert.doesNotMatch(svg, /Duct \/ insulation \/ outer vapour-control layer/);
   }
 });
@@ -234,7 +232,7 @@ test("engineering artwork stays on a separate page for all sheet variations", ()
       } else if (page.kind === "installation-details") {
         assert.equal(document[i - 1].kind, "drawing");
         assert.match(page.svg, /data-illustration="ceiling-tva"/);
-        assert.match(page.svg, /data-illustration="insulation-service-zone"/);
+        assert.match(page.svg, /data-insulation-arrangement="service-zone"/);
         assert.doesNotMatch(page.svg, /id="drawing-content"|TERMINAL DIMENSIONS/);
         assert.equal(document[i + 1].kind, "parts-list");
       } else {
