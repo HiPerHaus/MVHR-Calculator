@@ -32,7 +32,7 @@ export function createConfiguredMvhrComponent(selection, placement) {
   if (layout === "unit-mounted-cw" && !["320", "420", "520", "625"].includes(cwSize)) throw new TypeError("Choose a supported CW size");
   if (layout === "unit-mounted-cw" && model === "generic") throw new TypeError("Mounted CW symbols currently require a handed Q350 profile");
   component.mvhrDesignIntent = {
-    version: 1, mounting, model, handing: model === "generic" || aerofresh300 ? null : handing, layout,
+    version: 1, mounting, model, handing: model === "generic" ? null : aerofresh300 ? "right" : handing, layout,
     ...(layout === "unit-mounted-cw" ? { cwSize } : {}),
     assemblyState: layout === "unit-only" ? "unit-only" : layout === "unit-mounted-cw" ? "schematic-mounted-cw" : "layout-pending",
     note: "Planning intention only. Accessories, joints, installed mounting geometry and service clearances are not generated or verified.",

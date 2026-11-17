@@ -1005,16 +1005,27 @@ function currentUkDistributionCandidates(profileId) {
 
 function aerofresh300Record(type) {
   const manual = AEROFRESH_MANUAL_EVIDENCE["300"];
+  const { outerXSpanMm, innerXSpanMm, rearOffsetsMm } = manual.portSetout;
+  const dn125 = interfaceDefinition("rigid-epp", manual.nominalSpigotDiameterMm, "nominal-drawing-connection-only", {
+    drawingConnectionClass: "circular-dn125", installationCompatibilityStatus: "unverified",
+  });
+  const roles = [
+    ["dwelling-supply", -outerXSpanMm / 2, "supply", "Dwelling supply"],
+    ["dwelling-extract", -innerXSpanMm / 2, "extract", "Dwelling extract"],
+    ["outdoor-intake", innerXSpanMm / 2, "intake", "Outdoor intake"],
+    ["outdoor-exhaust", outerXSpanMm / 2, "exhaust", "Outdoor exhaust"],
+  ];
   return componentRecord({
     id: `aerofresh-300-${type}-drawing-profile`,
-    versionId: `aerofresh-300-${type}.drawing.v1`,
+    versionId: `aerofresh-300-${type}.drawing.v2`,
     group: "Units", category: "mvhr-unit-drawing-profile", manufacturer: "Aerofresh",
     productId: type === "hrv" ? "AER-300HRV" : "AER-300ERV",
     name: `Aerofresh 300 ${type.toUpperCase()}`,
-    status: "source-backed-drawing-footprint",
+    handing: "manufacturer-right",
+    status: "source-backed-drawing-profile-provisional-setout",
     source: {
       identifier: { ...INTERNAL_IDENTIFIER_SOURCE, locator: type === "hrv" ? "Price List!A177,C177" : "Price List!A179,C179" },
-      manual: { sourceId: manual.sourceId, title: manual.title, pages: [manual.dimensionPage, manual.servicePage] },
+      manual: { sourceId: manual.sourceId, title: manual.title, pages: [manual.rolePage, manual.servicePage, manual.dimensionPage] },
     },
     dimensions: {
       unit: "mm", body: manual.body, service: manual.service,
@@ -1023,9 +1034,15 @@ function aerofresh300Record(type) {
       evidenceStatus: "manufacturer-body-dimensions",
     },
     symbol: { shape: "box", widthMm: manual.body.width, heightMm: manual.body.depth },
-    ports: [],
-    connectionSetout: { routable: false, localPortCoordinatesStatus: manual.portSetout.xOriginStatus },
-    note: "Scaled body footprint. Port snap points require verified absolute setout. Attenuators and ComfoWell are mounted remotely.",
+    ports: roles.map(([key, x, stream, role], index) => ({
+      ...port(key, x, rearOffsetsMm[index] - manual.body.depth / 2, Math.sign(x), 0, stream, role, dn125),
+      coordinateEvidence: "Manual centre spacings and rear offsets. Horizontal centring and plan approach are drawing conventions.",
+    })),
+    connectionSetout: {
+      routable: true, connectionScope: "drawing-only", localPortCoordinatesStatus: "centred-on-casing-provisional",
+      orientationConvention: "manufacturer-right", installationCompatibilityStatus: "unverified",
+    },
+    note: "Right-hand DN125 drawing connections. ComfoWell and attenuators are mounted remotely.",
   });
 }
 
