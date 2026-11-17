@@ -2,7 +2,12 @@ import { escapeXml, wrapSheetText } from "./a3-sheet.mjs";
 import { renderInstallReferenceIllustration } from "./install-reference-illustrations.mjs";
 import { renderInsulationReferenceIllustration } from "./insulation-reference-illustrations.mjs";
 
-// These sheets are reference annotations, not project engineering inputs.
+const AEROFRESH_CONTROLS = [
+  "AeroFresh 300 / 450 / 600 controls reference: 10 A GPO, or 15 A if fitted with a preheater.",
+  "Boost: low-voltage 2-core to SW1 via momentary switches in bathroom and WC, and in kitchen/laundry where an extract grille is fitted.",
+];
+
+ // These sheets are reference annotations, not project engineering inputs.
 // Only the labelled dimensions in the owner sources are specified values.
 export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalPageCount = 3 } = {}) {
   if (sheet.metadata.systemScope === "decentralised") return renderDecentralisedDetailSheet(sheet, { pageNumber, totalPageCount });
@@ -25,31 +30,31 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
     referenceCard(details.cards.find(c => c.id === "wall-housing"), "02", box(1)),
     insulationCard(box(2)));
   const equipment = details.cards.filter(c => !["ceiling-tva", "wall-housing", "equipment-notes"].includes(c.id));
-  equipment.forEach((card, i) => out.push(referenceCard(card, String(i + 4).padStart(2, "0"), box(i, lowerY))));
+  equipment.forEach((card, i) => out.push(referenceCard(card, String(i + 4).padStart(2, "0"), box(i, lowerY), equipment.length === 3 && card.id === "af300-remote")));
   if (equipment.length < 3) {
     const start = equipment.length;
     out.push(coordinationCard(details, box(start, lowerY, contentWidth - start * (cardWidth + gap))));
   }
   if (details.unmatchedComponentIds.length) out.push(text(15, height - 21, `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required. Verify exact model, mounting and CW arrangement.`, 2.5));
-  out.push(text(15, height - 14, "Owner reference drawings supplied 09 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
+  out.push(text(15, height - 14, "Owner reference drawings supplied 09 and 17 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
     text(12, height - 4, m.status, 2.5),
     text(width - 12, height - 4, `Page ${pageNumber} of ${totalPageCount} · A3`, 2.5, 'text-anchor="end" data-output-page-number="true"'), "</svg>");
   return out.join("");
 }
 
-function referenceCard(card, number, b) {
-  const scale = Math.min(1.6, (b.w - 12) / 59, (b.h - 43) / 60);
+function referenceCard(card, number, b, includeControls = false) {
+  const scale = Math.min(1.6, (b.w - 12) / 59, (b.h - (includeControls ? 54 : 43)) / 61);
   const artX = b.x + (b.w - 58 * scale) / 2, artY = b.y + 13;
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 horizontal · 115 inner · 140 overall (mm).", "AeroFresh grille housing · Ø90 duct spigot.", "120, 115 and 140 follow source endpoints, not cutout or face sizes."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
-    "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "Wiring: original diagram required; fine labels not transcribed."],
-    "af300-remote": ["Source dimension arrows are blank. Assembly dimensions required.", "Bare-unit dimensions are not the assembled installation size."],
+    "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
+    "af300-remote": ["470 depth includes wall bracket allowance."],
   }[card.id];
   const body = [panelStart(b, `${number}  ${card.title}`, card.id, card.source),
     `<g transform="translate(${artX} ${artY}) scale(${scale})">${renderInstallReferenceIllustration(card.id)}</g>`,
-    `<g data-role="detail-notes">${paragraphs(notes, b, b.y + b.h - 25)}</g>`, "</g>"];
+    `<g data-role="detail-notes">${paragraphs(includeControls ? [...notes, ...AEROFRESH_CONTROLS] : notes, b, b.y + b.h - (includeControls ? 35 : 25))}</g>`, "</g>"];
   return body.join("");
 }
 
@@ -86,8 +91,10 @@ function coordinationCard(details, b) {
     ...(details.unmatchedComponentIds.length ? [`${details.unmatchedComponentIds.length} other unit(s) on this floor: no supplied assembly matches. Obtain the exact model, mounting and CW arrangement drawing.`] : []),
     ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["No matching central unit on this floor. Terminal sections are general references."] : []),
     "Assembly envelopes are not service clearances. Confirm access, supports, condensate arrangement and manufacturer installation requirements.",
-    ...(details.hasQ ? ["Q-series wiring source unreadable. Original wiring drawing required; no terminals or cable ratings have been inferred."] : details.hasAeroFresh ? ["Electrical installation: use the current model-specific original wiring diagram. Fine labels have not been transcribed."] : ["Electrical installation: use the current model-specific manufacturer instructions."]),
-    "Source: owner-supplied installation drawings, 09 Nov 2026. Schematics are references only and do not change model geometry or parts quantities.",
+    ...(details.hasQ ? ["Q-series wiring source unreadable. Original wiring drawing required."] : []),
+    ...(details.hasAeroFresh ? AEROFRESH_CONTROLS : []),
+    "Use the current model-specific manufacturer wiring diagram.",
+    "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",
     "Project insulation specification is not supplied. This sheet is preliminary, not installation approval.",
   ];
   return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";

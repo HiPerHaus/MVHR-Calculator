@@ -155,10 +155,10 @@ function remoteAssembly() {
     box(36, 28.8, 5.7, 2.2, "#fafafa"), box(43, 28.8, 5.7, 2.2, "#fafafa"),
     box(34.5, 31, 17.5, 23.5, "#fafafa"),
     ...[35, 51.5].flatMap(px=>[31.5, 40, 54].map(v=>circle(px, v, .1, INK, .05))),
-    // Keep the source's undimensioned arrows rather than inventing AF300 values.
-    dimH(5, 27, 26.8, null, INK, 31), dimH(34.5, 52, 27.6, null, INK, 31),
-    dimV(4.5, 11, 2, null, INK, 16), dimV(11, 30, 2, null, INK, 16),
-    dimV(31, 54.5, 2, null, INK, 5),
+    // Dimensions from the owner-supplied AeroFresh 300 layout.
+    dimH(5, 27, 26.8, 660, INK, 31), dimH(34.5, 52, 27.6, 470, INK, 31),
+    dimV(4.5, 11, 2, "Min 300", INK, 16), dimV(11, 30, 2, "Min 500", INK, 16),
+    dimV(31, 54.5, 2, 760, INK, 5), dimV(54.5, 60, 2, 150, INK, 5),
     path("M10 55.2 V57.5 Q10 59 11.1 59 Q12.2 59 12.2 57.5 V57 H15", "none", .7, "#c0c0c0"),
   ].join("");
 }
