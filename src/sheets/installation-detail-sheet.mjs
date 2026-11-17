@@ -47,7 +47,7 @@ function referenceCard(card, number, b, includeControls = false) {
   const artX = b.x + (b.w - 58 * scale) / 2, artY = b.y + 13;
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
-    "wall-housing": ["120 horizontal · 115 inner · 140 overall (mm).", "AeroFresh grille housing · Ø90 duct spigot.", "120, 115 and 140 follow source endpoints, not cutout or face sizes."],
+    "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance."],
@@ -97,7 +97,7 @@ function coordinationCard(details, b) {
     "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",
     "Project insulation specification is not supplied. This sheet is preliminary, not installation approval.",
   ];
-  return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
+  return panelStart(b, details.hasAeroFresh ? "AEROFRESH ELECTRICAL / COORDINATION" : "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
 }
 
 function panelStart(b, title, id, source) {

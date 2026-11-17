@@ -80,9 +80,15 @@ test("AF300 layout and controls reflect supplied references while Q wiring stays
   assert.deepEqual([af.widthMm, af.depthMm, af.heightMm, af.drainAllowanceMm], [660, 470, 760, 150]);
   const svg=renderPlanDetails(layoutPlanDetails(details,{xMm:10,yMm:10,widthMm:325,heightMm:277}));
   assert.match(svg,/wall bracket allowance/);assert.match(svg,/>Min 300<.*>Min 500</);
-  const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground","remote-attenuators"),metadata);
-  const afSvg=createSheetOutputPages(afSheet)[1].svg;
-  assert.match(afSvg,/10 A GPO/);assert.match(afSvg,/15 A/);assert.match(afSvg,/2-core to SW1/);
+  for (const layout of ["remote-attenuators", "unit-only"]) {
+    const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground",layout),metadata);
+    const afSvg=createSheetOutputPages(afSheet)[1].svg;
+    assert.match(afSvg,/data-detail-id="af300-remote"/);
+    assert.match(afSvg,/AEROFRESH ELECTRICAL/);
+    assert.match(afSvg,/10 A GPO/);assert.match(afSvg,/15 A/);assert.match(afSvg,/2-core to SW1/);
+    assert.match(afSvg,/120 mm housing depth/);
+    assert.match(afSvg,/140 mm grille height in section/);
+  }
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
   assert.match(createSheetOutputPages(q)[1].svg,/Wiring source unreadable/);
   assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned/);
