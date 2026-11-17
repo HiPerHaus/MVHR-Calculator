@@ -85,7 +85,7 @@ test("AF300 layout and controls reflect supplied references while Q wiring stays
     const afSvg=createSheetOutputPages(afSheet)[1].svg;
     assert.match(afSvg,/data-detail-id="af300-remote"/);
     assert.match(afSvg,/AEROFRESH ELECTRICAL/);
-    assert.match(afSvg,/10 A GPO/);assert.match(afSvg,/15 A/);assert.match(afSvg,/2-core to SW1/);
+    assert.match(afSvg,/10 A GPO/);assert.doesNotMatch(afSvg,/15 A|preheater/i);assert.match(afSvg,/40 mm waste connection for condensate/);assert.match(afSvg,/2-core to SW1/);
     assert.match(afSvg,/120 mm housing depth/);
     assert.match(afSvg,/140 mm grille height in section/);
   }
@@ -157,6 +157,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
   assert.match(render("q-cw320"),/data-dimension="unresolved"/);
   assert.doesNotMatch(render("af300-remote"),/data-dimension="unresolved"/);
+  assert.match(render("af300-remote"), />AeroFresh 300<.*>660<.*>Includes wall bracket</);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
 });
 

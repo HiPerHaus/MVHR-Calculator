@@ -140,9 +140,13 @@ function aeroFreshAssembly() {
 function remoteAssembly() {
   return [
     hatch(3, 1, 52, 3.5, 5),
+    box(6.2, 1.25, 13.3, 3, "#fafafa", 0),
+    text(7, 3.55, "Insulation", 2.5),
+    seg(3, 11, 55, 11, .2),
     // Source overhead attenuator, elbow and intentional vertical duct break.
     path("M20 5.7 H28 V10.7 H23 Q21.5 10.7 21.5 12.4 V14.9 H16.5 V10 Q16.5 5.7 20 5.7 Z", "#353535"),
     box(24, 5, 12.5, 6, "#858585"), box(36.5, 5.5, 3.8, 2.4, "#bbbbbb"), box(36.5, 8, 3.8, 2.4, "#bbbbbb"),
+    text(29, 14, "Ceiling", 2.5),
     box(16.5, 17, 5, 13.5, "#353535"),
     box(6.8, 28.8, 5.6, 2.2, "#fafafa"), box(13.3, 28.8, 5.5, 2.2, "#fafafa"),
     box(5, 31, 22, 23.5, "#fafafa"),
@@ -150,15 +154,18 @@ function remoteAssembly() {
     box(7.2, 37, 18, 13.4, "#fafafa", .15),
     `<rect x="7.8" y="32.8" width="16.5" height="1.9" rx=".9" fill="#eeeeee" stroke="${INK}" stroke-width=".25"/>`,
     path("M10 34.9 H21.5 V36 H10 Z", "#e8e8e8", .15), box(14.6, 35, 3.2, 1.7, "white", .2),
+    text(16, 48.7, "AeroFresh 300", 2.5, 'text-anchor="middle"'),
     box(14.3, 50.5, 3.5, 2.2, "#eeeeee", .2),
     ...[14.9, 15.8, 16.7, 17.4].map(px=>circle(px, 52.1, .12, INK, .05)),
     box(36, 28.8, 5.7, 2.2, "#fafafa"), box(43, 28.8, 5.7, 2.2, "#fafafa"),
     box(34.5, 31, 17.5, 23.5, "#fafafa"),
     ...[35, 51.5].flatMap(px=>[31.5, 40, 54].map(v=>circle(px, v, .1, INK, .05))),
     // Dimensions from the owner-supplied AeroFresh 300 layout.
-    dimH(5, 27, 26.8, 660, INK, 31), dimH(34.5, 52, 27.6, 470, INK, 31),
+    dimH(5, 27, 26.8, 660, INK, 31, 14), dimH(34.5, 52, 27.6, 470, INK, 31),
     dimV(4.5, 11, 2, "Min 300", INK, 16), dimV(11, 30, 2, "Min 500", INK, 16),
     dimV(31, 54.5, 2, 760, INK, 5), dimV(54.5, 60, 2, 150, INK, 5),
+    text(43.25, 57.4, "Includes wall bracket", 2.5, 'text-anchor="middle"'),
+    text(43.25, 60, "allowance", 2.5, 'text-anchor="middle"'),
     path("M10 55.2 V57.5 Q10 59 11.1 59 Q12.2 59 12.2 57.5 V57 H15", "none", .7, "#c0c0c0"),
   ].join("");
 }
@@ -174,8 +181,8 @@ function hatch(x, y, w, h, step = 3) {
   }
   return `<g data-source-feature="hatched-section">${out.join("")}</g>`;
 }
-function dimH(x1, x2, y, label, color = INK, extensionY = y + 1.5) {
-  return `<g data-dimension="${label ?? "unresolved"}">${seg(x1, y - .7, x1, extensionY, .12, color)}${seg(x2, y - .7, x2, extensionY, .12, color)}${seg(x1, y, x2, y, .16, color)}${arrow(x1, y, 0, color)}${arrow(x2, y, 180, color)}${label === null ? "" : text((x1 + x2) / 2, y - 1.1, label, 2.5, 'text-anchor="middle"', color)}</g>`;
+function dimH(x1, x2, y, label, color = INK, extensionY = y + 1.5, labelX = (x1 + x2) / 2) {
+  return `<g data-dimension="${label ?? "unresolved"}">${seg(x1, y - .7, x1, extensionY, .12, color)}${seg(x2, y - .7, x2, extensionY, .12, color)}${seg(x1, y, x2, y, .16, color)}${arrow(x1, y, 0, color)}${arrow(x2, y, 180, color)}${label === null ? "" : text(labelX, y - 1.1, label, 2.5, 'text-anchor="middle"', color)}</g>`;
 }
 function dimV(y1, y2, x, label, color = INK, extensionX = x + 1.5) {
   const cy = (y1 + y2) / 2, tx = x - 1.1;

@@ -3,7 +3,7 @@ import { renderInstallReferenceIllustration } from "./install-reference-illustra
 import { renderInsulationReferenceIllustration } from "./insulation-reference-illustrations.mjs";
 
 const AEROFRESH_CONTROLS = [
-  "AeroFresh 300 / 450 / 600 controls reference: 10 A GPO, or 15 A if fitted with a preheater.",
+  "AeroFresh 300 / 450 / 600 controls reference: 10 A GPO.",
   "Boost: low-voltage 2-core to SW1 via momentary switches in bathroom and WC, and in kitchen/laundry where an extract grille is fitted.",
 ];
 
@@ -50,7 +50,7 @@ function referenceCard(card, number, b, includeControls = false) {
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
-    "af300-remote": ["470 depth includes wall bracket allowance."],
+    "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
   }[card.id];
   const body = [panelStart(b, `${number}  ${card.title}`, card.id, card.source),
     `<g transform="translate(${artX} ${artY}) scale(${scale})">${renderInstallReferenceIllustration(card.id)}</g>`,
