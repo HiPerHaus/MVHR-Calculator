@@ -196,7 +196,9 @@ test("A3 uses the shared Q350 plan graphic for both handed profiles and rotated 
   assert.equal(Math.round(sheet.printScene.components[1].yawRad * 180 / Math.PI), 90);
 
   const svg = renderA3SheetSvg(sheet);
-  assert.equal((svg.match(/data-plan-graphic="zehnder-comfoair-q350-plan-v1"/gu) ?? []).length, 2);
+  assert.equal((svg.match(/data-kind="component" data-plan-graphic="zehnder-comfoair-q350-plan-v1"/gu) ?? []).length, 2);
+  assert.match(svg, /data-kind="legend-mvhr"[^>]*data-q350-handing="left"/);
+  assert.match(svg, /data-kind="legend-mvhr"[^>]*data-q350-handing="right"/);
   assert.match(svg, /data-q350-handing="left"/);
   assert.match(svg, /data-q350-handing="right"/);
   assert.match(svg, /data-q350-port-role="Dwelling supply"/);

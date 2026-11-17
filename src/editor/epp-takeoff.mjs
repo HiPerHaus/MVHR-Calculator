@@ -1,4 +1,5 @@
 import { routeLengthSummary } from "../domain/spatial.mjs";
+import { deriveRiserTakeoff } from "./riser-takeoff.mjs";
 
 export const EPP_TAKEOFF_POLICY = Object.freeze({
   stockLengthMm: 1000,
@@ -87,6 +88,9 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
       if (!port || port.system !== "mvhr" || port.interface?.nominalSizeMm !== size) continue;
       const key = `${unit.id}\u0000${port.id}`;
       if (allowances.has(key)) continue;
+      const directSpigot = /^aerofresh-300-(?:hrv|erv)(?:-|$)/u.test(
+        unit.catalogueItemId ?? unit.catalogueSnapshot?.recordId ?? unit.mvhrDesignIntent?.model ?? "",
+      );
       allowances.set(key, {
         componentId: unit.id, componentName: unit.displayName ?? unit.id, portId: port.id,
         portRole: port.role, routeId: route.id, stream: port.stream, nominalSizeMm: size,
@@ -94,9 +98,11 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
         ductLengthMm: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.ductLengthMm,
         stockLengthQuantity: 1, includedSocketQuantity: 1,
         elbow90Quantity: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.elbow90Quantity, elbow45Quantity: 0,
-        extraSleeveQuantity: HRV_EPP_CONNECTION_ALLOWANCE_POLICY.sleeveQuantity,
+        extraSleeveQuantity: directSpigot ? HRV_EPP_CONNECTION_ALLOWANCE_POLICY.elbow90Quantity : HRV_EPP_CONNECTION_ALLOWANCE_POLICY.sleeveQuantity,
         reviewRequired: true,
-        note: "Additional allowance per EPP-connected HRV/ERV port: 1 m duct, one 90° elbow and four loose sleeves. The length includes its own socket. Four sleeves are the complete port allowance; no fifth sleeve is added for this allowance elbow. Replace/reconcile this allowance when actual equipment and ceiling heights are designed; it is not measured route geometry.",
+        note: directSpigot
+          ? "Additional ceiling allowance: 1 m duct with socket and one 90° elbow with one sleeve. AeroFresh 300 spigots fit directly into the duct."
+          : "Additional allowance per EPP-connected HRV/ERV port: 1 m duct, one 90° elbow and four loose sleeves. The length includes its own socket. Four sleeves are the complete port allowance; no fifth sleeve is added for this allowance elbow. Replace/reconcile this allowance when actual equipment and ceiling heights are designed; it is not measured route geometry.",
       });
     }
   }
@@ -104,16 +110,22 @@ export function deriveHrvEppConnectionAllowances(routes, components) {
 }
 
 // Project purchasing totals combine streams and floors before rounding stock.
-export function deriveEppProjectTotals(project) {
+export function deriveEppProjectTotals(project, risers = deriveRiserTakeoff(project)) {
   const lines = [...deriveEppTakeoff(project.routes), ...deriveHrvEppConnectionAllowances(project.routes, project.components)];
   const elbows = deriveEppElbowStock(lines);
-  return [...new Set(lines.map(line => line.nominalSizeMm))].sort((a,b) => a-b).map(nominalSizeMm => {
+  const eppRisers = risers.filter(riser => [125, 160].includes(riser.nominalSizeMm));
+  const sizes = new Set([...lines, ...eppRisers].map(line => line.nominalSizeMm));
+  return [...sizes].sort((a,b) => a-b).map(nominalSizeMm => {
     const group = lines.filter(line => line.nominalSizeMm === nominalSizeMm);
     const known = group.filter(line => line.parallelRunCount !== null);
-    const knownTotalLengthMm = known.reduce((sum,line) => sum + (line.totalCentrelineMm ?? line.ductLengthMm ?? 0), 0);
-    const pendingCount = group.length - known.length;
+    const matchingRisers = eppRisers.filter(riser => riser.nominalSizeMm === nominalSizeMm);
+    const pendingRiserCount = matchingRisers.filter(riser => riser.lengthMm === null).length;
+    const knownRiserLengthMm = matchingRisers.reduce((sum, riser) => sum + (riser.lengthMm ?? 0), 0);
+    const pendingCount = group.length - known.length + pendingRiserCount;
+    const knownTotalLengthMm = known.reduce((sum,line) => sum + (line.totalCentrelineMm ?? line.ductLengthMm ?? 0), knownRiserLengthMm);
     return {
       nominalSizeMm, knownTotalLengthMm, totalLengthMm: pendingCount ? null : knownTotalLengthMm, pendingCount,
+      pendingRouteCount: group.length - known.length,
       stockLengthQuantity: Math.ceil(knownTotalLengthMm / EPP_TAKEOFF_POLICY.stockLengthMm),
       elbow90StockQuantity: elbows.find(line => line.nominalSizeMm === nominalSizeMm)?.elbow90StockQuantity ?? 0,
       extraSleeveQuantity: known.reduce((sum,line) => sum + line.extraSleeveQuantity, 0),

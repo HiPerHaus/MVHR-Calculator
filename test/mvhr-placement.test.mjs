@@ -219,3 +219,30 @@ test("Q350 CW625 uses manufacturer envelope and preserves handed unit ports", as
     }
   }
 });
+
+test("Aerofresh 300 exposes four provisional right-hand DN125 drawing targets", () => {
+  for (const type of ["hrv", "erv"]) {
+    const selection = { ...choice, model: `aerofresh-300-${type}` };
+    const unit = createConfiguredMvhrComponent(selection, placement);
+    assert.equal(unit.mvhrDesignIntent.handing, "right");
+    assert.equal(unit.mvhrDesignIntent.assemblyState, "layout-pending");
+    assert.deepEqual(unit.ports.map(port => [
+      port.stream, port.positionMm.x, port.positionMm.y + 443 / 2,
+      port.interface.nominalSizeMm,
+    ]), [
+      ["supply", -251, 343, 125],
+      ["extract", -98.5, 210, 125],
+      ["intake", 98.5, 210, 125],
+      ["exhaust", 251, 93, 125],
+    ]);
+    assert.equal(unit.catalogueSnapshot.connectionSetout.connectionScope, "drawing-only");
+    const left = createConfiguredMvhrComponent({ ...selection, handing: "left" }, placement);
+    assert.equal(left.mvhrDesignIntent.handing, "left");
+    assert.deepEqual(left.ports.map(port => port.id), unit.ports.map(port => port.id));
+    assert.deepEqual(left.ports.map(port => port.positionMm), unit.ports.map(port => port.positionMm).reverse());
+    assert.equal(left.catalogueSnapshot.connectionSetout.orientationConvention, "provisional-kinetic-advance-left");
+    assert.throws(() => createConfiguredMvhrComponent({
+      ...selection, layout: "unit-mounted-cw",
+    }, placement), /remote only/);
+  }
+});

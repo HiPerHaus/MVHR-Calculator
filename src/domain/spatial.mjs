@@ -356,6 +356,13 @@ export function applyCommand(project, command, options = {}) {
       synchronizeDecentralisedCableEndpoints(next, component.id);
       break;
     }
+    case "component.setFloorGrilleFeed": {
+      const component = requireEntity(next.components, command.componentId, "Floor grille");
+      component.floorGrilleFeed = structuredClone(command.feed);
+      validateFloorGrilleFeed(next, component);
+      synchronizeAttachedRouteEndpoints(next, component.id);
+      break;
+    }
     case "component.setElevation": {
       const component = requireEntity(next.components, command.componentId, "Component");
       assertComponentIsNotAssemblyMember(next, component.id, "set elevation for");
@@ -747,6 +754,23 @@ export function applyCommand(project, command, options = {}) {
       if (route[field] !== null) throw new TypeError(`Route ${end} endpoint is already attached`);
       route[field] = normalizeEndpoint(command.endpoint, `Route ${end} attachment`);
       synchronizeRouteEndpoints(next, route);
+      break;
+    }
+    case "riser.add": {
+      const ends = command.ends.map(normalizeComponent);
+      const connection = normalizeConnection(command.connection);
+      if (ends.length !== 2 || ends[0].floorId === ends[1].floorId ||
+          connection.from.componentId !== ends[0].id || connection.to.componentId !== ends[1].id) {
+        throw new TypeError("A duct riser must connect two distinct storeys");
+      }
+      for (const end of ends) {
+        requireUniqueId(next.components, end.id, "Riser end");
+        requireEntity(next.floors, end.floorId, "Floor");
+        next.components.push(end);
+      }
+      requireUniqueId(next.connections, connection.id, "Riser connection");
+      validateConnectionEndpoints(next, connection);
+      next.connections.push(connection);
       break;
     }
     case "connection.add": {
@@ -1689,6 +1713,7 @@ function validateProjectInternal(project, skipDesignOptions) {
   });
   project.components.forEach((component) => {
     normalizeComponent(component);
+    validateFloorGrilleFeed(project, component);
     assertNormalizedQuaternion(component.orientation, "Component orientation");
     component.ports.forEach((port) => {
       assertNormalizedDirection(port.direction, "Port direction");
@@ -3749,7 +3774,9 @@ function componentDeletionInspection(project, componentId) {
   const assembly = project.equipmentAssemblies.find(
     (candidate) => candidate.componentIds.includes(selectedComponent.id),
   ) ?? null;
-  const componentIds = assembly ? [...assembly.componentIds] : [selectedComponent.id];
+  const componentIds = selectedComponent.riserId
+    ? project.components.filter(item => item.riserId === selectedComponent.riserId).map(item => item.id)
+    : assembly ? [...assembly.componentIds] : [selectedComponent.id];
   const componentIdSet = new Set(componentIds);
   const routeIds = project.routes
     .filter((route) => (
@@ -4018,7 +4045,7 @@ function synchronizeRouteEndpoints(project, route) {
     {attachment:route.startAttachment,index:0,cornerIndex:1},
     {attachment:route.endAttachment,index:route.points.length-1,cornerIndex:route.points.length-2},
   ].filter(endpoint=>endpoint.attachment!==null).map(endpoint=>({
-    ...endpoint,position:componentPortPositionOnFloor(project,endpoint.attachment),
+    ...endpoint,position:componentPortPositionOnFloor(project,endpoint.attachment,route.floorId),
   }));
   const cornerMoves=new Map();
   if (/^epp-rigid-dn/.test(route.ductKind) && route.points.length>2) {
@@ -4056,7 +4083,7 @@ function validateRouteAttachments(project, route) {
   ];
   for (const [end, endpoint, point] of bindings) {
     if (endpoint === null) continue;
-    const derived = componentPortPositionOnFloor(project, endpoint);
+    const derived = componentPortPositionOnFloor(project, endpoint, route.floorId);
     if (!positionsEqual(point, derived)) {
       throw new TypeError(`Attached route ${end} point must equal its derived component-port position`);
     }
@@ -4073,7 +4100,7 @@ function validateRouteAttachmentTypes(project, route) {
   for (const endpoint of attachments) {
     const component = requireEntity(project.components, endpoint.componentId, "Route component");
     const port = requireEntity(component.ports, endpoint.portId, "Route port");
-    if (component.floorId !== route.floorId) {
+    if ((component.floorGrilleFeed?.floorId ?? component.floorId) !== route.floorId) {
       throw new TypeError("Route and attached component must belong to the same floor");
     }
     if (port.system !== route.system || port.stream !== route.stream) {
@@ -4104,9 +4131,27 @@ function connectionInterfacesCompatible(left, right) {
   return left.nominalSizeMm === right.nominalSizeMm;
 }
 
-function componentPortPositionOnFloor(project, endpoint) {
+function validateFloorGrilleFeed(project, component) {
+  const feed = component.floorGrilleFeed;
+  if (!feed) return;
+  if (component.displaySymbol?.shape !== "wall-grille" || component.ports.length !== 1 || !assignableRoomTerminalPort(component)) {
+    throw new TypeError("A ceiling-below feed requires a single-port floor grille");
+  }
+  const servedIndex = project.floors.findIndex(floor => floor.id === component.floorId);
+  if (servedIndex < 1 || project.floors[servedIndex - 1].id !== feed.floorId) {
+    throw new TypeError("Select the storey directly below the floor grille");
+  }
+  requireFinite(feed.xMm, "Floor grille feed X");
+  requireFinite(feed.yMm, "Floor grille feed Y");
+}
+
+function componentPortPositionOnFloor(project, endpoint, floorId) {
   const component = requireEntity(project.components, endpoint.componentId, "Route component");
   const port = requireEntity(component.ports, endpoint.portId, "Route port");
+  const feed = component.floorGrilleFeed;
+  if (feed && feed.floorId === floorId) {
+    return { x: feed.xMm, y: feed.yMm, z: unknownMm("Floor grille feed elevation pending") };
+  }
   const offset = rotateVector(component.orientation, port.positionMm);
   const componentZ = normalizeMeasurement(component.positionMm.z);
   let z;

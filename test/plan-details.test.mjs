@@ -74,12 +74,21 @@ test("repeated matching units deduplicate and floor/option references remain ind
   assert.match(pages[1].svg,/data-detail-id="af-cw520"/);assert.doesNotMatch(pages[1].svg,/data-detail-id="q-cw320"/);
 });
 
-test("unknown AF300 assembly values and Q wiring remain explicitly unresolved", () => {
-  const project={components:[{id:"af300",floorId:"ground",catalogueItemId:"aerofresh-300-hrv",mvhrDesignIntent:{mounting:"vertical",layout:"remote-attenuators"}}]};
+test("AF300 layout and controls reflect supplied references while Q wiring stays unresolved", () => {
+  const project={components:[{id:"af300",floorId:"ground",catalogueItemId:"aerofresh-300-hrv-drawing-profile",mvhrDesignIntent:{mounting:"vertical",layout:"remote-attenuators"}}]};
   const details=selectPlanDetails(project,"ground"), af=details.cards.find(card=>card.id==="af300-remote");
-  assert.equal(af.widthMm,null);assert.equal(af.depthMm,null);assert.equal(af.heightMm,null);assert.equal(af.drainAllowanceMm,null);
+  assert.deepEqual([af.widthMm, af.depthMm, af.heightMm, af.drainAllowanceMm], [660, 470, 760, 150]);
   const svg=renderPlanDetails(layoutPlanDetails(details,{xMm:10,yMm:10,widthMm:325,heightMm:277}));
-  assert.match(svg,/dimension arrows are blank/);assert.doesNotMatch(svg,/>660<|>443<|>760<|>150</);
+  assert.match(svg,/wall bracket allowance/);assert.match(svg,/>Min 300<.*>Min 500</);
+  for (const layout of ["remote-attenuators", "unit-only"]) {
+    const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground",layout),metadata);
+    const afSvg=createSheetOutputPages(afSheet)[1].svg;
+    assert.match(afSvg,/data-detail-id="af300-remote"/);
+    assert.match(afSvg,/AEROFRESH ELECTRICAL/);
+    assert.match(afSvg,/10 A GPO/);assert.doesNotMatch(afSvg,/15 A|preheater/i);assert.match(afSvg,/40 mm waste connection for condensate/);assert.match(afSvg,/2-core to SW1/);
+    assert.match(afSvg,/120 mm housing depth/);
+    assert.match(afSvg,/140 mm grille height in section/);
+  }
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
   assert.match(createSheetOutputPages(q)[1].svg,/Wiring source unreadable/);
   assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned/);
@@ -134,7 +143,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
   const expected = {
     "ceiling-tva": [128,140], "wall-housing": [120,115,140],
-    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [],
+    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
   };
   for (const [id,values] of Object.entries(expected)) {
     const svg=render(id);
@@ -147,7 +156,8 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   assert.match(render("q-cw320"),/data-source-feature="q-mounting-set"/);
   assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
   assert.match(render("q-cw320"),/data-dimension="unresolved"/);
-  assert.match(render("af300-remote"),/data-dimension="unresolved"/);
+  assert.doesNotMatch(render("af300-remote"),/data-dimension="unresolved"/);
+  assert.match(render("af300-remote"), />AeroFresh 300<.*>660<.*>Includes wall bracket</);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
 });
 
@@ -158,7 +168,7 @@ test("engineering page includes only conceptual insulation and explicit project 
   assert.match(pages[1].svg,/Project material, thickness, R-value and vapour-control detail: not specified./);
   assert.match(pages[1].svg,/concept-not-project-specification/);
   assert.match(pages[1].svg,/No matching central unit/);
-  assert.doesNotMatch(pages[1].svg,/R[0-9]|R-value[:=] ?[0-9]/);
+  assert.doesNotMatch(pages[1].svg.replaceAll(/data:image\/jpeg;base64,[^"]+/g, ""),/R[0-9]|R-value[:=] ?[0-9]/);
 });
 
 test("all-options documents have global numbering with independent per-option details", () => {
@@ -200,20 +210,18 @@ test("insulation reference shows the guide's two three-duct ceiling arrangements
   const { renderInsulationReferenceIllustration: render } = await import("../src/sheets/insulation-reference-illustrations.mjs");
   for (const arrangement of ["service-zone", "insulation-cover"]) {
     const svg = render(arrangement);
-    assert.equal((svg.match(/data-duct-section="distribution-duct"/g) || []).length, 3);
-    assert.match(svg, /data-visual-basis="owner-mvhr-guide-page-4"/);
-    assert.match(svg, /data-source-feature="finished-ceiling-lining"/);
-    assert.doesNotMatch(svg, /R[0-9]|thickness=.*\d/);
+    assert.match(svg, new RegExp(`<image data-insulation-arrangement="${arrangement}"`));
+    const image = svg.match(/href="data:image\/jpeg;base64,([^"]+)"/)[1];
+    assert.equal(Buffer.from(image, "base64").subarray(0, 3).toString("hex"), "ffd8ff");
   }
-  assert.match(render("service-zone"), /data-source-feature="internal-service-zone"/);
-  assert.doesNotMatch(render("insulation-cover"), /data-source-feature="internal-service-zone"/);
-  assert.match(render("insulation-cover"), /data-source-feature="continuous-insulation-cover"/);
+  assert.notEqual(render("service-zone"), render("insulation-cover"));
   assert.throws(() => render("unknown"), /Unknown insulation arrangement/);
   for (const orientation of ["landscape", "portrait"]) {
     const svg = createSheetOutputPages(createA3SheetModel(fixture(), {...metadata, orientation}))[1].svg;
     assert.match(svg, /Dropped ceiling \/ service zone/);
     assert.match(svg, /Ducts protected by insulation/);
     assert.match(svg, /owner-mvhr-guide-v1-page-4/);
+    assert.equal((svg.match(/<image data-insulation-arrangement=/g) ?? []).length, 2);
     assert.doesNotMatch(svg, /Duct \/ insulation \/ outer vapour-control layer/);
   }
 });
@@ -231,7 +239,7 @@ test("engineering artwork stays on a separate page for all sheet variations", ()
       } else if (page.kind === "installation-details") {
         assert.equal(document[i - 1].kind, "drawing");
         assert.match(page.svg, /data-illustration="ceiling-tva"/);
-        assert.match(page.svg, /data-illustration="insulation-service-zone"/);
+        assert.match(page.svg, /data-insulation-arrangement="service-zone"/);
         assert.doesNotMatch(page.svg, /id="drawing-content"|TERMINAL DIMENSIONS/);
         assert.equal(document[i + 1].kind, "parts-list");
       } else {

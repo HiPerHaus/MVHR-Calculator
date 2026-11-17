@@ -82,6 +82,9 @@ export function deriveComponentPlanGraphic(component) {
   if (match) return deriveQ350PlanGraphic(component, recordId, match[2], match[1]);
   const aeroMatch = typeof recordId === "string" ? recordId.match(/^aerofresh-450-(?:hrv|erv)-(left|right)-drawing-profile$/u) : null;
   if (aeroMatch) return deriveQ350PlanGraphic(component, recordId, aeroMatch[1]);
+  if (/^aerofresh-300-(hrv|erv)(-left)?-drawing-profile$/u.test(recordId) && component.ports?.length === 4) {
+    return deriveQ350PlanGraphic(component, recordId, recordId.endsWith("-left-drawing-profile") ? "left" : "right");
+  }
 
   const remoteMatch = typeof recordId === "string" ? recordId.match(GENERIC_REMOTE_PATTERN) : null;
   if (remoteMatch) return deriveGenericCwPlanGraphic(component, recordId, remoteMatch[1], remoteMatch[2]);
@@ -99,9 +102,9 @@ export function deriveComponentPlanGraphic(component) {
 export function q350PortLabelLayout(port, gapMm = 65) {
   const radius = (port.displayOutsideDiameterMm ?? port.outsideDiameterMm ?? port.nominalDiameterMm ?? 160) / 2;
   const side = port.xMm < 0 ? -1 : 1;
-  return { xMm: port.xMm + side * (radius + gapMm), yMm: port.yMm,
+  return { xMm: side * ((port.labelEdgeMm ?? Math.abs(port.xMm) + radius) + gapMm), yMm: port.yMm,
     anchor: side < 0 ? "end" : "start", leaderStartXmm: port.xMm + side * (radius + 8),
-    leaderEndXmm: port.xMm + side * (radius + gapMm - 15) };
+    leaderEndXmm: side * ((port.labelEdgeMm ?? Math.abs(port.xMm) + radius) + gapMm - 15) };
 }
 
 export function mountedCwShapes(graphic) {
@@ -117,6 +120,7 @@ function deriveQ350PlanGraphic(component, recordId, handing, qSize = "350") {
   const symbol = component.displaySymbol ?? component.symbol ?? component.catalogueSnapshot?.symbol;
   const mounted = component.mvhrDesignIntent?.layout === "unit-mounted-cw";
   const aerofresh = recordId.startsWith("aerofresh-450");
+  const aerofresh300 = recordId.startsWith("aerofresh-300");
   const manufacturerHanding = (component.catalogueSnapshot?.connectionSetout ?? component.connectionSetout)?.orientationConvention === "manufacturer";
   const dwellingSide = (handing === "left" ? -1 : 1) * (aerofresh && manufacturerHanding ? -1 : 1);
   const mountedDimensions = mountedCwDrawingLayout(component)?.mountedDimensions ?? null;
@@ -134,6 +138,7 @@ function deriveQ350PlanGraphic(component, recordId, handing, qSize = "350") {
     role: port.role,
     stream: port.stream,
     code: q350PortCode(port.role),
+    ...(aerofresh300 ? { labelEdgeMm: widthMm / 2 } : {}),
     nominalDiameterMm: nullablePositiveFinite(port.interface?.nominalSizeMm),
     boreDiameterMm: nullablePositiveFinite(port.interface?.boreMm),
     outsideDiameterMm: nullablePositiveFinite(port.interface?.outsideDiameterMm),
@@ -143,9 +148,9 @@ function deriveQ350PlanGraphic(component, recordId, handing, qSize = "350") {
 
   return deepFreeze({
     graphicId: Q350_PLAN_GRAPHIC_ID,
-    modelName: aerofresh ? "Aerofresh 450" : `ComfoAir Q${qSize}`,
-    shortModelName: aerofresh ? "Aero 450" : `Q${qSize}`,
-    brandLabel: aerofresh ? "A" : "Z",
+    modelName: aerofresh300 ? `AeroFresh 300 ${recordId.includes("-erv-") ? "ERV" : "HRV"}` : aerofresh ? "Aerofresh 450" : `ComfoAir Q${qSize}`,
+    shortModelName: aerofresh300 ? "Aero 300" : aerofresh ? "Aero 450" : `Q${qSize}`,
+    brandLabel: aerofresh || aerofresh300 ? "A" : "Z",
     drawingBoundsMm,
     mountedDimensions: mountedDimensions ? { ...mountedDimensions, source: aerofresh ? mountedDimensions.envelopeStatus === "schematic-layout-allowance" ? "owner-confirmed-common-CW-family-schematic-AF450-layout" : `owner-aerofresh-450-CW${component.mvhrDesignIntent.cwSize ?? "520"}-drawing-2026-10-23` : component.mvhrDesignIntent.cwSize === "625" ? "Zehnder-ComfoWell-625-specifications-2021.02.18-pages-5-7" : "owner-supplied-Q350-Q450-mounted-CW-drawing-2026-10-23", branchDiameterMm: 90, branchCentresStatus: "schematic-not-verified" } : null,
     mountedCw: component.mvhrDesignIntent?.layout === "unit-mounted-cw"

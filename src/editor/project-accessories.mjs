@@ -2,6 +2,7 @@ import {cwQuoteCodes,cwMountQuoteCode,quoteCodeEvidence,quotedCode} from "./quot
 import {mountedCwDrawingLayout} from "../domain/mounted-cw-drawing-connections.mjs";
 import {routeLengthSummary} from "../domain/spatial.mjs";
 import {deriveEppProjectTotals} from './epp-takeoff.mjs';
+import {deriveRiserTakeoff} from './riser-takeoff.mjs';
 import {deriveRadialAccessories} from './radial-accessories.mjs';
 
 export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
@@ -64,9 +65,12 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const radialRoutes=project.routes.filter(route=>route.ductKind==='semi-rigid-radial');
  const drawnLengthMm=radialRoutes.reduce((sum,route)=>sum+(route.parallelRunCount==null?0:routeLengthSummary(route).projectedMm*route.parallelRunCount),0);
  const stubTotalMm=radial.reduce((sum,a)=>sum+(a.stubTotalMm??0),0);
- const pendingDuctCount=radialRoutes.filter(route=>route.parallelRunCount==null).length+radial.filter(a=>a.stubQuantity>0&&a.stubTotalMm===null).length;
- const knownTotalLengthMm=drawnLengthMm+stubTotalMm,coilLengthMm=50000;
- const duct90={drawnLengthMm,stubTotalMm,knownTotalLengthMm,totalLengthMm:pendingDuctCount?null:knownTotalLengthMm,coilLengthMm,coilQuantity:Math.ceil(knownTotalLengthMm/coilLengthMm),pendingCount:pendingDuctCount,showOnThisFloor:owner?.id===floorId};
+ const risers=deriveRiserTakeoff(project);
+ const radialRisers=risers.filter(riser=>riser.nominalSizeMm===90);
+ const riserLengthMm=radialRisers.reduce((sum,riser)=>sum+(riser.lengthMm??0),0);
+ const pendingDuctCount=radialRisers.filter(riser=>riser.lengthMm===null).length+radialRoutes.filter(route=>route.parallelRunCount==null).length+radial.filter(a=>a.stubQuantity>0&&a.stubTotalMm===null).length;
+ const knownTotalLengthMm=drawnLengthMm+stubTotalMm+riserLengthMm,coilLengthMm=50000;
+ const duct90={drawnLengthMm,stubTotalMm,riserLengthMm,knownTotalLengthMm,totalLengthMm:pendingDuctCount?null:knownTotalLengthMm,coilLengthMm,coilQuantity:Math.ceil(knownTotalLengthMm/coilLengthMm),pendingCount:pendingDuctCount,showOnThisFloor:owner?.id===floorId};
  const capQuantity=radial.reduce((sum,a)=>sum+a.capQuantity,0);
  const filterBagQuantity=Math.ceil(extractPoints.length/10),oRingPackQuantity=Math.ceil(oRingQuantity/10);
  const jobLines=owner?.id===floorId?[
@@ -74,6 +78,6 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
   ...(filterBagQuantity?[{code:'AER-GR-FILT-DN125',description:`Extract vent filters · ${extractPoints.length} ${extractPoints.length===1?'point':'points'}, 10 filters per bag`,quantity:filterBagQuantity,unit:'bag'}]:[]),
   ...(oRingPackQuantity||pendingORings?[{code:'ZEN-OR90',description:`90 mm O-rings · ${oRingQuantity} required${pendingORings?' + pending connections':''}, 10 per pack`,quantity:pendingORings?`${oRingPackQuantity} + pending`:oRingPackQuantity,unit:'pack'}]:[]),
  ]:[];
- return {unitLines,cwLines,terminalLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,capQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project),
+ return {unitLines,cwLines,terminalLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,capQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project,risers),
   basis:'Drain trap and eligible surge protector per HRV; Q-series controls per Q-series unit. Three ComfoSet 90 per job. One filter per extract point, supplied in bags of ten. Project packs appear once on the first floor with ventilation.'};
 }

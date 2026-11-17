@@ -607,12 +607,12 @@ let sheetPreviewPdfMetadata = null;
 const drawToolsSection = document.querySelector("#draw-tools-section");
 const mechanicalToolsSection = document.querySelector("#mechanical-tools-section");
 const hiddenVentilationGroups = new Set();
-const componentIsVisible = component => temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
-  ? true
-  : !hiddenVentilationGroups.has(ventilationVisibilityGroup(component));
-const routeIsVisible = route => temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
-  ? true
-  : !hiddenVentilationGroups.has(routeVisibilityGroup(route));
+const componentIsVisible = component => onCurrentFloor(component) && (
+  temporaryCheckReveal?.kind === "component" && temporaryCheckReveal.id === component.id
+  || !hiddenVentilationGroups.has(ventilationVisibilityGroup(component)));
+const routeIsVisible = route => onCurrentFloor(route) && (
+  temporaryCheckReveal?.kind === "route" && temporaryCheckReveal.id === route.id
+  || !hiddenVentilationGroups.has(routeVisibilityGroup(route)));
 const viewOptionsAnchor = document.querySelector("#view-options-anchor");
 const viewOptionsToggle = document.querySelector("#view-options-toggle");
 const viewOptionsBackdrop = document.querySelector("#view-options-backdrop");
@@ -800,6 +800,16 @@ let savedProjectJson = initialNamedLoad?.ok && initialNamedLoad.found
 let savedProjectName = initialNamedLoad?.ok && initialNamedLoad.found
   ? initialNamedLoad.name
   : null;
+const drawingStorey = document.querySelector("#drawing-storey");
+const storeyDialog = document.querySelector("#drawing-storey-dialog");
+const storeyName = document.querySelector("#drawing-storey-name");
+const storeyElevation = document.querySelector("#drawing-storey-elevation");
+const storeyError = document.querySelector("#drawing-storey-error");
+
+let pendingFloorGrilleFeed = null;
+let pendingDuctRiser = null;
+const addDuctRiser = document.querySelector("#add-duct-riser");
+let activeFloorId = "floor-ground";
 let activeTool = "select";
 let activeTask = "project";
 let engineeringDutyBaseline = null;
@@ -831,7 +841,7 @@ let selectedRoutePointIndex = null;
 let routePickCycle = null;
 let selectedDecentralisedCableId = null;
 let selectedDecentralisedCablePointIndex = null;
-let selectedReferenceId = history.present.floorReferences[0]?.id ?? null;
+let selectedReferenceId = history.present.floorReferences.find(onCurrentFloor)?.id ?? null;
 let dragState = null;
 let floorAreaDragState = null;
 let componentDragState = null;
@@ -906,7 +916,7 @@ function updateMvhrPreview() {
   const germanBim=/^q(?:350|450)-de-(?:hrv|erv)$/u.test(mvhrModel.value);
   const aerofresh300 = mvhrModel.value.startsWith("aerofresh-300");
   const remoteOnly = generic || ca200 || germanBim || aerofresh300;
-  mvhrHanding.disabled = generic || aerofresh300;
+  mvhrHanding.disabled = generic;
   mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = remoteOnly;
   if (remoteOnly && mvhrLayout.value === "unit-mounted-cw") {
     mvhrLayout.value = aerofresh300 ? "remote-attenuators" : "unit-only";
@@ -921,7 +931,7 @@ function updateMvhrPreview() {
   mvhrSummary.textContent = generic
     ? `Generic ${mounting} planning symbol: 900 × 650 mm, four DN160 test ports. No manufacturer mounting dimensions or clearance are established.${accessoryNote}`
     : ca200 ? `CA200 manual version · ${mounting} · manufacturer ${mvhrHanding.value}-hand. Body 535 × 315 × 1108 mm; 1200 mm including spigots. Four DN125 drawing connections. Remote attenuators placed separately. Absolute port setout and installation fit require review.${accessoryNote}`
-    : aerofresh300 ? `Aerofresh 300 body: 660 × 443 × 760 mm. DN125 spigots. Port snap points are pending verified setout. Place attenuators and ComfoWell remotely.${accessoryNote}`
+    : aerofresh300 ? `Aerofresh 300 ${mvhrHanding.value}-hand · 660 × 443 × 760 mm · four DN125 drawing connections. Side-to-centre setout is provisional.${mvhrHanding.value === "left" ? " Left-hand port roles are provisional. Verify against the unit before installation." : ""} Place attenuators and ComfoWell remotely.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
     : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
     : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
@@ -945,7 +955,7 @@ mvhrForm.addEventListener("submit", (event) => {
   const id = pendingMvhrDrop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
   try {
     const component = createConfiguredMvhrComponent(selection, {
-      id, floorId: "floor-ground", xMm: pendingMvhrDrop.point.x, yMm: pendingMvhrDrop.point.y,
+      id, floorId: currentFloorId(), xMm: pendingMvhrDrop.point.x, yMm: pendingMvhrDrop.point.y,
     });
     if (!commitCommand(pendingMvhrDrop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, pendingMvhrDrop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
       mvhrError.textContent = interactionMessage;
@@ -1005,7 +1015,7 @@ document.querySelector("#cw-form").addEventListener("submit",event=>{
   event.preventDefault();if(!pendingCw)return;
   try{
     const drop=pendingCw,selection=cwSelection(),id=drop.componentId??`component-catalogue-${componentIdentityCounter}`;
-    const component=createCatalogueComponent(standaloneCwRecordId(selection),{id,floorId:"floor-ground",xMm:drop.point.x,yMm:drop.point.y,allowAssemblyOnly:true});
+    const component=createCatalogueComponent(standaloneCwRecordId(selection),{id,floorId:currentFloorId(),xMm:drop.point.x,yMm:drop.point.y,allowAssemblyOnly:true});
     const command=drop.componentId?{type:"component.replaceDrawingConfiguration",componentId:id,component}:{type:"component.add",component};
     if(!commitCommand(command,drop.componentId?"CW configuration changed; attached ducts updated":"Standalone CW placed")){cwError.textContent=interactionMessage;return;}
     if(!drop.componentId)componentIdentityCounter++;
@@ -1040,6 +1050,16 @@ function openComponentContextAt(component, clientX, clientY) {
   componentContext.replaceChildren();
   const action=(label,fn)=>{const button=document.createElement("button");button.type="button";button.setAttribute("role","menuitem");button.textContent=label;button.addEventListener("click",()=>{closeComponentContext();fn();});componentContext.append(button);};
   action("Rotate 90°",()=>rotateSelectedComponent());
+  const lowerFloor = history.present.floors[history.present.floors.findIndex(floor => floor.id === component.floorId) - 1];
+  if (lowerFloor && component.displaySymbol?.shape === "wall-grille" && component.ports.length === 1) {
+    action(`Feed floor grille from ${lowerFloor.name} ceiling…`, () => {
+      selectDrawingStorey(lowerFloor.id);
+      pendingFloorGrilleFeed = { componentId: component.id, floorId: lowerFloor.id };
+      interactionMessage = "Click the duct connection location in the ceiling below the floor grille.";
+      updateStatus();
+    });
+  }
+
   if(component.mvhrDesignIntent) {
     action("Change unit / CW size…",()=>editPlacedMvhr(component));
     if(component.mvhrDesignIntent.model!=="generic")action("Flip Left / Right",()=>{
@@ -1071,7 +1091,7 @@ tabletMoreActions.addEventListener("click", () => {
   openComponentContextAt(component, rect.left, Math.max(8, rect.top - 190));
 });
 document.addEventListener("pointerdown",event=>{if(!componentContext.contains(event.target))closeComponentContext();});
-document.addEventListener("keydown",event=>{if(event.key==="Escape")closeComponentContext();});
+document.addEventListener("keydown",event=>{if(event.key==="Escape"){pendingFloorGrilleFeed=null;pendingDuctRiser=null;closeComponentContext();}});
 
 let terminalPlacementMode = null;
 let pendingTerminalDrop = null;
@@ -1091,7 +1111,7 @@ function placeConfiguredTerminal(drop, service) {
   const id = `component-catalogue-${componentIdentityCounter}`;
   const mode = activateTerminalPlacementMode({ shape: drop.shape, service });
   const component = createCatalogueComponent(terminalPlacementRecordId(mode), {
-    id, floorId: "floor-ground", xMm: drop.point.x, yMm: drop.point.y,
+    id, floorId: currentFloorId(), xMm: drop.point.x, yMm: drop.point.y,
   });
   if (!commitCommand({ type: "component.add", component, autoAssignTerminalSpace: true }, "Terminal placed")) return false;
   componentIdentityCounter += 1;
@@ -1103,7 +1123,7 @@ function placeConfiguredTerminal(drop, service) {
   return true;
 }
 function openTerminalPlacement(point, repeat) {
-  const space = terminalPlacementSpace(history.present, "floor-ground", point);
+  const space = terminalPlacementSpace(history.present, currentFloorId(), point);
   const role = space?.space.ventilationRole;
   const automatic = ["supply", "extract"].includes(role) ? role : null;
   const drop = {
@@ -1183,8 +1203,8 @@ function updateExternalGrilleSpacingPreview() {
     : "Zehnder single external wall grille, using the supplied dimensions. Exact EPP mating and wall installation still require review. Rotate the grille to face the building.";
   if(selection.service==="combined") {message.textContent="Combined grille: the separate-grille 1.5 m rule does not apply within this product. Physical Left/Right layout remains under review.";return;}
   if(!pendingExternalGrille)return;
-  const component=createCatalogueComponent(externalGrilleRecordId(selection),{id:"external-grille-preview",floorId:"floor-ground",xMm:pendingExternalGrille.point.x,yMm:pendingExternalGrille.point.y});
-  const pairs=inspectExternalGrilleSeparation({...history.present,components:[...history.present.components,component]},"floor-ground").filter(p=>p.componentId===component.id||p.otherComponentId===component.id);
+  const component=createCatalogueComponent(externalGrilleRecordId(selection),{id:"external-grille-preview",floorId:currentFloorId(),xMm:pendingExternalGrille.point.x,yMm:pendingExternalGrille.point.y});
+  const pairs=inspectExternalGrilleSeparation({...history.present,components:[...history.present.components,component]},currentFloorId()).filter(p=>p.componentId===component.id||p.otherComponentId===component.id);
   const tooClose=pairs.filter(p=>p.status==="too-close");
   message.textContent=tooClose.length ? `Too close: nearest centre-to-centre distance ${(Math.min(...tooClose.map(p=>p.distanceMm))/1000).toFixed(2)} m. Separate intake/exhaust grilles need at least 1.50 m centre-to-centre. You can place the draft and move it; Checks will retain the warning.` : "Zehnder single grille dimensions loaded. Keep separate intake/exhaust grilles at least 1.50 m centre-to-centre. Vertical and facade checks remain separate.";
 }
@@ -1196,12 +1216,12 @@ function grilleAlignment(component,point,allowHandingChange=false) {
 }
 function grillePlacementAlignment(point) {
   if(externalGrillePlacement!=="combined")return null;
-  const component=createCatalogueComponent(`generic-external-grille-combined-dn${externalGrilleDefault.size}`,{id:"grille-alignment-preview",floorId:"floor-ground",xMm:point.x,yMm:point.y});
+  const component=createCatalogueComponent(`generic-external-grille-combined-dn${externalGrilleDefault.size}`,{id:"grille-alignment-preview",floorId:currentFloorId(),xMm:point.x,yMm:point.y});
   return grilleAlignment(component,point,true);
 }
 function placeExternalGrille(drop,selection) {
   const id=`component-catalogue-${componentIdentityCounter}`;
-  let component=createCatalogueComponent(externalGrilleRecordId(selection),{id,floorId:"floor-ground",xMm:drop.point.x,yMm:drop.point.y});
+  let component=createCatalogueComponent(externalGrilleRecordId(selection),{id,floorId:currentFloorId(),xMm:drop.point.x,yMm:drop.point.y});
   const alignment=grilleAlignment(component,drop.point,true);
   if(alignment)component=alignment.component;
   if(!commitCommand({type:"component.add",component},"External grille placed; connect intake and exhaust separately")) return false;
@@ -2003,6 +2023,18 @@ canvas.addEventListener("lostpointercapture", () => {
 });
 
 canvas.addEventListener("click", (event) => {
+  if (pendingDuctRiser && !suppressNextClick && activeTask === "ventilation" && activeTool === "select") {
+    placeDuctRiserEnd(eventToGridWorld(event));
+    return;
+  }
+  if (pendingFloorGrilleFeed && pendingFloorGrilleFeed.floorId === currentFloorId()) {
+    const { x, y } = eventToGridWorld(event);
+    const { componentId, floorId } = pendingFloorGrilleFeed;
+    pendingFloorGrilleFeed = null;
+    commitCommand({ type: "component.setFloorGrilleFeed", componentId, feed: { floorId, xMm: x, yMm: y } },
+      "Floor grille feed marked on the ceiling plan below");
+    return;
+  }
   canvas.focus();
   if (suppressNextClick) {
     suppressNextClick = false;
@@ -3047,7 +3079,7 @@ function openSheetPreview({ designStage = false } = {}) {
     };
     exportAllOptionsPdfButton.hidden=history.present.designOptions.length<2;
     const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · 1 A3 drawing + 1 A3 installation detail sheet + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
+    sheetPreviewStatus.textContent = `${activeOption?.name??"Option"} · ${activeOption?.revision??"Working"} · ${sheet.printScene.floorName} · 1 A3 drawing + 1 A3 installation detail sheet + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${sheet.fit.label} · ${sheet.partsSchedule.componentLines.length} part lines · ${sheet.partsSchedule.routeLines.length} duct lines · scene ${sheet.printSceneFingerprint} · committed objects only`;
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
@@ -3076,16 +3108,17 @@ function openSheetPreview({ designStage = false } = {}) {
 }
 
 function createSheetForDesignOption(project,option) {
-  const floor=project.floors.find((candidate)=>candidate.id==="floor-ground")??project.floors[0];
+  const floor=project.floors.find(candidate => candidate.id === currentFloorId()) ?? project.floors[0];
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
   const optionRevision=option?.revision??"Working";
+  const floorSuffix = project.floors.length > 1 ? `-L${project.floors.indexOf(floor)}` : "";
   const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
   return createA3SheetModel(project,{
     floorId:floor.id,orientation:"landscape",projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
-    drawingTitle:`${baseTitle} · ${optionName}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}`,
+    drawingTitle:`${baseTitle} · ${optionName}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}${floorSuffix}`,
     issueDate:new Date().toISOString().slice(0,10),status:"Preliminary — not for construction",revision:optionRevision,
     revisionText:`${optionName} working-draft preview`,drawnBy:project.projectDetails.drawnBy||"",checkedBy:project.projectDetails.checkedBy||"",
   });
@@ -3222,13 +3255,15 @@ function initialStorageState(result) {
 }
 
 function setTool(tool, options = {}) {
+  pendingFloorGrilleFeed = null;
+  pendingDuctRiser = null;
   if (tool === "room-divider") {
     if (activeTask !== "plan") return;
     const selectedZone = history.present.zones.find((zone) => zone.id === selectedZoneId);
     if (selectedZone) selectedRoomId = selectedZone.parentRoomId;
     if (!history.present.rooms.some((room) => room.id === selectedRoomId)) {
       const currentRooms = history.present.rooms.filter(
-        (room) => inspectRoomBoundary(history.present, room).status === "current",
+        (room) => onCurrentFloor(room) && inspectRoomBoundary(history.present, room).status === "current",
       );
       if (currentRooms.length === 1) selectedRoomId = currentRooms[0].id;
       else {
@@ -3576,7 +3611,7 @@ function commitWallChain() {
     const projectBeforeWallCommit = history.present;
     const wallCommand = {
       type: "wall.addChain",
-      floorId: "floor-ground",
+      floorId: currentFloorId(),
       nodeIds: draftPoints.map((point) => point.nodeId),
       wallIds,
       points: draftPoints.map((point) => pointForCommand(point)),
@@ -3602,7 +3637,7 @@ function commitWallChain() {
     const newRoomBoundaries = newlyEligibleRoomBoundaries(
       projectBeforeWallCommit,
       history.present,
-      "floor-ground",
+      currentFloorId(),
     );
     interactionMessage = newRoomBoundaries.length === 1
       ? "Wall chain committed; new enclosed room boundary detected"
@@ -4190,8 +4225,136 @@ function applyRoutingClearance() {
   commitCommand({ type: "routingClearance.set", floorId: currentFloorId(), clearSpacingMm: measurement }, value === "" ? "Parallel duct clear spacing returned to unresolved" : `${Number(value)} mm parallel duct clear spacing applied`);
 }
 
+function onCurrentFloor(item) {
+  return item.floorId === currentFloorId();
+}
+
+function renderStoreyControl() {
+  const floors = history.present.floors;
+  addDuctRiser.hidden = activeTask !== "ventilation" || floors.length < 2;
+  if (drawingStorey.options.length !== floors.length ||
+      floors.some((floor, index) => drawingStorey.options[index]?.value !== floor.id ||
+        drawingStorey.options[index]?.text !== floor.name)) {
+    drawingStorey.replaceChildren(...floors.map(floor => new Option(floor.name, floor.id)));
+  }
+  drawingStorey.value = currentFloorId() ?? "";
+}
+
+function selectDrawingStorey(floorId) {
+  if (hasEngineeringEdits()) {
+    renderStoreyControl();
+    return requestEngineeringTransition(() => selectDrawingStorey(floorId));
+  }
+  const floor = history.present.floors.find(candidate => candidate.id === floorId);
+  if (!floor) return;
+  cancelActivePointer();
+  cancelDraft("");
+  activeFloorId = floor.id;
+  selectedRoutingExclusionId = null;
+  selectedReferenceId = history.present.floorReferences.find(onCurrentFloor)?.id ?? null;
+  selectedRoomId = selectedZoneId = reassignRoomId = reassignZoneId = null;
+  selectedDecentralisedCableId = selectedDecentralisedCablePointIndex = null;
+  routePickCycle = null;
+  temporaryCheckReveal = null;
+  setTask(activeTask, { designNavigation: true });
+  interactionMessage = `${floor.name} active`;
+  updateStatus();
+}
+
+drawingStorey.addEventListener("change", () => selectDrawingStorey(drawingStorey.value));
+document.querySelector("#add-drawing-storey").addEventListener("click", () => {
+  storeyName.value = history.present.floors.length === 1 ? "Upper Floor" : `Level ${history.present.floors.length}`;
+  storeyElevation.value = "";
+  storeyError.textContent = "";
+  storeyDialog.showModal();
+  storeyName.select();
+});
+document.querySelector("#cancel-drawing-storey").addEventListener("click", () => storeyDialog.close());
+document.querySelector("#drawing-storey-form").addEventListener("submit", event => {
+  event.preventDefault();
+  const name = storeyName.value.trim();
+  if (!name || history.present.floors.some(floor => floor.name.toLowerCase() === name.toLowerCase())) {
+    storeyError.textContent = "Enter a unique storey name.";
+    return;
+  }
+  const id = `floor-${crypto.randomUUID()}`;
+  const z = storeyElevation.value === "" ? unknownMm("Storey elevation not set")
+    : knownMm(storeyElevation.valueAsNumber, "Designer-entered storey elevation");
+  if (!commitCommand({ type: "floor.add", floor: {
+    id, name, transform: { translationMm: { x: 0, y: 0, z }, orientation: identityQuaternion() },
+  } }, "Add storey")) {
+    storeyError.textContent = interactionMessage;
+    return;
+  }
+  storeyDialog.close();
+  selectDrawingStorey(id);
+});
+
+const riserDialog = document.querySelector("#duct-riser-dialog");
+const riserDestination = document.querySelector("#riser-destination");
+addDuctRiser.addEventListener("click", () => {
+  riserDestination.replaceChildren(...history.present.floors.filter(floor => floor.id !== currentFloorId())
+    .map(floor => new Option(floor.name, floor.id)));
+  riserDialog.showModal();
+});
+document.querySelector("#cancel-duct-riser").addEventListener("click", () => riserDialog.close());
+document.querySelector("#duct-riser-form").addEventListener("submit", event => {
+  event.preventDefault();
+  setTool("select");
+  pendingDuctRiser = {
+    fromFloorId: currentFloorId(), toFloorId: riserDestination.value,
+    stream: document.querySelector("#riser-stream").value,
+    ductKind: document.querySelector("#riser-duct").value,
+  };
+  riserDialog.close();
+  interactionMessage = "Click the first riser connection on this storey. Esc cancels.";
+  updateStatus();
+});
+
+function placeDuctRiserEnd(point) {
+  const pending = pendingDuctRiser;
+  if (!pending.firstPoint && currentFloorId() === pending.fromFloorId) {
+    selectDrawingStorey(pending.toFloorId);
+    pendingDuctRiser = { ...pending, firstPoint: point };
+    interactionMessage = "Click the other riser connection on this storey. Esc cancels.";
+    updateStatus();
+    return;
+  }
+  pendingDuctRiser = null;
+  if (!pending.firstPoint || currentFloorId() !== pending.toFloorId) return;
+  const { connectionInterface } = routeFamilyForKind(pending.ductKind);
+  const stream = pending.stream;
+  const role = stream === "supply" ? "Dwelling supply" : "Dwelling extract";
+  const riserId = `riser-${crypto.randomUUID()}`;
+  const size = connectionInterface.nominalSizeMm;
+  const end = (floorId, location, otherFloorId, side) => {
+    const id = `${riserId}-${side}`;
+    const port = (suffix, direction) => ({
+      id: `${id}-${suffix}`, definitionId: `${id}-${suffix}`,
+      system: "mvhr", stream, role, interface: connectionInterface, direction,
+      positionMm: { x: 0, y: 0, z: 0 },
+    });
+    const local = port("local", { x: side === "a" ? -1 : 1, y: 0, z: 0 });
+    const vertical = port("vertical", { x: 0, y: 0, z: side === "a" ? 1 : -1 });
+    const otherFloor = history.present.floors.find(floor => floor.id === otherFloorId);
+    return {
+      id, floorId, riserId, displayName: `DN${size} ${stream} riser · ${otherFloor.name}`,
+      catalogueStatus: "drawing-only", displaySymbol: { shape: "circle", widthMm: size * 1.5, heightMm: size * 1.5 },
+      positionMm: { x: location.x, y: location.y, z: unknownMm("Riser end elevation pending") },
+      orientation: identityQuaternion(), ports: [local, vertical],
+      engineeringPassages: [{ fromPortId: local.id, toPortId: vertical.id, basis: "Riser continuation" }],
+    };
+  };
+  const first = end(pending.fromFloorId, pending.firstPoint, pending.toFloorId, "a");
+  const second = end(pending.toFloorId, point, pending.fromFloorId, "b");
+  commitCommand({ type: "riser.add", ends: [first, second], connection: {
+    id: riserId, from: { componentId: first.id, portId: first.ports[1].id },
+    to: { componentId: second.id, portId: second.ports[1].id },
+  } }, "Linked riser placed. Route to each end on its storey. Riser length is pending.");
+}
+
 function currentFloorId() {
-  return history.present.floors.find((floor) => floor.id === "floor-ground")?.id ?? history.present.floors[0]?.id;
+  return currentFloor()?.id;
 }
 
 function handleMechanicalClick(event, selectedHit = null) {
@@ -4244,7 +4407,7 @@ function handleMechanicalClick(event, selectedHit = null) {
       type: "component.add",
       component: createCatalogueComponent(catalogueItem.id, {
         id,
-        floorId: "floor-ground",
+        floorId: currentFloorId(),
         xMm: result.intent.point.x,
         yMm: result.intent.point.y,
       }),
@@ -4280,7 +4443,7 @@ function handleMechanicalClick(event, selectedHit = null) {
     const id = `equipment-assembly-${equipmentAssemblyIdentityCounter}`;
     const value = createEquipmentAssembly(result.intent.assemblyTemplateId, {
       id,
-      floorId: "floor-ground",
+      floorId: currentFloorId(),
       xMm: result.intent.point.x,
       yMm: result.intent.point.y,
     });
@@ -4317,7 +4480,7 @@ function handleMechanicalClick(event, selectedHit = null) {
 }
 
 function routeFromIntent(intent, id = "draft-route-preview") {
-  return {id, floorId: "floor-ground", system:intent.system, stream:intent.stream, role:intent.role,
+  return {id, floorId: currentFloorId(), system:intent.system, stream:intent.stream, role:intent.role,
     connectionInterface:intent.connectionInterface, ductKind:intent.ductKind, parallelRunCount:intent.parallelRunCount,
     startAttachment:intent.start, endAttachment:intent.end,
     points:intent.points.map(point=>({x:point.x,y:point.y,z:unknownMm("synthetic route elevation not set")}))};
@@ -4557,9 +4720,13 @@ function mechanicalHitFromTarget(target) {
     const component = history.present.components.find((candidate) => candidate.id === componentId);
     const port = component?.ports.find((candidate) => candidate.id === portId);
     if (!component || !port) return null;
+    const feed = component.floorGrilleFeed;
+    const feedPosition = feed?.floorId === currentFloorId() ? { x: feed.xMm, y: feed.yMm } : null;
+    if (feed && !feedPosition) return { kind: "component", componentId };
     const entry=terminalDrawingAnchors(component,port).find(e=>e.id===target.dataset.terminalEntry);
     return {
       ...(entry?{positionMm:entry.positionMm,terminalEntry:{componentId,portId,entryId:entry.id}}:{}),
+      ...(feedPosition ? { positionMm: feedPosition } : {}),
       kind: "port",
       componentId,
       portId,
@@ -4581,9 +4748,9 @@ function mechanicalHitFromTarget(target) {
 
 function mechanicalHitFromPointerEvent(event) {
   const directHit = mechanicalHitFromTarget(event.target);
-  if (activeTool !== "route") return directHit;
+  if (activeTool !== "route" || event.target?.dataset?.floorGrilleFeed) return directHit;
   const picked = pickPortAtClientPoint(
-    { ...history.present, components: history.present.components.filter(componentIsVisible) },
+    { ...history.present, components: history.present.components.filter(component => componentIsVisible(component) && !component.floorGrilleFeed) },
     camera,
     canvas.getBoundingClientRect(),
     { x: event.clientX, y: event.clientY },
@@ -4704,7 +4871,7 @@ function handleRoomCanvasClick(event) {
 }
 
 function openRoomCreationDialog(boundaryKey) {
-  const derivation = deriveRoomBoundaries(history.present, "floor-ground");
+  const derivation = deriveRoomBoundaries(history.present, currentFloorId());
   const candidate = derivation.candidates.find((item) => item.key === boundaryKey);
   if (!candidate) {
     interactionMessage = "That room boundary is no longer eligible; project unchanged";
@@ -4878,7 +5045,7 @@ function applyRoomDialog(event) {
   if (commitCommand({
     type: "room.createFromBoundary",
     roomId,
-    floorId: "floor-ground",
+    floorId: currentFloorId(),
     boundaryKey: pendingRoomBoundaryKey,
     name,
     use: roomUseInput.value,
@@ -5265,7 +5432,8 @@ function applyLocalReopen(result, options = {}) {
   selectedFloorAreaId = null;
   reassignRoomId = null;
   reassignZoneId = null;
-  selectedReferenceId = result.project.floorReferences[0]?.id ?? null;
+  activeFloorId = result.project.floors[0]?.id ?? "floor-ground";
+  selectedReferenceId = result.project.floorReferences.find(onCurrentFloor)?.id ?? null;
   dxfImportController.cancel();
   if (options.named !== false) {
     currentProjectName = result.name ?? result.metadata?.name ?? currentProjectName;
@@ -5366,7 +5534,8 @@ function applyPortableOpen(imported) {
   selectedFloorAreaId = null;
   reassignRoomId = null;
   reassignZoneId = null;
-  selectedReferenceId = imported.project.floorReferences[0]?.id ?? null;
+  activeFloorId = imported.project.floors[0]?.id ?? "floor-ground";
+  selectedReferenceId = imported.project.floorReferences.find(onCurrentFloor)?.id ?? null;
   dxfImportController.cancel();
   draftPoints = [];
   floorAreaDraftPoints = [];
@@ -5396,6 +5565,8 @@ async function addReferenceImage() {
   const file = referenceFileInput.files?.[0];
   referenceFileInput.value = "";
   if (!file) return;
+  const importFloorId = currentFloorId();
+  const importProjectId = history.present.id;
   addReferenceButton.disabled = true;
   interactionMessage = "Validating PNG source…";
   updateStatus();
@@ -5411,6 +5582,8 @@ async function addReferenceImage() {
       throw new TypeError("Decoded PNG dimensions do not match its header");
     }
     bitmap.close();
+    const digest = await sha256Hex(bytes);
+    if (importProjectId !== history.present.id || importFloorId !== currentFloorId()) return;
     const suffix = referenceIdentityCounter++;
     const assetId = `reference-asset-${suffix}`;
     const referenceId = `floor-reference-${suffix}`;
@@ -5422,14 +5595,14 @@ async function addReferenceImage() {
         fileName: file.name,
         mediaType: file.type,
         byteLength: bytes.byteLength,
-        sha256: await sha256Hex(bytes),
+        sha256: digest,
         widthPx: dimensions.widthPx,
         heightPx: dimensions.heightPx,
         dataUrl: bytesToDataUrl(bytes, file.type),
       },
       reference: {
         id: referenceId,
-        floorId: "floor-ground",
+        floorId: importFloorId,
         assetId,
         visible: true,
         locked: true,
@@ -5459,6 +5632,8 @@ async function stagePdfReference() {
   const file = pdfReferenceFileInput.files?.[0];
   pdfReferenceFileInput.value = "";
   if (!file) return;
+  const importFloorId = currentFloorId();
+  const importProjectId = history.present.id;
   await discardPendingPdfReference();
   if (pdfImportDialog.open) pdfImportDialog.close();
   pdfImportError.textContent = "";
@@ -5478,6 +5653,10 @@ async function stagePdfReference() {
       fileName: file.name,
       ...PDF_RESOURCE_URLS,
     });
+    if (importProjectId !== history.present.id || importFloorId !== currentFloorId()) {
+      await closePdfReference(opened);
+      return;
+    }
     pendingPdfImport = {
       bytes,
       descriptor: null,
@@ -5591,7 +5770,7 @@ async function acceptPdfReference(event) {
       },
       reference: {
         id: referenceId,
-        floorId: "floor-ground",
+        floorId: currentFloorId(),
         assetId,
         visible: true,
         locked: true,
@@ -5660,6 +5839,8 @@ async function stageDxfReference() {
   const file = dxfReferenceFileInput.files?.[0];
   dxfReferenceFileInput.value = "";
   if (!file) return;
+  const importFloorId = currentFloorId();
+  const importProjectId = history.present.id;
   dxfImportController.cancel();
   if (dxfImportDialog.open) dxfImportDialog.close();
   dxfImportError.textContent = "";
@@ -5679,7 +5860,7 @@ async function stageDxfReference() {
     fileName: file.name,
     loadText: () => file.text(),
   });
-  if (result.stale) return;
+  if (result.stale || importProjectId !== history.present.id || importFloorId !== currentFloorId()) return;
   if (result.state.status === "failed") {
     interactionMessage = `DXF import failed; current project preserved: ${result.state.errorMessage}`;
     render();
@@ -5790,7 +5971,7 @@ function acceptDxfReference(event) {
     const command = dxfImportController.prepareAcceptance({
       assetId: `cad-reference-asset-${suffix}`,
       referenceId: `floor-cad-reference-${suffix}`,
-      floorId: "floor-ground",
+      floorId: currentFloorId(),
       transform: {
         localOriginSource,
         translationMm: {
@@ -6024,7 +6205,8 @@ function roundCropCoordinate(value) {
 }
 
 function selectedReference() {
-  return history.present.floorReferences.find((reference) => reference.id === selectedReferenceId) ?? null;
+  return history.present.floorReferences.find((reference) => reference.id === selectedReferenceId && onCurrentFloor(reference))
+    ?? history.present.floorReferences.find(onCurrentFloor) ?? null;
 }
 
 function effectiveReferenceScale(reference) {
@@ -6379,7 +6561,7 @@ function renderDragPreview() {
     else if (floorAreaDragState) renderFloorAreas();
     else if (dragState) {
       const point = dragState.preview;
-      for (const wall of history.present.walls) {
+      for (const wall of history.present.walls.filter(onCurrentFloor)) {
         if (wall.startNodeId !== dragState.nodeId && wall.endNodeId !== dragState.nodeId) continue;
         const line = [...modelLayer.children].find(element => element.dataset.wallId === wall.id);
         if (line) { const end = wall.startNodeId === dragState.nodeId ? 1 : 2; line.setAttribute(`x${end}`,toView(point.x)); line.setAttribute(`y${end}`,toView(point.y)); }
@@ -6409,6 +6591,7 @@ function renderDragPreview() {
 }
 
 function render() {
+  renderStoreyControl();
   dragPreviewFrame.cancel();
   dragPreviewProject = null;
   renderedModelGroups.clear();
@@ -6435,7 +6618,7 @@ function render() {
     const position = nodesById.get(nodeId).positionMm;
     return dragState?.nodeId === nodeId ? dragState.preview : position;
   };
-  for (const wall of history.present.walls) {
+  for (const wall of history.present.walls.filter(onCurrentFloor)) {
     const start = displayPosition(wall.startNodeId);
     const end = displayPosition(wall.endNodeId);
     const divider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
@@ -6462,9 +6645,20 @@ function render() {
     const selectedCable = history.present.decentralisedCables.find((cable) => cable.id === selectedDecentralisedCableId);
     if (selectedCable && activeTool === "select") renderDecentralisedCableEditHandles(selectedCable);
     renderGrilleAlignmentGuides();
+    for (const component of history.present.components.filter(item => item.floorGrilleFeed?.floorId === currentFloorId())) {
+      const feed = component.floorGrilleFeed;
+      const x = toView(feed.xMm), y = toView(feed.yMm);
+      modelLayer.append(svgElement("circle", {
+        cx: x, cy: y, r: 7, fill: "white", stroke: "#176a73",
+        ...(activeTool === "route" ? { "data-component-id": component.id, "data-port-id": component.ports[0].id, "data-floor-grille-feed": "true" } : {}),
+      }));
+      const label = svgElement("text", { x: x + 9, y: y - 5, "font-size": 10, "pointer-events": "none" });
+      label.textContent = `↑ Floor grille · ${history.present.floors.find(floor => floor.id === component.floorId)?.name}`;
+      modelLayer.append(label);
+    }
     for (const route of history.present.routes) renderRouteCeilingElbows(route);
   }
-  for (const node of activeTask === "plan" ? history.present.wallNodes : []) {
+  for (const node of activeTask === "plan" ? history.present.wallNodes.filter(onCurrentFloor) : []) {
     const position = displayPosition(node.id);
     modelLayer.append(svgElement("circle", {
       cx: toView(position.x), cy: toView(position.y), r: selectedNodeId === node.id ? 7 : 5,
@@ -6640,7 +6834,7 @@ function floorAreaScaleEvidence(floorId) {
 }
 
 function currentFloor() {
-  return history.present.floors.find((candidate) => candidate.id === "floor-ground")
+  return history.present.floors.find((candidate) => candidate.id === activeFloorId)
     ?? history.present.floors[0]
     ?? null;
 }
@@ -6742,14 +6936,13 @@ function appendSpaceLabel(space, inspection, kind) {
 }
 
 function renderRoomSummary(derivation, assignedKeys, zoneState) {
-  const floor = history.present.floors.find((candidate) => candidate.id === "floor-ground")
-    ?? history.present.floors[0];
+  const floor = currentFloor();
   const currentRoomCount = floor
     ? history.present.rooms.filter((room) => room.floorId === floor.id)
       .filter((room) => inspectRoomBoundary(history.present, room, derivation).status === "current").length
     : 0;
   if (activeTask === "ventilation") {
-    const terminalAssignmentCount = [...history.present.rooms, ...history.present.zones].reduce(
+    const terminalAssignmentCount = [...history.present.rooms, ...history.present.zones].filter(onCurrentFloor).reduce(
       (count, room) => count + room.terminalAssociations.length,
       0,
     );
@@ -7118,6 +7311,7 @@ function renderComponent(component) {
   }
 
   for (const port of component.ports) {
+    if (component.riserId && port.id.endsWith("-vertical")) continue;
     if (component.displaySymbol?.ca200Profile?.mounting === "vertical" && port.positionMm.z < 0) continue;
     if (planGraphic?.mountedCw && port.interface?.nominalSizeMm !== 90 && ["supply", "extract"].includes(port.stream) && !portUsage(component.id, port.id).occupied) continue;
     if(port.drawingEntries?.length && component.displaySymbol?.shape==="luna-grille" && activeTool==="route") {
@@ -7171,7 +7365,7 @@ function renderComponent(component) {
     const circle = svgElement("circle", {
       cx: toView(portPosition.x + dragDelta.x),
       cy: toView(portPosition.y + dragDelta.y),
-      r: (planGraphic?.mountedCw && port.interface?.nominalSizeMm===90) || planGraphic?.graphicId===STANDALONE_CW_GRAPHIC_ID ? 2 : planGraphic?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID && planGraphic.combined ? 2 : 6,
+      r: component.catalogueItemId?.startsWith("aerofresh-300-") ? toView(30) : (planGraphic?.mountedCw && port.interface?.nominalSizeMm===90) || planGraphic?.graphicId===STANDALONE_CW_GRAPHIC_ID ? 2 : planGraphic?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID && planGraphic.combined ? 2 : 6,
       class: `component-port ${portClasses}`,
       "data-component-id": component.id,
       "data-port-id": port.id,
@@ -7565,7 +7759,7 @@ function componentDisplayDragDelta(componentId) {
 function renderEquipmentAssemblyServiceZone(assembly) {
   const layer = modelGroup("assembly", assembly.id);
   const centre = equipmentAssemblyCentre(history.present, assembly);
-  const firstComponent = history.present.components.find((component) => component.id === assembly.componentIds[0]);
+  const firstComponent = history.present.components.find((component) => component.id === assembly.componentIds[0] && onCurrentFloor(component));
   if (!firstComponent || !componentIsVisible(firstComponent)) return;
   const dragDelta = componentDisplayDragDelta(firstComponent.id);
   const angleRad = componentYaw(firstComponent.orientation);
@@ -7608,7 +7802,7 @@ function renderCamera() {
 function renderReferences() {
   referenceLayer.replaceChildren();
   for (const reference of history.present.floorReferences) {
-    if (!reference.visible) continue;
+    if (!reference.visible || !onCurrentFloor(reference)) continue;
     const asset = history.present.referenceAssets.find((candidate) => candidate.id === reference.assetId);
     if (!asset) continue;
     const scale = effectiveReferenceScale(reference) / MILLIMETRES_PER_VIEW_UNIT;
@@ -7656,7 +7850,7 @@ function renderReferences() {
     referenceLayer.append(group);
   }
   for (const reference of history.present.floorCadReferences) {
-    if (!reference.visible) continue;
+    if (!reference.visible || !onCurrentFloor(reference)) continue;
     const asset = history.present.cadReferenceAssets.find((candidate) => candidate.id === reference.assetId);
     if (!asset) continue;
     const transformed = cachedCadReferenceProjection(asset, reference).transformed;
@@ -7899,7 +8093,7 @@ function renderDraft() {
   if (activeTool === "place-assembly" && mechanicalState.pointer && mechanicalState.placement) {
     const value = createEquipmentAssembly(mechanicalState.placement.assemblyTemplateId, {
       id: "draft-equipment-assembly",
-      floorId: "floor-ground",
+      floorId: currentFloorId(),
       xMm: mechanicalState.pointer.x,
       yMm: mechanicalState.pointer.y,
     });
@@ -8025,7 +8219,7 @@ function renderReferenceList() {
 
 function renderCadReferenceList() {
   cadReferenceList.replaceChildren();
-  const references = history.present.floorCadReferences;
+  const references = history.present.floorCadReferences.filter(onCurrentFloor);
   if (references.length === 0) {
     cadReferenceList.append(htmlText("span", "No DXF reference"));
     return;
@@ -9531,6 +9725,7 @@ function focusCheckTarget(item) {
     updateStatus();
     return;
   }
+  if (resolved.value.floorId) activeFloorId = resolved.value.floorId;
   checkFocusReturnStage = "check";
   temporaryCheckReveal = target;
   returnToCheckButton.hidden = false;
@@ -9694,6 +9889,7 @@ function componentEvidenceLabel(component) {
   if (component.decentralisedMvhr) return "schematic through-wall marker";
   if (component.decentralisedController) return "schematic controller marker";
   if (component.displaySymbol?.cwProfile) return "source-sized CW drawing · provisional setout";
+  if (component.catalogueItemId?.startsWith("aerofresh-300-")) return component.ports.length ? "DN125 · provisional setout" : "MVHR footprint";
   if (component.catalogueStatus === "source-backed-symbol-profile-interface-pending") return "drawing symbol · connection pending";
   if (component.catalogueStatus === "synthetic-not-manufacturer-verified") return "generic test";
   if (component.catalogueStatus === "verified-dimensional-setout-routable-ports-pending") {
@@ -9703,6 +9899,7 @@ function componentEvidenceLabel(component) {
 }
 
 function componentEvidenceDescription(component) {
+  if (component.catalogueStatus === "source-backed-drawing-profile-provisional-setout") return `Manual centre spacings and rear offsets · provisional side-to-side setout · DN125 drawing connections · remote ComfoWell only${component.mvhrDesignIntent?.handing === "left" ? " · provisional left-hand port roles, verify against the unit" : ""}`;
   if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
   if (component.decentralisedController) return `${component.decentralisedController.compatibilityStatus.replaceAll("-", " ")} · ${component.decentralisedController.sourceRevision} · cable routes are plan markup only · no electrical compliance or installation approval`;
   if (component.displaySymbol?.ca200Profile) return "Owner-selected CA200 manual dimensions and manufacturer handed role map · DN125 drawing ports · centred port setout interpretation and installation fit require review";
@@ -10188,7 +10385,7 @@ function resolvePointerPoint(event) {
     : null;
   const endpoint = closestEndpoint(event, [
     ...history.present.wallNodes
-      .filter((node) => !eligibleNodeIds || eligibleNodeIds.has(node.id))
+      .filter((node) => onCurrentFloor(node) && (!eligibleNodeIds || eligibleNodeIds.has(node.id)))
       .map((node) => ({ x: node.positionMm.x, y: node.positionMm.y, nodeId: node.id })),
     ...draftPoints,
   ]);
@@ -10224,7 +10421,7 @@ function closestCadReferenceSnap(event) {
   if (!matrix) return null;
   const candidates = [];
   for (const reference of history.present.floorCadReferences) {
-    if (!reference.visible || reference.floorId !== "floor-ground") continue;
+    if (!reference.visible || !onCurrentFloor(reference)) continue;
     const asset = history.present.cadReferenceAssets.find((candidate) => candidate.id === reference.assetId);
     if (!asset) continue;
     for (const snap of cachedCadReferenceProjection(asset, reference).snaps) {
@@ -10253,7 +10450,7 @@ function closestWallInterior(event) {
   const nodesById = new Map(history.present.wallNodes.map((node) => [node.id, node]));
   const raw = eventToSvgWorld(event);
   const candidates = [];
-  const walls = activeTool === "room-divider" ? eligibleRoomDividerWalls() : history.present.walls;
+  const walls = activeTool === "room-divider" ? eligibleRoomDividerWalls() : history.present.walls.filter(onCurrentFloor);
   for (const wall of walls) {
     const start = nodesById.get(wall.startNodeId)?.positionMm;
     const end = nodesById.get(wall.endNodeId)?.positionMm;
@@ -10375,13 +10572,13 @@ function applyCameraFit(rect, message) {
 }
 
 function projectBounds() {
-  const points = history.present.wallNodes.map((node) => ({ x: toView(node.positionMm.x), y: toView(node.positionMm.y) }));
-  for (const outline of history.present.floorAreaOutlines) {
+  const points = history.present.wallNodes.filter(onCurrentFloor).map((node) => ({ x: toView(node.positionMm.x), y: toView(node.positionMm.y) }));
+  for (const outline of history.present.floorAreaOutlines.filter(onCurrentFloor)) {
     for (const vertex of outline.vertices) {
       points.push({ x: toView(vertex.positionMm.x), y: toView(vertex.positionMm.y) });
     }
   }
-  for (const component of history.present.components) {
+  for (const component of history.present.components.filter(onCurrentFloor)) {
     points.push({ x: toView(component.positionMm.x), y: toView(component.positionMm.y) });
     const bounds = deriveComponentPlanGraphic(component)?.drawingBoundsMm;
     if (bounds) {
@@ -10391,14 +10588,14 @@ function projectBounds() {
       }
     }
   }
-  for (const route of history.present.routes) {
+  for (const route of history.present.routes.filter(onCurrentFloor)) {
     const geometry = deriveDuctBodyGeometry(route, routeFamilyForKind(route.ductKind));
     for (const lane of geometry.lanes) {
       for (const point of lane) points.push({ x: toView(point.x), y: toView(point.y) });
     }
   }
   for (const reference of history.present.floorReferences) {
-    if (!reference.visible) continue;
+    if (!reference.visible || !onCurrentFloor(reference)) continue;
     const asset = history.present.referenceAssets.find((candidate) => candidate.id === reference.assetId);
     if (!asset) continue;
     const scale = effectiveReferenceScale(reference);
@@ -10415,7 +10612,7 @@ function projectBounds() {
     }
   }
   for (const reference of history.present.floorCadReferences) {
-    if (!reference.visible) continue;
+    if (!reference.visible || !onCurrentFloor(reference)) continue;
     const asset = history.present.cadReferenceAssets.find((candidate) => candidate.id === reference.assetId);
     if (!asset) continue;
     const bounds = cachedCadReferenceProjection(asset, reference).transformed.boundsMm;
@@ -10668,7 +10865,7 @@ function queueWorkingSession(modelChanged=false){
    if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
    const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
     cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
-    task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,camera:{...camera},catalogueGroup:selectedCatalogueGroup,ventilationWorkspace:activeVentilationWorkspace};
+    task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,activeFloorId:currentFloorId(),camera:{...camera},catalogueGroup:selectedCatalogueGroup,ventilationWorkspace:activeVentilationWorkspace};
    const model=history.present;workingWrites++;
    workingSessions.write(context,snapshot).then(()=>{
     workingRecoveryError="";
@@ -10708,6 +10905,8 @@ async function restoreWorkingSession(context){
    currentProjectName=recovered.name;savedProjectName=recovered.dirty?null:recovered.name;
    savedProjectJson=recovered.dirty?null:serializeProject(recovered.project);
    currentCloudRecord=recovered.cloudRecord??null;cloudBindingVersion++;
+   activeFloorId = recovered.project.floors.find(floor => floor.id === recovered.activeFloorId)?.id ?? activeFloorId;
+   selectedReferenceId = history.present.floorReferences.find(onCurrentFloor)?.id ?? null;
    camera={...recovered.camera};
    if(typeof recovered.catalogueGroup==="string")selectedCatalogueGroup=recovered.catalogueGroup;
    activeVentilationWorkspace = defaultVentilationWorkspace(recovered.project, recovered.ventilationWorkspace, recovered.catalogueGroup);

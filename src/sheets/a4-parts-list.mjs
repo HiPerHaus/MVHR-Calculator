@@ -6,7 +6,7 @@ import {floorAreaValueLabel} from './floor-area-key.mjs';
 export function partsListRows(schedule){
  const rows=[],section=description=>rows.push({section:true,description,height:7});
  const add=(ref,description,quantity,unit='ea',partNumber='',kind='part')=>{const lines=wrapSheetText(description,58,4),partNumberLines=wrapSheetText(partNumber||'—',25,4);rows.push({ref,kind,partNumber,partNumberLines,description,lines,quantity:String(quantity),unit,height:Math.max(8,Math.max(lines.length,partNumberLines.length)*3.6+3)});};
- for(const [key,title] of [['mvhr','MVHR units'],['decentralised','Decentralised MVHR physical units'],['decentralised-control','Decentralised controllers'],['equipment','CW units and other equipment'],['terminals','Terminals']]){
+ for(const [key,title] of [['mvhr','MVHR units'],['decentralised','Decentralised MVHR physical units'],['decentralised-control','Decentralised controllers'],['terminals','Terminals']]){
   const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key);
   if(!lines.length)continue;
   section(title);
@@ -37,10 +37,10 @@ export function partsListRows(schedule){
  if(duct.showOnThisFloor&&accessories.eppTotals.length){
   section('EPP — supplier order quantities, including HRV-to-ceiling allowances');
   for(const line of accessories.eppTotals){
-   const size=line.nominalSizeMm,qty=value=>orderQuantity(value,line.pendingCount);
-   add('EPP',`DN${size} EPP rigid duct · 1 m stock length · project quantity rounded up · socket included`,qty(line.stockLengthQuantity),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
+   const size=line.nominalSizeMm,qty=value=>orderQuantity(value,line.pendingRouteCount??line.pendingCount);
+   add('EPP',`DN${size} EPP rigid duct · 1 m stock length · project quantity rounded up · socket included`,orderQuantity(line.stockLengthQuantity,line.pendingCount),'ea',quotedCode(`AER-DUC-DN${size}-1MSL`)??'');
    add('EPP',`DN${size} EPP 90° elbow stock · includes paired halves for 45° bends`,qty(line.elbow90StockQuantity),'ea',quotedCode(`AER-DUC-DN${size}-B90`)??'');
-   add('EPP',`DN${size} EPP additional sleeves · bends and HRV connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
+   add('EPP',`DN${size} EPP additional sleeves · elbows and applicable connections`,qty(line.extraSleeveQuantity),'ea',quotedCode(`AER-DUC-DN${size}-SL`)??'');
    if(line.otherBendQuantity)add('EPP',`DN${size} other bends · product selection required`,line.otherBendQuantity);
   }
  }

@@ -39,6 +39,7 @@ export function pickPortAtClientPoint(project, camera, rect, clientPoint, option
   let nearest = null;
   for (const component of project.components) {
     for (const port of component.ports ?? []) {
+      if (component.riserId && port.id.endsWith("-vertical")) continue;
       const hiddenMountedMain=component.mvhrDesignIntent?.layout==="unit-mounted-cw" && ["supply","extract"].includes(port.stream) && port.interface?.family==="rigid-epp";
       if(hiddenMountedMain && !(project.routes??[]).some(route=>[route.startAttachment,route.endAttachment].some(endpoint=>endpoint?.componentId===component.id && endpoint?.portId===port.id)) && !(project.connections??[]).some(connection=>[connection.from,connection.to].some(endpoint=>endpoint?.componentId===component.id && endpoint?.portId===port.id)))continue;
       const isLuna=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.shape === "luna-grille" && port.drawingEntries;

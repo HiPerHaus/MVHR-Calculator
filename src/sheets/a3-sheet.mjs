@@ -300,6 +300,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     catalogueSnapshot: component.catalogueSnapshot ? structuredClone(component.catalogueSnapshot) : null,
     manufacturer: component.manufacturer ?? null,
     scheduleRef: componentRefById.get(component.id) ?? "P??",
+    ...(component.riserId ? { riserId: component.riserId } : {}),
     displayName: sanitizeXmlText(component.displayName ?? component.id, "Component display name"),
     catalogueStatus: sanitizeXmlText(component.catalogueStatus ?? "unclassified", "Component status"),
     positionMm: planPoint(component.positionMm, `Component ${component.id} position`),
@@ -349,8 +350,15 @@ function buildPrintScene(project, floorId, partsSchedule) {
       diagnosticCount: asset.diagnostics.length,
     };
   });
+  const floorGrilleFeeds = project.components
+    .filter(component => component.floorGrilleFeed?.floorId === floorId)
+    .map(component => ({
+      x: component.floorGrilleFeed.xMm, y: component.floorGrilleFeed.yMm,
+      servedFloor: reportFloorName(project.floors.find(item => item.id === component.floorId).name),
+    }));
   const allBounds = [
     ...walls.map(wallBounds),
+    pointsBounds(floorGrilleFeeds),
     ...floorAreas.map(outline=>pointsBounds(outline.vertices)),
     ...routingExclusions.map(exclusion=>({minX:exclusion.geometry.x,minY:exclusion.geometry.y,maxX:exclusion.geometry.x+exclusion.geometry.width,maxY:exclusion.geometry.y+exclusion.geometry.height})),
     ...routes.map(routeBounds),
@@ -365,6 +373,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     floorArea: inspectSheetFloorArea(project, floorId),
     walls,
     floorAreas,
+    floorGrilleFeeds,
     routingExclusions,
     routes,
     decentralisedCables,
@@ -417,9 +426,9 @@ function buildLegend(scene) {
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=component.decentralisedMvhr?`decentralised-unit:${component.catalogueItemId??decentralisedUnitTypeLabel(component)}`:component.decentralisedController?`decentralised-controller:${decentralisedControllerTypeLabel(component)}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr${g.mountedCw?'cw':''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
+    const key=component.decentralisedMvhr?`decentralised-unit:${component.catalogueItemId??decentralisedUnitTypeLabel(component)}`:component.decentralisedController?`decentralised-controller:${decentralisedControllerTypeLabel(component)}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr:${g.recordId ?? g.graphicId}:${g.handing}:${g.mounting ?? ''}:${g.mountedCw?.size ?? ''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key.startsWith("decentralised-controller:")?`Controller - ${decentralisedControllerTypeLabel(component)}`:key.startsWith('decentralised-unit:')?`Decentralised MVHR - ${decentralisedUnitTypeLabel(component)}`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`MVHR unit${g.mountedCw?' with ComfoWell':''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
+    const label=key.startsWith("decentralised-controller:")?`Controller - ${decentralisedControllerTypeLabel(component)}`:key.startsWith('decentralised-unit:')?`Decentralised MVHR - ${decentralisedUnitTypeLabel(component)}`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`${g.modelName ?? 'ComfoAir 200'} · ${g.handingLabel ?? (g.handing === 'left' ? 'LH' : 'RH')}${g.mountedCw ? ` + CW${g.mountedCw.size}` : ''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -516,6 +525,10 @@ function renderPrintScene(sheet) {
     out.push(withoutDrawingLabels(`<g data-kind="hrv-ceiling-elbow" data-alignment-status="typed-port-centred" data-route-id="${escapeXml(elbow.routeId)}" transform="translate(${mapX(elbow.xMm,transform)} ${mapY(elbow.yMm,transform)}) rotate(${formatNumber(elbow.angleDegrees)}) scale(${formatNumber(transform.scale)})">${shapes}</g><text x="${mapX(elbow.xMm,transform)}" y="${formatNumber(Number(mapY(elbow.yMm-elbow.nominalSizeMm/2,transform))-1)}" font-size="2" text-anchor="middle" fill="#29434d">90° ↑</text>`));
   }
   for (const component of scene.components.filter(component => [EXTERNAL_GRILLE_PLAN_GRAPHIC_ID,LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId))) out.push(withoutDrawingLabels(renderComponent(component, transform)));
+  for (const feed of scene.floorGrilleFeeds ?? []) {
+    const x = mapX(feed.x, transform), y = mapY(feed.y, transform);
+    out.push(`<g data-kind="floor-grille-feed"><circle cx="${x}" cy="${y}" r="1.5" fill="white" stroke="#176a73" stroke-width=".4"/><text x="${Number(x) + 2.5}" y="${Number(y) - 1.5}" font-size="2.5" fill="#176a73">↑ Floor grille · ${escapeXml(feed.servedFloor)}</text></g>`);
+  }
   if (scene.references.some((reference) => !reference.calibrated)) {
     out.push(`<text x="${formatNumber(sheet.drawingBounds.xMm + 4)}" y="${formatNumber(sheet.drawingBounds.yMm + sheet.drawingBounds.heightMm - 4)}" fill="#a14a2b" font-size="3.2">UNCALIBRATED REFERENCE · DISPLAY ONLY · NOT TO SCALE</text>`);
   }
@@ -671,6 +684,9 @@ function renderComponent(component, transform) {
     const markupId = component.decentralisedController.markupId ?? component.scheduleRef;
     return `<g data-kind="component" data-system="decentralised-controller" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#fff7dd" stroke="#8b6b16" stroke-width="0.75"/><line x1="${formatNumber(-width/2+1.5)}" y1="${formatNumber(-height/2+2)}" x2="${formatNumber(width/2-1.5)}" y2="${formatNumber(-height/2+2)}" stroke="#8b6b16" stroke-width="0.55" stroke-dasharray="1.5 1"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#6f5310" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#6f5310" font-size="1.8" font-weight="700">CTRL</text></g>`;
   }
+  if (component.riserId) {
+    return `<g data-kind="duct-riser" transform="translate(${x} ${y})"><circle r="1.5" fill="white" stroke="#176a73" stroke-width=".4"/><text x="2.5" y="-.5" font-size="2.5" fill="#176a73" data-keep-on-drawing="true">${escapeXml(component.displayName)}</text></g>`;
+  }
   if (component.planGraphic?.graphicId === Q350_PLAN_GRAPHIC_ID) {
     return renderQ350Component(component, transform, x, y, angle);
   }
@@ -705,12 +721,12 @@ function renderComponent(component, transform) {
   return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})" fill="white" stroke="#2f5966" stroke-width="0.45">${shape}<text x="0" y="0.9" text-anchor="middle" fill="#29434d" stroke="none" font-size="2.7" font-weight="700">${escapeXml(component.scheduleRef)}</text></g>`;
 }
 
-function renderQ350Component(component, transform, x, y, angle) {
+function renderQ350Component(component, transform, x, y, angle, { legend = false } = {}) {
   const graphic = component.planGraphic;
   const scale = transform.scale;
   const panel = graphic.centrePanel;
   const out = [
-    `<g data-kind="component" data-plan-graphic="${escapeXml(graphic.graphicId)}" data-q350-handing="${escapeXml(graphic.handing)}" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})">`,
+    `<g data-kind="${legend ? "legend-mvhr" : "component"}" data-plan-graphic="${escapeXml(graphic.graphicId)}" data-q350-handing="${escapeXml(graphic.handing)}" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})">`,
     `<g transform="scale(${formatNumber(scale)})">`,
     `<path d="${q350CasingPath(graphic)}" fill="#f7f9f9" stroke="#2f5966" stroke-width="${formatNumber(18)}"/>`,
     `<rect x="${formatNumber(-graphic.widthMm / 2 + 14)}" y="${formatNumber(-graphic.depthMm / 2 + 14)}" width="${formatNumber(graphic.widthMm - 28)}" height="${formatNumber(graphic.depthMm - 43)}" rx="20" fill="#eef1f1" stroke="#9ba9ad" stroke-width="8"/>`,
@@ -736,6 +752,7 @@ function renderQ350Component(component, transform, x, y, angle) {
     ...mountedCwShapes(graphic).map(shape => `<${shape.tag} ${Object.entries(shape.attributes).map(([key,value]) => `${key}="${escapeXml(String(value))}"`).join(" ")}/>`),
     "</g>",
   );
+  if (legend) return out.join("") + "</g>";
   for (const port of graphic.ports) {
     if (graphic.mountedCw && ["supply", "extract"].includes(port.stream)) continue;
     const layout = q350PortLabelLayout(port);
@@ -982,7 +999,21 @@ function legendSwatch(key, x, y,item={}) {
     const ductMask=key.startsWith('luna-')?`<circle data-part="luna-duct-mask" cx="0" cy="0" r="${formatNumber(g.ductMaskRadiusMm)}" fill="white" stroke="none"/>`:"";
     return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${ductMask}${g.paths.map((d,index)=>`<path d="${d}" fill="${key.startsWith('luna-')&&index===0?'white':'none'}"/>`).join('')}</g>`;
   }
-  if(key.startsWith('mvhr'))return `<g data-kind="legend-mvhr"><rect x="${x-2}" y="${y-4}" width="12" height="8" fill="#dce2e3" stroke="#29434d" stroke-width=".3"/>${[[-.5,-2],[-.5,2],[7,-2],[7,2]].map(([dx,dy])=>`<circle cx="${x+dx}" cy="${y+dy}" r="1.2" fill="white" stroke="#29434d" stroke-width=".3"/>`).join('')}${key==='mvhrcw'?`<rect x="${x-2}" y="${y-4}" width="5" height="8" fill="#666"/>${[-1,1].flatMap(dx=>[-2.5,-.9,.9,2.5].map(dy=>`<circle cx="${x+dx+.5}" cy="${y+dy}" r=".55" fill="none" stroke="${dy<0?'#ff303c':'#2838ff'}" stroke-width=".3"/>`)).join('')}`:''}</g>`;
+  if (key.startsWith('mvhr:')) {
+    const bounds = g.drawingBoundsMm ?? {
+      minX: -g.widthMm / 2, maxX: g.widthMm / 2,
+      minY: -g.depthMm / 2, maxY: g.depthMm / 2,
+    };
+    const scale = Math.min(11 / (bounds.maxX - bounds.minX), 7.5 / (bounds.maxY - bounds.minY));
+    const cx = x + 3.5 - (bounds.minX + bounds.maxX) * scale / 2;
+    const cy = y - (bounds.minY + bounds.maxY) * scale / 2;
+    if (g.graphicId === Q350_PLAN_GRAPHIC_ID) {
+      return renderQ350Component({ planGraphic: g, id: "", scheduleRef: "" }, { scale }, cx, cy, 0, { legend: true });
+    }
+    const shapes = ca200Shapes(g).map(({ tag, attributes, text }) =>
+      `<${tag} ${Object.entries(attributes).map(([key, value]) => `${key}="${escapeXml(String(value))}"`).join(" ")}>${text ? escapeXml(text) : ""}</${tag}>`).join("");
+    return `<g data-kind="legend-mvhr" transform="translate(${formatNumber(cx)} ${formatNumber(cy)}) scale(${scale})">${shapes}</g>`;
+  }
   if(key.startsWith('decentralised-cable:'))return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#735c8f" stroke-width=".7" stroke-dasharray="3 1.5"/>`;
   if(key.startsWith('decentralised-controller:'))return `<g data-kind="legend-decentralised-controller"><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#fff7dd" stroke="#8b6b16" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#6f5310" font-size="1.6" font-weight="700">C</text></g>`;
   if(key.startsWith('decentralised-unit:'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">D</text></g>`;
