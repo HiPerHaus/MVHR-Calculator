@@ -1092,7 +1092,7 @@ function normalizeMetadata(project, metadata) {
     floorId,
     systemScope: normalizeVentilationWorkspace(metadata.systemScope ?? "combined"),
     ventilationDesignType:project.ventilationDesignType,
-    ventilationDesignTypeLabel:metadata.systemScope && metadata.systemScope !== "combined" ? `${ventilationWorkspaceLabel(metadata.systemScope)} export` : ventilationProjectTypeLabel(project.ventilationDesignType),
+    ventilationDesignTypeLabel:metadata.systemScope && metadata.systemScope !== "combined" ? ventilationWorkspaceLabel(metadata.systemScope) : ventilationProjectTypeLabel(project.ventilationDesignType),
     projectName: sanitizeXmlText(metadata.projectName ?? project.projectDetails?.name, "Project name", true),
     siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
     clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),
