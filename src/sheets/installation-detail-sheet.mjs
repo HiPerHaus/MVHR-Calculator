@@ -117,27 +117,94 @@ function lines(value, x, y, width, size, maxLines) {
 function rect(x, y, w, h) { return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#687880" stroke-width=".25"/>`; }
 function text(x, y, value, size = 2.6, attrs = "") { return `<text x="${x}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${size}" fill="#243b46" ${attrs}>${escapeXml(String(value))}</text>`; }
 
-// No central-unit, terminal housing or duct installation references belong on
-// a decentralised-only export. Do not infer electrical or assembly details.
+const DECENTRALISED_DETAILS = {
+  "lunos-e2-60-decentralised": {
+    title: "LUNOS e²60",
+    source: "LUNOS 9/R 160 installation manual and e²60 technical information",
+    hood: "External cover",
+    notes: [
+      "9/R 160 wall sleeve, nominal Ø160 mm. Confirm the required core opening for the actual sleeve and wall assembly.",
+      "Check sleeve length against the finished wall build-up. Allow for the specified outward fall and retain access from indoors for servicing.",
+    ],
+  },
+  "aerofresh-30-compact-decentralised": {
+    title: "AeroFresh 30 Compact",
+    source: "HiPer Haus AeroFresh 30 Compact guide",
+    hood: "Standard or XL hood",
+    notes: [
+      "Guide wall-depth range: 140–280 mm with the standard hood, or 90–280 mm with the XL hood. Confirm the hood used on this project.",
+      "Confirm sleeve and core-opening dimensions from the supplied instructions before drilling. The catalogue opening reference is unresolved.",
+    ],
+  },
+};
+
+function decentralisedWallSection(b, hood) {
+  const x = b.x + b.w / 2;
+  const y = b.y + 36;
+  return `<g data-role="wall-section" aria-label="Conceptual through-wall section">
+    <rect x="${x-13}" y="${y-16}" width="26" height="32" fill="#edf0f1" stroke="#687880" stroke-width=".3"/>
+    <rect x="${x-15}" y="${y-4}" width="30" height="8" fill="#f4f8f7" stroke="#28745d" stroke-width=".6"/>
+    <path d="M ${x-10} ${y-1.5} h 20 l -2 -1.4 M ${x+10} ${y+1.5} h -20 l 2 1.4" fill="none" stroke="#28745d" stroke-width=".55"/>
+    <rect x="${x-16}" y="${y-6}" width="2" height="12" fill="#28745d"/>
+    <path d="M ${x+14} ${y-6} h 4 v 12 h -4" fill="none" stroke="#28745d" stroke-width=".6"/>
+    ${text(x-21, y-2, "INDOORS", 2.6, 'text-anchor="end"')}
+    ${text(x-21, y+3, "Service access", 2.5, 'text-anchor="end"')}
+    ${text(x+23, y-2, "OUTDOORS", 2.6)}
+    ${text(x+23, y+3, hood, 2.5)}
+    ${text(x, y+22, "Conceptual wall section · NTS", 2.5, 'text-anchor="middle"')}
+  </g>`;
+}
+
 function renderDecentralisedDetailSheet(sheet, { pageNumber, totalPageCount }) {
   const { widthMm: width, heightMm: height } = sheet.page, m = sheet.metadata;
   const units = sheet.printScene.components.filter(component => component.decentralisedMvhr);
-  const unitNames = [...new Set(units.map(component => component.displayName))];
-  const b = { x: 15, y: 48, w: width - 30, h: height - 80 };
+  const models = Object.entries(DECENTRALISED_DETAILS).filter(([id]) => units.some(unit => unit.catalogueItemId === id));
+  const contentWidth = width - 30;
+  const gap = 4;
+  const cardWidth = (contentWidth - gap * (models.length - 1)) / Math.max(1, models.length);
+  const cards = models.map(([id, detail], index) => {
+    const b = { x: 15 + index * (cardWidth + gap), y: 47, w: cardWidth, h: 94 };
+    const heads = units.filter(unit => unit.catalogueItemId === id);
+    return [
+      panelStart(b, detail.title, id, escapeXml(detail.source)),
+      ...lines(`${heads.length} head(s) on this floor · Alternating paired operation`, b.x+4, b.y+13, b.w-8, 2.6, 1),
+      decentralisedWallSection(b, detail.hood),
+      paragraphs(detail.notes, b, b.y + 66),
+      "</g>",
+    ].join("");
+  });
+  const coordination = { x: 15, y: models.length ? 146 : 47, w: contentWidth, h: models.length ? 32 : 45 };
+  const controls = { x: 15, y: coordination.y + coordination.h + 5, w: contentWidth, h: height - coordination.y - coordination.h - 20 };
+  const connections = sheet.printScene.electricalConnections ?? [];
+  const rowHeight = 13;
+  const maxRows = Math.floor((controls.h - 22) / rowHeight);
+  const rows = connections.slice(0, maxRows).flatMap((entry, index) => {
+    const y = controls.y + 13 + index * rowHeight;
+    const status = entry.evidenceStatus === "verified-manufacturer" ? "Manufacturer reference" : "Confirm current manual";
+    return [
+      ...lines(`${entry.controllerMarkupId} · ${entry.controllerType} → ${entry.unitType} (${entry.unitMarkupIds.join(", ")})`, controls.x+4, y, controls.w-8, 2.7, 1),
+      ...lines(entry.controllerId ? `${status} · Marked cable: ${entry.cableType} · ${entry.topology}` : entry.topology, controls.x+4, y+4, controls.w-8, 2.4, 2),
+    ];
+  });
   return [`<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="Decentralised installation details for ${escapeXml(m.drawingId)}">`,
     '<rect width="100%" height="100%" fill="white"/>', rect(10, 10, width - 20, height - 20),
     text(15, 19, "DECENTRALISED INSTALLATION DETAILS", 5.5, 'font-weight="700"'),
     ...lines(`${m.projectName} · ${sheet.printScene.floorName}`, 15, 26, width - 30, 3.2, 2),
     ...lines(`${m.drawingId} / DETAILS · Revision ${m.revision} · ${m.issueDate} · ${m.drawingTitle}`, 15, 35, width - 30, 2.8, 1),
-    text(15, 40, "Read with the corresponding plan · Preliminary reference notes only", 2.8),
-    panelStart(b, "MODEL-SPECIFIC INSTALLATION REVIEW", "decentralised-reference-notes", "placed-models-not-installation-approval"),
+    text(15, 40, "Read with the corresponding plan and the current model-specific instructions.", 2.8),
+    ...cards,
+    panelStart(coordination, "WALL AND FAÇADE COORDINATION", "decentralised-reference-notes", "preliminary-coordination"),
     paragraphs([
-      unitNames.length ? `Placed unit types: ${unitNames.join("; ")}.` : "No decentralised units are placed on this floor in the selected design option.",
-      "Use current manufacturer instructions for the exact unit, controller, wall sleeve and external termination. Wall opening dimensions, falls, sealing and clearances are not specified by this sheet.",
-      "Controller locations, connected units and marked cable types are shown on the corresponding drawing and in its parts list. Missing or unverified information remains pending; do not infer a wiring connection from proximity.",
-      "Electrical supply, protection, isolation, cable suitability and final connections require review by the responsible electrician against the current model-specific instructions.",
-      "The selected export system limits this drawing and its quantities only. It does not establish airflow performance, electrical compliance, whole-building design approval or commissioning.",
-    ], b, b.y + 18), "</g>",
+      ...(units.some(unit => !DECENTRALISED_DETAILS[unit.catalogueItemId]) ? ["Other placed models: use their own installation instructions."] : []),
+      ...(!units.length ? ["No decentralised units are placed on this floor."] : []),
+      "Confirm structure, concealed services, wall layers, weatherproofing, airtight seals and clearances before forming the penetration.",
+      "Confirm supply, protection, cable suitability and final connections with the responsible electrician using the current controller instructions.",
+    ], coordination, coordination.y+13), "</g>",
+    panelStart(controls, "CONTROLLERS AND MARKED CABLE RUNS", "decentralised-controls", "saved-controller-connections"),
+    ...rows,
+    ...(!connections.length ? lines("No controller-to-unit connections are marked.", controls.x+4, controls.y+13, controls.w-8, 2.7, 1) : []),
+    ...(connections.length > maxRows ? lines(`${connections.length - maxRows} further connection groups. Refer to the floor drawing and parts list.`, controls.x+4, controls.y+controls.h-4, controls.w-8, 2.5, 1) : []),
+    "</g>",
     text(12, height - 4, m.status, 2.5),
     text(width - 12, height - 4, `Page ${pageNumber} of ${totalPageCount} · A3`, 2.5, 'text-anchor="end" data-output-page-number="true"'), "</svg>"].join("");
 }
