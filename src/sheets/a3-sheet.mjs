@@ -669,23 +669,40 @@ function positiveAngleDelta(start, end) {
   return delta < 0 ? delta + Math.PI * 2 : delta;
 }
 
+function decentralisedUnitSymbol(width, height) {
+  const halfWidth = width / 2;
+  const wallY = -height / 2 - 1.5;
+  const arrowX = width / 6;
+  const arrowY = height / 3;
+  const headY = height / 9;
+  return `<line x1="${formatNumber(-halfWidth - 2.5)}" y1="${formatNumber(wallY)}" x2="${formatNumber(halfWidth + 2.5)}" y2="${formatNumber(wallY)}" stroke="#5e7079" stroke-width="0.65"/>
+    <rect x="${formatNumber(-halfWidth)}" y="${formatNumber(-height / 2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="0.7" fill="#f4f8f7" stroke="#28745d" stroke-width="0.65"/>
+    <path d="M ${-arrowX} ${-arrowY} V ${arrowY} M ${-2 * arrowX} ${headY} L ${-arrowX} ${arrowY} L 0 ${headY} M ${arrowX} ${arrowY} V ${-arrowY} M 0 ${-headY} L ${arrowX} ${-arrowY} L ${2 * arrowX} ${-headY}" fill="none" stroke="#28745d" stroke-width="0.42" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+
+function decentralisedControllerSymbol(width, height) {
+  return `<rect x="${formatNumber(-width / 2)}" y="${formatNumber(-height / 2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#fff7dd" stroke="#8b6b16" stroke-width="0.65"/>
+    <line x1="${formatNumber(-width / 3)}" y1="0" x2="${formatNumber(width / 3)}" y2="0" stroke="#8b6b16" stroke-width="0.55" stroke-dasharray="1.5 1"/>`;
+}
+
 function renderComponent(component, transform) {
   const x = mapX(component.positionMm.x, transform);
   const y = mapY(component.positionMm.y, transform);
   const angle = component.yawRad * 180 / Math.PI;
-  if (component.decentralisedMvhr) {
+  if (component.decentralisedMvhr || component.decentralisedController) {
+    const unit = component.decentralisedMvhr;
     const width = component.symbol.widthMm * transform.scale;
     const height = component.symbol.heightMm * transform.scale;
-    const glyph = component.decentralisedMvhr.operatingMode === "alternating-paired" ? "ALT" : "BAL";
-    const markupId = component.decentralisedMvhr.markupId ?? component.scheduleRef;
-    const pair = component.decentralisedMvhr.pairGroupId ?? "";
-    return `<g data-kind="component" data-system="decentralised-mvhr" data-mode="${escapeXml(component.decentralisedMvhr.operatingMode)}" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><line x1="${formatNumber(-width/2-2.5)}" y1="${formatNumber(-height/2-1.5)}" x2="${formatNumber(width/2+2.5)}" y2="${formatNumber(-height/2-1.5)}" stroke="#5e7079" stroke-width="0.8"/><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.8" fill="#f4f8f7" stroke="#28745d" stroke-width="0.75"/><circle cx="0" cy="${formatNumber(-height*0.12)}" r="${formatNumber(Math.max(1.8,height*0.2))}" fill="#d9ebe5" stroke="#28745d" stroke-width="0.45"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#154f3f" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#29434d" font-size="1.9" font-weight="700">${glyph}</text>${pair?`<text data-keep-on-drawing="true" x="0" y="${formatNumber(height/2+3.5)}" text-anchor="middle" fill="#29434d" font-size="2.2" font-weight="700">${escapeXml(pair)}</text>`:""}</g>`;
-  }
-  if (component.decentralisedController) {
-    const width = component.symbol.widthMm * transform.scale;
-    const height = component.symbol.heightMm * transform.scale;
-    const markupId = component.decentralisedController.markupId ?? component.scheduleRef;
-    return `<g data-kind="component" data-system="decentralised-controller" data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><rect x="${formatNumber(-width/2)}" y="${formatNumber(-height/2)}" width="${formatNumber(width)}" height="${formatNumber(height)}" rx="1.2" fill="#fff7dd" stroke="#8b6b16" stroke-width="0.75"/><line x1="${formatNumber(-width/2+1.5)}" y1="${formatNumber(-height/2+2)}" x2="${formatNumber(width/2-1.5)}" y2="${formatNumber(-height/2+2)}" stroke="#8b6b16" stroke-width="0.55" stroke-dasharray="1.5 1"/><text data-keep-on-drawing="true" x="0" y="0.5" text-anchor="middle" fill="#6f5310" font-size="4" font-weight="800">${escapeXml(markupId)}</text><text data-keep-on-drawing="true" x="0" y="4" text-anchor="middle" fill="#6f5310" font-size="1.8" font-weight="700">CTRL</text></g>`;
+    const markupId = (unit ?? component.decentralisedController).markupId ?? component.scheduleRef;
+    const mode = unit ? (unit.operatingMode === "alternating-paired" ? "ALT" : "BAL") : "CTRL";
+    const labelDetail = [mode, unit?.pairGroupId].filter(Boolean).join(" · ");
+    const halfWidth = Math.abs(Math.cos(component.yawRad)) * (width / 2 + (unit ? 2.5 : 0))
+      + Math.abs(Math.sin(component.yawRad)) * (height / 2 + (unit ? 1.5 : 0));
+    const colour = unit ? "#154f3f" : "#6f5310";
+    const system = unit ? "decentralised-mvhr" : "decentralised-controller";
+    const modeAttribute = unit ? ` data-mode="${escapeXml(unit.operatingMode)}"` : "";
+    const symbol = unit ? decentralisedUnitSymbol(width, height) : decentralisedControllerSymbol(width, height);
+    return `<g data-kind="component" data-system="${system}"${modeAttribute} data-id="${escapeXml(component.id)}" data-markup-id="${escapeXml(markupId)}" transform="translate(${x} ${y})"><g transform="rotate(${formatNumber(angle)})">${symbol}</g><text data-keep-on-drawing="true" x="${formatNumber(halfWidth + 1.8)}" y="1" fill="${colour}" stroke="white" stroke-width="0.8" stroke-linejoin="round" paint-order="stroke" font-size="3.1" font-weight="800"><tspan>${escapeXml(markupId)}</tspan><tspan font-weight="700"> · ${escapeXml(labelDetail)}</tspan></text></g>`;
   }
   if (component.riserId) {
     return `<g data-kind="duct-riser" transform="translate(${x} ${y})"><circle r="1.5" fill="white" stroke="#176a73" stroke-width=".4"/><text x="2.5" y="-.5" font-size="2.5" fill="#176a73" data-keep-on-drawing="true">${escapeXml(component.displayName)}</text></g>`;
@@ -1021,8 +1038,8 @@ function legendSwatch(key, x, y,item={}) {
     return `<g data-kind="legend-mvhr" transform="translate(${formatNumber(cx)} ${formatNumber(cy)}) scale(${scale})">${shapes}</g>`;
   }
   if(key.startsWith('decentralised-cable:'))return `<line x1="${x}" y1="${y}" x2="${x+8}" y2="${y}" stroke="#735c8f" stroke-width=".7" stroke-dasharray="3 1.5"/>`;
-  if(key.startsWith('decentralised-controller:'))return `<g data-kind="legend-decentralised-controller"><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#fff7dd" stroke="#8b6b16" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#6f5310" font-size="1.6" font-weight="700">C</text></g>`;
-  if(key.startsWith('decentralised-unit:'))return `<g data-kind="legend-decentralised"><line x1="${x}" y1="${y-2.7}" x2="${x+8}" y2="${y-2.7}" stroke="#5e7079" stroke-width=".7"/><rect x="${x+1}" y="${y-2.2}" width="6" height="4.4" fill="#f4f8f7" stroke="#28745d" stroke-width=".4"/><text x="${x+4}" y="${y+.7}" text-anchor="middle" fill="#154f3f" font-size="1.6" font-weight="700">D</text></g>`;
+  if (key.startsWith("decentralised-controller:")) return `<g data-kind="legend-decentralised-controller" transform="translate(${x+4} ${y})">${decentralisedControllerSymbol(6, 4.4)}</g>`;
+  if (key.startsWith("decentralised-unit:")) return `<g data-kind="legend-decentralised" transform="translate(${x+4} ${y})">${decentralisedUnitSymbol(6, 4.4)}</g>`;
   if(key.startsWith('cw-'))return `<rect x="${x-2}" y="${y-2.5}" width="11" height="5" fill="#ecefef" stroke="${key.includes('supply')?'#2782b5':'#c15c41'}" stroke-width=".5"/>`;
   if(key.startsWith('external-grille-')) {
     const bounds=g.drawingBoundsMm??{minX:-g.widthMm/2,maxX:g.widthMm/2,minY:-g.depthMm/2,maxY:g.depthMm/2};
