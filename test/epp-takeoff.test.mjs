@@ -143,3 +143,21 @@ test('project EPP totals share half elbows and retain additional sleeves',()=>{
  assert.equal(total.extraSleeveQuantity,3);
  assert.equal(total.stockLengthQuantity,Math.ceil((2*(1000+Math.hypot(500,500))+2000)/1000));
 });
+
+test("AeroFresh 300 takes one sleeve per elbow with no extra sleeve at either equipment spigot", async () => {
+  const { createCatalogueComponent } = await import("../src/editor/component-catalogue.mjs");
+  const unit = createCatalogueComponent("aerofresh-300-hrv-drawing-profile", {
+    id: "af300", floorId: "floor-ground", xMm: 0, yMm: 0,
+  });
+  const cw = createCatalogueComponent("standalone-cw-320-supply-horizontal-dn125", {
+    id: "cw-box", floorId: "floor-ground", xMm: 2000, yMm: 0, allowAssemblyOnly: true,
+  });
+  const input = {
+    ...route([[0,0],[1000,0],[1000,1000]], 1, "epp-rigid-dn125"),
+    startAttachment: { componentId: unit.id, portId: unit.ports.find(p => p.stream === "supply").id },
+    endAttachment: { componentId: cw.id, portId: cw.ports.find(p => p.interface.nominalSizeMm === 125).id },
+  };
+  const [total] = deriveEppProjectTotals({ routes: [input], components: [unit, cw] });
+  assert.equal(total.elbow90StockQuantity, 2);
+  assert.equal(total.extraSleeveQuantity, 2);
+});
