@@ -19,6 +19,17 @@ test('all CW branches receive an O-ring; caps and stubs follow unused saved endp
 test('standalone CW capacity counts physical branches in either installation orientation',()=>{
  for(const orientation of ['vertical','horizontal']){let p=fixture();p={...p,components:[]};const c=createCatalogueComponent(`standalone-cw-220-supply-${orientation}-dn125`,{id:'cw220-test',floorId:'ground',xMm:1000,yMm:1000,allowAssemblyOnly:true});p=applyCommand(p,{type:'component.add',component:c});const a=deriveRadialAccessories(p,{floorId:'ground'});assert.equal(a.oRingQuantity,4);assert.equal(a.capQuantity,4);}
 });
+test('standalone CW is listed through its orderable components only',()=>{
+ let p=fixture();
+ p={...p,components:[]};
+ const cw=createCatalogueComponent('standalone-cw-320-supply-horizontal-dn125',{id:'cw-test',floorId:'ground',xMm:1000,yMm:1000,allowAssemblyOnly:true});
+ p=applyCommand(p,{type:'component.add',component:cw});
+ const schedule=createPartsSchedule(p,{floorId:'ground'}),rows=partsListRows(schedule);
+ assert.ok(schedule.componentLines.some(line=>line.section==='equipment'));
+ assert.ok(!rows.some(row=>row.description==='CW units and other equipment'||row.description===cw.displayName));
+ assert.ok(rows.some(row=>row.section&&row.description==='CW components'));
+ assert.ok(rows.some(row=>row.partNumber==='ZEN-EPCWP-320-125'));
+});
 test('A4 page 2 prints equipment, supplier stock quantities and connection accessories without advisory footer text',()=>{
  const p=connect(fixture(),'luna-supply','supply','luna-test'),sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet),svg=pages.map(page=>renderA4PartsListSvg(sheet,page)).join('');assert.equal(pages[0].pageNumber,2);assert.equal(pages[0].widthMm,210);assert.equal(pages[0].heightMm,297);assert.match(svg,/width="210mm" height="297mm"/);assert.match(svg,/90 mm O-ring/);assert.match(svg,/11/);assert.ok(partsListRows(sheet.partsSchedule).some(row=>row.description.includes("100 mm each")));assert.doesNotMatch(svg,/Total 90 mm duct/);assert.match(svg,/50 m coil/);assert.doesNotMatch(svg,/Supplier pages show rounded stock items|EPP includes standard HRV port allowances|CW branches require O-rings|Job totals and packs/);assert.match(svg,/Example project/);
  const many={...sheet,partsSchedule:{...sheet.partsSchedule,componentLines:Array.from({length:70},(_,i)=>({...sheet.partsSchedule.componentLines[0],ref:`P${i}`,description:`Equipment ${i} `+'long description '.repeat(14)}))}};
