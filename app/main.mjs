@@ -7365,7 +7365,7 @@ function renderComponent(component) {
     const circle = svgElement("circle", {
       cx: toView(portPosition.x + dragDelta.x),
       cy: toView(portPosition.y + dragDelta.y),
-      r: component.catalogueItemId?.startsWith("aerofresh-300-") ? toView(62.5) : (planGraphic?.mountedCw && port.interface?.nominalSizeMm===90) || planGraphic?.graphicId===STANDALONE_CW_GRAPHIC_ID ? 2 : planGraphic?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID && planGraphic.combined ? 2 : 6,
+      r: component.catalogueItemId?.startsWith("aerofresh-300-") ? toView(30) : (planGraphic?.mountedCw && port.interface?.nominalSizeMm===90) || planGraphic?.graphicId===STANDALONE_CW_GRAPHIC_ID ? 2 : planGraphic?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID && planGraphic.combined ? 2 : 6,
       class: `component-port ${portClasses}`,
       "data-component-id": component.id,
       "data-port-id": port.id,
@@ -9906,6 +9906,7 @@ function componentEvidenceLabel(component) {
 }
 
 function componentEvidenceDescription(component) {
+  if (component.catalogueStatus === "source-backed-drawing-profile-provisional-setout") return "Manual centre spacings and rear offsets · provisional side-to-side setout · DN125 drawing connections · remote ComfoWell only";
   if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
   if (component.decentralisedController) return `${component.decentralisedController.compatibilityStatus.replaceAll("-", " ")} · ${component.decentralisedController.sourceRevision} · cable routes are plan markup only · no electrical compliance or installation approval`;
   if (component.displaySymbol?.ca200Profile) return "Owner-selected CA200 manual dimensions and manufacturer handed role map · DN125 drawing ports · centred port setout interpretation and installation fit require review";
