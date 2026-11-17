@@ -261,3 +261,23 @@ test("Q350 port labels clear the collar and point outwards for both hands", asyn
     assert.ok(xMm < 0 ? layout.xMm < xMm-95 : layout.xMm > xMm+95);
   }
 });
+
+test("AeroFresh 300 plan symbol uses the staggered DN125 port centres and MVHR labels", () => {
+  for (const type of ["hrv", "erv"]) {
+    const unit = createCatalogueComponent(`aerofresh-300-${type}-drawing-profile`, {
+      id: "aerofresh-plan-unit", floorId: "floor-ground", xMm: 0, yMm: 0,
+    });
+    const graphic = deriveComponentPlanGraphic(unit);
+    assert.equal(graphic.graphicId, Q350_PLAN_GRAPHIC_ID);
+    assert.equal(graphic.modelName, `AeroFresh 300 ${type.toUpperCase()}`);
+    assert.equal(graphic.handingLabel, "RH");
+    assert.equal(graphic.mountedCw, null);
+    assert.deepEqual(graphic.ports.map(({ code, xMm, yMm, nominalDiameterMm }) =>
+      [code, xMm, yMm, nominalDiameterMm]), [
+      ["SUP", -251, 121.5, 125],
+      ["ETA", -98.5, -11.5, 125],
+      ["ODA", 98.5, -11.5, 125],
+      ["EHA", 251, -128.5, 125],
+    ]);
+  }
+});
