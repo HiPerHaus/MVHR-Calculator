@@ -121,6 +121,13 @@ test("multi-storey output includes each storey in preview and page selection", (
     "aerofresh-30-compact-decentralised", { id: "upper-unit", floorId: "upper", xMm: 2000, yMm: 1000 },
   ) });
   const { pages } = createDesignOptionOutput(project, { createSheet });
+  assert.deepEqual(pages.map(page => page.kind), [
+    "drawing", "drawing", "installation-details", "installation-details", "parts-list", "parts-list",
+  ]);
+  for (const [index, page] of pages.entries()) {
+    assert.equal(page.pageNumber, index + 1);
+    assert.match(page.svg, new RegExp(`Page ${index + 1} of ${pages.length}`));
+  }
   const drawings = pages.filter(page => page.kind === "drawing");
   assert.deepEqual(drawings.map(page => page.floorId), ["ground", "upper"]);
   assert.match(drawings[0].svg, /data-id="af-alternative"/);

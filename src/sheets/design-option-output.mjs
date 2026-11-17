@@ -1,6 +1,6 @@
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import { designOptionProjects } from "../domain/design-options.mjs";
-import { createSheetOutputDocument } from "./sheet-output.mjs";
+import { createSheetOutputDocument, selectSheetOutputPages } from "./sheet-output.mjs";
 
 // Design options and output system scope are independent selections.
 // null selects all real design options; a scope never creates a design option.
@@ -27,5 +27,19 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
       label: `${option.name} · ${option.revision} · ${ventilationWorkspaceLabel(systemScope)} · ${page.label}${floorLabel}`,
     });
   });
-  return { entries, pages };
+  if (!selected.some(({ project }) => project.floors.length > 1)) return { entries, pages };
+
+  const pageKinds = ["drawing", "installation-details", "parts-list"];
+  const ordered = selected.flatMap(({ option }) => pageKinds.flatMap(kind =>
+    pages.filter(page => page.optionId === option.id && page.kind === kind),
+  ));
+  const renumbered = selectSheetOutputPages(ordered, ordered.map((_, index) => index));
+  return { entries, pages: renumbered.map((page, index) => {
+    const { sourcePageNumber, ...numberedPage } = page;
+    const source = ordered[index];
+    return Object.freeze({
+      ...numberedPage,
+      label: source.label.replace(` · Page ${sourcePageNumber} ·`, ` · Page ${page.pageNumber} ·`),
+    });
+  }) };
 }
