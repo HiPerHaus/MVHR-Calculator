@@ -3211,13 +3211,13 @@ function renderSheetOptionPreview(optionId) {
   exportPartsCsvButton.disabled = allOptions;
   exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${entries.length} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : selected.sheet.fit.label}`;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
   sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
-function createSheetForDesignOption(project,option,{systemScope = "combined"} = {}) {
-  const floor=project.floors.find(candidate => candidate.id === currentFloorId()) ?? project.floors[0];
+function createSheetForDesignOption(project,option,{systemScope = "combined", floorId} = {}) {
+  const floor=project.floors.find(candidate => candidate.id === floorId);
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
   const optionRevision=option?.revision??"Working";
@@ -3227,7 +3227,7 @@ function createSheetForDesignOption(project,option,{systemScope = "combined"} = 
     floorId:floor.id,orientation:"landscape",systemScope,projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
-    drawingTitle:`${baseTitle} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}${floorSuffix}`,
+    drawingTitle:`${baseTitle}${floorSuffix && project.projectDetails.drawingTitle ? ` · ${floor.name}` : ""} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}${floorSuffix}`,
     issueDate:new Date().toISOString().slice(0,10),status:"Preliminary — not for construction",revision:optionRevision,
     revisionText:`${optionName} working-draft preview`,drawnBy:project.projectDetails.drawnBy||"",checkedBy:project.projectDetails.checkedBy||"",
   });

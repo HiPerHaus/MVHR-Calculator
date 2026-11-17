@@ -10,18 +10,21 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
   const candidates = designOptionProjects(project);
   const selected = optionId === null ? candidates : candidates.filter(({ option }) => option.id === optionId);
   if (!selected.length) throw new TypeError("The selected design option is unavailable");
-  const entries = selected.map(({ option, project: optionProject }) => ({
-    option, project: optionProject, sheet: createSheet(optionProject, option, { systemScope }),
-  }));
+  const entries = selected.flatMap(({ option, project: optionProject }) => optionProject.floors.map(floor => ({
+    option, project: optionProject, floor, sheet: createSheet(optionProject, option, { systemScope, floorId: floor.id }),
+  })));
+  if (!entries.length) throw new TypeError("The project has no floor to export");
   const output = createSheetOutputDocument(entries.map(entry => entry.sheet));
-  // Drawing pages mark each independent option's plan/details/parts group.
+  // Each drawing starts a storey's plan, installation details and parts group.
   let entryIndex = -1;
   const pages = output.map(page => {
     if (page.kind === "drawing") entryIndex += 1;
-    const { option } = entries[entryIndex];
+    const { option, floor, project: optionProject } = entries[entryIndex];
+    const floorLabel = optionProject.floors.length > 1 ? ` · ${floor.name}` : "";
     return Object.freeze({
-      ...page, systemScope, pageKey: JSON.stringify([option.id, systemScope, page.kind, page.partsPageNumber ?? 0]), optionId: option.id, optionName: option.name, optionRevision: option.revision,
-      label: `${option.name} · ${option.revision} · ${ventilationWorkspaceLabel(systemScope)} · ${page.label}`,
+      ...page, systemScope, pageKey: JSON.stringify([option.id, floor.id, systemScope, page.kind, page.partsPageNumber ?? 0]), floorId: floor.id, optionId: option.id, optionName: option.name, optionRevision: option.revision,
+      pageDescription: page.pageDescription + floorLabel,
+      label: `${option.name} · ${option.revision} · ${ventilationWorkspaceLabel(systemScope)} · ${page.label}${floorLabel}`,
     });
   });
   return { entries, pages };
