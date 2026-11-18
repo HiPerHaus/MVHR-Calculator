@@ -64,7 +64,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -1689,6 +1689,10 @@ export function migrateProjectData(project) {
     };
   }
   if (migrated.schemaVersion === 27) migrated = { ...migrated, schemaVersion: 28 };
+  // Schema 29 makes the versioned airflow-profile semantics incompatible with
+  // older readers that otherwise silently treat every proposal as legacy.
+  // Preserve stored profile absence, targets, allocations and site evidence.
+  if (migrated.schemaVersion === 28) migrated = { ...migrated, schemaVersion: 29 };
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }

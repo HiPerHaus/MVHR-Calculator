@@ -46,3 +46,18 @@ test('reviewed proposal feeds live schedule/export and explicit single-terminal 
  assert.ok(multiple.unresolved.some(item=>item.spaceId==='ground-supply'&&item.code==='allocation-required'));
  assert.equal(multiple.design.terminalAllocations.filter(a=>a.spaceId==='ground-supply').length,0);
 });
+
+test('reviewed PHPP normal, not design maximum, feeds assigned schedule and engineering draft',()=>{
+ let p=terminal(terminal(fixture(),'supply-1','supply','ground-supply',2000),'extract-1','extract','ground-extract',7000);
+ p=applyCommand(p,{type:'ventilation.setReference',reference:{tfaM2:169.186135,occupants:4,source:'PHPP9.6a workbook test'}});
+ p=settings(p,{profile:'phpp-9.6a-standard-v1',extractRatesM3h:{'ground-extract':160}});
+ const proposal=buildAirflowProposal(p),review=reviewAirflowProposal(p,{scope:'floor',floorId:'ground',mode:'fill-unset'});
+ p=applyCommand(p,{type:'airflowProposal.apply',optionId:p.activeDesignOptionId,expectedFingerprint:review.fingerprint,...review.selection});
+ const normal=169.186135*2.5*.3;
+ assert.ok(Math.abs(proposal.normalM3h-normal)<1e-8);assert.ok(Math.abs(proposal.boostM3h-normal*1.3)<1e-8);
+ assert.ok(Math.abs(buildCommissioningReport(p,'ground').totals.supply.designLps*3.6-normal)<1e-8);
+ const draft=createEngineeringNetworkDraft(p,'ground');for(const allocation of draft.design.terminalAllocations)assert.ok(Math.abs(allocation.inputValue-normal)<1e-8);
+ const sheet=createA3SheetModel(p,{floorId:'ground',orientation:'landscape',includeSchedule:false,projectName:'PHPP integration',issueDate:'2026-11-18',drawingTitle:'Ventilation',drawingId:'V01',status:'Preliminary — not for construction',revision:'A',revisionText:'Test'});
+ const pages=createSheetOutputPages(sheet);assert.match(pages.find(page=>page.kind==='airflows').svg,/>126.9</);
+ assert.match(pages.filter(page=>page.kind==='airflow-proposal').map(page=>page.svg).join(''),/maximum 165.0/);
+});

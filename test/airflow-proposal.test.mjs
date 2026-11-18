@@ -42,7 +42,7 @@ test('single basis and actual geometry are explicit separate choices',()=>{
 });
 test('unknown/stale/ambiguous inputs block rates instead of becoming zero or guessed',()=>{
  let p=fixture();delete p.ventilationReference;assert.equal(buildAirflowProposal(p).normalM3h,null);
- p=fixture();p.rooms[1].use='ensuite';let r=buildAirflowProposal(p);assert.equal(r.status,'incomplete');assert.match(r.issues.join(' '),/explicit reference rate/);
+ p=fixture();p.rooms[1].use='ensuite';let r=buildAirflowProposal(p);assert.equal(r.status,'incomplete');assert.match(r.issues.join(' '),/reviewed extract reference/);
  p=settings(p,{extractRatesM3h:{'ground-extract':40}});assert.equal(buildAirflowProposal(p).status,'provisional');
  p=fixture();p.rooms[0].boundaryState='reassignment-required';assert.equal(buildAirflowProposal(p).normalM3h,null);
  p=fixture();p.rooms[0].ventilationRole='unassigned';assert.equal(buildAirflowProposal(p).normalM3h,null);
@@ -112,4 +112,70 @@ test('fill-unset protects explicit Normal terminal allocations and replacement d
  const replace=reviewAirflowProposal(next,{mode:'replace-existing'});assert.equal(replace.changes.find(c=>c.id==='ground-supply').existingAllocationM3h,36);
  next=applyReview(next,replace,{confirmReplaceExisting:true});assert.equal(next.rooms[0].airflowTargets.normal.assigned.inputValue,150);assert.deepEqual(next.engineeringInputs,allocations);
  assert.throws(()=>applyReview(next,reviewAirflowProposal(next)),/No eligible/);
+});
+
+const phppProfile='phpp-9.6a-standard-v1';
+const near=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-9,`${actual} differs from ${expected}`);
+function reference(p,tfaM2,occupants){return applyCommand(p,{type:'ventilation.setReference',reference:{tfaM2,occupants,source:'Reviewed workbook fixture'}});}
+test('explicit PHPP 9.6a workbook profile reproduces maximum, standard and basic rather than treating max as normal',()=>{
+ const p=settings(reference(fixture(),169.186135,4),{profile:phppProfile,extractRatesM3h:{'ground-extract':160}}),before=serializeProject(p),r=buildAirflowProposal(p);
+ assert.equal(r.profile,phppProfile);assert.equal(r.method,phppProfile);assert.equal(r.status,'provisional');
+ near(r.volumeM3,422.9653375);near(r.candidatesM3h.volume,126.88960125);
+ assert.equal(r.maximumCandidatesM3h.occupancy,120);assert.equal(r.maximumCandidatesM3h.extract,160);near(r.maximumCandidatesM3h.volume,164.956481625);
+ near(r.maximumM3h,164.956481625);near(r.normalM3h,126.88960125);near(r.basicM3h,88.822720875);
+ assert.equal(r.boostM3h,r.maximumM3h);assert.equal(r.lowM3h,r.basicM3h);assert.deepEqual(r.governingBasis,['volume']);
+ for(const role of ['supply','extract']){const side=r.lines.filter(line=>line.ventilationRole===role);near(side.reduce((sum,line)=>sum+line.normalM3h,0),126.88960125);near(side.reduce((sum,line)=>sum+line.maximumM3h,0),164.956481625);near(side.reduce((sum,line)=>sum+line.basicM3h,0),88.822720875);}
+ assert.match(r.assumptions.join(' '),/not an operating-hours-weighted average/);assert.match(r.assumptions.join(' '),/heuristic/);assert.equal(serializeProject(p),before);
+});
+test('PHPP occupancy and extract govern maximum without receiving another 1.3 multiplier',()=>{
+ const occupancy=buildAirflowProposal(settings(reference(fixture(),100,10),{profile:phppProfile}));
+ assert.deepEqual(occupancy.governingBasis,['occupancy']);assert.equal(occupancy.maximumM3h,300);near(occupancy.normalM3h,300/1.3);near(occupancy.basicM3h,300/1.3*.7);
+ const extract=buildAirflowProposal(settings(reference(fixture(),100,2),{profile:phppProfile,extractRatesM3h:{'ground-extract':240}}));
+ assert.deepEqual(extract.governingBasis,['extract']);assert.equal(extract.maximumM3h,240);near(extract.normalM3h,240/1.3);near(extract.basicM3h,240/1.3*.7);
+ const tied=buildAirflowProposal(settings(reference(fixture(),100,2),{profile:phppProfile,extractRatesM3h:{'ground-extract':97.5}}));
+ assert.deepEqual(tied.governingBasis,['volume','extract']);assert.equal(tied.maximumM3h,97.5);
+});
+test('absent profiles retain legacy settings and numbers through reopen without silent migration',()=>{
+ let p=fixture();const before=serializeProject(p),legacy=buildAirflowProposal(p);
+ assert.equal(legacy.profile,'legacy-studio-v1');assert.equal(legacy.method,'studio-provisional-residential-v1');assert.equal(legacy.normalM3h,150);assert.equal(legacy.maximumM3h,195);assert.equal(serializeProject(p),before);
+ p.airflowProposalSettingsByOption={[p.activeDesignOptionId]:{basis:'occupancy',volumeSource:'actual-geometry',personRateM3h:25,ach:.35,lowFactor:.75,boostFactor:1.25,supplyWeights:{},extractRatesM3h:{}}};
+ const portable=serializeProject(p),reopened=deserializeProject(portable),r=buildAirflowProposal(reopened);
+ assert.equal(r.profile,'legacy-studio-v1');assert.equal(r.normalM3h,100);assert.equal(r.lowM3h,75);assert.equal(r.boostM3h,125);assert.equal(r.settings.ach,.35);assert.equal(r.settings.volumeSource,'actual-geometry');assert.equal(serializeProject(reopened),portable);
+ assert.equal(Object.hasOwn(reopened.airflowProposalSettingsByOption[p.activeDesignOptionId],'profile'),false);
+});
+test('PHPP constants and unsupported profiles fail closed; explicit overrides of room weights remain reviewed inputs',()=>{
+ assert.equal(normalizeAirflowProposalSettings({profile:phppProfile}).ach,.3);
+ for(const [key,value]of Object.entries({basis:'volume',volumeSource:'actual-geometry',personRateM3h:25,ach:.35,lowFactor:.75,boostFactor:1.25}))assert.throws(()=>normalizeAirflowProposalSettings({profile:phppProfile,[key]:value}),/PHPP 9.6a standard profile requires/);
+ for(const profile of ['phpp-latest','certified',null,42])assert.throws(()=>normalizeAirflowProposalSettings({profile}),/Unsupported airflow proposal profile/);
+ const r=buildAirflowProposal(settings(fixture(),{profile:phppProfile,supplyWeights:{'ground-supply':2},extractRatesM3h:{'ground-extract':80}}));assert.equal(r.lines[0].weight,2);assert.equal(r.candidatesM3h.extract,80);
+ const missing=fixture();delete missing.ventilationReference;const incomplete=buildAirflowProposal(settings(missing,{profile:phppProfile}));assert.equal(incomplete.status,'incomplete');for(const key of ['normalM3h','lowM3h','boostM3h','maximumM3h','basicM3h'])assert.equal(incomplete[key],null);
+});
+test('profile selection is option-scoped, undoable and does not alter manual targets, required targets or readings',()=>{
+ let p=fixture(),target=structuredClone(p.rooms[0].airflowTargets);target.normal.assigned=airflowTargetFromInput(12,'l/s','Manual','Test');target.normal.required=airflowTargetFromInput(10,'l/s','Requirement','Test');
+ p=applyCommand(p,{type:'room.updateMetadata',roomId:p.rooms[0].id,name:p.rooms[0].name,use:p.rooms[0].use,ventilationRole:'supply',airflowTargets:target});
+ p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:p.rooms[0].id,measuredLps:11,setting:'Recorded',notes:'Keep',recordedAt:'2026-11-18'});
+ const before=serializeProject(p),original=p.activeDesignOptionId,review=reviewAirflowProposal(p),h=executeCommand(createCommandHistory(p),{type:'airflowProposal.setSettings',settings:{profile:phppProfile}});
+ assert.deepEqual(h.present.rooms,p.rooms);assert.deepEqual(h.present.commissioning,p.commissioning);assert.deepEqual(h.present.engineeringInputs,p.engineeringInputs);assert.equal(serializeProject(undoCommand(h).present),before);
+ assert.throws(()=>applyReview(h.present,review),/scope changed/);
+ p=deserializeProject(serializeProject(redoCommand(undoCommand(h)).present));assert.equal(buildAirflowProposal(p).profile,phppProfile);
+ p=applyCommand(p,{type:'designOption.duplicate',id:'profile-other',name:'Other',copyScopes:['plan'],activate:true});assert.equal(buildAirflowProposal(p).profile,'legacy-studio-v1');
+ p=applyCommand(p,{type:'designOption.switch',optionId:original});assert.equal(buildAirflowProposal(p).profile,phppProfile);assert.deepEqual(p.rooms[0].airflowTargets,target);
+});
+
+test('schema 28 migrates to 29 without altering legacy settings, targets, readings or saved snapshot data',()=>{
+ let p=fixture();p=settings(p,{basis:'occupancy',personRateM3h:25,lowFactor:.75,boostFactor:1.25});delete p.airflowProposalSettingsByOption[p.activeDesignOptionId].profile;
+ const target=structuredClone(p.rooms[0].airflowTargets);target.normal.assigned=airflowTargetFromInput(14,'l/s','Manual','Before migration');
+ p=applyCommand(p,{type:'room.updateMetadata',roomId:p.rooms[0].id,name:p.rooms[0].name,use:p.rooms[0].use,ventilationRole:'supply',airflowTargets:target});
+ p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:p.rooms[0].id,measuredLps:13,setting:'Keep',notes:'Original evidence',recordedAt:'2026-11-18'});
+ const legacy=structuredClone(p);legacy.schemaVersion=28;const originalJson=JSON.stringify(legacy),reopened=deserializeProject(originalJson);
+ assert.equal(reopened.schemaVersion,29);assert.deepEqual({...reopened,schemaVersion:28},legacy);assert.equal(JSON.stringify(legacy),originalJson);
+ assert.equal(buildAirflowProposal(reopened).profile,'legacy-studio-v1');assert.equal(buildAirflowProposal(reopened).normalM3h,100);
+ const profiled=settings(reopened,{profile:phppProfile});assert.equal(profiled.schemaVersion,29);assert.deepEqual(deserializeProject(serializeProject(profiled)),profiled);
+ assert.throws(()=>deserializeProject(JSON.stringify({...profiled,schemaVersion:30})),/Unsupported schema version/);
+});
+test('PHPP source provenance identifies reviewed workbook formulas without claiming certified room allocation',()=>{
+ const r=buildAirflowProposal(settings(fixture(),{profile:phppProfile}));
+ assert.match(r.sourceProvenance.join(' '),/Ventilation sheet: N65 = MAX\(N59,N63,N9\*0.3\*1.3\)/);
+ assert.match(r.sourceProvenance.join(' '),/P72 = N72\*\$N\$65/);assert.match(r.sourceProvenance.join(' '),/P76.*operating-hours-weighted average/);
+ assert.match(r.assumptions.join(' '),/not validated for multi-unit/);assert.match(r.assumptions.join(' '),/Studio room weights remain separate assumptions/);
 });

@@ -2,6 +2,9 @@ import {inspectRoomBoundary,inspectZoneBoundary} from './rooms.mjs';
 import {roomVolume} from './room-volume.mjs';
 
 export const AIRFLOW_PROPOSAL_METHOD='studio-provisional-residential-v1';
+export const AIRFLOW_PROPOSAL_PROFILES=Object.freeze(['legacy-studio-v1','phpp-9.6a-standard-v1']);
+export const PHPP_STANDARD_PROFILE='phpp-9.6a-standard-v1';
+const PHPP_FIXED=Object.freeze({basis:'max',volumeSource:'phpp-reference',personRateM3h:30,ach:.3,lowFactor:.7,boostFactor:1.3});
 export const AIRFLOW_PROPOSAL_SOURCES=Object.freeze([
  'https://passipedia.org/_media/picopen/final_protocol_worksheets_ventilation_example.pdf',
  'https://passipedia.org/planning/building_services/ventilation/differentiation_between_vv_and_vn50_values',
@@ -13,12 +16,15 @@ function number(value,name,max=1e6){if(!Number.isFinite(value)||value<=0||value>
 function map(value,name){if(value===undefined)return {};if(!value||typeof value!=='object'||Array.isArray(value))throw new TypeError(`Invalid ${name}`);const entries=Object.entries(value);if(entries.length>10000)throw new TypeError(`Too many ${name}`);return Object.fromEntries(entries.map(([key,v])=>{if(!key||key.length>250||unsafe.has(key))throw new TypeError(`Invalid ${name} identifier`);return [key,number(v,name)];}));}
 export function normalizeAirflowProposalSettings(value={}) {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new TypeError('Invalid airflow proposal settings');
+ const profile=value.profile===undefined?'legacy-studio-v1':value.profile;
+ if(!AIRFLOW_PROPOSAL_PROFILES.includes(profile))throw new TypeError('Unsupported airflow proposal profile');
+ if(profile===PHPP_STANDARD_PROFILE)for(const [key,fixed]of Object.entries(PHPP_FIXED))if(value[key]!==undefined&&value[key]!==fixed)throw new TypeError(`PHPP 9.6a standard profile requires ${key}=${fixed}`);
  const basis=value.basis??'max',volumeSource=value.volumeSource??'phpp-reference';
  if(!['max','occupancy','volume','extract'].includes(basis))throw new TypeError('Unsupported airflow proposal basis');
  if(!['phpp-reference','actual-geometry'].includes(volumeSource))throw new TypeError('Unsupported proposal volume source');
  const lowFactor=number(value.lowFactor??.7,'Low factor',1),boostFactor=number(value.boostFactor??1.3,'Boost factor',10);
  if(boostFactor<1)throw new TypeError('Boost factor must be at least 1');
- return {basis,volumeSource,personRateM3h:number(value.personRateM3h??30,'Person rate',1000),ach:number(value.ach??.3,'Air changes per hour',10),lowFactor,boostFactor,supplyWeights:map(value.supplyWeights,'Supply weight'),extractRatesM3h:map(value.extractRatesM3h,'Extract reference')};
+ return {profile,basis,volumeSource,personRateM3h:number(value.personRateM3h??30,'Person rate',1000),ach:number(value.ach??.3,'Air changes per hour',10),lowFactor,boostFactor,supplyWeights:map(value.supplyWeights,'Supply weight'),extractRatesM3h:map(value.extractRatesM3h,'Extract reference')};
 }
 export function validateAirflowProposalSettingsByOption(value) {
  if(value===undefined)return;
@@ -28,17 +34,24 @@ export function validateAirflowProposalSettingsByOption(value) {
 function safe(value){return Number.isFinite(value)&&value>=0&&value<=1e9?value:null;}
 export function buildAirflowProposal(project) {
  const settings=normalizeAirflowProposalSettings(Object.hasOwn(project.airflowProposalSettingsByOption??{},project.activeDesignOptionId)?project.airflowProposalSettingsByOption[project.activeDesignOptionId]:undefined);
+ const isPhpp=settings.profile===PHPP_STANDARD_PROFILE;
  const issues=[],assumptions=[
   'Unapproved Studio design proposal, not a certified PHPP result, local-code check or measured delivery.',
-  'The max-of-three governing rule is a Studio proposal policy, not a universal or mandatory PHI rule. PHPP standard-design and final-protocol examples use different normal/maximum conventions.',
+  isPhpp?'PHPP 9.6a standard single-unit reference convention: maximum = max(occupancy × 30, extract reference sum, PHPP reference volume × 0.3 × 1.3); standard/normal = maximum ÷ 1.3; basic = 0.7 × normal. This is not an operating-hours-weighted average.':'The max-of-three governing rule is a Studio proposal policy, not a universal or mandatory PHI rule. PHPP standard-design and final-protocol examples use different normal/maximum conventions.',
   'Default extract profile: kitchen 60, bathroom 40, laundry mapped to utility 40, WC 20, storage 20 m³/h. Ensuite, shower-only and kitchen-dining are not inferred; use an explicit reviewed reference.',
-  'These are whole-dwelling duties, not duties apportioned between multiple ventilation units. Unit capacity, pressure and low-speed capability are not verified.',
-  'Normal demand uses the selected basis. Default max compares occupancy, ventilation-volume reference and supported extract-room references once across all active-option floors.',
+  isPhpp?'This PHPP 9.6a reference profile is not validated for multi-unit systems or duty apportionment. It provides single-unit whole-dwelling reference duties only; unit capacity, pressure and low-speed capability are not verified.':'These are whole-dwelling duties, not duties apportioned between multiple ventilation units. Unit capacity, pressure and low-speed capability are not verified.',
+  isPhpp?'This versioned PHPP reference profile is explicitly selected; absent profiles retain the legacy Studio normal-demand convention. Maximum demand is calculated once across all active-option floors.':'Normal demand uses the selected basis. Default max compares occupancy, ventilation-volume reference and supported extract-room references once across all active-option floors.',
   'Supply distribution is a Studio area-weighted heuristic, not a PHI room-allocation rule. Bedroom occupancy, transfer paths, noise, terminal capacity and local extract minima need review.',
   'Extract distribution uses reference-rate weights, scaled to the selected total; reference weights are not verified local minimum rates.',
-  'Low and boost factors are design assumptions, not certified unit settings. Verify occupied minimum ventilation and manufacturer operating range.',
+  isPhpp?'Basic and maximum are reference design duties, not measured flows or certified unit settings. Verify occupied minimum ventilation and manufacturer operating range.':'Low and boost factors are design assumptions, not certified unit settings. Verify occupied minimum ventilation and manufacturer operating range.',
   'Existing targets, terminal allocations and commissioning readings are not overwritten or approved by this proposal.',
  ];
+ const sourceProvenance=isPhpp?[
+  'Verified supplied PHPP 9.6a workbook, Ventilation sheet: N65 = MAX(N59,N63,N9*0.3*1.3), Design air flow rate (maximum).',
+  'Ventilation P72 = N72*$N$65 with N72 = 0.769230769230769 (Standard, equivalent to maximum / 1.3); P73 = N73*$N$65 with N73 = 0.538461538461538 (Basic, equivalent to 0.7 * standard).',
+  'Ventilation P76 is the operating-hours-weighted average, not inherently the Standard rate. Additional Vent room allocations were inactive in the reviewed workbook; Studio room weights remain separate assumptions.',
+ ]:[];
+ assumptions.push(...sourceProvenance);
  const active=project.rooms.flatMap(room=>{const zones=project.zones.filter(z=>z.parentRoomId===room.id);return zones.length?zones.map(space=>({space,kind:'zone',parent:room})):[{space:room,kind:'room',parent:null}];});
  const lines=active.map(({space,kind,parent})=>{
   const missing=[];const geometry=kind==='zone'?inspectZoneBoundary(project,space):inspectRoomBoundary(project,space);
@@ -55,10 +68,10 @@ export function buildAirflowProposal(project) {
   if(role==='extract'){
    if(Object.hasOwn(settings.extractRatesM3h,space.id)){weight=settings.extractRatesM3h[space.id];weightSource='explicit-extract-reference';}
    else if(Object.hasOwn(EXTRACT_PROFILE,space.use)){weight=EXTRACT_PROFILE[space.use];weightSource=`PHI-protocol-inspired reference: ${space.use}`;}
-   else missing.push(`Extract classification '${space.use}' needs an explicit reference rate; no rate inferred`);
+   else missing.push(`Choose a reviewed extract reference for room use '${space.use}' in Room allocation and assumptions; no rate inferred`);
   }
   const assigned=space.airflowTargets?.normal?.assigned;
-  return {id:space.id,kind,floorId:space.floorId,name:space.name,ventilationRole:role,areaM2,weight,weightSource,assignedExistingM3h:assigned?.state==='known'?assigned.valueLps*3.6:null,normalM3h:null,lowM3h:null,boostM3h:null,missing};
+  return {id:space.id,kind,floorId:space.floorId,name:space.name,ventilationRole:role,areaM2,weight,weightSource,assignedExistingM3h:assigned?.state==='known'?assigned.valueLps*3.6:null,normalM3h:null,lowM3h:null,boostM3h:null,maximumM3h:null,basicM3h:null,missing};
  });
  const supply=lines.filter(l=>l.ventilationRole==='supply'),extract=lines.filter(l=>l.ventilationRole==='extract');
  if(!supply.length)issues.push('At least one supply space is required');if(!extract.length)issues.push('At least one extract space is required');
@@ -76,26 +89,31 @@ export function buildAirflowProposal(project) {
   if(volumes.some(v=>v.assumed))assumptions.push('Actual-geometry volume includes assumed ceiling heights, including the default 2.5 m.');
  }
  const candidatesM3h={occupancy,volume:volumeM3===null?null:safe(volumeM3*settings.ach),extract:extract.length&&extract.every(l=>!l.missing.length&&l.weight!==null)?safe(extract.reduce((sum,l)=>sum+l.weight,0)):null};
+ const maximumCandidatesM3h=Object.fromEntries(Object.entries(candidatesM3h).map(([key,value])=>[key,value===null?null:safe(value*(isPhpp?(key==='volume'?1.3:1):settings.boostFactor))]));
+ const governingCandidates=isPhpp?maximumCandidatesM3h:candidatesM3h;
  const required=settings.basis==='max'?['occupancy','volume','extract']:[settings.basis];
- for(const basis of required)if(candidatesM3h[basis]===null)issues.push(`${basis} demand input is incomplete or outside numeric range`);
- const selected=required.every(b=>candidatesM3h[b]!==null)?Math.max(...required.map(b=>candidatesM3h[b])):null;
- const governingBasis=selected===null?[]:required.filter(b=>Math.abs(candidatesM3h[b]-selected)<1e-9);
- if(selected!==null&&candidatesM3h.extract!==null&&selected<candidatesM3h.extract)assumptions.push('Selected normal total is below the extract reference sum. Scaled room proposals are not evidence of satisfying local extract minima.');
+ for(const basis of required)if(governingCandidates[basis]===null)issues.push(basis==='extract'&&extract.some(l=>l.missing.length)?'Extract total is unavailable until the room issues above are resolved.':`${basis} demand input is incomplete or outside numeric range`);
+ const selected=required.every(b=>governingCandidates[b]!==null)?Math.max(...required.map(b=>governingCandidates[b])):null;
+ const selectedNormal=selected===null?null:isPhpp?selected/1.3:selected;
+ const governingBasis=selected===null?[]:required.filter(b=>Math.abs(governingCandidates[b]-selected)<1e-9);
+ if(selectedNormal!==null&&candidatesM3h.extract!==null&&selectedNormal<candidatesM3h.extract)assumptions.push('Selected normal total is below the extract reference sum. Scaled room proposals are not evidence of satisfying local extract minima.');
  if(settings.basis!=='max')assumptions.push('Single-basis selection does not enforce the other demand candidates.');
- if(selected!==null&&safe(selected*settings.boostFactor)===null)issues.push('Mode flow exceeds numeric range');
+ if(selected!==null&&safe(isPhpp?selected:selected*settings.boostFactor)===null)issues.push('Mode flow exceeds numeric range');
  const notApplicable=project.ventilationDesignType==='decentralised';if(notApplicable)issues.push('This proposal is for a single centralised whole-dwelling system, not decentralised unit selection');
  const status=notApplicable?'not-applicable':issues.length?'incomplete':'provisional';
- const normalM3h=status==='provisional'?selected:null;
+ const normalM3h=status==='provisional'?selectedNormal:null;
+ const maximumM3h=normalM3h===null?null:isPhpp?selected:normalM3h*settings.boostFactor;
+ const basicM3h=normalM3h===null?null:normalM3h*settings.lowFactor;
  if(normalM3h!==null){
   for(const side of [supply,extract]){
    const sum=side.reduce((n,l)=>n+l.weight,0);
    if(!Number.isFinite(sum)||sum<=0)throw new RangeError('Proposal weighting sum is invalid');
    // Preserve exact totals, without independent rounding drift between supply and extract.
    let allocated=0;
-   side.forEach((line,index)=>{line.normalM3h=index===side.length-1?normalM3h-allocated:normalM3h*line.weight/sum;allocated+=line.normalM3h;line.lowM3h=line.normalM3h*settings.lowFactor;line.boostM3h=line.normalM3h*settings.boostFactor;});
+   side.forEach((line,index)=>{line.normalM3h=index===side.length-1?normalM3h-allocated:normalM3h*line.weight/sum;allocated+=line.normalM3h;line.lowM3h=line.normalM3h*settings.lowFactor;line.boostM3h=line.normalM3h*settings.boostFactor;line.maximumM3h=line.boostM3h;line.basicM3h=line.lowM3h;});
   }
  }
- return {method:AIRFLOW_PROPOSAL_METHOD,status,optionId:project.activeDesignOptionId,settings,candidatesM3h,volumeM3,normalM3h,lowM3h:normalM3h===null?null:normalM3h*settings.lowFactor,boostM3h:normalM3h===null?null:normalM3h*settings.boostFactor,governingBasis,lines,issues,assumptions,sourceUrls:[...AIRFLOW_PROPOSAL_SOURCES]};
+ return {profile:settings.profile,method:isPhpp?PHPP_STANDARD_PROFILE:AIRFLOW_PROPOSAL_METHOD,status,optionId:project.activeDesignOptionId,settings,sourceProvenance,candidatesM3h,maximumCandidatesM3h,volumeM3,normalM3h,lowM3h:basicM3h,basicM3h,boostM3h:maximumM3h,maximumM3h,governingBasis,lines,issues,assumptions,sourceUrls:[...AIRFLOW_PROPOSAL_SOURCES]};
 }
 
 function normalizeReviewSelection(project, input={}) {

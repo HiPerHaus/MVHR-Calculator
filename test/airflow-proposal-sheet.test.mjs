@@ -43,3 +43,10 @@ test('all floors receive one shared proposal per option with unique paginated ou
  assert.equal(seen.size,2);const proposals=result.pages.filter(page=>page.kind==='airflow-proposal');assert.ok(proposals.length>=4);assert.equal(new Set(result.pages.map(page=>page.pageKey)).size,result.pages.length);
  for(const [index,page]of result.pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${result.pages.length}`));
 });
+
+test('PHPP profile export distinguishes maximum comparison from standard normal and Studio room allocation',()=>{
+ const r={...report,settings:{...report.settings,profile:'phpp-9.6a-standard-v1',basis:'max',volumeSource:'phpp-reference',personRateM3h:30,ach:.3,lowFactor:.7,boostFactor:1.3},maximumCandidatesM3h:{occupancy:120,extract:160,volume:164.956},normalM3h:126.890,lowM3h:88.823,boostM3h:164.956};
+ const s={...sheet,airflowProposal:r};const text=plain(createAirflowProposalPages(s).map(p=>renderAirflowProposalSheetSvg(s,p)).join(''));
+ assert.match(text,/phpp-9.6a-standard-v1/);assert.match(text,/maximum = max/);assert.match(text,/normal = maximum \/ 1.3/);
+ assert.match(text,/basic 88.8 · normal 126.9 · maximum 165.0/);assert.match(text,/Maximum-duty candidates/);assert.match(text,/separate Studio heuristic/);
+});

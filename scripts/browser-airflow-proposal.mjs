@@ -45,7 +45,7 @@ try {
   await waitFor(cdp, `document.readyState === "complete" && document.querySelector("#current-project-name")?.textContent === "Airflow Review House"`);
   await click(cdp,"#airflows-nav");
   assert.equal(await evaluate(cdp,'document.querySelector(".airflow-proposal").dataset.proposalStatus'),'incomplete');
-  await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]");form.querySelector("[data-proposal-field=basis]").value="extract";form.querySelector("[data-proposal-space=room-bathroom] input").value="40";form.requestSubmit();})()');
+  await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]");form.querySelector("[data-proposal-field=basis]").value="extract";const preset=form.querySelector("[data-proposal-space=room-bathroom] select");preset.value="40";preset.dispatchEvent(new Event("change",{bubbles:true}));if(form.querySelector("[data-proposal-space=room-bathroom] input").value!=="40")throw new Error("Reference picker did not populate custom input");form.requestSubmit();})()');
   await waitFor(cdp,'document.querySelector(".airflow-proposal").dataset.proposalStatus === "provisional"');
   const proposed=await evaluate(cdp,'document.querySelector(".airflow-proposal").textContent');
   assert.match(proposed,/Low 28 · Normal 40 · Boost 52 m³\/h/);
@@ -86,10 +86,24 @@ try {
   }
   await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]");form.querySelector("[data-proposal-space=room-bathroom] input").value="";form.requestSubmit();})()');
   await waitFor(cdp,'document.querySelector(".airflow-proposal").dataset.proposalStatus === "incomplete"');
-  assert.match(await evaluate(cdp,'document.querySelector(".airflow-proposal").textContent'),/explicit reference rate/);
+  assert.match(await evaluate(cdp,'document.querySelector(".airflow-proposal").textContent'),/reviewed extract reference/);
   assert.equal(await evaluate(cdp,'document.querySelector("[data-proposal-review]").disabled'),true);
-  await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]");form.querySelector("[data-proposal-space=room-bathroom] input").value="40";form.requestSubmit();})()');
+  await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]");const preset=form.querySelector("[data-proposal-space=room-bathroom] select");preset.value="40";preset.dispatchEvent(new Event("change",{bubbles:true}));if(form.querySelector("[data-proposal-space=room-bathroom] input").value!=="40")throw new Error("Reference picker did not populate custom input");form.requestSubmit();})()');
   await waitFor(cdp,'document.querySelector(".airflow-proposal").dataset.proposalStatus === "provisional"');
+  assert.equal(await evaluate(cdp,'document.querySelector("[data-proposal-field=profile]").value'),'legacy-studio-v1');
+  await evaluate(cdp,'(()=>{const form=document.querySelector("[data-proposal-form]"),profile=form.querySelector("[data-proposal-field=profile]");profile.value="phpp-9.6a-standard-v1";profile.dispatchEvent(new Event("change",{bubbles:true}));form.querySelector("[data-proposal-space=room-bathroom] input").value="160";form.requestSubmit();})()');
+  await waitFor(cdp,'document.querySelector(".proposal-duty").textContent.includes("Maximum 164.96")');
+  const phppText=await evaluate(cdp,'document.querySelector(".airflow-proposal").textContent');
+  assert.match(phppText,/Basic 88.82 · Normal 126.89 · Maximum 164.96/);
+  assert.match(phppText,/Occupancy maximum candidate: 120/);assert.match(phppText,/Extract maximum candidate: 160/);
+  assert.match(phppText,/Normal volume reference .*126.89/);
+  assert.equal(await evaluate(cdp,'["basis","volumeSource","personRateM3h","ach","lowFactor","boostFactor"].every(key=>document.querySelector(`[data-proposal-field=${key}]`).disabled)'),true);
+  await click(cdp,"[data-proposal-review]");
+  assert.match(await evaluate(cdp,'document.querySelector(".proposal-review").textContent'),/existing design value/);
+  await cdp.send("Emulation.setDeviceMetricsOverride",{width:768,height:1100,deviceScaleFactor:1,mobile:false});
+  assert.equal(await evaluate(cdp,'document.querySelector(".airflow-proposal").scrollWidth<=document.querySelector(".airflow-proposal").clientWidth'),true);
+  await evaluate(cdp,'document.querySelector(".airflow-proposal").scrollIntoView({block:"start"})');
+  await writeFile("/tmp/hiper-airflow-phpp-profile-768.png",Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png",fromSurface:true})).data,"base64"));
   await evaluate(cdp,'document.querySelector(".proposal-actions button[type=button]").click()');
   await waitFor(cdp,'!document.querySelector("#sheet-preview-panel").hidden');
   assert.equal(await evaluate(cdp,'document.querySelector("#airflows-workspace").hidden'),true);
@@ -221,6 +235,7 @@ async function seedAirflowProject(cdp, withAllocation=false) {
       project=domain.applyCommand(project,{type:"engineering.setNetworkDesign",design:{floorId:"floor-ground",mode:"normal",basis:"Explicit design",source:"Test",sourceVersion:"1",occupancy:{state:"unresolved",persons:null,basis:null,source:null,reason:"Not set"},fluid:{densityKgM3:1.2,dynamicViscosityPaS:0.000018,basis:"Test",source:"Test"},terminalAllocations,routeResistanceInputs:[],componentResistanceInputs:[],fanCurves:[],operatingPointModels:[]}});
     }
     project=domain.applyCommand(project,{type:"commissioning.recordMeasurement",spaceId:"room-bedroom",measuredLps:9,recordedAt:"2026-11-18T00:00:00Z"});
+    project=domain.applyCommand(project,{type:"ventilation.setReference",reference:{tfaM2:169.186,occupants:4,source:"Synthetic PHPP 9.6a workbook reference"}});
     const saved = libraryTools.createLocalProjectLibrary(localStorage).saveProject(project, ${JSON.stringify(withAllocation ? "Ambiguous Airflow House" : "Airflow Review House")});
     if (!saved.ok) throw new Error("Airflow fixture could not be saved");
     return true;
