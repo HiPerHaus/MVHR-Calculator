@@ -25,6 +25,8 @@
             <button id="checks-nav" type="button" data-design-stage="check">Check</button>
             <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
           </div>
+          <button id="airflows-nav" type="button">Airflows</button>
+          <button id="as-built-nav" type="button">As built</button>
           <!-- Temporarily hide 3D entry during customer testing; retain its workspace and export implementation. -->
           <button id="three-d-nav" type="button" hidden>3D</button>
           <button id="catalogue-nav" type="button">Catalogue</button>
@@ -513,6 +515,8 @@
         <div id="catalogue-library-records" class="catalogue-library-records"></div>
       </section>
 
+      <section id="airflows-workspace" class="field-workspace" aria-label="Live airflows and site readings" hidden></section>
+      <section id="as-built-workspace" class="field-workspace" aria-label="As-built field record" hidden></section>
       <section id="checks-workspace" class="checks-workspace" aria-labelledby="checks-workspace-heading" hidden>
         <header class="checks-workspace-heading">
           <div>

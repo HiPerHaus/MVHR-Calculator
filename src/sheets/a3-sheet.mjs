@@ -1,3 +1,4 @@
+import { buildCommissioningReport } from "../editor/commissioning-report.mjs";
 import { ventilationOutputView } from "../editor/ventilation-output-scope.mjs";
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import {normalizeCompanyProfile,validateLogoDataUrl} from "../persistence/company-profile.mjs";
@@ -87,6 +88,7 @@ export function createA3SheetModel(project, metadata) {
   const drawingArea=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
   const outputProject = ventilationOutputView(sourceProject, normalized.systemScope);
   const installationDetails = selectPlanDetails(outputProject, normalized.floorId);
+  const airflowReport = normalized.systemScope === "decentralised" ? null : buildCommissioningReport(sourceProject, normalized.floorId);
   const drawingBounds = drawingArea;
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId, systemScope: normalized.systemScope });
   const printScene = buildPrintScene(outputProject, normalized.floorId, partsSchedule);
@@ -107,6 +109,7 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     installationDetails,
+    airflowReport,
     printScene,
     partsSchedule,
     fit,
@@ -126,6 +129,7 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     installationDetails,
+    airflowReport,
     printScene,
     partsSchedule,
     fit,

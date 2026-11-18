@@ -38,7 +38,8 @@ test("selected export option has independent plan, engineering details, parts an
   for (const result of [first, second]) {
     assert.equal(result.pages[0].kind, "drawing");
     assert.equal(result.pages[1].kind, "installation-details");
-    assert.ok(result.pages.slice(2).every(page => page.kind === "parts-list"));
+    assert.equal(result.pages[2].kind, "airflows");
+    assert.ok(result.pages.slice(3).every(page => page.kind === "parts-list"));
     assert.ok(result.pages.every(page => page.optionId === result.entries[0].option.id));
     assert.match(result.pages[0].label, /Page 1 · A3 drawing/);
   }
@@ -104,8 +105,8 @@ test("a selected continuation page retains every parts row while page numbers an
   const selected = selectSheetOutputPages(pages, [last]);
   assert.equal(selected[0].kind, "parts-list");
   assert.equal(selected[0].partsPageNumber, pages[last].partsPageNumber);
-  assert.equal(selected[0].partsPageCount, pages.length - 2);
-  assert.ok(selected[0].svg.includes(`Parts sheet ${pages.length - 2} of ${pages.length - 2} for this option`));
+  assert.equal(selected[0].partsPageCount, pages.length - 3);
+  assert.ok(selected[0].svg.includes(`Parts sheet ${pages.length - 3} of ${pages.length - 3} for this option`));
   assert.match(selected[0].svg, /Page 1 of 1/);
   assert.match(selected[0].svg, /Page 7 of 99 · customer title/);
   const normalize = value => value.replace(/Page \d+ of \d+ · A4/u, "FOOTER").replace(/aria-label="A4 parts list page \d+"/u, "ARIA");
@@ -122,7 +123,7 @@ test("multi-storey output includes each storey in preview and page selection", (
   ) });
   const { pages } = createDesignOptionOutput(project, { createSheet });
   assert.deepEqual(pages.map(page => page.kind), [
-    "drawing", "drawing", "installation-details", "installation-details", "parts-list", "parts-list",
+    "drawing", "drawing", "installation-details", "installation-details", "airflows", "airflows", "parts-list", "parts-list",
   ]);
   for (const [index, page] of pages.entries()) {
     assert.equal(page.pageNumber, index + 1);

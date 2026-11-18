@@ -176,10 +176,10 @@ test("all-options documents have global numbering with independent per-option de
   const af=createA3SheetModel(unit(fixture(),"aerofresh-450-hrv","520"),{...metadata,orientation:"portrait"});
   const pages=createSheetOutputDocument([q,af]);
   for(const [index,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length} · A[34]`));
-  assert.deepEqual(pages.map(p=>p.kind),["drawing","installation-details","parts-list","drawing","installation-details","parts-list"]);
+  assert.deepEqual(pages.map(p=>p.kind),["drawing","installation-details","airflows","parts-list","drawing","installation-details","airflows","parts-list"]);
   assert.match(pages[1].svg,/q-cw320/);assert.doesNotMatch(pages[1].svg,/af-cw520/);
-  assert.match(pages[4].svg,/af-cw520/);assert.doesNotMatch(pages[4].svg,/q-cw320/);
-  assert.match(pages[4].className,/sheet-a3-portrait/);
+  assert.match(pages[5].svg,/af-cw520/);assert.doesNotMatch(pages[5].svg,/q-cw320/);
+  assert.match(pages[5].className,/sheet-a3-portrait/);
 });
 
 test("multi-page A4 lists start after both A3 pages and retain every row", () => {
@@ -241,7 +241,7 @@ test("engineering artwork stays on a separate page for all sheet variations", ()
         assert.match(page.svg, /data-illustration="ceiling-tva"/);
         assert.match(page.svg, /data-insulation-arrangement="service-zone"/);
         assert.doesNotMatch(page.svg, /id="drawing-content"|TERMINAL DIMENSIONS/);
-        assert.equal(document[i + 1].kind, "parts-list");
+        assert.equal(document[i + 1].kind, "airflows");
       } else {
         assert.doesNotMatch(page.svg, /data-kind="installation-detail"|data-illustration=/);
       }

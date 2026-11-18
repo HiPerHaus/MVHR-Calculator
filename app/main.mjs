@@ -1,3 +1,4 @@
+import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs";
 import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
@@ -1448,6 +1449,7 @@ removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
+for (const task of ["airflows", "as-built"]) document.querySelector(`#${task}-nav`).addEventListener("click", () => setTask(task));
 planNavigationButton.addEventListener("click", () => selectDesignStage("plan"));
 ventilationNavigationButton.addEventListener("click", () => selectDesignStage("draw"));
 for (const button of ventilationWorkspaceButtons) button.addEventListener("click", () => selectVentilationWorkspace(button.dataset.ventilationTab));
@@ -2516,7 +2518,7 @@ function selectDesignStage(stage) {
 
 function setTask(task, { designNavigation = false } = {}) {
   if (task !== "checks" && hasEngineeringEdits()) return requestEngineeringTransition(() => setTask(task, { designNavigation }));
-  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account", "airflows", "as-built"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
@@ -2551,13 +2553,20 @@ function setTask(task, { designNavigation = false } = {}) {
     if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
+  for (const fieldTask of ["airflows", "as-built"]) {
+    document.querySelector(`#${fieldTask}-workspace`).hidden = task !== fieldTask;
+    document.querySelector(`#${fieldTask}-nav`).classList.toggle("active", task === fieldTask);
+    if (task === fieldTask) document.querySelector(`#${fieldTask}-nav`).setAttribute("aria-current", "page");
+    else document.querySelector(`#${fieldTask}-nav`).removeAttribute("aria-current");
+  }
   projectWorkspace.hidden = task !== "project";
-  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
+  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account" || task === "airflows" || task === "as-built";
   viewOptionsAnchor.hidden = task !== "ventilation";
   if (task !== "ventilation") setViewOptionsOpen(false);
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
   threeDWorkspace.hidden = task !== "three-d";
+  if (["airflows", "as-built"].includes(task)) {cancelActivePointer(); renderCommissioningWorkspace(); return;}
   if (task === "account") {cancelActivePointer();return;}
   if (task === "project") {
     cancelActivePointer();
@@ -3211,8 +3220,9 @@ function renderSheetOptionPreview(optionId) {
   exportPartsCsvButton.disabled = allOptions;
   exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
-  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
+  const airflowPageCount = pages.filter(page => page.kind === "airflows").length;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
+  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references, airflow records and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
@@ -6781,6 +6791,7 @@ function renderDragPreview() {
 }
 
 function render() {
+  if (["airflows", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
   renderStoreyControl();
   dragPreviewFrame.cancel();
   dragPreviewProject = null;
@@ -11149,3 +11160,141 @@ document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>qu
 window.addEventListener("beforeunload",event=>{
  if(hasEngineeringEdits()||cloudSavePending||workingQueued||workingWrites||(!workingReady&&workingActivity>0)||(workingRecoveryError&&projectHasUnsavedChanges())){event.preventDefault();event.returnValue="";}
 });
+
+
+// Field records never overwrite live design targets. Empty readings remain unknown.
+function commitFieldCommand(command, message) {
+  const saved = commitCommand(command, message);
+  const notice = fieldNode("p", saved ? `${message}. Use Save to sync the project.` : interactionMessage, "field-feedback");
+  notice.setAttribute("role", "status");
+  document.querySelector(`#${activeTask}-workspace`)?.prepend(notice);
+  return saved;
+}
+function fieldNode(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function fieldInput(label, value = "", {type = "text", multiline = false} = {}) {
+  const wrapper = fieldNode("label", label, "field-input");
+  const input = document.createElement(multiline ? "textarea" : "input");
+  if (!multiline) input.type = type;
+  if (type === "number") { input.min = "0"; input.step = "any"; input.inputMode = "decimal"; }
+  else input.maxLength = 4000;
+  input.value = value ?? "";
+  wrapper.append(input);
+  return {wrapper, input};
+}
+function fieldNumber(value) { return Number.isFinite(value) ? `${Number(value.toFixed(2))}` : "Not set"; }
+function renderCommissioningWorkspace() {
+  const host = document.querySelector(`#${activeTask}-workspace`);
+  host.replaceChildren();
+  const heading = fieldNode("header", undefined, "field-heading");
+  heading.append(fieldNode("h1", activeTask === "airflows" ? "Airflows" : "As built"));
+  const option = history.present.designOptions.find(item => item.id === history.present.activeDesignOptionId);
+  heading.append(fieldNode("p", `${option?.name ?? "Active design"} · Centralised ducted system · Working field record, not certification`));
+  const floorLabel = fieldNode("label", "Floor ");
+  const floorSelect = document.createElement("select");
+  for (const floor of history.present.floors) { const o = fieldNode("option", floor.name); o.value = floor.id; floorSelect.append(o); }
+  floorSelect.value = currentFloorId();
+  floorSelect.addEventListener("change", () => { activeFloorId = floorSelect.value; render(); queueWorkingSession(); });
+  floorLabel.append(floorSelect); heading.append(floorLabel); host.append(heading);
+  if (!history.present.floors.length) { host.append(fieldNode("p", "Add a floor and rooms in Plan to start.")); return; }
+  if (history.present.ventilationDesignType === "decentralised") { host.append(fieldNode("p", "This field workflow is for centralised ducted systems. Decentralised commissioning is not included.")); return; }
+  const report = buildCommissioningReport(history.present, currentFloorId());
+  if (activeTask === "airflows") renderFieldAirflows(host, report);
+  else renderFieldAsBuilt(host, report);
+}
+function renderFieldAirflows(host, report) {
+  host.append(fieldNode("p", "Live normal-mode room targets from the current design. Enter measured room totals in l/s, separately from design. Where a room has several terminals, add their measured readings yourself; no equal split is assumed.", "field-guidance"));
+  if (report.unassignedTerminals?.length) host.append(fieldNode("p", `${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals. Associate them with rooms before reviewing coverage.`, "field-warning"));
+  const totals = fieldNode("div", undefined, "field-totals");
+  for (const stream of ["supply", "extract"]) {
+    const total = report.totals[stream];
+    totals.append(fieldNode("p", `${stream === "supply" ? "Supply" : "Extract"}: design ${fieldNumber(total.designLps)} l/s${total.incompleteDesign ? " (known subtotal; incomplete)" : ""} · measured ${fieldNumber(total.measuredLps)} l/s${total.incompleteMeasured ? " (known subtotal; incomplete)" : ""}`));
+  }
+  host.append(totals);
+  if (!report.lines.length) host.append(fieldNode("p", "No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
+  for (const line of report.lines) {
+    const form = fieldNode("form", undefined, "field-airflow-row");
+    const title = fieldNode("div", undefined, "field-room-title");
+    title.append(fieldNode("h2", line.name), fieldNode("p", `${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`));
+    title.append(fieldNode("p", `Required: ${fieldNumber(line.requiredLps)} l/s · Live design: ${fieldNumber(line.designLps)} l/s`));
+    if (line.measurement?.recordedAt) title.append(fieldNode("p", `Reading recorded: ${line.measurement.recordedAt}`));
+    if (line.designChanged) title.append(fieldNode("p", "Design target changed since this reading. Recheck before issuing.", "field-warning"));
+    form.append(title);
+    const measured = fieldInput("Measured room total (l/s)", line.measuredLps, {type: "number"});
+    const setting = fieldInput("Valve / terminal settings", line.measurement?.setting);
+    const notes = fieldInput("Reading notes", line.measurement?.notes);
+    form.append(measured.wrapper, setting.wrapper, notes.wrapper);
+    form.append(fieldNode("p", `Measured − design: ${fieldNumber(line.deltaLps)} l/s. No pass/fail tolerance assumed.`));
+    const save = fieldNode("button", "Save reading"); save.type = "submit"; form.append(save);
+    const feedback = fieldNode("p", "", "field-feedback"); feedback.setAttribute("role", "status"); form.append(feedback);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const value = measured.input.value.trim() === "" ? null : Number(measured.input.value);
+      if (value !== null && (!Number.isFinite(value) || value < 0)) { feedback.textContent = "Enter a non-negative airflow, or leave blank for unknown."; return; }
+      commitFieldCommand({type:"commissioning.recordMeasurement", spaceId:line.id, recordedAt:new Date().toISOString(), measuredLps:value, setting:setting.input.value, notes:notes.input.value}, "Site reading saved separately from design");
+    });
+    host.append(form);
+  }
+}
+function renderFieldAsBuilt(host, report) {
+  host.append(fieldNode("p", "Record the installed system and site evidence for this design option. Save each section before leaving. Photos and notes are included in project saves and backups; review cloud save status before leaving site.", "field-guidance"));
+  const form = fieldNode("form", undefined, "field-details-form");
+  const fields = [
+    ["engineer","Commissioning engineer"],["date","Commissioning date","date"],
+    ["instrument","Airflow instrument"],["instrumentSerial","Instrument serial number"],["calibrationDate","Calibration date","date"],
+    ["unitModel","Installed unit model"],["unitSerial","Unit serial number"],
+    ["normalSetting","Normal unit settings"],["boostSetting","Boost unit settings"],
+    ["filterDuringTest","Filters fitted during measurement"],["filterFinal","Final installed filters"],
+    ["controls","Controls / boost switches and operation"],["asBuiltChanges","As-built changes from design"],["serviceNotes","Service instructions / access / maintenance notes"],
+  ];
+  const inputs = {};
+  for (const [key,label,type] of fields) {
+    const field = fieldInput(label, report.record.details[key], {type:type ?? "text", multiline:["controls","asBuiltChanges","serviceNotes"].includes(key)});
+    inputs[key] = field.input; form.append(field.wrapper);
+  }
+  const save = fieldNode("button", "Save as-built details"); save.type = "submit"; form.append(save);
+  form.addEventListener("submit", event => { event.preventDefault(); commitFieldCommand({type:"commissioning.updateDetails", details:Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.value]))}, "As-built details saved"); });
+  host.append(form);
+  const photos = fieldNode("section", undefined, "field-photos"); photos.append(fieldNode("h2", "Site photos"), fieldNode("p", "Unit, rating label, filters, boost switches, duct insulation and silencers. Up to 10 compressed photos per design option."));
+  const photoForm = fieldNode("form", undefined, "field-photo-form");
+  const caption = fieldInput("Photo description");
+  const upload = document.createElement("input"); upload.type="file"; upload.accept="image/jpeg,image/png,image/webp"; upload.setAttribute("aria-label","Select or take site photo");
+  const add=fieldNode("button","Add photo"); add.type="submit";
+  const status=fieldNode("p", ""); status.setAttribute("role","status");
+  photoForm.append(caption.wrapper,upload,add,status);
+  photoForm.addEventListener("submit", async event => {
+    event.preventDefault(); const file=upload.files?.[0]; if(!file){status.textContent="Choose a photo first.";return;}
+    const optionId=history.present.activeDesignOptionId, projectId=history.present.id;
+    add.disabled=true;
+    try {
+      const dataUrl=await prepareSitePhoto(file);
+      if(history.present.id!==projectId || history.present.activeDesignOptionId!==optionId) throw new Error("The project or option changed. Select the photo again for the intended option.");
+      if(!commitFieldCommand({type:"commissioning.addPhoto",photo:{id:crypto.randomUUID(),caption:caption.input.value,dataUrl}},"Site photo saved")) status.textContent="Photo could not be saved. Check the project status.";
+    } catch(error){ status.textContent=error.message; } finally {add.disabled=false;}
+  });
+  photos.append(photoForm);
+  const grid=fieldNode("div",undefined,"field-photo-grid");
+  for(const photo of report.record.photos){
+    const figure=document.createElement("figure"), img=document.createElement("img");img.src=photo.dataUrl;img.alt=photo.caption || "Site evidence";img.loading="lazy";
+    const remove=fieldNode("button","Remove photo");remove.type="button";remove.addEventListener("click",()=>commitFieldCommand({type:"commissioning.removePhoto",photoId:photo.id},"Photo removed · Undo available"));
+    figure.append(img,fieldNode("figcaption",photo.caption || "No description"),remove);grid.append(figure);
+  }
+  photos.append(grid);host.append(photos);
+}
+async function prepareSitePhoto(file){
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)) throw new Error("Choose a JPEG, PNG or WebP photo.");
+  if(file.size>25*1024*1024) throw new Error("Choose a photo smaller than 25 MB.");
+  const url=URL.createObjectURL(file);
+  try {
+    const img=new Image();img.src=url;await img.decode();
+    const scale=Math.min(1,1200/Math.max(img.width,img.height)), canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+    const context=canvas.getContext("2d");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(img,0,0,canvas.width,canvas.height);
+    for(const quality of [.7,.55,.4,.25]) {const result=canvas.toDataURL("image/jpeg",quality);if(result.length<=400000)return result;}
+    throw new Error("Photo is too detailed to save. Crop or resize it and try again.");
+  } finally {URL.revokeObjectURL(url);}
+}

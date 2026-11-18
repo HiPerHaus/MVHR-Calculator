@@ -1,3 +1,4 @@
+import {applyCommissioningCommand,validateCommissioning} from "./commissioning.mjs";
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
 import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
@@ -244,6 +245,13 @@ export function applyCommand(project, command, options = {}) {
   const current = validateProject(project);
   const next = structuredClone(current);
   switch (command?.type) {
+    case "commissioning.updateDetails":
+    case "commissioning.recordMeasurement":
+    case "commissioning.addPhoto":
+    case "commissioning.removePhoto": {
+      applyCommissioningCommand(next, command);
+      break;
+    }
     case "floor.add": {
       const floor = normalizeFloor(command.floor);
       requireUniqueId(next.floors, floor.id, "Floor");
@@ -1696,6 +1704,7 @@ function validateProjectInternal(project, skipDesignOptions) {
     }
     assertUniqueIds(project[collection], collection);
   }
+  validateCommissioning(project.commissioning);
   normalizeProjectDetails(project.projectDetails);
   normalizeQuoteDraft(project.quoteDraft);
   const engineeringInputs = normalizeEngineeringInputs(project.engineeringInputs);

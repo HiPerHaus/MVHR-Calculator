@@ -41,12 +41,14 @@ test("sheet output plans an A3 drawing and installation details followed by exac
     [
       { kind: "drawing", widthMm: 420, heightMm: 297, orientation: "landscape" },
       { kind: "installation-details", widthMm: 420, heightMm: 297, orientation: "landscape" },
+      { kind: "airflows", widthMm: 210, heightMm: 297, orientation: "portrait" },
       { kind: "parts-list", widthMm: 210, heightMm: 297, orientation: "portrait" },
     ],
   );
-  assert.match(pages[0].svg, /Page 1 of 3 · A3/u);
-  assert.match(pages[1].svg, /Page 2 of 3 · A3/u);
-  assert.match(pages[2].svg, /Page 3 of 3 · A4/u);
+  assert.match(pages[0].svg, /Page 1 of 4 · A3/u);
+  assert.match(pages[1].svg, /Page 2 of 4 · A3/u);
+  assert.match(pages[2].svg, /Page 3 of 4 · A4/u);
+  assert.match(pages[3].svg, /Page 4 of 4 · A4/u);
 });
 
 test("PDF filenames remain portable and retain useful project and drawing identity", () => {

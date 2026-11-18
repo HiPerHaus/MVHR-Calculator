@@ -880,3 +880,27 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .route-self-crossing-warning { fill: none; stroke: #b4421f; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 
 .sheet-system-label { align-self: center; flex: 0 0 auto; color: #344e5a; font-size: 12px; font-weight: 700; }
+
+/* Site workflow: comfortable touch targets and no horizontal data-table scrolling. */
+.field-workspace { min-height: 0; overflow: auto; padding: 24px; background: #f2f5f6; }
+.field-workspace[hidden] { display: none; }
+.field-heading h1 { margin: 0; font-size: 24px; }
+.field-heading p, .field-guidance { color: var(--muted); max-width: 920px; line-height: 1.6; }
+.field-workspace input, .field-workspace select, .field-workspace button { min-height: 44px; }
+.field-workspace textarea { min-height: 90px; resize: vertical; }
+.field-totals { display: flex; flex-wrap: wrap; gap: 10px 30px; font-weight: 600; }
+.field-airflow-row, .field-details-form, .field-photos { background: #fff; padding: 20px; border: 1px solid #d7e0e4; border-radius: 12px; margin-top: 16px; }
+.field-airflow-row, .field-details-form { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; align-items: end; }
+.field-room-title { grid-column: 1/-1; }
+.field-room-title h2 { margin: 0; font-size: 18px; }
+.field-room-title p { margin: 6px 0; }
+.field-input { display: grid; gap: 8px; font-size: 13px; }
+.field-input input, .field-input textarea { width: 100%; box-sizing: border-box; }
+.field-warning { color: #995000; font-weight: 600; }
+.field-photo-form { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; }
+.field-photo-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 16px; }
+.field-photo-grid figure { margin: 16px 0 0; }
+.field-photo-grid img { width: 100%; height: 180px; object-fit: contain; background: #edf1f2; }
+.field-photo-grid figcaption { padding: 8px 0; overflow-wrap: anywhere; }
+@media(max-width: 900px) { .field-airflow-row, .field-details-form { grid-template-columns: repeat(2,minmax(0,1fr)); } .task-nav { flex-wrap: wrap; } }
+@media(max-width: 560px) { .field-workspace { padding: 14px; } .field-airflow-row, .field-details-form { grid-template-columns: 1fr; } }
