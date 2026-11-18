@@ -14,7 +14,7 @@ test('airflow pages paginate without truncation and omit decentralised scope',()
 test('live design airflows never display site readings, delta, settings or site metadata',()=>{
  const s={...sheet,airflowReport:{...sheet.airflowReport,record:{details:{engineer:'SITE ENGINEER'}},lines:[{name:'Bedroom',ventilationRole:'supply',requiredLps:10,designLps:12,terminalIds:['t1'],measuredLps:987.6,deltaLps:975.6,designChanged:true,measurement:{setting:'SECRET SITE SETTING'}}]}};
  const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
- assert.match(svg,/LIVE DESIGN AIRFLOWS/);assert.match(svg,/>10.0</);assert.match(svg,/>12.0</);
+ assert.match(svg,/LIVE DESIGN AIRFLOWS/);assert.match(svg,/>36.0</);assert.match(svg,/>43.2</);
  assert.doesNotMatch(svg,/MEASURED|DIFF\.|SETTING|987.6|975.6|SITE ENGINEER|SECRET SITE SETTING|Design changed since measurement/);
 });
 
@@ -42,4 +42,26 @@ test('detached boundary warning has no duplicate SVG fill attribute',()=>{
  const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Pending room',ventilationRole:'supply',designLps:null,requiredLps:null,boundaryNeedsReassignment:true}]}};
  const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
  for(const tag of svg.matchAll(/<text\b[^>]*>/g))assert.equal((tag[0].match(/\sfill=/g)||[]).length,1);
+});
+
+
+test('design rows and totals display m³/h without changing canonical L/s or filling unknowns',()=>{
+ const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Room',ventilationRole:'supply',requiredLps:12.5,designLps:20,terminalIds:[]}],totals:{supply:{designLps:20,incompleteDesign:false},extract:{designLps:null,incompleteDesign:true}}}};
+ const before=structuredClone(s),svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
+ assert.match(svg,/All flows in m³\/h/);assert.match(svg,/>45.0</);assert.match(svg,/>72.0</);
+ assert.match(svg,/Supply: design 72.0 m³\/h/);assert.match(svg,/Extract: design Not set \(partial\) m³\/h/);
+ assert.doesNotMatch(svg,/L\/s/);assert.deepEqual(s,before);
+ s.airflowReport.totals.extract={designLps:0,incompleteDesign:false};
+ assert.match(renderAirflowSheetSvg(s,createAirflowPages(s)[0]),/Extract: design 0.0 m³\/h/);
+});
+
+test('design export distinguishes allocated totals, missing data and conflicting targets',()=>{
+ for(const [extra,pattern] of [
+  [{designSource:'explicit-terminal-allocations',designLps:15},/complete allocated outlet total, not a room target/],
+  [{designSource:'unresolved',designLps:null},/No assigned target or complete normal-mode outlet allocation/],
+  [{designSource:'assigned-room-target',designLps:20,allocationDisagrees:true},/Assigned target differs from outlet allocation/]
+ ]){
+ const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Bedroom',ventilationRole:'supply',...extra}]}};
+ assert.match(renderAirflowSheetSvg(s,createAirflowPages(s)[0]),pattern);
+ }
 });

@@ -165,3 +165,31 @@ test('fresh export follows design revisions without relabelling saved readings',
  assert.equal(after.airflowReport.lines[0].designLps,14);assert.equal(after.airflowReport.lines[0].measuredLps,9);assert.equal(after.airflowReport.lines[0].designChanged,true);
  assert.equal(before.airflowReport.lines[0].designLps,10);
 });
+
+test('complete explicit terminal allocations fill missing design targets without writing room targets',()=>{
+ let p=allocationProject();const before=serializeProject(p);
+ let r=buildCommissioningReport(p,'floor-ground'),line=r.lines[0];
+ assert.equal(line.designLps,15);assert.equal(line.designSource,'explicit-terminal-allocations');assert.equal(line.allocationComplete,true);assert.equal(r.totals.supply.designLps,15);
+ assert.equal(serializeProject(p),before);assert.equal(p.rooms[0].airflowTargets.normal.assigned.state,'unresolved');
+ p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:'bed',measuredLps:14,setting:'test',notes:'',recordedAt:'2026-11-18T00:00:00Z'});
+ line=buildCommissioningReport(p,'floor-ground').lines[0];assert.equal(line.measurement.designLpsAtMeasurement,15);assert.equal(line.designChanged,false);
+ const design=structuredClone(p.engineeringInputs.networkDesigns[0]);design.terminalAllocations[0].inputValue=36;design.terminalAllocations[0].valueLps=10;
+ p=applyCommand(p,{type:'engineering.setNetworkDesign',design});line=buildCommissioningReport(p,'floor-ground').lines[0];assert.equal(line.designLps,17);assert.equal(line.measuredLps,14);assert.equal(line.designChanged,true);
+ p=updateTargets(p,'bed','room',{assigned:airflowTargetFromInput(20,'l/s','Manual precedence','Test')});line=buildCommissioningReport(p,'floor-ground').lines[0];assert.equal(line.designLps,20);assert.equal(line.designSource,'assigned-room-target');assert.equal(line.allocationDisagrees,true);
+});
+test('partial, absent, stale and other-floor/mode allocations never invent a complete room flow',()=>{
+ let p=allocationProject();let design=structuredClone(p.engineeringInputs.networkDesigns[0]);design.terminalAllocations.pop();
+ p=applyCommand(p,{type:'engineering.setNetworkDesign',design});assert.equal(buildCommissioningReport(p,'floor-ground').lines[0].designLps,null);
+ p=allocationProject();design=structuredClone(p.engineeringInputs.networkDesigns[0]);p.engineeringInputs.networkDesigns=[];design.mode='boost';p=applyCommand(p,{type:'engineering.setNetworkDesign',design});assert.equal(buildCommissioningReport(p,'floor-ground').lines[0].designLps,null);
+ p=allocationProject();p.rooms[0].boundaryState='reassignment-required';assert.equal(buildCommissioningReport(p,'floor-ground').lines[0].designLps,null);
+ p=allocationProject();p=applyCommand(p,{type:'floor.add',floor:{...floor(),id:'upper',name:'Upper'}});assert.equal(buildCommissioningReport(p,'upper').totals.supply.designLps,null);
+ const original=p.activeDesignOptionId;p=applyCommand(p,{type:'designOption.duplicate',id:'other-alloc',name:'Other',copyScopes:[],activate:true});assert.equal(buildCommissioningReport(p,'floor-ground').totals.supply.designLps,null);
+ p=applyCommand(p,{type:'designOption.switch',optionId:original});assert.equal(buildCommissioningReport(p,'floor-ground').lines[0].designLps,15);
+});
+function allocationProject(){
+ let p=twoRoomProject();p=createRoom(p,'bed','Bedroom','supply',leftBoundary(p));
+ p=addAndAssignTerminal(p,'terminal-a','synthetic-supply-terminal','bed',1500,1500);
+ p=addAndAssignTerminal(p,'terminal-b','synthetic-supply-terminal','bed',2500,2500);
+ const terminalAllocations=p.rooms[0].terminalAssociations.map((a,i)=>({id:`allocation-${i}`,componentId:a.componentId,portId:a.portId,spaceKind:'room',spaceId:'bed',inputValue:(i?7:8)*3.6,inputUnit:'m3/h',valueLps:i?7:8,basis:'Explicit design',source:'Test',terminalPressureLoss:{state:'unresolved',valuePa:null,inputValue:null,inputUnit:null,basis:null,source:null,reason:'Unknown'}}));
+ return applyCommand(p,{type:'engineering.setNetworkDesign',design:{floorId:'floor-ground',mode:'normal',basis:'Explicit design',source:'Test',sourceVersion:'1',occupancy:{state:'unresolved',persons:null,basis:null,source:null,reason:'Not set'},fluid:{densityKgM3:1.2,dynamicViscosityPaS:0.000018,basis:'Test',source:'Test'},terminalAllocations,routeResistanceInputs:[],componentResistanceInputs:[],fanCurves:[],operatingPointModels:[]}});
+}

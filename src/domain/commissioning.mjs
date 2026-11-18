@@ -1,3 +1,4 @@
+import { liveDesignAirflow } from './live-design-airflow.mjs';
 // Site evidence is separate from design authority and scoped to a design option.
 export const COMMISSIONING_DETAIL_FIELDS = Object.freeze(['engineer','date','instrument','instrumentSerial','calibrationDate','unitModel','unitSerial','normalSetting','boostSetting','filterDuringTest','filterFinal','controls','asBuiltChanges','serviceNotes']);
 const unsafe = new Set(['__proto__','prototype','constructor']);
@@ -29,8 +30,8 @@ export function applyCommissioningCommand(project,command) {
     const spaceId=key(command.spaceId);
     const space=[...project.rooms,...project.zones].find(s=>s.id===spaceId);
     if(!space || !['supply','extract'].includes(space.ventilationRole)) throw new TypeError('Select a current supply or extract room/zone');
-    const assigned=space.airflowTargets?.normal?.assigned;
-    record.measurements[spaceId]={measuredLps:flow(command.measuredLps),setting:text(command.setting ?? ''),notes:text(command.notes ?? ''),designLpsAtMeasurement:assigned?.state==='known'?assigned.valueLps:null,recordedAt:text(command.recordedAt ?? "",50)};
+    const design=liveDesignAirflow(project,space);
+    record.measurements[spaceId]={measuredLps:flow(command.measuredLps),setting:text(command.setting ?? ''),notes:text(command.notes ?? ''),designLpsAtMeasurement:design.valueLps,recordedAt:text(command.recordedAt ?? "",50)};
   } else if(command.type === 'commissioning.addPhoto') {
     record.photos.push(structuredClone(command.photo));
   } else if(command.type === 'commissioning.removePhoto') {

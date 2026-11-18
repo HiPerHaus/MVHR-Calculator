@@ -8,7 +8,7 @@ const sheet={metadata:{projectName:'Site <house>',drawingId:'V1',revision:'A',st
 function recorded(){return {...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:'room',name:'Bedroom',ventilationRole:'supply',requiredLps:10,designLps:12,measuredLps:0,deltaLps:-12,designChanged:true,measurement:{setting:'<setting>'}}]}};}
 test('commissioning records retain measured zero, current design comparison and stale warning',()=>{
  const s=recorded(),svg=renderCommissioningSheetSvg(s,createCommissioningPages(s)[0]);
- assert.match(svg,/COMMISSIONING \/ SITE RECORD/);assert.match(svg,/DESIGN NOW/);assert.match(svg,/>0.0</);assert.match(svg,/>-12.0</);assert.match(svg,/Design changed since measurement/);assert.match(svg,/&lt;setting&gt;/);
+ assert.match(svg,/COMMISSIONING \/ SITE RECORD/);assert.match(svg,/DESIGN NOW/);assert.match(svg,/>0.0</);assert.match(svg,/>-43.2</);assert.match(svg,/Design changed since measurement/);assert.match(svg,/&lt;setting&gt;/);
 });
 test('only floor-relevant measurements or nonempty option details produce commissioning pages',()=>{
  assert.deepEqual(createCommissioningPages(sheet),[]);
@@ -23,7 +23,7 @@ test('blank design and measurements stay unknown; detached site evidence is mark
  const s=recorded();Object.assign(s.airflowReport.lines[0],{designLps:null,measuredLps:11,deltaLps:null,boundaryNeedsReassignment:true});
  s.airflowReport.totals={supply:{designLps:null,measuredLps:null,incompleteDesign:true,incompleteMeasured:true}};
  const svg=renderCommissioningSheetSvg(s,createCommissioningPages(s)[0]);
- assert.match(svg,/Boundary needs reassignment; excluded from totals/);assert.match(svg,/>11.0</);assert.match(svg,/design Not set/);assert.match(svg,/measured Not recorded/);assert.doesNotMatch(svg,/Design changed since measurement/);
+ assert.match(svg,/Boundary needs reassignment; excluded from totals/);assert.match(svg,/>39.6</);assert.match(svg,/design Not set/);assert.match(svg,/measured Not recorded/);assert.doesNotMatch(svg,/Design changed since measurement/);
 });
 test('commissioning pagination and mixed-floor global numbering preserve separate design and site pages',()=>{
  const p=applyCommand(createProject('split-export'),{type:'floor.add',floor:{id:'ground',name:'Ground',transform:{translationMm:{x:0,y:0,z:knownMm(0,'test')},orientation:identityQuaternion()}}});
@@ -48,4 +48,15 @@ test('warning SVG text has no duplicate attributes and stays parseable for PDF e
  const svg=renderCommissioningSheetSvg(s,createCommissioningPages(s)[0]);
  for(const tag of svg.matchAll(/<text\b[^>]*>/g))assert.equal((tag[0].match(/\sfill=/g)||[]).length,1);
  }
+});
+
+
+test('site rows, signed differences and totals display m³/h without mutating recorded L/s',()=>{
+ const s=recorded();Object.assign(s.airflowReport.lines[0],{designLps:10,measuredLps:12.5,deltaLps:2.5});
+ s.airflowReport.totals={supply:{designLps:10,measuredLps:12.5,incompleteDesign:false,incompleteMeasured:false},extract:{designLps:null,measuredLps:0,incompleteDesign:true,incompleteMeasured:false}};
+ const before=structuredClone(s),svg=renderCommissioningSheetSvg(s,createCommissioningPages(s)[0]);
+ assert.match(svg,/All flows in m³\/h/);assert.match(svg,/>36.0</);assert.match(svg,/>45.0</);assert.match(svg,/>\+9.0</);
+ assert.match(svg,/Supply: design 36.0 · measured 45.0 m³\/h/);
+ assert.match(svg,/Extract: design Not set \(partial\) · measured 0.0 m³\/h/);
+ assert.doesNotMatch(svg,/L\/s/);assert.deepEqual(s,before);
 });

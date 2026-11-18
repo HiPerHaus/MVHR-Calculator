@@ -1,3 +1,4 @@
+import {lpsToM3h,m3hToLps} from "../src/editor/field-airflow-units.mjs";
 import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
 import { buildTerminalAssignmentIndex } from "../src/editor/terminal-assignment-index.mjs";
 import { createKeyedReferenceLayer, rasterReferenceDescriptor } from "../src/editor/reference-layer-cache.mjs";
@@ -11404,30 +11405,32 @@ function renderCommissioningWorkspace() {
 }
 function renderDesignAirflows(host, report) {
   const section=fieldNode("section",undefined,"design-airflow-section");
-  section.append(fieldNode("h2","Live design airflow schedule"),fieldNode("p","Normal-mode targets for the active option and floor. These are design values, not measured readings. Edit room targets in Plan / Draw; record site measurements in Commissioning."));
+  section.append(fieldNode("h2","Live design airflow schedule"),fieldNode("p","Normal-mode design values for the active option and floor, in m³/h. Assigned room targets take priority; otherwise a complete explicit outlet allocation is shown. No room flows are inferred from whole-dwelling references."));
   const exportButton=fieldNode("button","Export design airflow schedule");exportButton.type="button";
   exportButton.addEventListener("click",()=>selectDesignStage("export"));section.append(exportButton);
   section.append(fieldNode("p","Opens Export, where you can choose the Airflows page. The schedule scope is shown in the preview."));
   const totals=fieldNode("div",undefined,"field-totals");
-  for(const stream of ["supply","extract"]) {const t=report.totals[stream];totals.append(fieldNode("p",`${stream === "supply"?"Supply":"Extract"}: ${fieldNumber(t.designLps)} l/s · ${fieldNumber(t.designLps===null?null:t.designLps*3.6)} m³/h${t.incompleteDesign?" (known subtotal; incomplete)":""}`));}section.append(totals);
+  for(const stream of ["supply","extract"]) {const t=report.totals[stream];totals.append(fieldNode("p",`${stream === "supply"?"Supply":"Extract"}: ${fieldNumber(lpsToM3h(t.designLps))} m³/h${t.incompleteDesign?" (known subtotal; incomplete)":""}`));}section.append(totals);
   if(report.unassignedTerminals?.length)section.append(fieldNode("p",`${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals.`,"field-warning"));
   const list=fieldNode("div",undefined,"design-airflow-list");
   for(const line of report.lines) {
     const card=fieldNode("article",undefined,"design-airflow-card");
-    card.append(fieldNode("h3",line.name),fieldNode("p",`${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`),fieldNode("p",`Live design: ${fieldNumber(line.designLps)} l/s · ${fieldNumber(line.designLps===null?null:line.designLps*3.6)} m³/h`),fieldNode("p",`Required reference: ${fieldNumber(line.requiredLps)} l/s`));
+    card.append(fieldNode("h3",line.name),fieldNode("p",`${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`),fieldNode("p",`${line.designSource==="explicit-terminal-allocations"?"Allocated outlet total":"Assigned design target"}: ${fieldNumber(lpsToM3h(line.designLps))} m³/h`),fieldNode("p",`Required reference: ${fieldNumber(lpsToM3h(line.requiredLps))} m³/h`));
     if(line.boundaryNeedsReassignment)card.append(fieldNode("p","Boundary needs reassignment; review before issuing.","field-warning"));
+    else if(line.designLps===null)card.append(fieldNode("p","No assigned room target or complete normal-mode outlet allocation. Set the room target in Plan / Draw, or complete the outlet allocations in Check. The whole-dwelling reference does not allocate room flows.","field-warning"));
+    if(line.allocationDisagrees)card.append(fieldNode("p",`Assigned target differs from allocated outlets (${fieldNumber(lpsToM3h(line.allocatedLps))} m³/h). Review before issuing.`,"field-warning"));
     list.append(card);
   }
   if(!report.lines.length)section.append(fieldNode("p","No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
   section.append(list);host.append(section);renderVolumeSettings(host);
 }
 function renderFieldAirflows(host, report) {
-  host.append(fieldNode("p", "Live normal-mode room targets from the current design. Enter measured room totals in l/s, separately from design. Where a room has several terminals, add their measured readings yourself; no equal split is assumed.", "field-guidance"));
+  host.append(fieldNode("p", "Live normal-mode room targets from the current design. Enter measured room totals in m³/h, separately from design. Where a room has several terminals, add their measured readings yourself; no equal split is assumed.", "field-guidance"));
   if (report.unassignedTerminals?.length) host.append(fieldNode("p", `${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals. Associate them with rooms before reviewing coverage.`, "field-warning"));
   const totals = fieldNode("div", undefined, "field-totals");
   for (const stream of ["supply", "extract"]) {
     const total = report.totals[stream];
-    totals.append(fieldNode("p", `${stream === "supply" ? "Supply" : "Extract"}: design ${fieldNumber(total.designLps)} l/s${total.incompleteDesign ? " (known subtotal; incomplete)" : ""} · measured ${fieldNumber(total.measuredLps)} l/s${total.incompleteMeasured ? " (known subtotal; incomplete)" : ""}`));
+    totals.append(fieldNode("p", `${stream === "supply" ? "Supply" : "Extract"}: design ${fieldNumber(lpsToM3h(total.designLps))} m³/h${total.incompleteDesign ? " (known subtotal; incomplete)" : ""} · measured ${fieldNumber(lpsToM3h(total.measuredLps))} m³/h${total.incompleteMeasured ? " (known subtotal; incomplete)" : ""}`));
   }
   host.append(totals);
   if (!report.lines.length) host.append(fieldNode("p", "No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
@@ -11436,22 +11439,22 @@ function renderFieldAirflows(host, report) {
     const title = fieldNode("div", undefined, "field-room-title");
     title.append(fieldNode("h2", line.name), fieldNode("p", `${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`));
     if (line.boundaryNeedsReassignment) title.append(fieldNode("p", "Boundary needs reassignment. Saved measurements are retained but excluded from totals."));
-    title.append(fieldNode("p", `Required: ${fieldNumber(line.requiredLps)} l/s · Live design: ${fieldNumber(line.designLps)} l/s`));
+    title.append(fieldNode("p", `Required: ${fieldNumber(lpsToM3h(line.requiredLps))} m³/h · Live design: ${fieldNumber(lpsToM3h(line.designLps))} m³/h`));
     if (line.measurement?.recordedAt) title.append(fieldNode("p", `Reading recorded: ${line.measurement.recordedAt}`));
     if (line.designChanged) title.append(fieldNode("p", "Design target changed since this reading. Recheck before issuing.", "field-warning"));
     form.append(title);
-    const measured = fieldInput("Measured room total (l/s)", line.measuredLps, {type: "number"});
+    const measured = fieldInput("Measured room total (m³/h)", lpsToM3h(line.measuredLps), {type: "number"});
     const setting = fieldInput("Valve / terminal settings", line.measurement?.setting);
     const notes = fieldInput("Reading notes", line.measurement?.notes);
     form.append(measured.wrapper, setting.wrapper, notes.wrapper);
-    form.append(fieldNode("p", `Measured − design: ${fieldNumber(line.deltaLps)} l/s. No pass/fail tolerance assumed.`));
+    form.append(fieldNode("p", `Measured − design: ${fieldNumber(lpsToM3h(line.deltaLps))} m³/h. No pass/fail tolerance assumed.`));
     const save = fieldNode("button", "Save reading"); save.type = "submit"; form.append(save);
     const feedback = fieldNode("p", "", "field-feedback"); feedback.setAttribute("role", "status"); form.append(feedback);
     form.addEventListener("submit", event => {
       event.preventDefault();
       const value = measured.input.value.trim() === "" ? null : Number(measured.input.value);
       if (value !== null && (!Number.isFinite(value) || value < 0)) { feedback.textContent = "Enter a non-negative airflow, or leave blank for unknown."; return; }
-      commitFieldCommand({type:"commissioning.recordMeasurement", spaceId:line.id, recordedAt:new Date().toISOString(), measuredLps:value, setting:setting.input.value, notes:notes.input.value}, "Site reading saved separately from design");
+      commitFieldCommand({type:"commissioning.recordMeasurement", spaceId:line.id, recordedAt:new Date().toISOString(), measuredLps:m3hToLps(value), setting:setting.input.value, notes:notes.input.value}, "Site reading saved separately from design");
     });
     host.append(form);
   }

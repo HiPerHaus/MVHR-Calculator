@@ -1,14 +1,17 @@
+import { liveDesignAirflow } from '../domain/live-design-airflow.mjs';
 import { inspectAirflowBalance } from './airflow-balance.mjs';
 import { getCommissioningRecord } from '../domain/commissioning.mjs';
 export function buildCommissioningReport(project,floorId) {
   const balance=inspectAirflowBalance(project,floorId);
   const record=getCommissioningRecord(project);
   const lines=balance.lines.filter(l=>['supply','extract'].includes(l.ventilationRole)).map(line=>{
-    const designLps=line.assigned.state==='known'?line.assigned.valueLps:null;
+    const space=(line.kind==='zone'?project.zones:project.rooms).find(s=>s.id===line.id);
+    const design=liveDesignAirflow(project,space,line.kind);
+    const designLps=design.valueLps;
     const requiredLps=line.required.state==='known'?line.required.valueLps:null;
     const measurement=Object.hasOwn(record.measurements,line.id)?record.measurements[line.id]:null;
     const measuredLps=measurement?.measuredLps ?? null;
-    return {id:line.id,name:line.name,boundaryNeedsReassignment:line.boundaryNeedsReassignment,ventilationRole:line.ventilationRole,terminalIds:line.terminalIds,requiredLps,designLps,measuredLps,deltaLps:measuredLps!==null&&designLps!==null?measuredLps-designLps:null,designChanged:measurement!==null&&measurement.designLpsAtMeasurement!==designLps,measurement};
+    return {id:line.id,name:line.name,boundaryNeedsReassignment:line.boundaryNeedsReassignment,ventilationRole:line.ventilationRole,terminalIds:line.terminalIds,requiredLps,designLps,designSource:design.source,allocatedLps:design.allocatedLps,allocationComplete:design.allocationComplete,allocationDisagrees:design.allocationDisagrees,measuredLps,deltaLps:measuredLps!==null&&designLps!==null?measuredLps-designLps:null,designChanged:measurement!==null&&measurement.designLpsAtMeasurement!==designLps,measurement};
   });
   const totals={};
   for(const role of ['supply','extract']) {

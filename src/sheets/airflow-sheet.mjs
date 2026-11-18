@@ -11,7 +11,8 @@ export function createAirflowPages(sheet, { firstPageNumber = 3, totalPageCount 
   }));
 }
 const bounded = (value, length) => wrapSheetText(String(value ?? ''), length, 1)[0] ?? '';
-const flow = value => Number.isFinite(value) ? value.toFixed(1) : 'Not set';
+// Stored values remain canonical L/s; convert only the printed presentation.
+const flow = value => Number.isFinite(value) ? (value * 3.6).toFixed(1) : 'Not set';
 export function renderAirflowSheetSvg(sheet, page) {
   const m = sheet.metadata, report = sheet.airflowReport;
   const text = (x, y, value, size = 2.7, extra = '') => `<text x="${x}" y="${y}" font-family="Arial,sans-serif" font-size="${size}" fill="#20343e" ${extra}>${escapeXml(String(value ?? ''))}</text>`;
@@ -19,7 +20,7 @@ export function renderAirflowSheetSvg(sheet, page) {
   out.push(text(14,20,'LIVE DESIGN AIRFLOWS',5,'font-weight="700"'));
   for (const [i,line] of wrapSheetText(m.projectName,55,2).entries()) out.push(text(14,28+i*4,line,3.4));
   out.push(text(14,39,bounded(`${sheet.printScene.floorName} · ${m.drawingId} · Revision ${m.revision}`, 70)));
-  out.push(text(14,45,`Airflow sheet ${page.airflowPageNumber} of ${page.airflowPageCount} · Normal mode · All flows in L/s`,2.5));
+  out.push(text(14,45,`Airflow sheet ${page.airflowPageNumber} of ${page.airflowPageCount} · Normal mode · All flows in m³/h`,2.5));
   out.push(text(14,49,'Room totals include all terminals; no per-terminal allocation. Not certification.',2.3));
   const unassignedCount = report.unassignedTerminals?.length ?? 0;
   out.push(text(14,53,unassignedCount ? `Incomplete: ${unassignedCount} unassigned terminal(s) excluded from room totals; review required.` : 'Live design targets only. Site records are exported separately.',2.3));
@@ -30,6 +31,9 @@ export function renderAirflowSheetSvg(sheet, page) {
     const nameLines=wrapSheetText(`${row.name} · ${row.ventilationRole}`,42,2);
     nameLines.forEach((line,i)=>out.push(text(14,y+4+i*3.4,line,2.6)));
     out.push(text(108,y+4,flow(row.requiredLps)),text(142,y+4,flow(row.designLps)),text(178,y+4,String(row.terminalIds?.length ?? 0)));
+    if(row.allocationDisagrees) out.push(text(14,y+10,'Assigned target differs from outlet allocation; review required',2.2,'style="fill:#9b4e00"'));
+    else if(row.designSource==='explicit-terminal-allocations') out.push(text(14,y+10,'Design shown is the complete allocated outlet total, not a room target',2.2));
+    else if(row.designLps===null && !row.boundaryNeedsReassignment) out.push(text(14,y+10,'No assigned target or complete normal-mode outlet allocation',2.2,'style="fill:#9b4e00"'));
     if(row.boundaryNeedsReassignment) out.push(text(14,y+10,'Boundary needs reassignment; excluded from totals',2.2,'style="fill:#9b4e00"'));
     out.push(`<line x1="12" y1="${y+10.8}" x2="198" y2="${y+10.8}" stroke="#d7dfe2" stroke-width=".15"/>`); y+=11;
   }
@@ -37,7 +41,7 @@ export function renderAirflowSheetSvg(sheet, page) {
   // Summaries occupy a fixed lower band so long schedules cannot overlap them.
   const totalLabel = (side) => {
     const t=report.totals?.[side] ?? {};
-    return `${side === 'supply' ? 'Supply' : 'Extract'}: design ${flow(t.designLps)}${t.incompleteDesign?' (partial)':''} L/s`;
+    return `${side === 'supply' ? 'Supply' : 'Extract'}: design ${flow(t.designLps)}${t.incompleteDesign?' (partial)':''} m³/h`;
   };
   out.push(text(14,268,totalLabel('supply'),2.4),text(14,273,totalLabel('extract'),2.4));
   out.push(text(14,280,'Required and assigned design targets remain separate; no compliance verdict.',2.3));

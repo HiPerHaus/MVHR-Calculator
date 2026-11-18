@@ -12,7 +12,8 @@ export function createCommissioningPages(sheet, { firstPageNumber = 3, totalPage
   }));
 }
 const bounded = (value, length) => wrapSheetText(String(value ?? ''), length, 1)[0] ?? '';
-const flow = (value, missing = 'Not recorded') => Number.isFinite(value) ? value.toFixed(1) : missing;
+// Stored values remain canonical L/s; convert only the printed presentation.
+const flow = (value, missing = 'Not recorded') => Number.isFinite(value) ? (value * 3.6).toFixed(1) : missing;
 export function renderCommissioningSheetSvg(sheet, page) {
   const m = sheet.metadata, report = sheet.airflowReport, details = report.record?.details ?? {};
   const text = (x, y, value, size = 2.7, extra = '') => `<text x="${x}" y="${y}" font-family="Arial,sans-serif" font-size="${size}" fill="#20343e" ${extra}>${escapeXml(String(value ?? ''))}</text>`;
@@ -20,7 +21,7 @@ export function renderCommissioningSheetSvg(sheet, page) {
   out.push(text(14,20,'COMMISSIONING / SITE RECORD',5,'font-weight="700"'));
   for (const [i,line] of wrapSheetText(m.projectName,55,2).entries()) out.push(text(14,28+i*4,line,3.4));
   out.push(text(14,39,bounded(`${sheet.printScene.floorName} · ${m.drawingId} · Revision ${m.revision}`, 70)));
-  out.push(text(14,45,`Commissioning sheet ${page.commissioningPageNumber} of ${page.commissioningPageCount} · Normal mode · All flows in L/s`,2.5));
+  out.push(text(14,45,`Commissioning sheet ${page.commissioningPageNumber} of ${page.commissioningPageCount} · Normal mode · All flows in m³/h`,2.5));
   out.push(text(14,49,'Room totals include all terminals; no per-terminal allocation. Not certification.',2.3));
   const unassignedCount = report.unassignedTerminals?.length ?? 0;
   out.push(text(14,53,unassignedCount ? `Incomplete: ${unassignedCount} unassigned terminal(s) excluded from room totals; review required.` : 'Current design compared with recorded site readings; not a design input.',2.3));
@@ -30,7 +31,7 @@ export function renderCommissioningSheetSvg(sheet, page) {
   for (const row of page.rows) {
     const nameLines=wrapSheetText(`${row.name} · ${row.ventilationRole}`,42,2);
     nameLines.forEach((line,i)=>out.push(text(14,y+4+i*3.4,line,2.6)));
-    out.push(text(93,y+4,flow(row.designLps, 'Not set')),text(119,y+4,flow(row.measuredLps)),text(153,y+4,Number.isFinite(row.deltaLps)?`${row.deltaLps>0?'+':''}${row.deltaLps.toFixed(1)}`:'—'));
+    out.push(text(93,y+4,flow(row.designLps, 'Not set')),text(119,y+4,flow(row.measuredLps)),text(153,y+4,Number.isFinite(row.deltaLps)?`${row.deltaLps>0?'+':''}${(row.deltaLps * 3.6).toFixed(1)}`:'—'));
     wrapSheetText(row.measurement?.setting || '—',15,2).forEach((line,i)=>out.push(text(171,y+4+i*3.4,line,2.5)));
     if(row.boundaryNeedsReassignment) out.push(text(14,y+10,'Boundary needs reassignment; excluded from totals',2.2,'style="fill:#9b4e00"'));
     else if(row.designChanged) out.push(text(14,y+10,'Design changed since measurement; review required',2.2,'style="fill:#9b4e00"'));
@@ -40,7 +41,7 @@ export function renderCommissioningSheetSvg(sheet, page) {
   // Summaries occupy a fixed lower band so long schedules cannot overlap them.
   const totalLabel = (side) => {
     const t=report.totals?.[side] ?? {};
-    return `${side === 'supply' ? 'Supply' : 'Extract'}: design ${flow(t.designLps, 'Not set')}${t.incompleteDesign?' (partial)':''} · measured ${flow(t.measuredLps)}${t.incompleteMeasured?' (partial)':''} L/s`;
+    return `${side === 'supply' ? 'Supply' : 'Extract'}: design ${flow(t.designLps, 'Not set')}${t.incompleteDesign?' (partial)':''} · measured ${flow(t.measuredLps)}${t.incompleteMeasured?' (partial)':''} m³/h`;
   };
   out.push(text(14,268,totalLabel('supply'),2.4),text(14,273,totalLabel('extract'),2.4));
   out.push(text(14,280,`By: ${bounded(details.engineer || 'Not recorded', 45)} · Date: ${bounded(details.date || 'Not recorded', 20)}`,2.3));
