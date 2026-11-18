@@ -23,7 +23,8 @@ test("unknown and invalid geometry never becomes zero known volume",()=>{
 });
 test("floor default inheritance and overrides survive serialization and preserve targets",()=>{
  let p=fixture(); const targets=structuredClone(p.rooms[0].airflowTargets);
- assert.equal(roomVolume(p,p.rooms[0]).valueM3,null);
+ assert.equal(roomVolume(p,p.rooms[0]).valueM3,60);
+ assert.equal(roomVolume(p,p.rooms[0]).assumed,true);
  p=applyCommand(p,{type:"floor.setCeiling",floorId:"floor",ceiling:{type:"flat",heightMm:2700}});
  assert.equal(roomVolume(p,p.rooms[0]).valueM3,64.8);
  p=applyCommand(p,{type:"room.setCeiling",roomId:"room",ceiling:{type:"raked",lowMm:2400,highMm:3600,directionDeg:0}});
@@ -59,3 +60,22 @@ function fixture(){
  p=applyCommand(p,{type:"wall.addChain",floorId:"floor",nodeIds:["node-a","node-b","node-c","node-d","node-a"],wallIds:["wall-ab","wall-bc","wall-cd","wall-da"],points:[[0,0],[6000,0],[6000,4000],[0,4000],[0,0]].map(([x,y])=>({x,y,z:unknownMm("test")})),splits:[],thicknessMm:140,heightMm:unknownMm("test"),referenceLine:"centreline",classification:"physical"});
  return applyCommand(p,{type:"room.createFromBoundary",roomId:"room",floorId:"floor",boundaryKey:deriveRoomBoundaries(p,"floor").candidates[0].key,name:"Living",use:"living",ventilationRole:"supply"});
 }
+
+test("new and legacy unset floor defaults are assumed without mutating saved evidence",()=>{
+ const p=fixture(), before=serializeProject(p);
+ for(const project of [p,deserializeProject(before)]) {
+   const result=roomVolume(project,project.rooms[0]);
+   assert.equal(result.valueM3,60);assert.equal(result.assumed,true);assert.match(result.source,/assumed default 2.5 m/);
+   assert.equal(floorVolumes(project,"floor").assumedRoomCount,1);
+   assert.equal(project.floors[0].ceiling,undefined);
+   assert.equal(project.rooms[0].heightMm.state,"unknown");
+ }
+ assert.equal(serializeProject(p),before);
+ let unknown=applyCommand(p,{type:"floor.setCeiling",floorId:"floor",ceiling:{type:"unknown"}});
+ assert.equal(roomVolume(unknown,unknown.rooms[0]).valueM3,null);
+ unknown=applyCommand(p,{type:"room.setCeiling",roomId:"room",ceiling:{type:"unknown"}});
+ assert.equal(roomVolume(unknown,unknown.rooms[0]).valueM3,null);
+ const override=applyCommand(p,{type:"room.setCeiling",roomId:"room",ceiling:{type:"flat",heightMm:3000}});
+ assert.equal(roomVolume(override,override.rooms[0]).valueM3,72);assert.equal(roomVolume(override,override.rooms[0]).assumed,false);
+ assert.deepEqual(ventilationReferenceAssessment(p.ventilationReference),ventilationReferenceAssessment(override.ventilationReference));
+});

@@ -1,4 +1,4 @@
-import {floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
+import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
 import { buildTerminalAssignmentIndex } from "../src/editor/terminal-assignment-index.mjs";
 import { createKeyedReferenceLayer, rasterReferenceDescriptor } from "../src/editor/reference-layer-cache.mjs";
 import { createSnapshotMemo, createTrailingViewTask } from "../src/editor/view-performance.mjs";
@@ -3273,8 +3273,7 @@ function renderSheetOptionPreview(optionId) {
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
   const airflowPageCount = pages.filter(page => page.kind === "airflows").length;
   const installationPageCount = pages.filter(page => page.kind === "installation-details").length;
-  const electricalPageCount = pages.filter(page => page.kind === "q-series-electrical").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${electricalPageCount ? ` + ${electricalPageCount} A3 electrical reference${electricalPageCount === 1 ? "" : "s"}` : ""}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
   sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references, airflow records and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
@@ -3332,7 +3331,7 @@ function openSheetOutputPicker(action, output = null) {
     input.checked = sheetPageSelections.get(page.pageKey) !== false;
     const description = document.createElement("span");
     const title = document.createElement("strong");
-    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "q-series-electrical" ? "Q-series electrical reference" : page.kind === "airflows" ? "Airflows" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflows" ? "Airflows" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
     const detail = document.createElement("small");
     detail.textContent = `Page ${index + 1} · ${["parts-list", "airflows"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
     description.append(title, detail);
@@ -11492,30 +11491,32 @@ async function prepareSitePhoto(file){
 }
 
 function renderVolumeSettings(host) {
-  const section=fieldNode("section",undefined,"field-details-form");
-  section.append(fieldNode("h2","Ceiling heights and room volumes"),fieldNode("p","Actual-height geometry estimate uses wall-reference-line room areas, not verified net area. Unknown or stale rooms are excluded. Split-level, vaulted/multiple-plane ceilings and void deductions need separate review. Defaults apply across design options; room overrides belong to their option."));
+  const section=fieldNode("section",undefined,"volume-settings");
+  section.append(fieldNode("h2","Ceiling heights and room volumes"),fieldNode("p","Actual-height geometry estimate uses wall-reference-line room areas, not verified net area. Unset floor heights use an assumed 2.5 m, not a verified measurement. Explicit unknown or stale rooms are excluded. Split-level, vaulted/multiple-plane ceilings and void deductions need separate review. Defaults apply across design options; room overrides belong to their option."));
   const floor=history.present.floors.find(f=>f.id===currentFloorId());
-  const form=fieldNode("form"), height=fieldInput("Floor default clear ceiling height (m; blank = unknown)",floor.ceiling?.type==="flat"?floor.ceiling.heightMm/1000:"",{type:"number"});
+  const effectiveFloor=floorCeiling(floor);
+  const form=fieldNode("form",undefined,"volume-floor-form"), height=fieldInput(`Floor ceiling height (m; blank = unknown)${effectiveFloor.assumed?" · assumed default, not verified":""}`,effectiveFloor.ceiling.type==="flat"?effectiveFloor.ceiling.heightMm/1000:"",{type:"number"});
   const save=fieldNode("button","Save floor height");save.type="submit";form.append(height.wrapper,save);
   form.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"floor.setCeiling",floorId:floor.id,ceiling:height.input.value.trim()?{type:"flat",heightMm:Number(height.input.value)*1000}:{type:"unknown"}},"Floor default saved; design airflow unchanged");});section.append(form);
   const summary=floorVolumes(history.present,floor.id);
-  section.append(fieldNode("p",`Current-floor room volume ${summary.complete?"total":"known subtotal (incomplete)"}: ${fieldNumber(summary.knownSubtotalM3)} m³. This is not PHPP reference volume or confirmed whole-building volume.`));
+  section.append(fieldNode("p",`Current-floor room volume ${summary.complete?"total":"known subtotal (incomplete)"}: ${fieldNumber(summary.knownSubtotalM3)} m³.${summary.assumedRoomCount?` Includes ${summary.assumedRoomCount} room(s) using assumed heights, not verified measurements.`:""} This is not PHPP reference volume or confirmed whole-building volume.`,"volume-summary"));
+  const roomList=fieldNode("div",undefined,"volume-room-list");section.append(roomList);
   for(const room of history.present.rooms.filter(r=>r.floorId===floor.id)) {
-    const result=roomVolume(history.present,room), row=fieldNode("form",undefined,"field-airflow-row");
+    const result=roomVolume(history.present,room), row=fieldNode("form",undefined,"volume-room-card");
     row.append(fieldNode("h3",room.name),fieldNode("p",`${fieldNumber(result.valueM3)} m³ · ${result.source} · ${result.reason??"actual-height geometry estimate"}`));
-    const label=fieldNode("label","Ceiling shape "),type=document.createElement("select");
+    const label=fieldNode("label","Ceiling shape ","field-input"),type=document.createElement("select");
     for(const [v,t] of [["inherit","Use floor default"],["flat","Flat override"],["raked","Single-plane rake"],["unknown","Unknown / complex ceiling"]]) {const o=fieldNode("option",t);o.value=v;type.append(o);}
     const selected=room.ceiling??(room.heightMm?.valueMm>0?{type:"flat",heightMm:room.heightMm.valueMm}:{type:"inherit"});type.value=selected.type;label.append(type);
     const flat=fieldInput("Flat height (m)",selected.heightMm?selected.heightMm/1000:"",{type:"number"}),low=fieldInput("Rake low clear height (m)",selected.lowMm?selected.lowMm/1000:"",{type:"number"}),high=fieldInput("Rake high clear height (m)",selected.highMm?selected.highMm/1000:"",{type:"number"}),direction=fieldInput("Low-to-high direction (degrees: 0 = +X, 90 = +Y in plan coordinates)",selected.directionDeg??0,{type:"number"});
     const refresh=()=>{flat.wrapper.hidden=type.value!=="flat";for(const f of [low,high,direction]) f.wrapper.hidden=type.value!=="raked";};type.addEventListener("change",refresh);refresh();
-    const submit=fieldNode("button","Save room ceiling");submit.type="submit";row.append(label,flat.wrapper,low.wrapper,high.wrapper,direction.wrapper,submit);
-    row.addEventListener("submit",event=>{event.preventDefault();const ceiling=type.value==="flat"?{type:"flat",heightMm:Number(flat.input.value)*1000}:type.value==="raked"?{type:"raked",lowMm:Number(low.input.value)*1000,highMm:Number(high.input.value)*1000,directionDeg:direction.input.value.trim()?Number(direction.input.value):NaN}:{type:type.value};commitFieldCommand({type:"room.setCeiling",roomId:room.id,ceiling},"Room ceiling saved; design airflow unchanged");});section.append(row);
+    const submit=fieldNode("button","Save room ceiling");submit.type="submit";const controls=fieldNode("div",undefined,"volume-room-controls");controls.append(label,flat.wrapper,low.wrapper,high.wrapper,direction.wrapper);row.append(controls,submit);
+    row.addEventListener("submit",event=>{event.preventDefault();const ceiling=type.value==="flat"?{type:"flat",heightMm:Number(flat.input.value)*1000}:type.value==="raked"?{type:"raked",lowMm:Number(low.input.value)*1000,highMm:Number(high.input.value)*1000,directionDeg:direction.input.value.trim()?Number(direction.input.value):NaN}:{type:type.value};commitFieldCommand({type:"room.setCeiling",roomId:room.id,ceiling},"Room ceiling saved; design airflow unchanged");});roomList.append(row);
   }
   host.append(section);
   const ref=history.present.ventilationReference??{tfaM2:null,occupants:null,source:""}, assessment=ventilationReferenceAssessment(history.present.ventilationReference);
-  const refForm=fieldNode("form",undefined,"field-details-form");refForm.append(fieldNode("h2","Whole-dwelling ventilation references"),fieldNode("p","Enter independently reviewed dwelling TFA, not this floor’s drawn room area. PHPP residential reference volume uses TFA × 2.5 m regardless of actual ceiling height. These references do not size, balance or allocate room targets."));
+  const refForm=fieldNode("form",undefined,"volume-reference");refForm.append(fieldNode("h2","Whole-dwelling ventilation references"),fieldNode("p","Enter independently reviewed dwelling TFA, not this floor’s drawn room area. PHPP residential reference volume uses TFA × 2.5 m regardless of actual ceiling height. These references do not size, balance or allocate room targets."));
   const tfa=fieldInput("Reviewed dwelling TFA (m²)",ref.tfaM2,{type:"number"}),occupants=fieldInput("Design occupants (whole dwelling)",ref.occupants,{type:"number"}),source=fieldInput("TFA / occupancy source and assumptions",ref.source);
-  refForm.append(tfa.wrapper,occupants.wrapper,source.wrapper,fieldNode("p",`PHPP reference volume: ${fieldNumber(assessment.referenceVolumeM3)} m³ · 0.3/h reference: ${fieldNumber(assessment.areaReferenceM3h)} m³/h · 30 m³/h/person assumption: ${fieldNumber(assessment.occupantReferenceM3h)} m³/h · higher reference: ${fieldNumber(assessment.comparisonM3h)} m³/h.`),fieldNode("p",assessment.boundary));
+  const refInputs=fieldNode("div",undefined,"volume-reference-inputs");refInputs.append(tfa.wrapper,occupants.wrapper,source.wrapper);refForm.append(refInputs,fieldNode("p",`PHPP reference volume: ${fieldNumber(assessment.referenceVolumeM3)} m³ · 0.3/h reference: ${fieldNumber(assessment.areaReferenceM3h)} m³/h · 30 m³/h/person assumption: ${fieldNumber(assessment.occupantReferenceM3h)} m³/h · higher reference: ${fieldNumber(assessment.comparisonM3h)} m³/h.`),fieldNode("p",assessment.boundary));
   const a=fieldNode("a","PHI reference-volume guidance");a.href=assessment.source;a.target="_blank";a.rel="noopener";refForm.append(a);
   const button=fieldNode("button","Save reference inputs (does not change targets)");button.type="submit";refForm.append(button);
   refForm.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"ventilation.setReference",reference:{tfaM2:tfa.input.value.trim()?Number(tfa.input.value):null,occupants:occupants.input.value.trim()?Number(occupants.input.value):null,source:source.input.value}},"Reference inputs saved separately from room targets");});host.append(refForm);

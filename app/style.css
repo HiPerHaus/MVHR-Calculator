@@ -915,3 +915,26 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 #add-wall-point { min-height: 44px; }
 
 .room-candidate.selected { fill: rgb(240 164 60 / 24%); stroke: #d98416; stroke-width: 4; stroke-dasharray: none; }
+
+/* Ceiling settings are stacked sections, not arbitrary cells in the field-record grid. */
+.volume-settings, .volume-reference { display: grid; box-sizing: border-box; width: 100%; max-width: 1240px; gap: 18px; min-width: 0; background: #fff; border: 1px solid #d7e0e4; border-radius: 12px; padding: 24px; margin-top: 16px; }
+.volume-settings > h2, .volume-reference > h2 { margin: 0; font-size: 20px; line-height: 1.3; text-transform: none; letter-spacing: normal; color: #1c3038; }
+.volume-settings p, .volume-reference p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.volume-floor-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 16px; background: #f3f6f7; border-radius: 8px; }
+.volume-floor-form .field-input { flex: 0 1 360px; min-width: 0; }
+.volume-summary { padding: 12px 16px; border-left: 3px solid #628f91; background: #f3f6f7; }
+.volume-room-list { display: grid; align-items: start; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.volume-room-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; margin: 0; padding: 16px; border: 1px solid #d7e0e4; border-radius: 10px; }
+.volume-room-card h3 { margin: 0; font-size: 16px; }
+.volume-room-card > p { color: #526775; font-size: 13px; }
+.volume-room-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: end; gap: 12px; }
+.volume-room-controls > :first-child, .volume-room-controls > :last-child { grid-column: 1 / -1; }
+.volume-room-controls > [hidden] { display: none; }
+.volume-reference-inputs { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 16px; align-items: end; }
+.volume-settings .field-input, .volume-reference .field-input { min-width: 0; line-height: 1.45; }
+.volume-settings input, .volume-settings select, .volume-reference input { box-sizing: border-box; min-height: 44px; width: 100%; min-width: 0; padding: 9px 10px; font: inherit; border: 1px solid #adbcc5; border-radius: 6px; background: #fff; }
+.volume-settings button, .volume-reference button, .volume-reference > a { min-height: 44px; box-sizing: border-box; padding: 10px 14px; font: inherit; border-radius: 6px; }
+.volume-room-card > button { align-self: start; margin-top: auto; }
+.volume-reference > button, .volume-reference > a { justify-self: start; max-width: 100%; white-space: normal; }
+@media(max-width: 1000px) { .volume-room-list { grid-template-columns: 1fr; } .volume-reference-inputs { grid-template-columns: repeat(2,minmax(0,1fr)); } .volume-reference-inputs > :last-child { grid-column: 1 / -1; } }
+@media(max-width: 560px) { .volume-settings, .volume-reference { padding: 16px; } .volume-floor-form { padding: 12px; } .volume-floor-form .field-input { flex-basis: 100%; } .volume-room-controls, .volume-reference-inputs { grid-template-columns: 1fr; } .volume-room-card > button, .volume-floor-form > button, .volume-reference > button { width: 100%; } }

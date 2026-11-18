@@ -39,8 +39,8 @@ test("selected export option has independent plan, engineering details, parts an
     assert.equal(result.pages[0].kind, "drawing");
     assert.equal(result.pages[1].kind, "installation-details");
     const airflowIndex = result.pages.findIndex(page => page.kind === "airflows");
-    assert.equal(airflowIndex, result === first ? 3 : 2);
-    if (result === first) assert.equal(result.pages[2].kind, "q-series-electrical");
+    assert.equal(airflowIndex, 2);
+    if (result === first) assert.match(result.pages[1].svg, /data-role="q-electrical-source"/);
     assert.ok(result.pages.slice(airflowIndex + 1).every(page => page.kind === "parts-list"));
     assert.ok(result.pages.every(page => page.optionId === result.entries[0].option.id));
     assert.match(result.pages[0].label, /Page 1 · A3 drawing/);

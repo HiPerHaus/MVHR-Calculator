@@ -1,3 +1,5 @@
+import { hasQElectricalReference } from "./q-series-electrical-reference.mjs";
+import { Q_SERIES_ELECTRICAL_IMAGE } from "./q-series-electrical-source.mjs";
 import { escapeXml, wrapSheetText } from "./a3-sheet.mjs";
 import { renderInstallReferenceIllustration } from "./install-reference-illustrations.mjs";
 import { renderInsulationReferenceIllustration } from "./insulation-reference-illustrations.mjs";
@@ -9,8 +11,17 @@ const AEROFRESH_CONTROLS = [
 
 const EQUIPMENT_CARDS_PER_PAGE = 3;
 const isEquipmentCard = card => !["ceiling-tva", "wall-housing", "equipment-notes"].includes(card.id);
+function installationLayout(sheet) {
+  const equipmentCount = sheet.installationDetails.cards.filter(isEquipmentCard).length;
+  const equipmentPages = Math.max(1, Math.ceil(equipmentCount / EQUIPMENT_CARDS_PER_PAGE));
+  const hasQ = hasQElectricalReference(sheet);
+  // A narrow one-column panel cannot hold the source legibly. Portrait sheets
+  // also need a full-width continuation rather than shrinking the reference.
+  const coordinationContinuation = hasQ && equipmentCount > 0 && (equipmentCount % EQUIPMENT_CARDS_PER_PAGE !== 1 || sheet.page.orientation === "portrait");
+  return { hasQ, equipmentPages, coordinationContinuation, count: equipmentPages + Number(coordinationContinuation) };
+}
 export function createInstallationDetailPages(sheet, { firstPageNumber = 2, totalPageCount = null } = {}) {
-  const count = sheet.metadata.systemScope === "decentralised" ? 1 : Math.max(1, Math.ceil(sheet.installationDetails.cards.filter(isEquipmentCard).length / EQUIPMENT_CARDS_PER_PAGE));
+  const count = sheet.metadata.systemScope === "decentralised" ? 1 : installationLayout(sheet).count;
   return Array.from({ length: count }, (_, index) => ({
     installationPageNumber: index + 1, installationPageCount: count,
     pageNumber: firstPageNumber + index,
@@ -25,12 +36,16 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
   const { widthMm: width, heightMm: height } = sheet.page;
   const m = sheet.metadata, details = sheet.installationDetails;
   const allEquipment = details.cards.filter(isEquipmentCard);
-  const installationPageCount = Math.max(1, Math.ceil(allEquipment.length / EQUIPMENT_CARDS_PER_PAGE));
+  const layout = installationLayout(sheet);
+  const installationPageCount = layout.count;
+  const coordinationOnly = layout.coordinationContinuation && installationPageNumber === installationPageCount;
   if (!Number.isInteger(installationPageNumber) || installationPageNumber < 1 || installationPageNumber > installationPageCount) throw new RangeError("Installation detail page is unavailable");
   const equipmentOffset = (installationPageNumber - 1) * EQUIPMENT_CARDS_PER_PAGE;
   const gap = 4, x = 10, top = 43, contentWidth = width - 20;
   const cardWidth = (contentWidth - gap * 2) / 3;
-  const cardHeight = (height - 20 - top - gap - 10) / 2;
+  const availableHeight = height - 30 - top - gap;
+  const cardHeight = layout.hasQ && !layout.coordinationContinuation && sheet.page.orientation === "landscape" ? 104 : availableHeight / 2;
+  const lowerHeight = availableHeight - cardHeight;
   const lowerY = top + cardHeight + gap;
   const out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="Installation details for ${escapeXml(m.drawingId)}">`,
     '<rect width="100%" height="100%" fill="white"/>',
@@ -40,7 +55,10 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
     ...lines(`${m.drawingId} / DETAILS · Revision ${m.revision} · ${m.issueDate} · ${m.drawingTitle}`, 15, 35, width - 30, 2.8, 1),
     text(15, 40, "Dimensions in mm · Reference sections NTS · Read with the corresponding plan", 2.8),
   ];
-  const box = (column, y = top, w = cardWidth) => ({ x: x + column * (cardWidth + gap), y, w, h: cardHeight });
+  const box = (column, y = top, w = cardWidth) => ({ x: x + column * (cardWidth + gap), y, w, h: y === top ? cardHeight : lowerHeight });
+  if (coordinationOnly) {
+    out.push(coordinationCard(details, {x:10,y:top,w:contentWidth,h:height-top-30}, true));
+  } else {
   out.push(referenceCard(details.cards.find(c => c.id === "ceiling-tva"), "01", box(0)),
     referenceCard(details.cards.find(c => c.id === "wall-housing"), "02", box(1)),
     insulationCard(box(2)));
@@ -48,7 +66,8 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
   equipment.forEach((card, i) => out.push(referenceCard(card, String(equipmentOffset + i + 4).padStart(2, "0"), box(i, lowerY), equipment.length === 3 && card.id === "af300-remote")));
   if (equipment.length < 3) {
     const start = equipment.length;
-    out.push(coordinationCard(details, box(start, lowerY, contentWidth - start * (cardWidth + gap))));
+    out.push(coordinationCard(details, box(start, lowerY, contentWidth - start * (cardWidth + gap)), layout.hasQ && !layout.coordinationContinuation));
+  }
   }
   if (details.unmatchedComponentIds.length) out.push(text(15, height - 21, `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required. Verify exact model, mounting and CW arrangement.`, 2.5));
   out.push(text(15, height - 14, "Owner reference drawings supplied 09, 17 and 18 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
@@ -63,7 +82,7 @@ function referenceCard(card, number, b, includeControls = false) {
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
-    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Service/drain clearances and wiring not specified by this source; verify current instructions."],
+    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Trap shown schematically; drain/service dimensions not specified. Verify current instructions."],
     "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "See Q-series electrical reference; verify current model instructions."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
@@ -102,7 +121,7 @@ function insulationCard(b) {
     ], b, notesY)}</g>`, "</g>"].join("");
 }
 
-function coordinationCard(details, b) {
+function coordinationCard(details, b, includeQElectrical = false) {
   const messages = [
     ...(details.unmatchedComponentIds.length ? [`${details.unmatchedComponentIds.length} other unit(s) on this floor: no supplied assembly matches. Obtain the exact model, mounting and CW arrangement drawing.`] : []),
     ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["No matching central unit on this floor. Terminal sections are general references."] : []),
@@ -113,7 +132,23 @@ function coordinationCard(details, b) {
     "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",
     "Project insulation specification is not supplied. This sheet is preliminary, not installation approval.",
   ];
-  return panelStart(b, details.hasAeroFresh ? "AEROFRESH ELECTRICAL / COORDINATION" : "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
+  if (includeQElectrical) {
+    const imageWidth = Math.min(b.w * .56, (b.h - 16) * 858 / 758);
+    const imageHeight = imageWidth * 758 / 858;
+    const notesBox = { x: b.x + imageWidth + 8, y: b.y, w: b.w - imageWidth - 12, h: b.h };
+    const summary = [
+      `Q-series electrical reference: ${details.qElectricalModels.join(", ")}. Owner source, 18 Nov 2026.`,
+      "Source: Q350 — 10 A GPO; Q450 / Q600 — 15 A GPO.",
+      "Boost: low-voltage 2-core, momentary switches; bathroom, kitchen, laundry and WC shown.",
+      "Comfoconnect Pro and Option Box shown. No terminal pinout inferred; verify exact accessories and current instructions with the installer.",
+      "Not project circuit, cable-size or protective-device design, and not installation approval.",
+      ...messages.filter(message => !message.startsWith("See Q-series electrical reference")),
+    ];
+    return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "owner-q350-q450-q600-controls-2026-11-18")
+      + `<image data-role="q-electrical-source" data-source="owner-q350-q450-q600-controls-2026-11-18" href="${Q_SERIES_ELECTRICAL_IMAGE}" x="${b.x + 4}" y="${b.y + 12}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid meet"/>`
+      + `<g data-role="coordination-notes">${paragraphs(summary, notesBox, b.y + 15)}</g></g>`;
+  }
+  return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
 }
 
 function panelStart(b, title, id, source) {

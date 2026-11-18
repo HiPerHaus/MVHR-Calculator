@@ -24,6 +24,7 @@ const sheet=createA3SheetModel(project,meta),pages=createSheetOutputPages(sheet)
 document.querySelector("#pages").innerHTML=pages[1].svg;
 window.__pages=pages;
 window.__sheet=sheet;
+window.__singleQ=()=>{const single=structuredClone(project);single.components=single.components.slice(0,1);document.querySelector("#pages").innerHTML=createSheetOutputPages(createA3SheetModel(single,meta))[1].svg;};
 window.__svgText=document.querySelector("#pages").textContent;
 window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="installation-detail"]')].map(card=>{
 const bounds=card.querySelector("rect").getBoundingClientRect();
@@ -91,9 +92,13 @@ try{
  await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
  await writeFile(join(output,"print-mixed-a3-a4.pdf"),Buffer.from(print.data,"base64"));
- await evaluate(`document.querySelector('#pages').innerHTML=window.__pages.find(p=>p.kind==='q-series-electrical').svg`);
- assert.equal(await evaluate(`document.querySelectorAll('[data-source="owner-q350-q450-q600-controls-2026-11-18"]').length`),1);
+ await evaluate(`document.querySelector('#pages').innerHTML=window.__pages.find(p=>p.svg.includes('data-source=\"owner-q350-q450-q600-controls-2026-11-18\"')).svg`);
+ assert.equal(await evaluate(`document.querySelectorAll('image[data-source="owner-q350-q450-q600-controls-2026-11-18"]').length`),1);
  await capture("q-series-electrical-preview.png",1588,1123);
+ await evaluate("window.__singleQ()");
+ const singleQLayout=await evaluate("window.__layoutEvidence()");
+ assert.deepEqual(singleQLayout.flatMap(c=>c.overflow),[],JSON.stringify(singleQLayout));
+ await capture("single-q-coordination-preview.png",1588,1123);
  await evaluate("window.__allFive()");
  const fiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(fiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(fiveLayout));
@@ -122,9 +127,10 @@ try{
  await capture("pdf-plan-actual-size.png",1588,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
  await capture("pdf-details-actual-size.png",1588,1123);
- await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",3)");
+ const electricalPageIndex=await evaluate("window.__documentPages.findIndex(p=>p.svg.includes('data-source=\"owner-q350-q450-q600-controls-2026-11-18\"'))");
+ await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(electricalPageIndex+1)+")");
  await capture("pdf-electrical-actual-size.png",1588,1123);
- assert.ok(evidence[2].text.includes("Q-SERIES ELECTRICAL REFERENCE"));
+ assert.ok(evidence[electricalPageIndex].text.includes("COORDINATION / SOURCE NOTES"));
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(firstPartCount+2)+")");
  await capture("pdf-details-portrait-actual-size.png",1123,1588);
  await evaluate("window.__renderPdf("+JSON.stringify(print.data)+")");

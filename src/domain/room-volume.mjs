@@ -1,5 +1,6 @@
 import { inspectRoomBoundary } from "./rooms.mjs";
 
+export const DEFAULT_CEILING_HEIGHT_MM = 2500;
 export const VOLUME_METHOD = "wall-reference-polygon-single-plane-v1";
 export const PHPP_VOLUME_SOURCE = "https://passipedia.org/planning/building_services/ventilation/differentiation_between_vv_and_vn50_values";
 function positive(value, name) { if (!Number.isFinite(value) || value <= 0) throw new TypeError(`${name} must be a positive finite number`); return value; }
@@ -35,21 +36,26 @@ export function volumeFromGeometry(geometry, ceiling) {
   if(!Number.isFinite(geometry.areaMm2*meanHeightMm/1e9)) throw new RangeError("Room volume exceeds numeric range");
   return {state:"calculated",valueM3:geometry.areaMm2*meanHeightMm/1e9,areaM2:geometry.areaMm2/1e6,meanHeightMm,method:VOLUME_METHOD,convention:"Wall-reference-line area × actual-height ceiling plane; not verified net air volume, TFA or n50 volume"};
 }
+// Only absent defaults receive the assumption. Explicit unknown remains unresolved.
+export function floorCeiling(floor) {
+  if(floor && floor.ceiling === undefined) return {ceiling:{type:"flat",heightMm:DEFAULT_CEILING_HEIGHT_MM},source:"assumed default 2.5 m (not verified)",assumed:true};
+  return {ceiling:normalizeCeiling(floor?.ceiling,false),source:"floor default",assumed:false};
+}
 export function roomVolume(project, room) {
   const floor=project.floors.find(f=>f.id===room.floorId);
   let ceiling=normalizeCeiling(room.ceiling);
-  let source="room override";
+  let source="room override", assumed=false;
   if(ceiling.type === "inherit") {
     // Preserve pre-existing explicit room heights rather than replacing them.
-    if(room.ceiling === undefined && room.heightMm?.state !== "unknown" && room.heightMm?.valueMm > 0) { ceiling={type:"flat",heightMm:room.heightMm.valueMm}; source=`legacy room height (${room.heightMm.state})`; }
-    else {ceiling=normalizeCeiling(floor?.ceiling,false); source="floor default";}
+    if(room.ceiling === undefined && room.heightMm?.state !== "unknown" && room.heightMm?.valueMm > 0) { ceiling={type:"flat",heightMm:room.heightMm.valueMm}; source=`legacy room height (${room.heightMm.state})`; assumed=room.heightMm.state==="assumed"; }
+    else {({ceiling,source,assumed}=floorCeiling(floor));}
   }
-  if(room.boundaryState === "reassignment-required") return {state:"unknown",valueM3:null,source,ceiling,reason:"Room boundary needs reassignment"};
-  return {...volumeFromGeometry(inspectRoomBoundary(project,room),ceiling),source,ceiling};
+  if(room.boundaryState === "reassignment-required") return {state:"unknown",valueM3:null,source,ceiling,assumed,reason:"Room boundary needs reassignment"};
+  return {...volumeFromGeometry(inspectRoomBoundary(project,room),ceiling),source,ceiling,assumed};
 }
 export function floorVolumes(project, floorId) {
   const rooms=project.rooms.filter(r=>r.floorId===floorId).map(room=>({id:room.id,name:room.name,...roomVolume(project,room)}));
-  return {rooms,knownSubtotalM3:rooms.reduce((sum,r)=>sum+(r.valueM3??0),0),complete:rooms.length>0&&rooms.every(r=>r.state==="calculated")};
+  return {rooms,assumedRoomCount:rooms.filter(r=>r.assumed&&r.state==="calculated").length,knownSubtotalM3:rooms.reduce((sum,r)=>sum+(r.valueM3??0),0),complete:rooms.length>0&&rooms.every(r=>r.state==="calculated")};
 }
 export function normalizeVentilationReference(value) {
   if(value===undefined) return null;
