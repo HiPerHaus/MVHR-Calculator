@@ -1315,3 +1315,7 @@ Schema 29 is required for the new profile semantics. A schema-28 reader otherwis
 ## 2026-11-18 — Export outlet-chart presentation
 
 At the owner's request, omit the separate LIVE DESIGN AIRFLOWS pages from export composition while retaining the live Airflows workspace and model. The provisional proposal now leads with a paginated room/zone chart: name, supply/extract role, drawn wall-reference area in m² and profile-specific mode flows in m³/h. This is a room proposal, not measured outlet delivery or a PHPP-certified room allocation. Area is not verified net area or TFA; missing data stays unknown. Transfer-only spaces have no mechanical flow inferred. Floor supply and extract totals are separate streams; whole-option duties repeated on floor sheets must not be added together. Full assumptions, provenance, existing targets and unresolved inputs remain on evidence continuation pages. Other drawing, engineering, commissioning and parts pages remain available. Export navigation follows Airflows.
+
+### Follow-up — chart-only airflow export
+
+The owner subsequently requested removal of the detailed provisional-method/evidence continuation pages. Export now retains only room-chart pages, with essential provisional, capacity, area-basis, profile and unknown-value labels. Detailed assumptions/checks remain in the existing on-screen workflow and domain report. Room names wrap without truncation, and table-height pagination preserves every room in larger schedules. Other export page types are unchanged.

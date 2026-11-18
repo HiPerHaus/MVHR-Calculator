@@ -59,5 +59,5 @@ test('reviewed PHPP normal, not design maximum, feeds assigned schedule and engi
  const draft=createEngineeringNetworkDraft(p,'ground');for(const allocation of draft.design.terminalAllocations)assert.ok(Math.abs(allocation.inputValue-normal)<1e-8);
  const sheet=createA3SheetModel(p,{floorId:'ground',orientation:'landscape',includeSchedule:false,projectName:'PHPP integration',issueDate:'2026-11-18',drawingTitle:'Ventilation',drawingId:'V01',status:'Preliminary — not for construction',revision:'A',revisionText:'Test'});
  const pages=createSheetOutputPages(sheet);assert.equal(pages.some(page=>page.kind==='airflows'),false);
- assert.match(pages.filter(page=>page.kind==='airflow-proposal').map(page=>page.svg).join(''),/maximum 165.0/);
+ assert.match(pages.filter(page=>page.kind==='airflow-proposal').map(page=>page.svg).join(''),/Maximum 165.0/);
 });

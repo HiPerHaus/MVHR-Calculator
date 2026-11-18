@@ -7,22 +7,22 @@ import {applyCommand,createProject,identityQuaternion,knownMm,serializeProject} 
 const report={optionId:'option-1',status:'incomplete',settings:{basis:'max',volumeSource:'actual-geometry',personRateM3h:30,ach:0.35,lowFactor:0.75,boostFactor:1.25},candidatesM3h:{occupancy:120,volume:null,extract:80},volumeM3:null,normalM3h:null,lowM3h:null,boostM3h:null,governingBasis:[],lines:[{id:'ground-room',floorId:'ground',name:'GROUND ONLY',ventilationRole:'supply',weight:0.125,weightSource:'explicit-supply-weight',assignedExistingM3h:36,normalM3h:null,lowM3h:null,boostM3h:null,missing:['Current boundary required']},{id:'upper-room',floorId:'upper',name:'UPPER ONLY',ventilationRole:'extract',weight:40,weightSource:'extract reference',normalM3h:null,lowM3h:null,boostM3h:null}],issues:['Volume missing'],assumptions:['Not a certified PHPP result','Supply weight is a Studio heuristic'],method:'test-provisional-v1',sourceUrls:['https://example.test/source']};
 const sheet={metadata:{floorId:'ground',systemScope:'centralised',projectName:'Test & house'},printScene:{floorName:'Ground'},airflowProposal:report,airflowProposalLines:[report.lines[0]],airflowProposalScope:{floorId:'ground',optionId:'option-1',optionName:'Option A'}};
 const plain=svg=>svg.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
-test('incomplete proposals explicitly preserve unknowns, precise inputs, scope and existing targets',()=>{
+test('chart-only exports retain provisional scope and unknowns while checks stay in report data',()=>{
  const before=structuredClone(sheet),pages=createAirflowProposalPages(sheet),svg=pages.map(page=>renderAirflowProposalSheetSvg(sheet,page)).join(''),text=plain(svg);
- assert.match(text,/UNAPPROVED/);assert.match(text,/CAPACITY NOT VERIFIED/);assert.match(text,/Option: Option A/);assert.match(text,/ID option-1/);assert.match(text,/ALL FLOORS/);assert.match(text,/THIS FLOOR ONLY/);
- assert.match(text,/occupancy 120.0 · volume Unknown · extract 80.0/);assert.match(text,/low Unknown · normal Unknown · boost Unknown/);assert.match(text,/Selected volume: Unknown/);
- assert.match(text,/air changes 0.35/);assert.match(text,/low 0.75 × normal · boost 1.25/);assert.match(text,/Weight: 0.125/);assert.match(text,/Existing assigned design: 36.0/);
- assert.match(text,/GROUND ONLY/);assert.doesNotMatch(text,/UPPER ONLY/);assert.match(text,/Volume missing/);assert.match(text,/Current boundary required/);assert.match(text,/https:\/\/example.test\/source/);
+ assert.equal(pages.length,1);assert.ok(pages.every(page=>page.section==='outlet-chart'));
+ assert.match(text,/UNAPPROVED/);assert.match(text,/CAPACITY NOT VERIFIED/);assert.match(text,/Option: Option A/);assert.match(text,/ID option-1/);assert.match(text,/THIS FLOOR ONLY/);
+ assert.match(text,/Low Unknown · Normal Unknown · Boost Unknown/);assert.match(text,/Profile: legacy-studio-v1 · Basis: max/);
+ assert.match(text,/GROUND ONLY/);assert.doesNotMatch(text,/UPPER ONLY|Volume missing|Current boundary required|example.test|METHOD REFERENCES|METHOD \/ ASSUMPTIONS|Existing assigned design|evidence continuation/);
  assert.doesNotMatch(text,/normal 0.0/);assert.deepEqual(sheet,before);
 });
-test('long proposals paginate all rows, assumptions and sources without clipping or truncation',()=>{
+test('long schedules paginate every room without detailed assumption or source pages',()=>{
  const lines=Array.from({length:45},(_,i)=>({...report.lines[0],id:`r-${i}`,name:`Room ${i}`,normalM3h:i,lowM3h:i*.7,boostM3h:i*1.3,missing:[]}));
- const s={...sheet,airflowProposal:{...report,status:'provisional',normalM3h:120,lowM3h:84,boostM3h:156,governingBasis:['occupancy'],lines,issues:[],assumptions:[...report.assumptions,'FINAL ASSUMPTION']},airflowProposalLines:lines};
- const pages=createAirflowProposalPages(s,{firstPageNumber:4,totalPageCount:30});assert.ok(pages.length>3);
- const output=pages.map(page=>renderAirflowProposalSheetSvg(s,page));const text=plain(output.join(''));
- for(let i=0;i<45;i++)assert.match(text,new RegExp(`Room ${i} ·`));assert.match(text,/FINAL ASSUMPTION/);assert.match(text,/normal 120.0/);
- assert.match(text,/low 0.0 · normal 0.0 · boost 0.0/);
- pages.forEach((page,index)=>{assert.equal(page.pageNumber,index+4);assert.ok(page.lines.length<=49);assert.ok(61+(page.lines.length-1)*4.1<264);assert.match(output[index],new RegExp(`Page ${index+4} of 30`));});
+ const s={...sheet,airflowProposal:{...report,status:'provisional',normalM3h:120,lowM3h:84,boostM3h:156,lines,assumptions:['FINAL ASSUMPTION']},airflowProposalLines:lines};
+ const pages=createAirflowProposalPages(s,{firstPageNumber:4,totalPageCount:30});assert.equal(pages.length,3);
+ const output=pages.map(page=>renderAirflowProposalSheetSvg(s,page));
+ for(let i=0;i<45;i++)assert.match(output.join(''),new RegExp(`data-space-id="r-${i}"`));
+ assert.doesNotMatch(output.join(''),/FINAL ASSUMPTION|METHOD REFERENCES|example.test/);assert.match(output[0],/>0.0</);
+ pages.forEach((page,index)=>{assert.equal(page.pageNumber,index+4);assert.equal(page.section,'outlet-chart');assert.ok(page.rows.reduce((sum,row)=>sum+row.rowHeight,0)<=128);assert.match(output[index],new RegExp(`Page ${index+4} of 30`));});
 });
 test('decentralised and not-applicable proposals are not exported',()=>{
  assert.deepEqual(createAirflowProposalPages({...sheet,metadata:{...sheet.metadata,systemScope:'decentralised'}}),[]);
@@ -47,8 +47,8 @@ test('all floors receive one shared proposal per option with unique paginated ou
 test('PHPP profile export distinguishes maximum comparison from standard normal and Studio room allocation',()=>{
  const r={...report,settings:{...report.settings,profile:'phpp-9.6a-standard-v1',basis:'max',volumeSource:'phpp-reference',personRateM3h:30,ach:.3,lowFactor:.7,boostFactor:1.3},maximumCandidatesM3h:{occupancy:120,extract:160,volume:164.956},normalM3h:126.890,lowM3h:88.823,boostM3h:164.956};
  const s={...sheet,airflowProposal:r};const text=plain(createAirflowProposalPages(s).map(p=>renderAirflowProposalSheetSvg(s,p)).join(''));
- assert.match(text,/phpp-9.6a-standard-v1/);assert.match(text,/maximum = max/);assert.match(text,/normal = maximum \/ 1.3/);
- assert.match(text,/basic 88.8 · normal 126.9 · maximum 165.0/);assert.match(text,/Maximum-duty candidates/);assert.match(text,/separate Studio heuristic/);
+ assert.match(text,/phpp-9.6a-standard-v1/);assert.doesNotMatch(text,/maximum = max|Maximum-duty candidates/);
+ assert.match(text,/Basic 88.8 · Normal 126.9 · Maximum 165.0/);assert.match(text,/Studio heuristic, not certified PHPP allocation/);
 });
 
 test('outlet charts show geometric room area, separate streams and repeated table headers',()=>{
@@ -57,17 +57,17 @@ test('outlet charts show geometric room area, separate streams and repeated tabl
  rows.push({...rows[0],id:'transfer-room',name:'Transfer only',ventilationRole:'transfer',areaM2:12,normalM3h:9999,lowM3h:9999,boostM3h:9999});
  const s={...sheet,airflowProposal:{...report,settings:{...report.settings,profile:'phpp-9.6a-standard-v1'},lines:rows,normalM3h:170,lowM3h:119,boostM3h:221},airflowProposalLines:rows};
  const pages=createAirflowProposalPages(s),charts=pages.filter(page=>page.section==='outlet-chart');
- assert.deepEqual(charts.map(page=>page.rows.length),[16,16,2]);
+ assert.equal(charts.length,3);assert.equal(charts.reduce((sum,page)=>sum+page.rows.length,0),34);
  for(const page of charts){
   const svg=renderAirflowProposalSheetSvg(s,page),text=plain(svg);
   for(const header of ['ROOM / ZONE','TYPE','m²','BASIC','NORMAL','MAXIMUM'])assert.ok(text.includes(header));
   assert.match(text,/wall-reference area/);assert.match(text,/not verified net area or PHPP TFA/);
   assert.match(text,/This floor supply normal: 160.0 m³\/h \(partial\)/);assert.match(text,/This floor extract normal: 160.0 m³\/h/);
   assert.match(text,/separate streams, not additive/);assert.doesNotMatch(text,/9999.0/);
-  assert.ok(page.rows.length*8+107<=235);
+  assert.ok(page.rows.reduce((sum,row)=>sum+row.rowHeight,0)+107<=235);
  }
  const first=renderAirflowProposalSheetSvg(s,charts[0]);assert.match(first,/>16.0</);assert.match(first,/>Unknown</);assert.doesNotMatch(first,/>999.0</);
  const last=renderAirflowProposalSheetSvg(s,charts.at(-1));assert.match(last,/Transfer only/);assert.match(last,/>—</);
  const full=plain(pages.map(page=>renderAirflowProposalSheetSvg(s,page)).join(''));
- assert.ok(full.includes(longName.trim()));assert.match(full,/Existing assigned design/);assert.match(full,/METHOD \/ ASSUMPTIONS \/ LIMITATIONS/);
+ assert.ok(full.includes(longName.trim()));assert.doesNotMatch(full,/Existing assigned design|METHOD \/ ASSUMPTIONS \/ LIMITATIONS/);
 });
