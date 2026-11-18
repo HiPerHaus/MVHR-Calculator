@@ -934,6 +934,20 @@
         </div>
       </form>
     </dialog>
+    <dialog id="restore-room-dialog" aria-labelledby="restore-room-title">
+      <form method="dialog">
+        <h2 id="restore-room-title">Restore a saved room?</h2>
+        <p>The walls form a closed room again. Choose the saved room that belongs to this boundary to keep its name, airflow inputs and terminal records. Rooms will not be merged automatically.</p>
+        <label>Saved room<select id="restore-room-choice" style="min-height:44px"></select></label>
+        <p id="restore-room-detail"></p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="new">Create a different room</button>
+          <button id="restore-room-confirm" value="restore" class="primary-action">Restore selected room</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="room-dialog" class="wide-dialog" aria-labelledby="room-dialog-title">
       <form id="room-form">
         <h2 id="room-dialog-title">Confirm room</h2>

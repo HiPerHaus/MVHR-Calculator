@@ -764,6 +764,12 @@ const roomActions = document.querySelector("#room-actions");
 const editRoomButton = document.querySelector("#edit-room");
 const reassignRoomButton = document.querySelector("#reassign-room");
 const removeRoomButton = document.querySelector("#remove-room");
+const roomRestoreDialog = document.querySelector("#restore-room-dialog");
+const roomRestoreChoice = document.querySelector("#restore-room-choice");
+const roomRestoreConfirm = document.querySelector("#restore-room-confirm");
+let pendingRoomRestoreBoundaryKey = null;
+let selectedRecoveredBoundaryKey = null;
+let selectedTopologyDiagnostic = null;
 const roomDialog = document.querySelector("#room-dialog");
 const roomForm = document.querySelector("#room-form");
 const roomDialogTitle = document.querySelector("#room-dialog-title");
@@ -1572,6 +1578,8 @@ workflowMarkupMvhrButton.addEventListener("click", openVentilationTask);
 quoteInputForm.addEventListener("submit", saveQuoteInputs);
 convertProjectDialog.addEventListener("close", applyProjectConversionChoice);
 roomForm.addEventListener("submit", applyRoomDialog);
+roomRestoreChoice.addEventListener("change", () => { roomRestoreConfirm.disabled = !roomRestoreChoice.value; });
+roomRestoreDialog.addEventListener("close", applyRoomRestoreChoice);
 adoptRequiredAirflowButton.addEventListener("click", adoptRequiredAirflowInForm);
 cancelRoomButton.addEventListener("click", () => cancelRoomDialog("Room or zone change cancelled; project unchanged"));
 editRoomButton.addEventListener("click", openSelectedRoomEditor);
@@ -2120,6 +2128,8 @@ canvas.addEventListener("click", (event) => {
     suppressNextClick = false;
     return;
   }
+  selectedTopologyDiagnostic = null;
+  if (!event.target?.dataset?.roomBoundaryKey) selectedRecoveredBoundaryKey = null;
   const wallAddPoint = event.target.closest?.(".wall-add-point");
   if (activeTask === "plan" && activeTool === "select" && wallAddPoint) {
     addWallBendPoint(wallAddPoint.dataset.wallId);
@@ -2277,7 +2287,7 @@ canvas.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (mvhrDialog.open) return;
+  if (mvhrDialog.open || roomRestoreDialog.open) return;
   if (sheetOutputDialog.open) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -3884,7 +3894,12 @@ function commitWallChain() {
         : "Wall chain committed; local save queued";
     render();
     savePresent("automatic");
-    if (newRoomBoundaries.length === 1) {
+    const hasRetainedRooms = history.present.rooms.some(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required");
+    if (newRoomBoundaries.length && hasRetainedRooms) {
+      setTool("select", { deferRender: true });
+      interactionMessage = "Reconnected room boundary detected. Click inside it to highlight, then restore the saved room from Room boundaries.";
+      render();
+    } else if (newRoomBoundaries.length === 1) {
       interactionMessage = "New enclosed boundary detected; confirm the room details or cancel";
       render();
       openRoomCreationDialog(newRoomBoundaries[0].key);
@@ -5106,9 +5121,15 @@ function handleRoomCanvasClick(event) {
       }
       return;
     }
-    openRoomCreationDialog(boundaryKey);
+    if (history.present.rooms.some(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required")) {
+      selectedRecoveredBoundaryKey = boundaryKey;
+      selectedRoomId = selectedZoneId = selectedWallId = selectedNodeId = null;
+      interactionMessage = "Reconnected boundary selected. Choose Restore selected boundary in Room boundaries to keep the saved room data.";
+      render();
+    } else openRoomCreationDialog(boundaryKey);
     return;
   }
+  selectedRecoveredBoundaryKey = null;
   selectedRoomId = null;
   selectedZoneId = null;
   selectedFloorAreaId = null;
@@ -5116,12 +5137,28 @@ function handleRoomCanvasClick(event) {
   render();
 }
 
-function openRoomCreationDialog(boundaryKey) {
+function openRoomCreationDialog(boundaryKey, { offerRestore = true } = {}) {
   const derivation = deriveRoomBoundaries(history.present, currentFloorId());
   const candidate = derivation.candidates.find((item) => item.key === boundaryKey);
   if (!candidate) {
     interactionMessage = "That room boundary is no longer eligible; project unchanged";
     render();
+    return;
+  }
+  const retained = history.present.rooms.filter(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required");
+  if (offerRestore && retained.length) {
+    pendingRoomRestoreBoundaryKey = boundaryKey;
+    roomRestoreChoice.replaceChildren();
+    if (retained.length > 1) {
+      const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose the saved room…"; roomRestoreChoice.append(placeholder);
+    }
+    for (const room of retained) {
+      const option = document.createElement("option"); option.value = room.id; option.textContent = room.name; roomRestoreChoice.append(option);
+    }
+    roomRestoreConfirm.disabled = !roomRestoreChoice.value;
+    document.querySelector("#restore-room-detail").textContent = `${formatArea(candidate.areaMm2)} enclosed. Restore only the room you select. Any child zones still need their own boundaries reassigned.`;
+    roomRestoreDialog.returnValue = "cancel";
+    roomRestoreDialog.showModal();
     return;
   }
   pendingRoomBoundaryKey = boundaryKey;
@@ -5139,6 +5176,25 @@ function openRoomCreationDialog(boundaryKey) {
   roomDialogError.textContent = "";
   roomDialog.showModal();
   roomNameInput.focus();
+}
+
+function applyRoomRestoreChoice() {
+  const boundaryKey = pendingRoomRestoreBoundaryKey;
+  pendingRoomRestoreBoundaryKey = null;
+  if (!boundaryKey) return;
+  if (roomRestoreDialog.returnValue === "new") {
+    openRoomCreationDialog(boundaryKey, { offerRestore: false });
+    return;
+  }
+  if (roomRestoreDialog.returnValue !== "restore" || !roomRestoreChoice.value) return;
+  const roomId = roomRestoreChoice.value;
+  if (commitCommand({ type: "room.assignBoundary", roomId, boundaryKey }, "Saved room restored on repaired walls; name, airflow inputs and terminal records preserved")) {
+    selectedRoomId = roomId;
+    selectedRecoveredBoundaryKey = null;
+    selectedZoneId = selectedWallId = selectedNodeId = null;
+    reassignRoomId = null;
+    render();
+  }
 }
 
 function openZoneCreationDialog(parentRoomId, boundaryKey) {
@@ -5416,6 +5472,14 @@ function beginRoomReassignment() {
   }
   const room = history.present.rooms.find((candidate) => candidate.id === selectedRoomId);
   if (!room) return;
+  const derivation = deriveRoomBoundaries(history.present, room.floorId);
+  const assigned = new Set(history.present.rooms.filter(other => other.floorId === room.floorId && other.id !== room.id).map(other => inspectRoomBoundary(history.present, other, derivation)).filter(item => item.status === "current").map(item => item.key));
+  if (!derivation.candidates.some(candidate => !assigned.has(candidate.key))) {
+    reassignRoomId = reassignZoneId = null;
+    interactionMessage = "No closed room face is available yet. Use Show issue under Room boundaries to find open ends or unjoined crossings, then reconnect the walls.";
+    render();
+    return;
+  }
   reassignRoomId = room.id;
   reassignZoneId = null;
   interactionMessage = "Choose an eligible shaded face for this room; Esc cancels";
@@ -6945,6 +7009,7 @@ function renderPass() {
       modelLayer.append(svgElement("circle", {cx:toView(p.x), cy:toView(p.y), r:22*unitsPerPixel, class:"wall-node wall-node-touch-hit", "data-node-id":selectedNode.id, "aria-label":"Drag wall bend point"}));
     }
   }
+  renderTopologyDiagnostic();
   renderDraft();
   renderReferenceList();
   renderCadReferenceList();
@@ -6956,6 +7021,19 @@ function renderPass() {
   renderStorageState();
   updateStatus();
   if (activeTask === "checks") renderChecksWorkspace();
+}
+
+function renderTopologyDiagnostic() {
+  if (selectedTopologyDiagnostic?.project !== history.present) selectedTopologyDiagnostic = null;
+  if (activeTask !== "plan" || !selectedTopologyDiagnostic) return;
+  const diagnostic = selectedTopologyDiagnostic.diagnostic;
+  const nodes = new Map(history.present.wallNodes.map(node => [node.id, node]));
+  for (const wall of history.present.walls.filter(wall => diagnostic.wallIds.includes(wall.id))) {
+    const start = nodes.get(wall.startNodeId).positionMm, end = nodes.get(wall.endNodeId).positionMm;
+    modelLayer.append(svgElement("line", {x1:toView(start.x),y1:toView(start.y),x2:toView(end.x),y2:toView(end.y),stroke:"#d42c2c","stroke-width":5,"vector-effect":"non-scaling-stroke","pointer-events":"none","data-topology-highlight":wall.id}));
+  }
+  const point = diagnostic.pointMm;
+  if (point) modelLayer.append(svgElement("circle", {cx:toView(point.x),cy:toView(point.y),r:14*camera.width/Math.max(drawingCanvasRect().width,1),fill:"none",stroke:"#d42c2c","stroke-width":3,"vector-effect":"non-scaling-stroke","pointer-events":"none","data-topology-issue":diagnostic.code}));
 }
 
 function renderGrilleAlignmentGuides() {
@@ -7182,7 +7260,7 @@ function renderRooms() {
       if (currentAssignedKeys.has(candidate.key)) continue;
       roomLayer.append(svgElement("polygon", {
         points: candidate.polygon.map((point) => `${toView(point.x)},${toView(point.y)}`).join(" "),
-        class: `room-candidate${reassignRoomId ? " reassign-target" : ""}`,
+        class: `room-candidate${reassignRoomId ? " reassign-target" : ""}${selectedRecoveredBoundaryKey === candidate.key ? " selected" : ""}`,
         "data-room-boundary-key": candidate.key,
         "aria-label": `Eligible room boundary, ${formatArea(candidate.areaMm2)}`,
       }));
@@ -7233,6 +7311,12 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
   const eligibleCount = derivation.candidates.filter((candidate) => !assignedKeys.has(candidate.key)).length;
   roomSummary.textContent = `${history.present.rooms.length} room${history.present.rooms.length === 1 ? "" : "s"} · ${history.present.zones.length} zone${history.present.zones.length === 1 ? "" : "s"} · ${eligibleCount} room face${eligibleCount === 1 ? "" : "s"} to confirm · ${zoneState.unassignedZoneFaces} zone face${zoneState.unassignedZoneFaces === 1 ? "" : "s"} to name`;
   roomIssues.replaceChildren();
+  const recovered = derivation.candidates.find(candidate => candidate.key === selectedRecoveredBoundaryKey && !assignedKeys.has(candidate.key));
+  if (recovered) {
+    roomIssues.append(htmlText("span", `Selected closed boundary: ${formatArea(recovered.areaMm2)}. Saved room data has not changed.`));
+    const restore = document.createElement("button"); restore.type = "button"; restore.style.minHeight = "44px"; restore.id = "restore-selected-boundary"; restore.textContent = "Restore selected boundary…";
+    restore.addEventListener("click", () => openRoomCreationDialog(recovered.key)); roomIssues.append(restore);
+  }
   for (const space of [...history.present.rooms, ...history.present.zones].filter(onCurrentFloor).filter(space => space.boundaryState === "reassignment-required")) {
     const button = document.createElement("button");
     button.type = "button";
@@ -7254,6 +7338,21 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
   }
   for (const diagnostic of diagnostics.slice(0, 8)) {
     roomIssues.append(htmlText("span", diagnostic.message, diagnostic.severity));
+    if (diagnostic.pointMm) {
+      const show = document.createElement("button"); show.type = "button"; show.textContent = "Show issue"; show.style.minHeight = "44px"; show.dataset.topologyCode = diagnostic.code;
+      show.addEventListener("click", () => {
+        selectedTopologyDiagnostic = { project: history.present, diagnostic };
+        selectedRecoveredBoundaryKey = null;
+        selectedRoomId = selectedZoneId = selectedWallId = selectedNodeId = selectedFloorAreaId = null;
+        reassignRoomId = reassignZoneId = null;
+        setTool("select", { deferRender: true });
+        const point = diagnostic.pointMm;
+        camera = { ...camera, x: toView(point.x) - camera.width / 2, y: toView(point.y) - camera.height / 2 };
+        interactionMessage = diagnostic.code === "open-endpoint" ? "Highlighted open endpoint: draw to the existing endpoint with Snap on, then finish the wall. A visual touch alone is not a shared junction." : "Highlighted unjoined crossing: redraw the affected connection with Snap on so it creates a shared junction. No geometry has been changed.";
+        render(); canvas.focus();
+      });
+      roomIssues.append(show);
+    }
   }
   if (diagnostics.length > 8) {
     roomIssues.append(htmlText("span", `${diagnostics.length - 8} more topology diagnostics`));

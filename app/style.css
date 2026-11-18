@@ -913,3 +913,5 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .wall-add-point:focus .wall-add-point-disc { stroke: var(--accent); stroke-width: 3; }
 .wall-node.wall-node-touch-hit { fill: transparent; stroke: none; pointer-events: all; }
 #add-wall-point { min-height: 44px; }
+
+.room-candidate.selected { fill: rgb(240 164 60 / 24%); stroke: #d98416; stroke-width: 4; stroke-dasharray: none; }

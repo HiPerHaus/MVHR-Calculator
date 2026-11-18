@@ -35,3 +35,21 @@ test('hosted equipment still blocks explicit room-safe deletion atomically',()=>
 test('schema 27 migrates unchanged room geometry to version 28',()=>{
  const old=fixture();old.schemaVersion=27;const next=deserializeProject(JSON.stringify(old));assert.equal(next.schemaVersion,SCHEMA_VERSION);assert.deepEqual(next.rooms,old.rooms);
 });
+
+test('reconnecting a deleted shared segment restores each saved room explicitly without duplicates',()=>{
+ const original=fixture();
+ let p=applyCommand(original,{type:'wall.delete',wallId:'id-bc',retainAffectedRooms:true});
+ p=applyCommand(p,{type:'wall.addChain',floorId:'ground',nodeIds:['id-b','id-c'],wallIds:['reconnected-bc'],points:[{x:3000,y:0,z:unknownMm('test')},{x:3000,y:4000,z:unknownMm('test')}],splits:[],thicknessMm:140,heightMm:unknownMm('test'),referenceLine:'centreline',classification:'physical'});
+ const faces=deriveRoomBoundaries(p,'ground').candidates;assert.equal(faces.length,2);
+ let h=createCommandHistory(p);
+ for(const room of original.rooms){
+  const retainedIds=room.boundary.map(e=>e.wallId).filter(id=>id!=='id-bc');
+  const face=faces.find(f=>retainedIds.every(id=>f.boundary.some(e=>e.wallId===id)));
+  h=executeCommand(h,{type:'room.assignBoundary',roomId:room.id,boundaryKey:face.key});
+  assert.equal(inspectRoomBoundary(h.present,h.present.rooms.find(r=>r.id===room.id)).status,'current');
+ }
+ assert.equal(h.present.rooms.length,2);
+ assert.deepEqual(h.present.rooms.map(({boundary,...data})=>data),original.rooms.map(({boundary,...data})=>data));
+ assert.deepEqual(deserializeProject(serializeProject(h.present)),h.present);
+ assert.equal(undoCommand(h).present.rooms.filter(r=>r.boundaryState==='reassignment-required').length,1);
+});

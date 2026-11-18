@@ -330,10 +330,32 @@ tabsQaButton('Run room wall deletion checks', async () => {
   tabsQaAssert(history.present.rooms[0].boundaryState==='reassignment-required','Room data retained explicitly detached');
   const button=[...roomIssues.querySelectorAll('button')].find(b=>b.textContent.includes('Deletion QA Room'));
   tabsQaAssert(button,'Detached room remains accessible');button.click();
-  tabsQaAssert(reassignRoomId==='delete-room','Reassignment action works');
+  tabsQaAssert(reassignRoomId===null&&interactionMessage.includes('No closed room face'),'Open geometry explains why reassignment cannot proceed');
   tabsQaAssert(document.querySelector('#room-area-value').textContent==='Unavailable','No stale area accepted');
-  history=undoCommand(history);tabsQaAssert(history.present.walls.length===4&&!history.present.rooms[0].boundaryState,'Undo fully restores room');
-  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS room wall deletion: named warning, only segment removed, room retained, reassignment and undo';
+  const beforeFocus=serializeProject(history.present);
+  roomIssues.querySelector('[data-topology-code="open-endpoint"]').click();
+  tabsQaAssert(modelLayer.querySelector('[data-topology-issue="open-endpoint"]'),'Diagnostic highlights exact issue');
+  tabsQaEqual(serializeProject(history.present),beforeFocus,'Diagnostic focus must not change geometry');
+  setTool('wall');activeChainId='reconnect-qa';draftPoints=[{nodeId:'delete-a',x:1000,y:1000},{nodeId:'delete-b',x:5000,y:1000}];commitWallChain();
+  tabsQaAssert(activeTool==='select'&&!roomRestoreDialog.open&&!roomDialog.open,'Reconnection offers click selection, not an automatic new room');
+  const face=roomLayer.querySelector('[data-room-boundary-key]');tabsQaAssert(face,'Reconnected face is selectable');
+  face.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+  tabsQaAssert(roomLayer.querySelector('.room-candidate.selected'),'Click visibly highlights recovered face');
+  tabsQaAssert(history.present.rooms.length===1&&history.present.rooms[0].boundaryState,'Highlight is view-only until explicit restore');
+  document.querySelector('#restore-selected-boundary').click();tabsQaAssert(roomRestoreDialog.open,'Restore chooser opens');
+  roomRestoreDialog.close();await tabsQaFrame();
+  tabsQaAssert(history.present.rooms[0].boundaryState==='reassignment-required','Dismiss leaves saved room unchanged');
+  document.querySelector('#restore-selected-boundary').click();
+  roomRestoreDialog.close('restore');await tabsQaFrame();
+  tabsQaAssert(history.present.rooms.length===1&&!history.present.rooms[0].boundaryState&&selectedRoomId==='delete-room','Restored saved identity, no duplicate room');
+  history=undoCommand(history);tabsQaAssert(history.present.rooms[0].boundaryState==='reassignment-required','Restore undo restores pending state');
+  history=undoCommand(history);history=undoCommand(history);tabsQaAssert(history.present.walls.length===4&&!history.present.rooms[0].boundaryState,'Undo fully restores original room');
+  history=executeCommand(history,{type:'wall.addChain',floorId:currentFloorId(),nodeIds:['cross-qa-start','cross-qa-end'],wallIds:['cross-qa-wall'],points:[{x:3000,y:0,z:unknownMm('test')},{x:3000,y:5000,z:unknownMm('test')}],splits:[],thicknessMm:140,heightMm:unknownMm('test'),referenceLine:'centreline',classification:'physical'});
+  render();const beforeCrossFocus=serializeProject(history.present);
+  roomIssues.querySelector('[data-topology-code="crossing-without-junction"]').click();
+  tabsQaAssert(modelLayer.querySelectorAll('[data-topology-highlight]').length===2,'Both unjoined crossing walls highlighted');
+  tabsQaEqual(serializeProject(history.present),beforeCrossFocus,'Crossing diagnostic never changes live model');
+  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS room wall deletion: named warning, open/crossing focus, repaired-face click highlight, explicit restore, undo';
 });
 
 tabsQaButton('Profile reference Draw', async () => {
