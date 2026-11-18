@@ -1,3 +1,5 @@
+import {buildTerminalAssignmentIndex} from "../src/editor/terminal-assignment-index.mjs";
+import {terminalRoomAssignment} from "../src/domain/spatial.mjs";
 import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs";
 import { createEngineeringNetworkDraft } from "../src/editor/engineering-network-draft.mjs";
 import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
@@ -311,4 +313,14 @@ test("detached boundaries retain inputs but cannot contribute current airflow or
 test("a zone inherits its detached parent boundary state", () => {
   assert.equal(spaceBoundaryNeedsReassignment({rooms:[{id:"parent",boundaryState:"reassignment-required"}]}, {id:"zone",parentRoomId:"parent"}), true);
   assert.equal(spaceBoundaryNeedsReassignment({rooms:[{id:"parent"}]}, {id:"zone",parentRoomId:"parent"}), false);
+});
+
+
+test("snapshot terminal assignment index matches validated per-part lookup", () => {
+  let project = twoRoomProject();
+  project = createRoom(project, "indexed-bedroom", "Bedroom", "supply", leftBoundary(project));
+  project = addAndAssignTerminal(project, "indexed-terminal", "synthetic-supply-terminal", "indexed-bedroom", 2000, 2000);
+  const index = buildTerminalAssignmentIndex(project);
+  for (const component of project.components) assert.deepEqual(index.get(component.id) ?? null, terminalRoomAssignment(project, component.id));
+  assert.throws(() => buildTerminalAssignmentIndex({...project,schemaVersion:999}), /Unsupported schema/);
 });

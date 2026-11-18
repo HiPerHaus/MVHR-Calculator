@@ -335,3 +335,36 @@ tabsQaButton('Run room wall deletion checks', async () => {
   history=undoCommand(history);tabsQaAssert(history.present.walls.length===4&&!history.present.rooms[0].boundaryState,'Undo fully restores room');
   tabsQaFixture('mixed');tabsQaOutput.textContent='PASS room wall deletion: named warning, only segment removed, room retained, reassignment and undo';
 });
+
+tabsQaButton('Profile reference Draw', async () => {
+  await tabsQaReady();let p=tabsQaFixture('centralised');
+  for(let i=0;i<12;i++){
+    const x=(i%4)*5000,y=Math.floor(i/4)*5000;
+    p=applyCommand(p,{type:'wall.addChain',floorId:'floor-ground',nodeIds:[0,1,2,3,0].map(n=>`refperf-${i}-node-${n}`),wallIds:[0,1,2,3].map(n=>`refperf-${i}-wall-${n}`),points:[[x,y],[x+4000,y],[x+4000,y+4000],[x,y+4000],[x,y]].map(([x,y])=>({x,y,z:unknownMm('synthetic')})),splits:[],thicknessMm:140,heightMm:unknownMm('synthetic'),referenceLine:'centreline',classification:'physical'});
+    const face=deriveRoomBoundaries(p,'floor-ground').candidates.find(c=>c.boundary.some(b=>b.wallId===`refperf-${i}-wall-0`));
+    p=applyCommand(p,{type:'room.createFromBoundary',roomId:`refperf-room-${i}`,floorId:'floor-ground',boundaryKey:face.key,name:`Room ${i}`,use:'bedroom',ventilationRole:'supply'});
+    p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('luna-supply',{id:`refperf-part-${i}`,floorId:'floor-ground',xMm:x+2000,yMm:y+2000})});
+  }
+  const bitmap=document.createElement('canvas');bitmap.width=3500;bitmap.height=2500;const ctx=bitmap.getContext('2d');
+  ctx.fillStyle='white';ctx.fillRect(0,0,3500,2500);ctx.strokeStyle='#888';
+  for(let i=0;i<14000;i++){const x=(i*173)%3500,y=(i*97)%2500;ctx.strokeRect(x,y,40+(i%120),30+(i%70));}
+  const dataUrl=bitmap.toDataURL('image/png'),byteLength=atob(dataUrl.split(',')[1]).length;
+  p=applyCommand(p,{type:'reference.addImage',asset:{id:'refperf-asset',kind:'image',fileName:'synthetic-plan.png',mediaType:'image/png',byteLength,sha256:'0'.repeat(64),widthPx:3500,heightPx:2500,dataUrl},reference:{id:'refperf-reference',floorId:'floor-ground',assetId:'refperf-asset',visible:true,locked:true,opacity:0.5,transform:{translationMm:{x:0,y:0},rotationRad:0,scaleMmPerPixel:knownMm(6,'test')},calibration:null}});
+  applyLocalReopen({project:p},{named:false});selectDesignStage('draw');initialCameraFit.cancel();camera={x:0,y:0,width:2200,height:1600};render();
+  await tabsQaFrame();await tabsQaFrame();
+  const stages={}, stageOriginals={renderComponent,renderReferences,renderInspector,renderConnectionDemand,renderRoutingWorkflow,renderRouteGuidance,renderClearVentilationControl};
+  const timed=(key,fn)=>(...args)=>{const start=performance.now();try{return fn(...args);}finally{stages[key]=(stages[key]??0)+performance.now()-start;}};
+  renderComponent=timed('component',renderComponent);renderReferences=timed('references',renderReferences);renderInspector=timed('inspector',renderInspector);renderConnectionDemand=timed('demand',renderConnectionDemand);renderRoutingWorkflow=timed('routing',renderRoutingWorkflow);renderRouteGuidance=timed('guidance',renderRouteGuidance);renderClearVentilationControl=timed('clear',renderClearVentilationControl);
+  const model=serializeProject(history.present), originalRender=render;let renders=0;
+  render=()=>{renders++;return originalRender();};
+  const samples=[];const beforeImage=referenceLayer.querySelector('image');
+  try {
+    for(let i=0;i<4;i++) {const start=performance.now();setTool(i%2?'select':'pan');const handlerMs=performance.now()-start;await tabsQaFrame();await tabsQaFrame();samples.push({handlerMs,toFrameMs:performance.now()-start});}
+    const toolRenders=renders;renders=0;const start=performance.now();setTask('ventilation');const navigationHandlerMs=performance.now()-start;await tabsQaFrame();await tabsQaFrame();
+    const report={stages,walls:p.walls.length,rooms:p.rooms.length,parts:p.components.length,imagePixels:3500*2500,imageBytes:byteLength,samples,toolRenders,navigationRenders:renders,navigationHandlerMs,navigationToFrameMs:performance.now()-start,imageNodeRetained:beforeImage===referenceLayer.querySelector('image')};
+    tabsQaAssert(renders===1,'Draw navigation must redraw once');
+    tabsQaAssert(beforeImage===referenceLayer.querySelector('image'),'Unchanged reference image DOM retained');
+    tabsQaEqual(serializeProject(history.present),model,'View actions must not alter model');
+    tabsQaOutput.textContent=`PASS reference Draw ${JSON.stringify(report)}`;
+  } finally {render=originalRender;({renderComponent,renderReferences,renderInspector,renderConnectionDemand,renderRoutingWorkflow,renderRouteGuidance,renderClearVentilationControl}=stageOriginals);}
+});

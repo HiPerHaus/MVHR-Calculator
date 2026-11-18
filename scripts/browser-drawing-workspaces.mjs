@@ -113,6 +113,9 @@ try {
     await waitResult(/^PASS bend drag/);
     await clickQa('Run MVHR dialog checks');
     await waitResult(/^PASS MVHR dialog/);
+    await clickQa('Profile reference Draw');
+    await waitResult(/^PASS reference Draw/);
+    console.log(await evaluate(`document.querySelector('#tabs-qa-results').textContent`));
     await clickQa('Profile large plan');
     const performanceReport = await waitResult(/^PASS performance/);
     console.log(performanceReport);

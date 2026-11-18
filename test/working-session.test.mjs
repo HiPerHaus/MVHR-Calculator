@@ -4,9 +4,18 @@ import {createProject,serializeProject} from '../src/domain/spatial.mjs';
 import {createWorkingSessionStore,workingTabId,workingContextKey,validateWorkingSession} from '../src/persistence/working-session.mjs';
 const context={userId:'user-a',workspaceId:'workspace-a'};
 function snapshot(name='Current drawing'){return {projectJson:serializeProject(createProject('current-project')),name,dirty:true,cloudRecord:{id:'cloud-a',workspace_id:'workspace-a',project_id:'current-project',save_version:7},task:'ventilation',camera:{x:20,y:40,width:1200,height:800}};}
-function indexedDbFixture(){
+function indexedDbFixture(onPut=()=>{}){
  const values=new Map();let installed=false;
- const db={createObjectStore(){},transaction(){const tx={objectStore(){return {get(key){const r={};queueMicrotask(()=>{r.result=values.get(key);r.onsuccess?.();});return r;},put(value,key){values.set(key,structuredClone(value));},delete(key){values.delete(key);}};}};setTimeout(()=>tx.oncomplete?.(),0);return tx;}};
+ const db={createObjectStore(){},transaction(_name,mode){
+  const staged=new Map(values);let aborted=false;
+  const tx={abort(){aborted=true;},objectStore(){return {
+   get(key){const r={};queueMicrotask(()=>{r.result=staged.get(key);r.onsuccess?.();});return r;},
+   put(value,key){onPut(value,key);staged.set(key,structuredClone(value));},
+   delete(key){staged.delete(key);}
+  };}};
+  setTimeout(()=>{if(aborted){tx.onabort?.();return;}if(mode==='readwrite'){values.clear();for(const [key,value] of staged)values.set(key,value);}tx.oncomplete?.();},0);
+  return tx;
+ }};
  return {open(){const request={};setTimeout(()=>{request.result=db;if(!installed){installed=true;request.onupgradeneeded?.();}request.onsuccess?.();},0);return request;}};
 }
 test('refresh restores the working draft, current view, camera and original cloud version',async()=>{
@@ -62,4 +71,90 @@ test('Draw workspace and selected system survive recovery without altering mixed
  }
  await store.write(context,{...source,ventilationWorkspace:'mixed'});
  await assert.rejects(store.read(context),/Invalid recovery ventilation workspace/);
+});
+
+test('a burst of recovery writes stores only the newest queued snapshot',async()=>{
+ const puts=[];const db=indexedDbFixture(value=>puts.push(value.name));
+ const store=createWorkingSessionStore(db,{tabId:'tab-burst'});
+ const writes=[];for(let index=1;index<=20;index++)writes.push(store.write(context,snapshot(`Zoom ${index}`)));
+ await Promise.all(writes);
+ assert.equal((await store.read(context)).name,'Zoom 20');
+ // Each stored snapshot is put under the tab key and the "last" key. None of
+ // the twenty writes had started when the next arrived, so only the newest is stored.
+ assert.deepEqual(puts,['Zoom 20','Zoom 20']);
+});
+
+test('a write that is already in progress is kept and the newest snapshot follows it',async()=>{
+ const puts=[];const db=indexedDbFixture(value=>puts.push(value.name));
+ const store=createWorkingSessionStore(db,{tabId:'tab-progress'});
+ const first=store.write(context,snapshot('First edit'));await first;
+ const second=store.write(context,snapshot('Second edit'));await new Promise(resolve=>setTimeout(resolve,0));
+ store.write(context,snapshot('Third edit'));store.write(context,snapshot('Fourth edit'));
+ await second;await store.flush();
+ assert.equal((await store.read(context)).name,'Fourth edit');
+ assert.equal(puts.filter(name=>name==='Third edit').length,0);
+});
+
+test('a write queued after clear is not merged into a write queued before it',async()=>{
+ const db=indexedDbFixture(),store=createWorkingSessionStore(db,{tabId:'tab-clear'});
+ store.write(context,snapshot('Before clear'));store.clear(context);
+ await store.write(context,snapshot('After clear'));
+ assert.equal((await store.read(context)).name,'After clear');
+});
+
+
+test('reads separate coalescing batches and observe call order',async()=>{
+ const puts=[],store=createWorkingSessionStore(indexedDbFixture(value=>puts.push(value.name)),{tabId:'read-order'});
+ const first=store.write(context,snapshot('Before read'));
+ const reading=store.read(context);
+ const second=store.write(context,snapshot('After read'));
+ await first;assert.equal((await reading).name,'Before read');await second;
+ assert.equal((await store.read(context)).name,'After read');
+ assert.deepEqual(puts,['Before read','Before read','After read','After read']);
+});
+
+test('cross-context writes are ordered and cannot coalesce into another account',async()=>{
+ const puts=[],store=createWorkingSessionStore(indexedDbFixture((value,key)=>puts.push([value.name,key])),{tabId:'contexts'});
+ const local={userId:null,workspaceId:null};
+ const a1=store.write(context,snapshot('Account first'));
+ const b=store.write(local,{...snapshot('Local'),cloudRecord:null});
+ const a2=store.write(context,snapshot('Account final'));
+ await Promise.all([a1,b,a2]);
+ assert.equal((await store.read(context)).name,'Account final');
+ assert.equal((await store.read(local)).name,'Local');
+ assert.deepEqual(puts.map(([name])=>name),['Account first','Account first','Local','Local','Account final','Account final']);
+});
+
+test('queued snapshots do not observe later caller mutations and flush is a barrier',async()=>{
+ const puts=[],store=createWorkingSessionStore(indexedDbFixture(value=>puts.push(value.name)),{tabId:'immutable'});
+ const input=snapshot('Original');const writing=store.write(context,input);
+ input.camera.x=999;input.cloudRecord.save_version=99;
+ const flushed=store.flush();const reading=store.read(context);
+ const next=store.write(context,snapshot('Next'));
+ await writing;await flushed;const restored=await reading;
+ assert.equal(restored.camera.x,20);assert.equal(restored.cloudRecord.save_version,7);
+ await next;assert.deepEqual(puts,['Original','Original','Next','Next']);
+});
+
+test('failed write aborts both recovery keys, rejects its coalesced callers and does not poison later writes',async()=>{
+ let fail=false;
+ const db=indexedDbFixture((_value,key)=>{if(fail&&key.endsWith(':last')){fail=false;throw new Error('Quota failure');}});
+ const store=createWorkingSessionStore(db,{tabId:'failure'});
+ await store.write(context,snapshot('Last good'));
+ fail=true;const one=store.write(context,snapshot('Rejected first')),two=store.write(context,snapshot('Rejected latest'));
+ await Promise.all([assert.rejects(one,/Quota failure/),assert.rejects(two,/Quota failure/)]);
+ await assert.rejects(store.flush(),/Quota failure/);
+ // A separate reader sees neither partially updated tab nor last keys.
+ assert.equal((await createWorkingSessionStore(db,{tabId:'failure'}).read(context)).name,'Last good');
+ assert.equal((await createWorkingSessionStore(db,{tabId:'new-reader'}).read(context)).name,'Last good');
+ await store.write(context,snapshot('Recovered'));
+ assert.equal((await store.read(context)).name,'Recovered');
+});
+
+test('clear is observable between writes and cannot resurrect the old queued snapshot',async()=>{
+ const store=createWorkingSessionStore(indexedDbFixture(),{tabId:'clear-read'});
+ const first=store.write(context,snapshot('Before'));const clearing=store.clear(context);const reading=store.read(context);
+ const last=store.write(context,snapshot('After'));
+ await first;await clearing;assert.equal(await reading,null);await last;
+ assert.equal((await store.read(context)).name,'After');
 });

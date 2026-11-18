@@ -1132,7 +1132,7 @@ export function applyCommand(project, command, options = {}) {
       throw new TypeError(`Unsupported command type: ${String(command?.type)}`);
   }
   const validated = validateProject(next);
-  assertPortableProjectGrowth(canonicalStringify(current), canonicalStringify(validated), {
+  assertPortableProjectGrowth(() => canonicalStringify(current), canonicalStringify(validated), {
     maximumBytes: options.portableMaximumBytes,
   });
   return validated;
@@ -1188,6 +1188,21 @@ export function routeEndpointTransform(project, routeId, end) {
 
 export function floorPortTransform(project, componentId, portId) {
   validateProject(project);
+  return floorPortTransformUnchecked(project, componentId, portId);
+}
+
+export function floorPortTransformIndex(project) {
+  validateProject(project);
+  const result = new Map();
+  for (const component of project.components) {
+    const ports = new Map();
+    for (const port of component.ports) ports.set(port.id, floorPortTransformUnchecked(project, component.id, port.id));
+    result.set(component.id, ports);
+  }
+  return result;
+}
+
+function floorPortTransformUnchecked(project, componentId, portId) {
   const component = requireEntity(project.components, componentId, "Component");
   const port = requireEntity(component.ports, portId, "Port");
   return {
@@ -2135,23 +2150,54 @@ function normalizeReferenceAsset(asset) {
   if (typeof asset.dataUrl !== "string" || !asset.dataUrl.startsWith(expectedPrefix)) {
     throw new TypeError("Reference asset must contain matching embedded source bytes");
   }
-  const base64 = asset.dataUrl.slice(expectedPrefix.length);
-  const maximumBase64Length = Math.ceil(MAX_EMBEDDED_IMAGE_BYTES / 3) * 4;
-  if (base64.length > maximumBase64Length) {
-    throw new RangeError("Reference asset encoded source exceeds the prototype limit");
+  if (!validatedEmbeddedDataUrlMatches(asset.dataUrl, asset.byteLength)) {
+    const base64 = asset.dataUrl.slice(expectedPrefix.length);
+    const maximumBase64Length = Math.ceil(MAX_EMBEDDED_IMAGE_BYTES / 3) * 4;
+    if (base64.length > maximumBase64Length) {
+      throw new RangeError("Reference asset encoded source exceeds the prototype limit");
+    }
+    if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+      throw new TypeError("Reference asset source must use canonical base64 characters and padding");
+    }
+    const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    const encodedByteLength = base64.length / 4 * 3 - paddingLength;
+    if (encodedByteLength !== asset.byteLength) {
+      throw new TypeError("Reference asset encoded source length must match its byte-length claim");
+    }
+    rememberValidatedEmbeddedDataUrl(asset.dataUrl, asset.byteLength);
   }
-  if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-    throw new TypeError("Reference asset source must use canonical base64 characters and padding");
-  }
-  const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  const encodedByteLength = base64.length / 4 * 3 - paddingLength;
-  if (encodedByteLength !== asset.byteLength) {
-    throw new TypeError("Reference asset encoded source length must match its byte-length claim");
-  }
+  const { dataUrl, source, ...metadata } = asset;
   return {
-    ...structuredClone(asset),
-    source: normalizeRenderedReferenceSource(asset.source),
+    ...structuredClone(metadata),
+    dataUrl,
+    source: normalizeRenderedReferenceSource(source),
   };
+}
+
+// Embedded plans are megabytes of base64. JavaScript strings are immutable, so
+// a dataUrl that already passed the encoding checks for the same byte length is
+// neither re-scanned nor deep-copied on every validation pass.
+const validatedEmbeddedDataUrls = new Map();
+const MAX_REMEMBERED_EMBEDDED_DATA_URLS = 32;
+// Bound retained strings conservatively at two bytes per UTF-16 code unit.
+const MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES = 16 * 1024 * 1024;
+let rememberedEmbeddedDataUrlBytes = 0;
+
+function validatedEmbeddedDataUrlMatches(dataUrl, byteLength) {
+  return validatedEmbeddedDataUrls.get(dataUrl) === byteLength;
+}
+
+function rememberValidatedEmbeddedDataUrl(dataUrl, byteLength) {
+  const retainedBytes = dataUrl.length * 2;
+  if (retainedBytes > MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES) return;
+  if (validatedEmbeddedDataUrls.delete(dataUrl)) rememberedEmbeddedDataUrlBytes -= retainedBytes;
+  validatedEmbeddedDataUrls.set(dataUrl, byteLength);
+  rememberedEmbeddedDataUrlBytes += retainedBytes;
+  while (validatedEmbeddedDataUrls.size > MAX_REMEMBERED_EMBEDDED_DATA_URLS || rememberedEmbeddedDataUrlBytes > MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES) {
+    const oldest = validatedEmbeddedDataUrls.keys().next().value;
+    validatedEmbeddedDataUrls.delete(oldest);
+    rememberedEmbeddedDataUrlBytes -= oldest.length * 2;
+  }
 }
 
 function normalizeRenderedReferenceSource(source) {
@@ -2223,18 +2269,23 @@ function normalizePdfReferenceAsset(asset) {
   if (typeof asset.dataUrl !== "string" || !asset.dataUrl.startsWith(expectedPrefix)) {
     throw new TypeError("PDF reference must contain matching embedded source bytes");
   }
-  const base64 = asset.dataUrl.slice(expectedPrefix.length);
-  const maximumBase64Length = Math.ceil(MAX_PDF_SOURCE_BYTES / 3) * 4;
-  if (base64.length > maximumBase64Length) throw new RangeError("PDF encoded source exceeds the supported limit");
-  if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-    throw new TypeError("PDF source must use canonical base64 characters and padding");
+  if (!validatedEmbeddedDataUrlMatches(asset.dataUrl, asset.byteLength)) {
+    const base64 = asset.dataUrl.slice(expectedPrefix.length);
+    const maximumBase64Length = Math.ceil(MAX_PDF_SOURCE_BYTES / 3) * 4;
+    if (base64.length > maximumBase64Length) throw new RangeError("PDF encoded source exceeds the supported limit");
+    if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+      throw new TypeError("PDF source must use canonical base64 characters and padding");
+    }
+    const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    if (base64.length / 4 * 3 - paddingLength !== asset.byteLength) {
+      throw new TypeError("PDF encoded source length must match its byte-length claim");
+    }
+    rememberValidatedEmbeddedDataUrl(asset.dataUrl, asset.byteLength);
   }
-  const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  if (base64.length / 4 * 3 - paddingLength !== asset.byteLength) {
-    throw new TypeError("PDF encoded source length must match its byte-length claim");
-  }
+  const { dataUrl, ...metadata } = asset;
   return {
-    ...structuredClone(asset),
+    ...structuredClone(metadata),
+    dataUrl,
     fileName,
   };
 }

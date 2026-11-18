@@ -1,3 +1,5 @@
+import { buildTerminalAssignmentIndex } from "../src/editor/terminal-assignment-index.mjs";
+import { createKeyedReferenceLayer, rasterReferenceDescriptor } from "../src/editor/reference-layer-cache.mjs";
 import { createSnapshotMemo, createTrailingViewTask } from "../src/editor/view-performance.mjs";
 import { runPostCommitEffects } from "../src/editor/post-commit-effects.mjs";
 import { createWallMidpointCommand } from "../src/editor/wall-bend-point.mjs";
@@ -45,6 +47,7 @@ import {
   createProject,
   deserializeProject,
   floorPortTransform,
+  floorPortTransformIndex,
   previewDuctRouteGeometry,
   identityQuaternion,
   inspectComponentDeletion,
@@ -808,6 +811,12 @@ const initialNamedLoad = initialLibrary.ok && initialLibrary.activeProjectId
   : null;
 const initialLoad = initialNamedLoad?.ok && initialNamedLoad.found ? initialNamedLoad : legacyLoad;
 const serializedSnapshot = createSnapshotMemo(serializeProject);
+const defaultNumberFormat = new Intl.NumberFormat();
+let drawingPassDepth = 0, drawingPassCanvasRect = null;
+const terminalAssignmentsSnapshot = createSnapshotMemo(buildTerminalAssignmentIndex);
+const floorPortsSnapshot = createSnapshotMemo(floorPortTransformIndex);
+const clearInspectionSnapshot = createSnapshotMemo(() => new Map());
+const reconcileReferences = createKeyedReferenceLayer(referenceLayer);
 let history = createCommandHistory(
   initialLoad.ok && initialLoad.found ? initialLoad.project : createInitialProject(),
 );
@@ -2672,7 +2681,7 @@ function setTask(task, { designNavigation = false } = {}) {
     reassignRoomId = null;
     reassignZoneId = null;
   }
-  setTool("select");
+  setTool("select", { deferRender: true });
   interactionMessage = task === "ventilation"
       ? `${ventilationWorkspaceLabel(activeVentilationWorkspace)} tools active · place and connect on the same plan`
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
@@ -3576,7 +3585,7 @@ function setTool(tool, options = {}) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  render();
+  if (!options.deferRender) render();
   canvas.focus();
 }
 
@@ -6801,7 +6810,18 @@ function modelGroup(kind, id) {
 
 // Only disposable drawing nodes change during a drag. Expensive topology,
 // coordination, inspector and schedules are checked once after commit/cancel.
-function renderDragPreview() {
+function drawingCanvasRect() {
+  if (drawingPassDepth === 0) return canvas.getBoundingClientRect();
+  return drawingPassCanvasRect ??= canvas.getBoundingClientRect();
+}
+function withDrawingPass(draw) {
+  drawingPassDepth++;
+  try { return draw(); }
+  finally { drawingPassDepth--; if (drawingPassDepth === 0) drawingPassCanvasRect = null; }
+}
+
+function renderDragPreview() { return withDrawingPass(renderDragPreviewPass); }
+function renderDragPreviewPass() {
   if (activeTask !== "ventilation" || !(componentDragState || routePointDragState || decentralisedCablePointDragState)) {
     if (referenceCropState?.pointerId != null) renderDraft();
     else if (floorAreaDragState) renderFloorAreas();
@@ -6836,7 +6856,8 @@ function renderDragPreview() {
   } finally { dragPreviewRendering = false; dragPreviewProject = null; }
 }
 
-function render() {
+function render() { return withDrawingPass(renderPass); }
+function renderPass() {
   cameraPreviewFrame.cancel();
   if (["airflows", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
   renderStoreyControl();
@@ -6919,7 +6940,7 @@ function render() {
     const selectedNode = history.present.wallNodes.find(node => node.id === selectedNodeId && onCurrentFloor(node));
     if (selectedNode) {
       const p = displayPosition(selectedNode.id);
-      const rect = canvas.getBoundingClientRect();
+      const rect = drawingCanvasRect();
       const unitsPerPixel = Math.max(camera.width / Math.max(rect.width, 1), camera.height / Math.max(rect.height, 1));
       modelLayer.append(svgElement("circle", {cx:toView(p.x), cy:toView(p.y), r:22*unitsPerPixel, class:"wall-node wall-node-touch-hit", "data-node-id":selectedNode.id, "aria-label":"Drag wall bend point"}));
     }
@@ -6940,7 +6961,7 @@ function render() {
 function renderGrilleAlignmentGuides() {
   const layer = modelGroup("alignment-guides", "current");
     if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      const unitsPerPixel=camera.width/Math.max(drawingCanvasRect().width,1);
       for(const guide of grilleAlignmentPreview.guides)layer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
       const p=grilleAlignmentPreview.point,label=svgElement("text",{x:toView(p.x),y:toView(p.y)-30*unitsPerPixel,"font-size":11*unitsPerPixel,"text-anchor":"middle",fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","pointer-events":"none"});
       label.textContent="Intake + exhaust aligned";layer.append(label);
@@ -6957,7 +6978,7 @@ function renderRouteCeilingElbows(route) {
       if(selected)drawing.append(svgElement("circle",{cx:0,cy:0,r:elbow.nominalSizeMm*.82,fill:"none",stroke:"#f0a43c","stroke-width":10,"stroke-dasharray":"18 10","data-part":"selected-elbow-halo"}));
       for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
       const title=svgElement("title",{});title.textContent="Typed port centre aligned · 90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);layer.append(drawing);
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      const unitsPerPixel=camera.width/Math.max(drawingCanvasRect().width,1);
       const side=["extract","exhaust"].includes(elbow.stream)?-1:1;
       const label=svgElement("text",{x:toView(elbow.xMm+side*elbow.nominalSizeMm*.9),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-7*unitsPerPixel,"font-size":9*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":side<0?"end":"start","pointer-events":"none","data-ventilation-label":"ceiling-elbow","data-route-id":elbow.routeId});
       label.textContent="↑90°";
@@ -7337,7 +7358,7 @@ function renderDecentralisedCableEditHandles(cable) {
   const layer = modelGroup("cable-handles", cable.id);
   if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
-  const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+  const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
   for (let index = 0; index < points.length - 1; index += 1) {
     const midpoint = { x: (points[index].x + points[index + 1].x) / 2, y: (points[index].y + points[index + 1].y) / 2 };
     const add = svgElement("g", { class: "decentralised-cable-add-point", transform: `translate(${toView(midpoint.x)} ${toView(midpoint.y)})`, "data-decentralised-cable-id": cable.id, "data-segment-index": index, "aria-label": `Add cable bend point after segment ${index + 1}` });
@@ -7384,7 +7405,7 @@ function renderRouteEditHandles(route) {
   const points = routeDisplayPoints(route);
   const body = routeBodyGeometry(route);
   for (const lane of body.lanes) layer.append(svgElement("polyline", {points:routePointString(lane),class:"route-selection-halo","stroke-width":toView(body.diameterMm ?? 0)+5}));
-  const rect = canvas.getBoundingClientRect();
+  const rect = drawingCanvasRect();
   const viewUnitsPerCssPixel = camera.width / Math.max(rect.width, 1);
   layer.append(svgElement("polyline", {
     points: routePointString(points),
@@ -7504,7 +7525,7 @@ function renderComponent(component) {
     "data-component-id": component.id,
   });
   const evidenceLabel = componentEvidenceLabel(component);
-  const roomAssignment = terminalRoomAssignment(history.present, component.id);
+  const roomAssignment = terminalAssignmentsSnapshot(history.present).get(component.id) ?? null;
   const assignedSpace = roomAssignment?.zoneId
     ? history.present.zones.find((zone) => zone.id === roomAssignment.zoneId)
     : roomAssignment?.roomId
@@ -7543,7 +7564,7 @@ function renderComponent(component) {
     label.setAttribute("x", toView(position.x));
     label.setAttribute("y", toView(position.y + Math.max(symbol.widthMm, symbol.heightMm) / 2) + 16);
     if ([EXTERNAL_GRILLE_PLAN_GRAPHIC_ID, WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic.graphicId)) {
-      const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+      const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
       label.style.fontSize = `${11 * unitsPerPixel}px`;
       label.setAttribute("y", toView(position.y + symbol.heightMm / 2) + 15 * unitsPerPixel);
       if (planGraphic.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID) {
@@ -7553,7 +7574,7 @@ function renderComponent(component) {
       }
     }
     if ([Q350_PLAN_GRAPHIC_ID, STANDALONE_CW_GRAPHIC_ID, CA200_GRAPHIC_ID].includes(planGraphic.graphicId)) {
-      const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+      const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
       const bounds = planGraphic.drawingBoundsMm ?? { minX: -symbol.widthMm/2, maxX: symbol.widthMm/2, minY: -symbol.heightMm/2, maxY: symbol.heightMm/2 };
       const angle = componentYaw(component.orientation);
       const corners = [bounds.minX, bounds.maxX].flatMap(x => [bounds.minY, bounds.maxY].map(y => ({ x: x*Math.cos(angle)-y*Math.sin(angle), y: x*Math.sin(angle)+y*Math.cos(angle) })));
@@ -7610,7 +7631,7 @@ function renderComponent(component) {
       }
       continue;
     }
-    const portTransform = floorPortTransform(history.present, component.id, port.id);
+    const portTransform = floorPortsSnapshot(history.present).get(component.id).get(port.id);
     const portPosition = portTransform.positionMm;
     const usage = portUsage(component.id, port.id);
     const routeState = portRouteState(port, usage);
@@ -7618,7 +7639,7 @@ function renderComponent(component) {
     const availability = usage.occupied ? `connected by ${usage.kind}` : routeState === "incompatible" ? "not compatible with selected route" : "available";
     const portClasses = `${portRoleClass(port.role)}${usage.occupied ? " occupied" : ""}${routeState ? ` route-${routeState}` : ""}`;
     if (isExpandedDrawingConnectionTarget(port)) {
-      const canvasRect = canvas.getBoundingClientRect();
+      const canvasRect = drawingCanvasRect();
       const cssPixelsPerViewUnit = Math.min(
         canvasRect.width / camera.width,
         canvasRect.height / camera.height,
@@ -7854,7 +7875,7 @@ function appendQ350PlanGraphic(group, graphic, options = {}) {
   group.append(drawing);
   for (const port of graphic.ports) {
     if (graphic.mountedCw && ["supply", "extract"].includes(port.stream)) continue;
-    const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+    const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
     const layout = q350PortLabelLayout(port);
     group.append(svgElement("line", { x1: toView(layout.leaderStartXmm), y1: toView(layout.yMm), x2: toView(layout.leaderEndXmm), y2: toView(layout.yMm), class: "port-label-leader" }));
     const portCode = svgElement("text", {
@@ -8076,69 +8097,29 @@ function renderCamera() {
 }
 
 function renderReferences() {
-  referenceLayer.replaceChildren();
+  const descriptors = [];
   for (const reference of history.present.floorReferences) {
     if (!reference.visible || !onCurrentFloor(reference)) continue;
-    const asset = history.present.referenceAssets.find((candidate) => candidate.id === reference.assetId);
+    const asset = history.present.referenceAssets.find(candidate => candidate.id === reference.assetId);
     if (!asset) continue;
     const scale = effectiveReferenceScale(reference) / MILLIMETRES_PER_VIEW_UNIT;
     const translation = reference.transform.translationMm;
     const transform = `translate(${toView(translation.x)} ${toView(translation.y)}) rotate(${reference.transform.rotationRad * 180 / Math.PI}) scale(${scale})`;
-    const group = svgElement("g", { transform, "data-reference-id": reference.id });
     const editingCrop = activeTool === "crop-reference" && referenceCropState?.referenceId === reference.id;
-    const visibleRect = !editingCrop && reference.cropSourceRectPx
-      ? reference.cropSourceRectPx
-      : { x: 0, y: 0, width: asset.widthPx, height: asset.heightPx };
-    const image = svgElement("image", {
-      href: asset.dataUrl,
-      x: 0,
-      y: 0,
-      width: asset.widthPx,
-      height: asset.heightPx,
-      opacity: editingCrop ? Math.max(0.25, reference.opacity * 0.72) : reference.opacity,
-      class: "reference-image",
-      preserveAspectRatio: "none",
-    });
-    if (reference.cropSourceRectPx && !editingCrop) {
-      const clipId = `reference-crop-${reference.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
-      const defs = svgElement("defs", {});
-      const clipPath = svgElement("clipPath", { id: clipId, clipPathUnits: "userSpaceOnUse" });
-      clipPath.append(svgElement("rect", reference.cropSourceRectPx));
-      defs.append(clipPath);
-      image.setAttribute("clip-path", `url(#${clipId})`);
-      group.append(defs);
-    }
-    group.append(
-      image,
-      svgElement("rect", {
-        ...visibleRect,
-        class: "reference-frame",
-        "vector-effect": "non-scaling-stroke",
-      }),
-    );
-    if (editingCrop && reference.cropSourceRectPx) {
-      group.append(svgElement("rect", {
-        ...reference.cropSourceRectPx,
-        class: "reference-crop-existing",
-        "vector-effect": "non-scaling-stroke",
-      }));
-    }
-    referenceLayer.append(group);
+    descriptors.push(rasterReferenceDescriptor({reference,asset,transform,editingCrop},svgElement));
   }
   for (const reference of history.present.floorCadReferences) {
     if (!reference.visible || !onCurrentFloor(reference)) continue;
-    const asset = history.present.cadReferenceAssets.find((candidate) => candidate.id === reference.assetId);
+    const asset = history.present.cadReferenceAssets.find(candidate => candidate.id === reference.assetId);
     if (!asset) continue;
-    const transformed = cachedCadReferenceProjection(asset, reference).transformed;
-    const group = svgElement("g", {
-      opacity: reference.opacity,
-      class: asset.partialImportAccepted ? "cad-reference-partial" : "",
-      "data-cad-reference-id": reference.id,
-      "data-locked": "true",
-    });
-    for (const item of transformed.geometry) group.append(renderCadGeometryItem(item));
-    referenceLayer.append(group);
+    const projection = cachedCadReferenceProjection(asset, reference);
+    descriptors.push({key:`cad:${reference.id}`,signature:[projection,reference.opacity,asset.partialImportAccepted],create:()=>{
+      const group = svgElement("g", {opacity:reference.opacity,class:asset.partialImportAccepted ? "cad-reference-partial" : "","data-cad-reference-id":reference.id,"data-locked":"true"});
+      for(const item of projection.transformed.geometry) group.append(renderCadGeometryItem(item));
+      return group;
+    }});
   }
+  reconcileReferences(descriptors);
 }
 
 function renderCadGeometryItem(item) {
@@ -8238,7 +8219,8 @@ function positiveAngleDelta(start, end) {
   return delta < 0 ? delta + Math.PI * 2 : delta;
 }
 
-function renderDraft() {
+function renderDraft() { return withDrawingPass(renderDraftPass); }
+function renderDraftPass() {
   draftLayer.replaceChildren();
   if (activeTask === "ventilation" && activeTool === "routing-exclusion" && routingExclusionDraftStart && hoverPoint) {
     const x = Math.min(routingExclusionDraftStart.x, hoverPoint.x), y = Math.min(routingExclusionDraftStart.y, hoverPoint.y);
@@ -8809,7 +8791,9 @@ function renderClearVentilationControl() {
     clearVentilationButton.title = "No active floor";
     return;
   }
-  const inspection = inspectFloorVentilationClear(history.present, floor.id);
+  const cache = clearInspectionSnapshot(history.present);
+  if (!cache.has(floor.id)) cache.set(floor.id, inspectFloorVentilationClear(history.present, floor.id));
+  const inspection = cache.get(floor.id);
   clearVentilationButton.disabled = inspection.isEmpty;
   clearVentilationButton.title = inspection.isEmpty
     ? `No ventilation objects on ${floor.name}`
@@ -10232,7 +10216,7 @@ function renderWallPointHandle() {
   const wall = history.present.walls.find(item => item.id === selectedWallId && onCurrentFloor(item));
   if (!wall) return;
   const command = createWallMidpointCommand(history.present, wall.id, {newNodeId:"preview",newWallId:"preview"});
-  const rect = canvas.getBoundingClientRect();
+  const rect = drawingCanvasRect();
   const unitsPerPixel = Math.max(camera.width / Math.max(rect.width,1), camera.height / Math.max(rect.height,1));
   const group = svgElement("g", {class:"wall-add-point", "data-wall-id":wall.id, role:"button", tabindex:0, "aria-label":"Add wall bend point at midpoint, then drag to reshape", transform:`translate(${toView(command.point.x)} ${toView(command.point.y)}) scale(${unitsPerPixel})`});
   group.append(svgElement("circle", {r:22,class:"wall-add-point-hit"}),svgElement("circle",{r:10,class:"wall-add-point-disc"}));
@@ -10960,15 +10944,15 @@ function toView(valueMm) {
 }
 
 function formatMm(valueMm) {
-  return `${Math.round(valueMm).toLocaleString()} mm`;
+  return `${defaultNumberFormat.format(Math.round(valueMm))} mm`;
 }
 
 function formatArea(areaMm2) {
-  return `${Number((areaMm2 / 1_000_000).toFixed(2)).toLocaleString()} m²`;
+  return `${defaultNumberFormat.format(Number((areaMm2 / 1_000_000).toFixed(2)))} m²`;
 }
 
 function formatNumberValue(value) {
-  return Number(value.toFixed(2)).toLocaleString();
+  return defaultNumberFormat.format(Number(value.toFixed(2)));
 }
 
 function formatAirflowLps(valueLps) {
