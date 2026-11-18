@@ -9,12 +9,13 @@ test('airflow pages paginate without truncation and omit decentralised scope',()
  assert.deepEqual(pages.map(p=>p.rows.length),[18,18,4]);
  assert.equal(pages[2].pageNumber,7);
  const svg=renderAirflowSheetSvg(large,pages[0]);
- assert.match(svg,/Test &lt;house&gt;/);assert.match(svg,/Not recorded/);assert.match(svg,/Page 5 of 8/);
+ assert.match(svg,/Test &lt;house&gt;/);assert.match(svg,/Not set/);assert.match(svg,/Page 5 of 8/);
 });
-test('airflow output preserves measured zero and warns on changed design',()=>{
- const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Bedroom',ventilationRole:'supply',designLps:12,measuredLps:0,deltaLps:-12,designChanged:true,measurement:{setting:'<setting>'}}]}};
+test('live design airflows never display site readings, delta, settings or site metadata',()=>{
+ const s={...sheet,airflowReport:{...sheet.airflowReport,record:{details:{engineer:'SITE ENGINEER'}},lines:[{name:'Bedroom',ventilationRole:'supply',requiredLps:10,designLps:12,terminalIds:['t1'],measuredLps:987.6,deltaLps:975.6,designChanged:true,measurement:{setting:'SECRET SITE SETTING'}}]}};
  const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
- assert.match(svg,/>0.0</);assert.match(svg,/>-12.0</);assert.match(svg,/Design changed since measurement/);assert.match(svg,/&lt;setting&gt;/);
+ assert.match(svg,/LIVE DESIGN AIRFLOWS/);assert.match(svg,/>10.0</);assert.match(svg,/>12.0</);
+ assert.doesNotMatch(svg,/MEASURED|DIFF\.|SETTING|987.6|975.6|SITE ENGINEER|SECRET SITE SETTING|Design changed since measurement/);
 });
 
 test('airflow output bounds metadata and identifies room totals and omissions',()=>{
@@ -29,10 +30,16 @@ test('airflow output bounds metadata and identifies room totals and omissions',(
  assert.match(svg,/Incomplete: 1 unassigned terminal/);
 });
 
-test('detached room output identifies excluded historical measurements',()=>{
+test('detached room design output warns without exposing historical measurements',()=>{
  const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Bedroom',ventilationRole:'supply',boundaryNeedsReassignment:true,designLps:null,measuredLps:11,deltaLps:null,designChanged:true,measurement:{setting:'Normal'}}]}};
  const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
  assert.match(svg,/Boundary needs reassignment; excluded from totals/);
- assert.match(svg,/>11.0</);
+ assert.doesNotMatch(svg,/>11.0</);
  assert.doesNotMatch(svg,/Design changed since measurement/);
+});
+
+test('detached boundary warning has no duplicate SVG fill attribute',()=>{
+ const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Pending room',ventilationRole:'supply',designLps:null,requiredLps:null,boundaryNeedsReassignment:true}]}};
+ const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
+ for(const tag of svg.matchAll(/<text\b[^>]*>/g))assert.equal((tag[0].match(/\sfill=/g)||[]).length,1);
 });

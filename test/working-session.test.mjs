@@ -158,3 +158,9 @@ test('clear is observable between writes and cannot resurrect the old queued sna
  await first;await clearing;assert.equal(await reading,null);await last;
  assert.equal((await store.read(context)).name,'After');
 });
+
+test('commissioning view survives working-session recovery',async()=>{
+ const db=indexedDbFixture(),store=createWorkingSessionStore(db,{tabId:'commissioning-tab'});
+ await store.write(context,{...snapshot(),task:'commissioning'});
+ assert.equal((await store.read(context)).task,'commissioning');
+});

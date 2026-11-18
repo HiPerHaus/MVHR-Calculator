@@ -82,8 +82,8 @@ function referenceCard(card, number, b, includeControls = false) {
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
-    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Trap shown schematically; drain/service dimensions not specified. Verify current instructions."],
-    "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "See Q-series electrical reference; verify current model instructions."],
+    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Allow 150 mm below unit for trap and 50 mm each side in cupboards.", "Owner allowances; verify manufacturer service requirements."],
+    "q-cw320": ["Assembly envelope excludes service clearances.", "Allow 150 mm below unit for trap and 50 mm each side in cupboards.", "Owner allowances; verify manufacturer service requirements."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
   }[card.id];

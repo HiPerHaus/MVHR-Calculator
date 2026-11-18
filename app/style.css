@@ -938,3 +938,14 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .volume-reference > button, .volume-reference > a { justify-self: start; max-width: 100%; white-space: normal; }
 @media(max-width: 1000px) { .volume-room-list { grid-template-columns: 1fr; } .volume-reference-inputs { grid-template-columns: repeat(2,minmax(0,1fr)); } .volume-reference-inputs > :last-child { grid-column: 1 / -1; } }
 @media(max-width: 560px) { .volume-settings, .volume-reference { padding: 16px; } .volume-floor-form { padding: 12px; } .volume-floor-form .field-input { flex-basis: 100%; } .volume-room-controls, .volume-reference-inputs { grid-template-columns: 1fr; } .volume-room-card > button, .volume-floor-form > button, .volume-reference > button { width: 100%; } }
+
+.design-airflow-section { display: grid; gap: 16px; max-width: 1240px; padding: 24px; box-sizing: border-box; background: #fff; border: 1px solid #d7e0e4; border-radius: 12px; margin-top: 16px; }
+.design-airflow-section > h2 { margin: 0; font-size: 20px; text-transform: none; letter-spacing: normal; }
+.design-airflow-section p { margin: 0; line-height: 1.5; }
+.design-airflow-section > button { justify-self: start; min-height: 44px; padding: 10px 14px; }
+.design-airflow-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.design-airflow-card { padding: 16px; border: 1px solid #d7e0e4; border-radius: 8px; }
+.design-airflow-card h3 { margin: 0 0 8px; }
+.commissioning-details > h2 { grid-column: 1 / -1; }
+#commissioning-workspace input, #commissioning-workspace button { min-height: 44px; box-sizing: border-box; }
+@media(max-width: 700px) { .design-airflow-list { grid-template-columns: 1fr; } .design-airflow-section { padding: 16px; } }

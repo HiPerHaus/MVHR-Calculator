@@ -92,7 +92,7 @@ test("AF300 layout and controls reflect supplied references with separate Q wiri
   }
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
   assert.match(createSheetOutputPages(q)[1].svg,/Q-series electrical reference/);
-  assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned|drain dimensions not specified/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Allow 150 mm below unit for trap and 50 mm each side in cupboards/);
   assert.equal(PLAN_DETAIL_REFERENCES.q320.drainAllowanceMm,null);
   assert.equal(PLAN_DETAIL_REFERENCES.af520.drainAllowanceMm,150);
 });
@@ -144,7 +144,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
   const expected = {
     "ceiling-tva": [128,140], "wall-housing": [120,115,140],
-    "q-cw320": [791,566,1414], "q-cw420": [824,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
+    "q-cw320": [791,566,1414,150], "q-cw420": [824,566,1414,150], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
   };
   for (const [id,values] of Object.entries(expected)) {
     const svg=render(id);
@@ -156,7 +156,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   for(const id of ["ceiling-tva","wall-housing","af300-remote"]) assert.match(render(id),/data-source-feature="hatched-section"/);
   assert.match(render("q-cw320"),/data-source-feature="q-mounting-set"/);
   assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
-  assert.match(render("q-cw320"),/data-dimension="unresolved"/);
+  assert.match(render("q-cw320"),/data-owner-allowance="trap-below-unit"/);
   assert.doesNotMatch(render("af300-remote"),/data-dimension="unresolved"/);
   assert.match(render("af300-remote"), />AeroFresh 300<.*>660<.*>Includes wall bracket</);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
@@ -289,7 +289,8 @@ test("owner CW420 reference shows eight outlets per manifold without changing mo
 test("Q casing reference adds a schematic trap without importing alternate CW520 dimensions", () => {
   for (const [id, expected] of [["q-cw320",["791","566","1414"]],["q-cw420",["824","566","1414"]]]) {
     const svg=renderInstallReferenceIllustration(id);
-    assert.match(svg,/data-source-feature="q-condensate-trap" data-dimension-status="unresolved"/);
+    assert.match(svg,/data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance"/);
+    assert.match(svg,/data-owner-allowance="trap-below-unit"><g data-dimension="150"/);
     for(const value of expected) assert.match(svg,new RegExp('data-dimension="'+value+'"'));
     for(const value of ["924","600","50"]) assert.doesNotMatch(svg,new RegExp('data-dimension="'+value+'"'));
   }

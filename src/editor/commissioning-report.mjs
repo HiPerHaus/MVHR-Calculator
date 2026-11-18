@@ -13,7 +13,8 @@ export function buildCommissioningReport(project,floorId) {
   const totals={};
   for(const role of ['supply','extract']) {
     const selected=lines.filter(l=>l.ventilationRole===role);
-    totals[role]={designLps:selected.reduce((sum,l)=>sum+(l.designLps??0),0),measuredLps:selected.reduce((sum,l)=>sum+(l.boundaryNeedsReassignment?0:(l.measuredLps??0)),0),incompleteDesign:!selected.length||selected.some(l=>l.designLps===null),incompleteMeasured:!selected.length||selected.some(l=>l.measuredLps===null||l.boundaryNeedsReassignment)};
+    const designValues=selected.filter(l=>l.designLps!==null), measuredValues=selected.filter(l=>!l.boundaryNeedsReassignment&&l.measuredLps!==null);
+    totals[role]={designLps:designValues.length?designValues.reduce((sum,l)=>sum+l.designLps,0):null,measuredLps:measuredValues.length?measuredValues.reduce((sum,l)=>sum+l.measuredLps,0):null,incompleteDesign:!selected.length||selected.some(l=>l.designLps===null),incompleteMeasured:!selected.length||selected.some(l=>l.measuredLps===null||l.boundaryNeedsReassignment)};
   }
   return {floorId,optionId:project.activeDesignOptionId,lines,totals,record,unassignedTerminals:balance.unassignedTerminals};
 }

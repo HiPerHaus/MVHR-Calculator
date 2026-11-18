@@ -98,14 +98,15 @@ function qAssembly() {
     path("M342 190 C340 211 345 218 358 219 C372 218 380 213 380 190 Z", "white", 1.3),
     ...[291, 341].flatMap(px => [box(px, 88, 39, 94, "#fafafa", 1.3), box(px - 1, 83, 41, 5, "#dddddd", 1), box(px - 1, 178, 41, 6, "#dddddd", 1),
       ...[92, 112, 154, 174].flatMap(v => [circle(px + 3, v, 1.05, INK, .3), circle(px + 36, v, 1.05, INK, .3)])]),
-    '<g data-source-feature="q-condensate-trap" data-dimension-status="unresolved">',
+    '<g data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance">',
     `<g transform="translate(142 340) scale(-1 1)">${drain(0,0)}</g>`, "</g>",
     "</g>",
     dimH(x + 45 * s, x + 186 * s, 2.1, "791", INK, y + 83 * s),
     dimH(x + 290 * s, x + 389 * s, 2.1, "566", INK, y + 83 * s),
     dimV(y + 83 * s, y + 333 * s, 2.7, "1414", INK, x + 45 * s),
-    // Blank allowance arrow preserved, never supplied a guessed drain value.
-    dimV(y + 333 * s, 46, 2.7, null, "#858585", x + 69 * s),
+    // Owner-requested allowance from unchanged envelope bottom to drawn trap bottom.
+    '<g data-owner-allowance="trap-below-unit">',
+    dimV(y + 333 * s, y + 379.5 * s, 2.7, "150", INK, x + 142 * s), "</g>",
   ].join("");
 }
 
@@ -124,7 +125,7 @@ function q420Assembly() {
     path("M7 20 H11 V22 L7 26 Z", "white"),
     path("M23 21 L27 25 V20 H23 Z", "white"),
     '</g>',
-    '<g data-source-feature="q-condensate-trap" data-dimension-status="unresolved">',
+    '<g data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance">',
     '<g transform="translate(16 42.7) scale(-.13 .13)">', drain(0,0), '</g></g>',
     box(17, 5, 12, 15, "#fafafa"), box(17, 4.5, 12, .8, "#ddd"), box(17, 19.5, 12, .8, "#ddd"),
     ...[20.5,25.5].map(x => path(`M${x-2} 9 Q${x-2} 6 ${x} 6 Q${x+2} 6 ${x+2} 9 V16 Q${x+2} 19 ${x} 19 Q${x-2} 19 ${x-2} 16 Z`, "none", .2)),
@@ -137,6 +138,7 @@ function q420Assembly() {
     ...[38,46].map(x => path(`M${x} 20 H${x+6.5} V23 Q${x+6.5} 26 ${x+3} 26 Q${x} 26 ${x} 23 Z`, "white")),
     '</g>',
     dimH(7,29,2,"824",INK,4.5), dimH(38,53,2,"566",INK,4.5), dimV(4.5,42,3,"1414",INK,7),
+    '<g data-owner-allowance="trap-below-unit">', dimV(42,47.835,3,"150",INK,16), "</g>",
     '<g data-source-feature="q-cw420-eight-port-plan">',
     '<g transform="translate(27 0)">',
     box(7,46,22,13,"#fafafa"),

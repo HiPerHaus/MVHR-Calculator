@@ -1483,7 +1483,7 @@ removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
-for (const task of ["airflows", "as-built"]) document.querySelector(`#${task}-nav`).addEventListener("click", () => setTask(task));
+for (const task of ["airflows", "commissioning", "as-built"]) document.querySelector(`#${task}-nav`).addEventListener("click", () => setTask(task));
 planNavigationButton.addEventListener("click", () => selectDesignStage("plan"));
 ventilationNavigationButton.addEventListener("click", () => selectDesignStage("draw"));
 for (const button of ventilationWorkspaceButtons) button.addEventListener("click", () => selectVentilationWorkspace(button.dataset.ventilationTab));
@@ -2569,7 +2569,7 @@ function selectDesignStage(stage) {
 
 function setTask(task, { designNavigation = false } = {}) {
   if (task !== "checks" && hasEngineeringEdits()) return requestEngineeringTransition(() => setTask(task, { designNavigation }));
-  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account", "airflows", "as-built"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account", "airflows", "commissioning", "as-built"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
@@ -2604,20 +2604,20 @@ function setTask(task, { designNavigation = false } = {}) {
     if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
-  for (const fieldTask of ["airflows", "as-built"]) {
+  for (const fieldTask of ["airflows", "commissioning", "as-built"]) {
     document.querySelector(`#${fieldTask}-workspace`).hidden = task !== fieldTask;
     document.querySelector(`#${fieldTask}-nav`).classList.toggle("active", task === fieldTask);
     if (task === fieldTask) document.querySelector(`#${fieldTask}-nav`).setAttribute("aria-current", "page");
     else document.querySelector(`#${fieldTask}-nav`).removeAttribute("aria-current");
   }
   projectWorkspace.hidden = task !== "project";
-  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account" || task === "airflows" || task === "as-built";
+  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account" || task === "airflows" || task === "commissioning" || task === "as-built";
   viewOptionsAnchor.hidden = task !== "ventilation";
   if (task !== "ventilation") setViewOptionsOpen(false);
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
   threeDWorkspace.hidden = task !== "three-d";
-  if (["airflows", "as-built"].includes(task)) {cancelActivePointer(); renderCommissioningWorkspace(); return;}
+  if (["airflows", "commissioning", "as-built"].includes(task)) {cancelActivePointer(); renderCommissioningWorkspace(); return;}
   if (task === "account") {cancelActivePointer();return;}
   if (task === "project") {
     cancelActivePointer();
@@ -3186,6 +3186,11 @@ function openSheetPreview({ designStage = false } = {}) {
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
+    for(const fieldTask of ["airflows","commissioning","as-built"]) {
+      document.querySelector(`#${fieldTask}-workspace`).hidden=true;
+      document.querySelector(`#${fieldTask}-nav`).classList.remove("active");
+      document.querySelector(`#${fieldTask}-nav`).removeAttribute("aria-current");
+    }
     planWorkspace.hidden = true;
     catalogueWorkspace.hidden = true;
     checksWorkspace.hidden = true;
@@ -3272,8 +3277,9 @@ function renderSheetOptionPreview(optionId) {
   exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
   const airflowPageCount = pages.filter(page => page.kind === "airflows").length;
+  const commissioningPageCount = pages.filter(page => page.kind === "commissioning").length;
   const installationPageCount = pages.filter(page => page.kind === "installation-details").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""}${commissioningPageCount ? ` + ${commissioningPageCount} A4 commissioning sheet${commissioningPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
   sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references, airflow records and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
@@ -3331,9 +3337,9 @@ function openSheetOutputPicker(action, output = null) {
     input.checked = sheetPageSelections.get(page.pageKey) !== false;
     const description = document.createElement("span");
     const title = document.createElement("strong");
-    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflows" ? "Airflows" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflows" ? "Design airflows" : page.kind === "commissioning" ? "Commissioning" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
     const detail = document.createElement("small");
-    detail.textContent = `Page ${index + 1} · ${["parts-list", "airflows"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
+    detail.textContent = `Page ${index + 1} · ${["parts-list", "airflows", "commissioning"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
     description.append(title, detail);
     label.append(input, description);
     fieldset.append(label);
@@ -6925,7 +6931,7 @@ function renderDragPreviewPass() {
 function render() { return withDrawingPass(renderPass); }
 function renderPass() {
   cameraPreviewFrame.cancel();
-  if (["airflows", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
+  if (["airflows", "commissioning", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
   renderStoreyControl();
   dragPreviewFrame.cancel();
   dragPreviewProject = null;
@@ -11380,9 +11386,9 @@ function renderCommissioningWorkspace() {
   const host = document.querySelector(`#${activeTask}-workspace`);
   host.replaceChildren();
   const heading = fieldNode("header", undefined, "field-heading");
-  heading.append(fieldNode("h1", activeTask === "airflows" ? "Airflows" : "As built"));
+  heading.append(fieldNode("h1", activeTask === "airflows" ? "Airflows" : activeTask === "commissioning" ? "Commissioning" : "As built"));
   const option = history.present.designOptions.find(item => item.id === history.present.activeDesignOptionId);
-  heading.append(fieldNode("p", `${option?.name ?? "Active design"} · Centralised ducted system · Working field record, not certification`));
+  heading.append(fieldNode("p", `${option?.name ?? "Active design"} · Centralised ducted system · ${activeTask === "airflows" ? "Live design targets, not site measurements" : "Working field record, not certification"}`));
   const floorLabel = fieldNode("label", "Floor ");
   const floorSelect = document.createElement("select");
   for (const floor of history.present.floors) { const o = fieldNode("option", floor.name); o.value = floor.id; floorSelect.append(o); }
@@ -11392,11 +11398,30 @@ function renderCommissioningWorkspace() {
   if (!history.present.floors.length) { host.append(fieldNode("p", "Add a floor and rooms in Plan to start.")); return; }
   if (history.present.ventilationDesignType === "decentralised") { host.append(fieldNode("p", "This field workflow is for centralised ducted systems. Decentralised commissioning is not included.")); return; }
   const report = buildCommissioningReport(history.present, currentFloorId());
-  if (activeTask === "airflows") renderFieldAirflows(host, report);
+  if (activeTask === "airflows") renderDesignAirflows(host, report);
+  else if (activeTask === "commissioning") {renderCommissioningDetails(host,report);renderFieldAirflows(host,report);}
   else renderFieldAsBuilt(host, report);
 }
+function renderDesignAirflows(host, report) {
+  const section=fieldNode("section",undefined,"design-airflow-section");
+  section.append(fieldNode("h2","Live design airflow schedule"),fieldNode("p","Normal-mode targets for the active option and floor. These are design values, not measured readings. Edit room targets in Plan / Draw; record site measurements in Commissioning."));
+  const exportButton=fieldNode("button","Export design airflow schedule");exportButton.type="button";
+  exportButton.addEventListener("click",()=>selectDesignStage("export"));section.append(exportButton);
+  section.append(fieldNode("p","Opens Export, where you can choose the Airflows page. The schedule scope is shown in the preview."));
+  const totals=fieldNode("div",undefined,"field-totals");
+  for(const stream of ["supply","extract"]) {const t=report.totals[stream];totals.append(fieldNode("p",`${stream === "supply"?"Supply":"Extract"}: ${fieldNumber(t.designLps)} l/s · ${fieldNumber(t.designLps===null?null:t.designLps*3.6)} m³/h${t.incompleteDesign?" (known subtotal; incomplete)":""}`));}section.append(totals);
+  if(report.unassignedTerminals?.length)section.append(fieldNode("p",`${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals.`,"field-warning"));
+  const list=fieldNode("div",undefined,"design-airflow-list");
+  for(const line of report.lines) {
+    const card=fieldNode("article",undefined,"design-airflow-card");
+    card.append(fieldNode("h3",line.name),fieldNode("p",`${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`),fieldNode("p",`Live design: ${fieldNumber(line.designLps)} l/s · ${fieldNumber(line.designLps===null?null:line.designLps*3.6)} m³/h`),fieldNode("p",`Required reference: ${fieldNumber(line.requiredLps)} l/s`));
+    if(line.boundaryNeedsReassignment)card.append(fieldNode("p","Boundary needs reassignment; review before issuing.","field-warning"));
+    list.append(card);
+  }
+  if(!report.lines.length)section.append(fieldNode("p","No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
+  section.append(list);host.append(section);renderVolumeSettings(host);
+}
 function renderFieldAirflows(host, report) {
-  renderVolumeSettings(host);
   host.append(fieldNode("p", "Live normal-mode room targets from the current design. Enter measured room totals in l/s, separately from design. Where a room has several terminals, add their measured readings yourself; no equal split is assumed.", "field-guidance"));
   if (report.unassignedTerminals?.length) host.append(fieldNode("p", `${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals. Associate them with rooms before reviewing coverage.`, "field-warning"));
   const totals = fieldNode("div", undefined, "field-totals");
@@ -11431,16 +11456,21 @@ function renderFieldAirflows(host, report) {
     host.append(form);
   }
 }
+function renderCommissioningDetails(host, report) {
+  host.append(fieldNode("p","Site test details and measurements are saved separately from design targets. Save each form before leaving. No acceptance tolerance or certification is assumed.","field-guidance"));
+  const form=fieldNode("form",undefined,"field-details-form commissioning-details");
+  form.append(fieldNode("h2","Commissioning test details"));
+  const fields=[["engineer","Commissioning engineer"],["date","Commissioning date","date"],["instrument","Airflow instrument"],["instrumentSerial","Instrument serial number"],["calibrationDate","Calibration date","date"],["unitModel","Installed unit model"],["unitSerial","Unit serial number"],["normalSetting","Normal unit settings"],["boostSetting","Boost unit settings"],["filterDuringTest","Filters fitted during measurement"]];
+  const inputs={};for(const [key,label,type] of fields){const f=fieldInput(label,report.record.details[key],{type:type??"text"});inputs[key]=f.input;form.append(f.wrapper);}
+  const save=fieldNode("button","Save commissioning details");save.type="submit";form.append(save);
+  form.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"commissioning.updateDetails",details:Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.value]))},"Commissioning details saved");});host.append(form);
+}
 function renderFieldAsBuilt(host, report) {
   host.append(fieldNode("p", "Record the installed system and site evidence for this design option. Save each section before leaving. Photos and notes are included in project saves and backups; review cloud save status before leaving site.", "field-guidance"));
   const form = fieldNode("form", undefined, "field-details-form");
   const fields = [
-    ["engineer","Commissioning engineer"],["date","Commissioning date","date"],
-    ["instrument","Airflow instrument"],["instrumentSerial","Instrument serial number"],["calibrationDate","Calibration date","date"],
-    ["unitModel","Installed unit model"],["unitSerial","Unit serial number"],
-    ["normalSetting","Normal unit settings"],["boostSetting","Boost unit settings"],
-    ["filterDuringTest","Filters fitted during measurement"],["filterFinal","Final installed filters"],
-    ["controls","Controls / boost switches and operation"],["asBuiltChanges","As-built changes from design"],["serviceNotes","Service instructions / access / maintenance notes"],
+    ["filterFinal","Final installed filters"],["controls","Controls / boost switches and operation"],
+    ["asBuiltChanges","As-built changes from design"],["serviceNotes","Service instructions / access / maintenance notes"],
   ];
   const inputs = {};
   for (const [key,label,type] of fields) {

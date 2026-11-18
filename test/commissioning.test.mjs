@@ -130,3 +130,38 @@ test('commissioning stays scoped to the original option and supports undo/redo',
  p=applyCommand(p,{type:'designOption.switch',optionId:originalId});
  assert.equal(buildCommissioningReport(p,'floor-ground').record.details.unitSerial,'ORIGINAL');
 });
+
+test('unset totals remain unknown while genuine zero values stay zero',()=>{
+ let p=createRoom(twoRoomProject(),'bed','Bedroom','supply',leftBoundary(twoRoomProject()));
+ let report=buildCommissioningReport(p,'floor-ground');
+ assert.equal(report.totals.supply.designLps,null);assert.equal(report.totals.supply.measuredLps,null);
+ p=updateTargets(p,'bed','room',{assigned:airflowTargetFromInput(10,'l/s','Designer target','Test')});
+ p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:'bed',measuredLps:0,recordedAt:'2026-11-18T00:00:00Z'});
+ report=buildCommissioningReport(p,'floor-ground');
+ assert.equal(report.totals.supply.designLps,10);assert.equal(report.totals.supply.measuredLps,0);
+ assert.equal(report.totals.extract.designLps,null);
+});
+
+test('partial commissioning form saves retain separate as-built details and photos',()=>{
+ let p=twoRoomProject();
+ p=applyCommand(p,{type:'commissioning.updateDetails',details:{filterFinal:'F7',controls:'Hall boost',serviceNotes:'Annual review'}});
+ p=applyCommand(p,{type:'commissioning.addPhoto',photo:{id:'photo-1',caption:'Unit',dataUrl:'data:image/jpeg;base64,YQ=='}});
+ p=applyCommand(p,{type:'commissioning.updateDetails',details:{engineer:'Engineer',instrument:'Meter'}});
+ const r=buildCommissioningReport(deserializeProject(serializeProject(p)),'floor-ground').record;
+ assert.equal(r.details.filterFinal,'F7');assert.equal(r.details.controls,'Hall boost');assert.equal(r.details.serviceNotes,'Annual review');
+ assert.equal(r.details.engineer,'Engineer');assert.equal(r.photos.length,1);
+});
+
+test('fresh export follows design revisions without relabelling saved readings',async()=>{
+ const {createA3SheetModel}=await import('../src/sheets/a3-sheet.mjs');
+ let p=createRoom(twoRoomProject(),'bed','Bedroom','supply',leftBoundary(twoRoomProject()));
+ p=updateTargets(p,'bed','room',{assigned:airflowTargetFromInput(10,'l/s','Design','Initial')});
+ p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:'bed',measuredLps:9,recordedAt:'2026-11-18T00:00:00Z'});
+ const meta={floorId:'floor-ground',orientation:'landscape',includeSchedule:false,projectName:'Live design test',issueDate:'2026-11-18',drawingTitle:'Ventilation',drawingId:'V01',status:'Preliminary — not for construction',revision:'A',revisionText:'Test'};
+ const before=createA3SheetModel(p,meta);
+ assert.equal(before.airflowReport.lines[0].designLps,10);
+ p=updateTargets(p,'bed','room',{assigned:airflowTargetFromInput(14,'l/s','Design','Revised')});
+ const after=createA3SheetModel(p,meta);
+ assert.equal(after.airflowReport.lines[0].designLps,14);assert.equal(after.airflowReport.lines[0].measuredLps,9);assert.equal(after.airflowReport.lines[0].designChanged,true);
+ assert.equal(before.airflowReport.lines[0].designLps,10);
+});

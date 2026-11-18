@@ -142,3 +142,18 @@ test("multi-storey output includes each storey in preview and page selection", (
   assert.match(selected[1].label, /Upper Floor/);
   assert.match(selected[1].svg, /Page 2 of 2/);
 });
+
+test('commissioning export stays within its option and has unique page identities',()=>{
+ const project=fixture(),originalId=project.designOptions[0].id;
+ const output=createDesignOptionOutput(project,{optionId:null,createSheet:(p,option,options)=>{
+  const sheet=createSheet(p,option,options);
+  if(option.id!==originalId)return sheet;
+  return {...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:'site-room',name:'Site room',ventilationRole:'supply',requiredLps:10,designLps:12,measuredLps:11,deltaLps:-1,designChanged:false,measurement:{setting:'Site-valve'}}]}};
+ }});
+ const site=output.pages.filter(page=>page.kind==='commissioning');
+ assert.equal(site.length,1);assert.equal(site[0].optionId,originalId);assert.equal(site[0].commissioningPageNumber,1);
+ assert.equal(new Set(output.pages.map(page=>page.pageKey)).size,output.pages.length);
+ assert.ok(output.pages.filter(page=>page.kind==='airflows').every(page=>!page.svg.includes('Site-valve')));
+ assert.match(site[0].svg,/Site-valve/);
+ for(const [index,page]of output.pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${output.pages.length}`));
+});

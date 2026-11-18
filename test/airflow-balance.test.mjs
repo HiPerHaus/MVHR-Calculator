@@ -298,7 +298,7 @@ test("detached boundaries retain inputs but cannot contribute current airflow or
   assert.equal(report.lines[0].measuredLps, 11);
   assert.equal(report.lines[0].designLps, null);
   assert.equal(report.lines[0].deltaLps, null);
-  assert.equal(report.totals.supply.measuredLps, 0);
+  assert.equal(report.totals.supply.measuredLps, null);
   assert.equal(report.totals.supply.incompleteMeasured, true);
   const draft = createEngineeringNetworkDraft(project, "floor-ground");
   assert.equal(draft.design.terminalAllocations.length, 0);

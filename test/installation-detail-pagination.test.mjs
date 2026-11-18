@@ -34,7 +34,7 @@ test('four equipment references paginate three per sheet without overflowing A3 
   assert.deepEqual(seen,equipment);
   const combined=pages.map(page=>renderInstallationDetailSheetSvg(sheet,page)).join('').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
   assert.match(combined,/824 W × 566 D × 1414 H/);assert.match(combined,/8 outlets per CW manifold/);
-  assert.match(combined,/Trap shown schematically; drain\/service dimensions not specified/);assert.match(combined,/09, 17 and 18 Nov 2026/);
+  assert.match(combined,/Owner allowances; verify manufacturer service requirements/);assert.match(combined,/09, 17 and 18 Nov 2026/);
  }
 });
 test('detail pagination offsets airflow and parts pages and selected-page numbering',()=>{

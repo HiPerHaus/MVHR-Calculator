@@ -47,6 +47,12 @@ window.__makePdf=async()=>{
 const blob=await createMixedPagePdfBlob(window.__documentPages,{title:"Drawing detail browser QA"});
 return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
 };
+window.__makeFieldPdf=async()=>{
+ const fieldSheet={...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:"bed",name:"Bedroom",ventilationRole:"supply",requiredLps:10,designLps:14,terminalIds:["terminal"],measuredLps:9,deltaLps:-5,designChanged:true,measurement:{setting:"2 turns",recordedAt:"2026-11-18"}}],totals:{supply:{designLps:14,measuredLps:9},extract:{designLps:null,measuredLps:null,incompleteDesign:true,incompleteMeasured:true}},record:{details:{engineer:"Field QA",date:"2026-11-18"},measurements:{},photos:[]}}};
+ window.__fieldPages=createSheetOutputPages(fieldSheet);
+ const blob=await createMixedPagePdfBlob(window.__fieldPages,{title:"Design and commissioning separation QA"});
+ return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
+};
 window.__renderPdf=async (data,pageNumber=1)=>{
 const pdfjs=await import("/node_modules/pdfjs-dist/legacy/build/pdf.mjs");pdfjs.GlobalWorkerOptions.workerSrc="/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
 const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));
@@ -142,6 +148,19 @@ try{
   assert.ok(Math.abs(p.height-evidence[i].height)<1, "Print height "+i);
   assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Print numbering "+i);
  }
+ const fieldPdf=await evaluate("window.__makeFieldPdf()");
+ await writeFile(join(output,"design-commissioning-record.pdf"),Buffer.from(fieldPdf,"base64"));
+ const designIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflows')");
+ const commissioningIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='commissioning')");
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(designIndex+1)+")");
+ const fieldEvidence=await evaluate("window.__pdfEvidence");
+ assert.match(fieldEvidence[designIndex].text,/LIVE DESIGN AIRFLOWS/);
+ assert.doesNotMatch(fieldEvidence[designIndex].text,/MEASURED|2 turns|Field QA/);
+ assert.match(fieldEvidence[commissioningIndex].text,/COMMISSIONING \/ SITE RECORD/);
+ assert.match(fieldEvidence[commissioningIndex].text,/2 turns/);
+ await capture("pdf-design-airflows.png",794,1123);
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
+ await capture("pdf-commissioning-record.png",794,1123);
  assert.deepEqual(errors,[]);
  await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,printPageSizes:printed.map(p=>({width:p.width,height:p.height})),pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));
  console.log(JSON.stringify({output,layout,fiveLayout,portraitFiveLayout,pages:evidence.length,errors},null,2));
