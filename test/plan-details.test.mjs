@@ -177,10 +177,12 @@ test("all-options documents have global numbering with independent per-option de
   const af=createA3SheetModel(unit(fixture(),"aerofresh-450-hrv","520"),{...metadata,orientation:"portrait"});
   const pages=createSheetOutputDocument([q,af]);
   for(const [index,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length} · A[34]`));
-  assert.deepEqual(pages.map(p=>p.kind),["drawing","installation-details","airflows","parts-list","drawing","installation-details","airflows","parts-list"]);
-  assert.match(pages[1].svg,/q-cw320/);assert.doesNotMatch(pages[1].svg,/af-cw520/);
-  assert.match(pages[5].svg,/af-cw520/);assert.doesNotMatch(pages[5].svg,/q-cw320/);
-  assert.match(pages[5].className,/sheet-a3-portrait/);
+  const base=pages.filter(p=>p.kind!=="airflow-proposal");
+  assert.ok(pages.some(p=>p.kind==="airflow-proposal"));
+  assert.deepEqual(base.map(p=>p.kind),["drawing","installation-details","airflows","parts-list","drawing","installation-details","airflows","parts-list"]);
+  assert.match(base[1].svg,/q-cw320/);assert.doesNotMatch(base[1].svg,/af-cw520/);
+  assert.match(base[5].svg,/af-cw520/);assert.doesNotMatch(base[5].svg,/q-cw320/);
+  assert.match(base[5].className,/sheet-a3-portrait/);
 });
 
 test("multi-page A4 lists start after both A3 pages and retain every row", () => {

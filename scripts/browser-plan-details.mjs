@@ -49,6 +49,8 @@ return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>res
 };
 window.__makeFieldPdf=async()=>{
  const fieldSheet={...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:"bed",name:"Bedroom",ventilationRole:"supply",requiredLps:10,designLps:14,terminalIds:["terminal"],measuredLps:9,deltaLps:-5,designChanged:true,measurement:{setting:"2 turns",recordedAt:"2026-11-18"}}],totals:{supply:{designLps:14,measuredLps:9},extract:{designLps:null,measuredLps:null,incompleteDesign:true,incompleteMeasured:true}},record:{details:{engineer:"Field QA",date:"2026-11-18"},measurements:{},photos:[]}}};
+ fieldSheet.airflowProposal={...sheet.airflowProposal,status:"provisional",candidatesM3h:{occupancy:120,volume:150,extract:60},volumeM3:500,normalM3h:150,lowM3h:105,boostM3h:195,governingBasis:["volume"],issues:[],lines:[{id:"bed",floorId:"ground",name:"Bedroom",ventilationRole:"supply",weight:16,weightSource:"Studio wall-reference-area weighting",assignedExistingM3h:50.4,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]},{id:"kitchen",floorId:"ground",name:"Kitchen",ventilationRole:"extract",weight:60,weightSource:"PHI-protocol-inspired reference: kitchen",assignedExistingM3h:null,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]}]};
+ fieldSheet.airflowProposalLines=fieldSheet.airflowProposal.lines;
  window.__fieldPages=createSheetOutputPages(fieldSheet);
  const blob=await createMixedPagePdfBlob(window.__fieldPages,{title:"Design and commissioning separation QA"});
  return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
@@ -161,6 +163,12 @@ try{
  await capture("pdf-design-airflows.png",794,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
  await capture("pdf-commissioning-record.png",794,1123);
+ const proposalIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflow-proposal')");
+ assert.match(fieldEvidence[proposalIndex].text,/PROVISIONAL AIRFLOW PROPOSAL/);
+ assert.match(fieldEvidence[proposalIndex].text,/normal 150.0/);
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(proposalIndex+1)+")");
+ await capture("pdf-airflow-proposal.png",794,1123);
+
  assert.deepEqual(errors,[]);
  await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,printPageSizes:printed.map(p=>({width:p.width,height:p.height})),pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));
  console.log(JSON.stringify({output,layout,fiveLayout,portraitFiveLayout,pages:evidence.length,errors},null,2));

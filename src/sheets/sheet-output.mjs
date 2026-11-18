@@ -1,3 +1,4 @@
+import { createAirflowProposalPages, renderAirflowProposalSheetSvg } from "./airflow-proposal-sheet.mjs";
 import { createCommissioningPages, renderCommissioningSheetSvg } from "./commissioning-sheet.mjs";
 import { createAirflowPages, renderAirflowSheetSvg } from "./airflow-sheet.mjs";
 import { createInstallationDetailPages, renderInstallationDetailSheetSvg } from "./installation-detail-sheet.mjs";
@@ -7,13 +8,15 @@ import { createA4PartsListPages, renderA4PartsListSvg } from "./a4-parts-list.mj
 export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null}={}) {
   const partCount = createA4PartsListPages(sheet).length;
   const airflowCount = createAirflowPages(sheet).length;
+  const proposalCount = createAirflowProposalPages(sheet).length;
   const commissioningCount = createCommissioningPages(sheet).length;
   const installationCount = createInstallationDetailPages(sheet).length;
-  const total = totalPageCount ?? pageOffset + partCount + airflowCount + commissioningCount + installationCount + 1;
+  const total = totalPageCount ?? pageOffset + partCount + airflowCount + proposalCount + commissioningCount + installationCount + 1;
   const installationPages = createInstallationDetailPages(sheet, { firstPageNumber: pageOffset + 2, totalPageCount: total });
   const airflowPages = createAirflowPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount, totalPageCount: total });
-  const commissioningPages = createCommissioningPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + airflowCount, totalPageCount: total });
-  const partsPages = createA4PartsListPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + airflowCount + commissioningCount, totalPageCount: total });
+  const proposalPages = createAirflowProposalPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + airflowCount, totalPageCount: total });
+  const commissioningPages = createCommissioningPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + airflowCount + proposalCount, totalPageCount: total });
+  const partsPages = createA4PartsListPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + airflowCount + proposalCount + commissioningCount, totalPageCount: total });
   const drawingSvg = renderA3SheetSvg(sheet).replace(
     "</svg>",
     `<text data-output-page-number="true" x="12" y="${sheet.page.heightMm - 4}" font-size="2.3" fill="#687880">Page ${pageOffset+1} of ${total} · A3</text></svg>`,
@@ -37,6 +40,11 @@ export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null
       pageDescription: "A4 live design airflows", widthMm: 210, heightMm: 297, orientation: "portrait", className: "sheet-a4",
       label: `Page ${page.pageNumber} · A4 live design airflows`, svg: renderAirflowSheetSvg(sheet, page),
     })),
+    ...proposalPages.map(page => Object.freeze({
+      kind: "airflow-proposal", pageNumber: page.pageNumber, proposalPageNumber: page.proposalPageNumber,
+      pageDescription: "A4 provisional airflow proposal", widthMm: 210, heightMm: 297, orientation: "portrait", className: "sheet-a4",
+      label: `Page ${page.pageNumber} · A4 provisional airflow proposal`, svg: renderAirflowProposalSheetSvg(sheet, page),
+    })),
     ...commissioningPages.map(page => Object.freeze({
       kind: "commissioning", pageNumber: page.pageNumber, commissioningPageNumber: page.commissioningPageNumber,
       pageDescription: "A4 commissioning record", widthMm: 210, heightMm: 297, orientation: "portrait", className: "sheet-a4",
@@ -54,7 +62,7 @@ export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null
 // All-options exports are one document with global page numbers. Each option
 // keeps its own plan, details and parts list; no equipment is combined.
 export function createSheetOutputDocument(sheets) {
-  const totalPageCount = sheets.reduce((count,sheet)=>count+1+createInstallationDetailPages(sheet).length+createAirflowPages(sheet).length+createCommissioningPages(sheet).length+createA4PartsListPages(sheet).length,0);
+  const totalPageCount = sheets.reduce((count,sheet)=>count+1+createInstallationDetailPages(sheet).length+createAirflowPages(sheet).length+createAirflowProposalPages(sheet).length+createCommissioningPages(sheet).length+createA4PartsListPages(sheet).length,0);
   const pages=[];
   for (const sheet of sheets) pages.push(...createSheetOutputPages(sheet,{pageOffset:pages.length,totalPageCount}));
   return pages;

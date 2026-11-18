@@ -39,9 +39,9 @@ test('four equipment references paginate three per sheet without overflowing A3 
 });
 test('detail pagination offsets airflow and parts pages and selected-page numbering',()=>{
  const sheet=sheetFor(project()),pages=createSheetOutputPages(sheet);
- assert.deepEqual(pages.map(page=>page.kind),['drawing','installation-details','installation-details','airflows','parts-list']);
- for(const [index,page]of pages.entries()){assert.equal(page.pageNumber,index+1);assert.match(page.svg,new RegExp(`Page ${index+1} of 5`));}
- const selected=selectSheetOutputPages(pages,[2,4]);assert.deepEqual(selected.map(page=>page.pageNumber),[1,2]);assert.match(selected[0].svg,/Page 1 of 2/);assert.equal(selected[0].installationPageNumber,2);
+ assert.deepEqual(pages.filter(page=>page.kind!=='airflow-proposal').map(page=>page.kind),['drawing','installation-details','installation-details','airflows','parts-list']);
+ for(const [index,page]of pages.entries()){assert.equal(page.pageNumber,index+1);assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length}`));}
+ const selected=selectSheetOutputPages(pages,[2,pages.length-1]);assert.deepEqual(selected.map(page=>page.pageNumber),[1,2]);assert.match(selected[0].svg,/Page 1 of 2/);assert.equal(selected[0].installationPageNumber,2);
 });
 test('multi-floor multi-option detail pages have unique identities and continuous numbering',()=>{
  let p=project();p=applyCommand(p,{type:'floor.add',floor:{id:'upper',name:'Upper',transform:{translationMm:{x:0,y:0,z:knownMm(3000,'test')},orientation:identityQuaternion()}}});

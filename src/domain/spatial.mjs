@@ -1,3 +1,4 @@
+import {normalizeAirflowProposalSettings,validateAirflowProposalSettingsByOption,applyReviewedAirflowProposal} from './airflow-proposal.mjs';
 import {normalizeCeiling,normalizeVentilationReference} from "./room-volume.mjs";
 import {applyCommissioningCommand,validateCommissioning} from "./commissioning.mjs";
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
@@ -251,6 +252,16 @@ export function applyCommand(project, command, options = {}) {
     case "commissioning.addPhoto":
     case "commissioning.removePhoto": {
       applyCommissioningCommand(next, command);
+      break;
+    }
+    case "airflowProposal.apply": {
+      applyReviewedAirflowProposal(next, command);
+      break;
+    }
+    case "airflowProposal.setSettings": {
+      const settings = normalizeAirflowProposalSettings(command.settings);
+      const optionId = next.activeDesignOptionId;
+      next.airflowProposalSettingsByOption = {...(next.airflowProposalSettingsByOption ?? {}), [optionId]: settings};
       break;
     }
     case "floor.setCeiling": {
@@ -1737,6 +1748,7 @@ function validateProjectInternal(project, skipDesignOptions) {
   }
   normalizeVentilationReference(project.ventilationReference);
   validateCommissioning(project.commissioning);
+  validateAirflowProposalSettingsByOption(project.airflowProposalSettingsByOption);
   normalizeProjectDetails(project.projectDetails);
   normalizeQuoteDraft(project.quoteDraft);
   const engineeringInputs = normalizeEngineeringInputs(project.engineeringInputs);

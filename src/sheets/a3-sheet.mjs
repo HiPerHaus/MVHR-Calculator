@@ -1,3 +1,4 @@
+import { buildAirflowProposal } from "../domain/airflow-proposal.mjs";
 import { buildCommissioningReport } from "../editor/commissioning-report.mjs";
 import { ventilationOutputView } from "../editor/ventilation-output-scope.mjs";
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
@@ -89,6 +90,9 @@ export function createA3SheetModel(project, metadata) {
   const outputProject = ventilationOutputView(sourceProject, normalized.systemScope);
   const installationDetails = selectPlanDetails(outputProject, normalized.floorId);
   const airflowReport = normalized.systemScope === "decentralised" ? null : buildCommissioningReport(sourceProject, normalized.floorId);
+  const airflowProposal = normalized.systemScope === "decentralised" ? null : (metadata.airflowProposal ?? buildAirflowProposal(sourceProject));
+  const airflowProposalLines = airflowProposal?.lines.filter(line => line.floorId === normalized.floorId) ?? [];
+  const airflowProposalScope = {floorId: normalized.floorId, optionId: sourceProject.activeDesignOptionId, optionName: sourceProject.designOptions.find(option => option.id === sourceProject.activeDesignOptionId)?.name ?? sourceProject.activeDesignOptionId};
   const drawingBounds = drawingArea;
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId, systemScope: normalized.systemScope });
   const printScene = buildPrintScene(outputProject, normalized.floorId, partsSchedule);
@@ -110,6 +114,9 @@ export function createA3SheetModel(project, metadata) {
     legendBounds,
     installationDetails,
     airflowReport,
+    airflowProposal,
+    airflowProposalLines,
+    airflowProposalScope,
     printScene,
     partsSchedule,
     fit,
@@ -130,6 +137,9 @@ export function createA3SheetModel(project, metadata) {
     legendBounds,
     installationDetails,
     airflowReport,
+    airflowProposal,
+    airflowProposalLines,
+    airflowProposalScope,
     printScene,
     partsSchedule,
     fit,

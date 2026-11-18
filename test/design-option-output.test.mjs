@@ -15,7 +15,7 @@ function fixture() {
   project = applyCommand(project, { type: "component.add", component: createCatalogueComponent("aerofresh-30-compact-decentralised", { id: "af-alternative", floorId: "ground", xMm: 2000, yMm: 1000 }) });
   return project;
 }
-const createSheet = (project, option, { floorId = "ground" } = {}) => createA3SheetModel(project, { floorId, orientation: "landscape", includeSchedule: false, projectName: "QA options", drawingTitle: option.name, drawingId: option.id, issueDate: "2026-11-11", revision: option.revision, revisionText: "Working draft", status: "Preliminary — not for construction" });
+const createSheet = (project, option, { floorId = "ground", airflowProposal } = {}) => createA3SheetModel(project, { floorId, airflowProposal, orientation: "landscape", includeSchedule: false, projectName: "QA options", drawingTitle: option.name, drawingId: option.id, issueDate: "2026-11-11", revision: option.revision, revisionText: "Working draft", status: "Preliminary — not for construction" });
 
 test("selected export option has independent plan, engineering details, parts and CSV without switching the drawing", () => {
   const project = fixture(), before = serializeProject(project);
@@ -41,7 +41,7 @@ test("selected export option has independent plan, engineering details, parts an
     const airflowIndex = result.pages.findIndex(page => page.kind === "airflows");
     assert.equal(airflowIndex, 2);
     if (result === first) assert.match(result.pages[1].svg, /data-role="q-electrical-source"/);
-    assert.ok(result.pages.slice(airflowIndex + 1).every(page => page.kind === "parts-list"));
+    assert.ok(result.pages.slice(airflowIndex + 1).every(page => ["airflow-proposal","parts-list"].includes(page.kind)));
     assert.ok(result.pages.every(page => page.optionId === result.entries[0].option.id));
     assert.match(result.pages[0].label, /Page 1 · A3 drawing/);
   }
@@ -107,8 +107,8 @@ test("a selected continuation page retains every parts row while page numbers an
   const selected = selectSheetOutputPages(pages, [last]);
   assert.equal(selected[0].kind, "parts-list");
   assert.equal(selected[0].partsPageNumber, pages[last].partsPageNumber);
-  assert.equal(selected[0].partsPageCount, pages.length - 3);
-  assert.ok(selected[0].svg.includes(`Parts sheet ${pages.length - 3} of ${pages.length - 3} for this option`));
+  assert.equal(selected[0].partsPageCount, pages.filter(page => page.kind === "parts-list").length);
+  assert.ok(selected[0].svg.includes(`Parts sheet ${pages.filter(page => page.kind === "parts-list").length} of ${pages.filter(page => page.kind === "parts-list").length} for this option`));
   assert.match(selected[0].svg, /Page 1 of 1/);
   assert.match(selected[0].svg, /Page 7 of 99 · customer title/);
   const normalize = value => value.replace(/Page \d+ of \d+ · A4/u, "FOOTER").replace(/aria-label="A4 parts list page \d+"/u, "ARIA");
@@ -124,7 +124,7 @@ test("multi-storey output includes each storey in preview and page selection", (
     "aerofresh-30-compact-decentralised", { id: "upper-unit", floorId: "upper", xMm: 2000, yMm: 1000 },
   ) });
   const { pages } = createDesignOptionOutput(project, { createSheet });
-  assert.deepEqual(pages.map(page => page.kind), [
+  assert.deepEqual(pages.filter(page => page.kind !== "airflow-proposal").map(page => page.kind), [
     "drawing", "drawing", "installation-details", "installation-details", "airflows", "airflows", "parts-list", "parts-list",
   ]);
   for (const [index, page] of pages.entries()) {

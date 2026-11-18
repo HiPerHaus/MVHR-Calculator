@@ -949,3 +949,31 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .commissioning-details > h2 { grid-column: 1 / -1; }
 #commissioning-workspace input, #commissioning-workspace button { min-height: 44px; box-sizing: border-box; }
 @media(max-width: 700px) { .design-airflow-list { grid-template-columns: 1fr; } .design-airflow-section { padding: 16px; } }
+
+/* Provisional whole-dwelling calculator stays separate from accepted live targets. */
+.airflow-proposal { display:grid; gap:16px; max-width:1240px; box-sizing:border-box; padding:24px; margin-top:16px; background:#fff; border:1px solid #c7d7df; border-radius:12px; }
+.airflow-proposal h2 { margin:0; font-size:22px; text-transform:none; letter-spacing:normal; }
+.airflow-proposal h3,.airflow-proposal h4,.airflow-proposal p { margin:0; }
+.airflow-proposal p,.airflow-proposal li { line-height:1.5; overflow-wrap:anywhere; }
+.airflow-proposal button,.airflow-proposal input,.airflow-proposal select { min-height:44px; box-sizing:border-box; font:inherit; padding:9px 12px; border-radius:6px; max-width:100%; }
+.airflow-proposal input,.airflow-proposal select { width:100%; min-width:0; border:1px solid #adbcc5; background:white; }
+.airflow-proposal > button { justify-self:start; }
+.proposal-settings { display:grid; gap:18px; }
+.proposal-input-grid,.proposal-results { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.proposal-results { background:#eef4f6; padding:16px; border-radius:8px; }
+.proposal-duty { font-size:18px; font-weight:700; padding:12px 16px; border-left:3px solid #628f91; background:#f3f6f7; }
+.proposal-room-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+.proposal-room-card { display:grid; gap:10px; padding:16px; border:1px solid #d7e0e4; border-radius:8px; min-width:0; }
+.proposal-room-flows { font-weight:600; }
+.proposal-actions { display:flex; gap:12px; flex-wrap:wrap; }
+.proposal-actions button { white-space:normal; }
+.proposal-assumptions summary { cursor:pointer; min-height:44px; padding:10px 0; box-sizing:border-box; }
+.proposal-assumptions a { display:block; padding:8px 0; min-height:44px; box-sizing:border-box; }
+@media(max-width:1000px) { .proposal-input-grid,.proposal-results { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .airflow-proposal { padding:16px; } .proposal-input-grid,.proposal-results,.proposal-room-list { grid-template-columns:1fr; } .proposal-actions { display:grid; } }
+.proposal-apply { display:grid; gap:16px; padding:20px; border:1px solid #aec4cd; border-radius:10px; background:#f5f8f9; }
+.proposal-apply > button,.proposal-review > button { justify-self:start; white-space:normal; }
+.proposal-review { display:grid; gap:12px; }
+.proposal-change-list,.proposal-skipped-list { margin:0; padding-left:22px; }
+.proposal-apply button:disabled { opacity:.6; cursor:not-allowed; }
+@media(max-width:700px) { .proposal-apply { padding:14px; } .proposal-review > button { width:100%; } }
