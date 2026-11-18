@@ -1,3 +1,8 @@
+import { createSnapshotMemo, createTrailingViewTask } from "../src/editor/view-performance.mjs";
+import { runPostCommitEffects } from "../src/editor/post-commit-effects.mjs";
+import { createWallMidpointCommand } from "../src/editor/wall-bend-point.mjs";
+import { hitWallDraftPoint, inspectWallDraftAppend } from "../src/editor/wall-draft-input.mjs";
+import { bindDrawingZoomInput } from "../src/editor/drawing-zoom-input.mjs";
 import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs";
 import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
@@ -801,6 +806,7 @@ const initialNamedLoad = initialLibrary.ok && initialLibrary.activeProjectId
   ? projectLibrary.loadProject(initialLibrary.activeProjectId)
   : null;
 const initialLoad = initialNamedLoad?.ok && initialNamedLoad.found ? initialNamedLoad : legacyLoad;
+const serializedSnapshot = createSnapshotMemo(serializeProject);
 let history = createCommandHistory(
   initialLoad.ok && initialLoad.found ? initialLoad.project : createInitialProject(),
 );
@@ -868,6 +874,8 @@ let dragPreviewRendering = false;
 let dragPreviewProject = null;
 let routeCoordinationDiagnostics = [];
 const dragPreviewFrame = createFramePreviewScheduler(renderDragPreview);
+const cameraPreviewFrame = createFramePreviewScheduler(() => render());
+const viewRecoveryTask = createTrailingViewTask(() => queueWorkingSession());
 let panState = null;
 const canvasTouchPointers = new Map();
 let pinchCameraGesture = null;
@@ -965,21 +973,23 @@ mvhrDialog.addEventListener("close", () => {
 mvhrForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!pendingMvhrDrop) return;
-  const selection = { mounting: pendingMvhrDrop.mounting, model: mvhrModel.value,
+  const drop = pendingMvhrDrop;
+  const selection = { mounting: drop.mounting, model: mvhrModel.value,
     handing: mvhrHanding.value, layout: mvhrLayout.value, cwSize: mvhrCwSize.value };
-  const id = pendingMvhrDrop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
+  const id = drop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
   try {
     const component = createConfiguredMvhrComponent(selection, {
-      id, floorId: currentFloorId(), xMm: pendingMvhrDrop.point.x, yMm: pendingMvhrDrop.point.y,
+      id, floorId: currentFloorId(), xMm: drop.point.x, yMm: drop.point.y,
     });
-    if (!commitCommand(pendingMvhrDrop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, pendingMvhrDrop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
+    if (!commitCommand(drop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, drop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
       mvhrError.textContent = interactionMessage;
       return;
     }
-    if (!pendingMvhrDrop.componentId) componentIdentityCounter += 1;
+    if (!drop.componentId) componentIdentityCounter += 1;
+    pendingMvhrDrop = null; // Consume the successful drop before another submit can fire.
     mechanicalState.selectedComponentId = id;
     mvhrDefaults.set(selection.mounting, selection);
-    mvhrDialog.close(pendingMvhrDrop.repeat ? "placed-repeat" : "placed");
+    mvhrDialog.close(drop.repeat ? "placed-repeat" : "placed");
     render();
   } catch (error) { mvhrError.textContent = error.message; }
 });
@@ -1369,6 +1379,13 @@ referenceCropDialog.addEventListener("cancel", (event) => {
   cancelReferenceCrop("PDF crop cancelled; project unchanged");
 });
 deleteWallButton.addEventListener("click", openWallDeleteDialog);
+document.querySelector("#add-wall-point").addEventListener("click", () => addWallBendPoint(selectedWallId));
+canvas.addEventListener("keydown", event => {
+  const handle = event.target.closest?.(".wall-add-point");
+  if (!handle || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault(); event.stopPropagation();
+  addWallBendPoint(handle.dataset.wallId);
+});
 deleteComponentButton.addEventListener("click", openComponentDeleteDialog);
 deleteComponentDialog.addEventListener("close", applyComponentDeleteChoice);
 clearVentilationButton.addEventListener("click", openClearVentilationDialog);
@@ -1591,14 +1608,22 @@ document.querySelector("#pan-up").addEventListener("click", () => panBy(0, -0.15
 document.querySelector("#pan-down").addEventListener("click", () => panBy(0, 0.15));
 document.querySelector("#pan-right").addEventListener("click", () => panBy(0.15, 0));
 
-canvas.addEventListener("wheel", (event) => {
-  event.preventDefault();
-  initialCameraFit.cancel();
-  const anchor = clientPointToCamera(camera, { x: event.clientX, y: event.clientY }, canvas.getBoundingClientRect());
-  camera = zoomCameraAt(camera, anchor, event.deltaY > 0 ? 1.15 : 0.87);
-  interactionMessage = "View zoom changed; project geometry unchanged";
-  render();
-}, { passive: false });
+bindDrawingZoomInput(canvas, {
+  enabled: () => ["plan", "ventilation"].includes(activeTask) && sheetPreviewPanel.hidden && !document.querySelector("dialog[open]"),
+  touchPinching: () => canvasTouchPointers.size >= 2,
+  zoom: (factor, clientPoint) => {
+    initialCameraFit.cancel();
+    const anchor = clientPoint
+      ? clientPointToCamera(camera, clientPoint, canvas.getBoundingClientRect())
+      : { x: camera.x + camera.width / 2, y: camera.y + camera.height / 2 };
+    camera = zoomCameraAt(camera, anchor, factor);
+    interactionMessage = "Drawing zoom changed; page and project geometry unchanged";
+    renderCamera();
+    cameraPreviewFrame.schedule();
+    viewRecoveryTask.schedule();
+  },
+  fit: () => { fitView(); queueWorkingSession(); },
+});
 
 function touchPoints() {
   return [...canvasTouchPointers.values()].slice(0, 2);
@@ -2083,6 +2108,11 @@ canvas.addEventListener("click", (event) => {
   canvas.focus();
   if (suppressNextClick) {
     suppressNextClick = false;
+    return;
+  }
+  const wallAddPoint = event.target.closest?.(".wall-add-point");
+  if (activeTask === "plan" && activeTool === "select" && wallAddPoint) {
+    addWallBendPoint(wallAddPoint.dataset.wallId);
     return;
   }
   if (activeTask === "ventilation" && activeTool === "select" && event.altKey) {
@@ -3573,15 +3603,15 @@ function toggleSnap() {
 
 function addDraftPoint(event) {
   if (activeChainId === null) activeChainId = identityCounter++;
-  const resolved = resolvePointerPoint(event);
-  const nodeId = resolved.nodeId ?? `wall-node-${activeChainId}-${draftPoints.length + 1}`;
-  const previous = draftPoints.at(-1);
-  if (previous && previous.nodeId === nodeId) {
+  const append = inspectWallDraftAppend(draftPoints, resolvePointerPoint(event), `wall-node-${activeChainId}-${draftPoints.length + 1}`);
+  if (append.duplicate) {
     interactionMessage = "Choose a different endpoint; zero-length walls are not committed";
     updateStatus();
     return;
   }
-  const split = resolved.wallId
+  const resolved = append.point;
+  const nodeId = resolved.nodeId;
+  const split = !append.closesLoop && resolved.wallId
     ? {
         wallId: resolved.wallId,
         nodeId,
@@ -3590,8 +3620,12 @@ function addDraftPoint(event) {
       }
     : null;
   draftPoints.push({ x: resolved.x, y: resolved.y, nodeId, snapKind: resolved.snapKind, split });
-  interactionMessage = resolved.nodeId
-    ? `Endpoint snapped to ${resolved.nodeId}`
+  if (append.closesLoop && activeTool === "wall") {
+    commitWallChain();
+    return;
+  }
+  interactionMessage = resolved.snapKind === "endpoint"
+    ? "Endpoint acquired · Enter or Finish commits the walls; click the first point to close a loop"
     : resolved.wallId
       ? `Wall interior acquired; ${resolved.wallId} will split only when the chain is committed`
       : resolved.snapKind === "free"
@@ -3919,16 +3953,23 @@ function pointForCommand(point) {
 function commitCommand(command, message) {
   try {
     history = executeCommand(history, command);
-    portableDirty = true;
-    interactionMessage = message;
-    render();
-    savePresent("automatic");
-    return true;
   } catch (error) {
     interactionMessage = `${message} failed: ${error.message}`;
-    render();
+    runPostCommitEffects({view:render});
     return false;
   }
+  portableDirty = true;
+  interactionMessage = message;
+  const failures = runPostCommitEffects({view:render, recovery:() => savePresent("automatic")});
+  if (failures.length) {
+    const recoveryFailed = failures.some(failure => failure.name === "recovery");
+    interactionMessage = `${message}. Change applied; ${failures.map(failure => `${failure.name}: ${failure.message}`).join("; ")}. Do not repeat the placement. ${recoveryFailed ? "Save or export a backup before leaving." : "View refresh needs attention."}`;
+    if (recoveryFailed) storageState = {kind:"failed",label:"Recovery failed · save or export a backup",detail:"Change is present in this tab; do not reload before saving."};
+    runPostCommitEffects({status:updateStatus, storage:renderStorageState});
+  }
+  // A committed model change is successful even when a later UI/storage effect
+  // fails. Returning false here would offer a retry that duplicates the change.
+  return true;
 }
 
 function openAutomaticRadialPreview() {
@@ -5593,7 +5634,7 @@ function savePresent(reason) {
 }
 
 function projectHasUnsavedChanges() {
-  return savedProjectJson !== serializeProject(history.present) || savedProjectName !== currentProjectName;
+  return savedProjectJson !== serializedSnapshot(history.present) || savedProjectName !== currentProjectName;
 }
 
 function applyLocalReopen(result, options = {}) {
@@ -6791,6 +6832,7 @@ function renderDragPreview() {
 }
 
 function render() {
+  cameraPreviewFrame.cancel();
   if (["airflows", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
   renderStoreyControl();
   dragPreviewFrame.cancel();
@@ -6866,6 +6908,16 @@ function render() {
       class: `wall-node${selectedNodeId === node.id ? " selected" : ""}`,
       "data-node-id": node.id,
     }));
+  }
+  if (activeTask === "plan" && activeTool === "select") {
+    renderWallPointHandle();
+    const selectedNode = history.present.wallNodes.find(node => node.id === selectedNodeId && onCurrentFloor(node));
+    if (selectedNode) {
+      const p = displayPosition(selectedNode.id);
+      const rect = canvas.getBoundingClientRect();
+      const unitsPerPixel = Math.max(camera.width / Math.max(rect.width, 1), camera.height / Math.max(rect.height, 1));
+      modelLayer.append(svgElement("circle", {cx:toView(p.x), cy:toView(p.y), r:22*unitsPerPixel, class:"wall-node wall-node-touch-hit", "data-node-id":selectedNode.id, "aria-label":"Drag wall bend point"}));
+    }
   }
   renderDraft();
   renderReferenceList();
@@ -8377,6 +8429,9 @@ function renderDraft() {
   }));
   for (const point of draftPoints) {
     draftLayer.append(svgElement("circle", {
+      "data-node-id": point.nodeId,
+      "data-wall-draft-node-id": point.nodeId,
+      "aria-label": point === draftPoints[0] && draftPoints.length >= 3 && activeTool === "wall" ? "Close wall loop" : "Wall draft endpoint",
       cx: toView(point.x), cy: toView(point.y), r: 5,
       class: `draft-node${point.snapKind === "endpoint" ? " snapped" : point.snapKind === "wall" ? " junction" : point.snapKind === "reference" ? " reference" : ""}`,
     }));
@@ -10140,6 +10195,32 @@ function componentEvidenceDescription(component) {
   return `Unclassified imported/domain component${version}`;
 }
 
+function addWallBendPoint(wallId) {
+  if (activeTask !== "plan" || activeTool !== "select") return;
+  const id = crypto.randomUUID();
+  try {
+    const command = createWallMidpointCommand(history.present, wallId, {newNodeId:`wall-bend-${id}`,newWallId:`wall-segment-${id}`});
+    if (!commitCommand(command, "Wall point added · drag the selected point to reshape · Undo available")) return;
+    selectedWallId = null;
+    selectedNodeId = command.newNodeId;
+    selectedRoomId = null; selectedZoneId = null;
+    render();
+    canvas.focus();
+  } catch (error) { interactionMessage = error.message; updateStatus(); }
+}
+
+function renderWallPointHandle() {
+  const wall = history.present.walls.find(item => item.id === selectedWallId && onCurrentFloor(item));
+  if (!wall) return;
+  const command = createWallMidpointCommand(history.present, wall.id, {newNodeId:"preview",newWallId:"preview"});
+  const rect = canvas.getBoundingClientRect();
+  const unitsPerPixel = Math.max(camera.width / Math.max(rect.width,1), camera.height / Math.max(rect.height,1));
+  const group = svgElement("g", {class:"wall-add-point", "data-wall-id":wall.id, role:"button", tabindex:0, "aria-label":"Add wall bend point at midpoint, then drag to reshape", transform:`translate(${toView(command.point.x)} ${toView(command.point.y)}) scale(${unitsPerPixel})`});
+  group.append(svgElement("circle", {r:22,class:"wall-add-point-hit"}),svgElement("circle",{r:10,class:"wall-add-point-disc"}));
+  group.append(svgElement("path",{d:"M -4 0 H 4 M 0 -4 V 4",class:"wall-add-point-plus"}));
+  modelLayer.append(group);
+}
+
 function renderInspector() {
   const wall = history.present.walls.find((candidate) => candidate.id === selectedWallId);
   const node = history.present.wallNodes.find((candidate) => candidate.id === selectedNodeId);
@@ -10161,6 +10242,7 @@ function renderInspector() {
   inspectorEmpty.hidden = Boolean(wall || node || component || route || floorArea || space);
   wallInspector.hidden = !wall;
   wallActions.hidden = !wall;
+  document.querySelector("#add-wall-point").disabled = activeTask !== "plan" || activeTool !== "select";
   nodeInspector.hidden = !node;
   componentInspector.hidden = !component;
   componentActions.hidden = !component;
@@ -10554,8 +10636,8 @@ function updateStatus() {
     ? "Click two image points · Apply is the only commit"
     : isWall
       ? snapEnabled
-        ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · target ring confirms acquisition · Enter commits one topology command"
-        : "Wall tool · Snap off uses free points and leaves crossings disconnected · Enter commits · Esc cancels"
+        ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · click first point to close a loop · Enter/Finish commits an open chain"
+        : "Wall tool · Snap off leaves crossings disconnected · click first marker to close · Enter commits · Esc cancels"
       : isDivider
         ? snapEnabled
           ? "Room Divider · endpoints and visible wall edges anchor to shared topology · Enter commits · Esc cancels"
@@ -10569,8 +10651,9 @@ function updateStatus() {
           : activeTask === "ventilation"
             ? "Select MVHR parts · drag to move · R rotates · building geometry is locked"
             : "Select walls or endpoints · drag to edit · wheel zoom · choose Pan to move the view · Space-drag pans");
-  undoButton.disabled = !canUndo(history);
-  redoButton.disabled = !canRedo(history);
+  // UI availability only: command paths retain full validation.
+  undoButton.disabled = history.past.length === 0;
+  redoButton.disabled = history.future.length === 0;
   const wallDraft = (isWall || isDivider) && draftPoints.length > 0;
   const outlineDraft = isFloorArea && floorAreaDraftPoints.length > 0;
   const routeDraft = isRoute && Boolean(mechanicalState.routeDraft?.points.length);
@@ -10591,6 +10674,8 @@ function updateStatus() {
 }
 
 function resolvePointerPoint(event) {
+  const directDraftPoint = hitWallDraftPoint(draftPoints, event.target?.dataset?.wallDraftNodeId);
+  if (directDraftPoint) return directDraftPoint;
   const raw = eventToSvgWorld(event);
   if (!snapEnabled) return { ...raw, nodeId: null, snapKind: "free" };
   const eligibleNodeIds = activeTool === "room-divider"
@@ -11078,7 +11163,7 @@ function queueWorkingSession(modelChanged=false){
   workingQueued=false;const context=workingContext();if(!context||workingRestoring)return;
   if(currentCloudRecord&&currentCloudRecord.workspace_id!==context.workspaceId)return;
   try{
-   if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
+   if(workingModel!==history.present){workingModel=history.present;workingJson=serializedSnapshot(history.present);}
    const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
     cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
     task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,activeFloorId:currentFloorId(),camera:{...camera},catalogueGroup:selectedCatalogueGroup,ventilationWorkspace:activeVentilationWorkspace};
@@ -11151,10 +11236,10 @@ async function restoreWorkingSession(context){
   saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);
  }
 }
-window.addEventListener("pagehide",()=>queueWorkingSession());
+window.addEventListener("pagehide",()=>{viewRecoveryTask.flush();queueWorkingSession();});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)queueWorkingSession();});
 canvas.addEventListener("pointerup",()=>queueWorkingSession());
-canvas.addEventListener("wheel",()=>queueWorkingSession(),{passive:true});
+// Wheel view recovery is coalesced by viewRecoveryTask; model edits save immediately.
 document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>queueWorkingSession());
 
 window.addEventListener("beforeunload",event=>{

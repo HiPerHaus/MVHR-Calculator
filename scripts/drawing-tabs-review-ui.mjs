@@ -210,3 +210,111 @@ tabsQaButton('Check restored', async () => {
   tabsQaEqual(tabsQaErrors,[],'Browser errors after reload');tabsQaOutput.textContent=`PASS reload ${innerWidth} × ${innerHeight}: mixed units, ducts, pairs, controller, cable, Draw, clean Decentralised plan and Controls restored.`;
 });
 tabsQaPanel.append(tabsQaOutput);
+
+tabsQaButton('Run wall closure checks', async () => {
+  await tabsQaReady(); tabsQaFixture('centralised'); selectDesignStage('plan'); setTool('wall');
+  initialCameraFit.cancel(); camera={x:0,y:0,width:120,height:90}; render();
+  const clickView=(target,x,y)=>{const p=canvas.createSVGPoint();p.x=x;p.y=y;const c=p.matrixTransform(canvas.getScreenCTM());target.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:c.x,clientY:c.y}));};
+  clickView(canvas,20,20);clickView(canvas,80,20);clickView(canvas,80,65);
+  tabsQaAssert(draftPoints.length===3,'Three draft vertices expected');
+  const first=draftPoints[0];const marker=draftLayer.querySelector(`[data-wall-draft-node-id="${first.nodeId}"]`);
+  tabsQaAssert(marker,'First marker must expose its endpoint identity');
+  // Four view units from centre is inside its visible r=5 circle but >12 CSS
+  // pixels at this zoom: previously this silently added a different endpoint.
+  clickView(marker,toView(first.x)+4,toView(first.y));
+  tabsQaAssert(draftPoints.length===0,'First-marker hit should finish the loop');
+  tabsQaAssert(history.present.walls.length===3,'Exactly three walls, without a near-duplicate endpoint');
+  tabsQaAssert(history.present.wallNodes.length===3,'Exactly three shared endpoint identities');
+  tabsQaAssert(deriveRoomBoundaries(history.present,currentFloorId()).candidates.length===1,'Closed room boundary detected');
+  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close('cancel');
+  history=undoCommand(history);tabsQaAssert(history.present.walls.length===0,'Closure is one undoable command');
+  history=redoCommand(history);tabsQaAssert(history.present.walls.length===3,'Closure redo preserves topology');
+  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS wall closure: zoomed marker edge, shared identity, room detection, undo/redo';
+});
+
+tabsQaButton('Prepare wall bend', async () => {
+  await tabsQaReady();tabsQaFixture('centralised');selectDesignStage('plan');setTool('select');
+  history=executeCommand(history,{type:'wall.addChain',floorId:currentFloorId(),nodeIds:['bend-start','bend-end'],wallIds:['bend-source'],points:[{x:1500,y:3000,z:unknownMm('synthetic')},{x:8500,y:3000,z:unknownMm('synthetic')}],splits:[],thicknessMm:140,heightMm:unknownMm('synthetic'),referenceLine:'centreline',classification:'physical'});
+  selectedWallId='bend-source';render();
+  const plus=document.querySelector('.wall-add-point');tabsQaAssert(plus,'Selected wall exposes midpoint control');
+  const hit=plus.querySelector('.wall-add-point-hit').getBoundingClientRect();tabsQaAssert(hit.width>=43.9&&hit.height>=43.9,'44px wall plus target');
+  plus.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+  tabsQaAssert(history.present.walls.length===2&&selectedNodeId,'Plus inserts and selects shared bend node');
+  const nodeHit=document.querySelector('.wall-node-touch-hit').getBoundingClientRect();tabsQaAssert(nodeHit.width>=43.9&&nodeHit.height>=43.9,'44px selected bend drag target');
+  tabsQaOutput.textContent='PASS bend prepared';
+});
+tabsQaButton('Check wall bend', async () => {
+  const node=history.present.wallNodes.find(item=>item.id===selectedNodeId);
+  tabsQaAssert(node&&node.positionMm.y!==3000,'Pointer drag moved bend off its source line');
+  tabsQaAssert(history.present.walls.filter(w=>w.startNodeId===node.id||w.endNodeId===node.id).length===2,'Dragged bend stays shared by both segments');
+  const after=serializeProject(history.present);history=undoCommand(history);tabsQaAssert(history.present.wallNodes.find(item=>item.id===node.id).positionMm.y===3000,'Drag undo restores straight wall');history=redoCommand(history);tabsQaEqual(serializeProject(history.present),after,'Drag redo');
+  selectedWallId='bend-source';selectedNodeId=null;render();document.querySelector('#add-wall-point').click();tabsQaAssert(history.present.walls.length===3,'Inspector can add another bend point');
+  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS bend drag, topology, undo/redo and repeated inspector insertion';
+});
+
+tabsQaButton('Run MVHR dialog checks', async () => {
+  await tabsQaReady();
+  for (const scenario of ['normal','recovery-failure','view-failure']) {
+    tabsQaFixture('centralised');
+    setTool('place-component',{catalogueItemId:'synthetic-mvhr-placeholder'});mvhrPlacementMounting='vertical';
+    openMvhrPlacement({x:4000,y:5000},false);
+    mvhrModel.value='q350-hrv';mvhrHanding.value='right';mvhrLayout.value='unit-mounted-cw';mvhrCwSize.value='420';updateMvhrPreview();
+    const before=history.present.components.length;
+    const originalSave=savePresent, originalRender=render;
+    if(scenario==='recovery-failure') savePresent=()=>{throw Error('Synthetic recovery failure');};
+    if(scenario==='view-failure') {let first=true;render=()=>{if(first){first=false;throw Error('Synthetic view failure');}return originalRender();};}
+    try {
+      mvhrForm.querySelector('[type="submit"]').click();
+      tabsQaAssert(history.present.components.length===before+1,`${scenario}: Exactly one Q350 added`);
+      tabsQaAssert(!mvhrDialog.open,`${scenario}: Successful placement must close dialog: ${mvhrError.textContent}`);
+      tabsQaAssert(pendingMvhrDrop===null,`${scenario}: Drop consumed synchronously`);
+      mvhrForm.requestSubmit();
+      tabsQaAssert(history.present.components.length===before+1,`${scenario}: repeated submit cannot duplicate unit`);
+      if(scenario!=='normal')tabsQaAssert(interactionMessage.includes('Change applied'),`${scenario}: distinguish warning from failed placement`);
+    } finally {savePresent=originalSave;render=originalRender;}
+    await tabsQaFrame();
+    tabsQaAssert(history.present.components.at(-1).mvhrDesignIntent.cwSize==='420','CW420 selection retained');
+  }
+  setTool('place-component',{catalogueItemId:'synthetic-mvhr-placeholder'});mvhrPlacementMounting='vertical';openMvhrPlacement({x:4000,y:5000},false);
+  const before=history.present.components.length;mvhrModel.value='';mvhrForm.requestSubmit();
+  tabsQaAssert(mvhrDialog.open&&history.present.components.length===before&&mvhrError.textContent,'Rejected configuration remains open without model change');
+  mvhrDialog.close('cancel');await tabsQaFrame();
+  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS MVHR dialog: normal, recovery/view failure, duplicate submit and rejected configuration';
+});
+
+tabsQaButton('Profile large plan', async () => {
+  await tabsQaReady();let p=tabsQaFixture('centralised');
+  for(let i=0;i<20;i++) {
+    const x=(i%5)*4500,y=Math.floor(i/5)*4500;
+    p=applyCommand(p,{type:'wall.addChain',floorId:'floor-ground',nodeIds:[0,1,2,3,0].map(n=>`perf-${i}-node-${n}`),wallIds:[0,1,2,3].map(n=>`perf-${i}-wall-${n}`),points:[[x,y],[x+4000,y],[x+4000,y+4000],[x,y+4000],[x,y]].map(([x,y])=>({x,y,z:unknownMm('synthetic benchmark')})),splits:[],thicknessMm:140,heightMm:unknownMm('synthetic'),referenceLine:'centreline',classification:'physical'});
+    const boundary=deriveRoomBoundaries(p,'floor-ground').candidates.find(c=>c.boundary.some(b=>b.wallId===`perf-${i}-wall-0`));
+    p=applyCommand(p,{type:'room.createFromBoundary',roomId:`perf-room-${i}`,floorId:'floor-ground',boundaryKey:boundary.key,name:`Room ${i+1}`,use:'bedroom',ventilationRole:'supply'});
+    p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('luna-supply',{id:`perf-terminal-${i}`,floorId:'floor-ground',xMm:x+2000,yMm:y+2000})});
+  }
+  applyLocalReopen({project:p},{named:false});selectDesignStage('plan');initialCameraFit.cancel();camera={x:0,y:0,width:2400,height:1900};render();
+  const totals={}, originals={renderRooms,renderReferences,renderInspector,renderConnectionDemand,renderRoutingWorkflow,renderRouteGuidance,renderStorageState,updateStatus};
+  const wrap=(name,fn)=>()=>{const t=performance.now();try{return fn();}finally{totals[name]=(totals[name]??0)+performance.now()-t;}};
+  renderRooms=wrap('rooms',renderRooms);renderReferences=wrap('references',renderReferences);renderInspector=wrap('inspector',renderInspector);renderConnectionDemand=wrap('demand',renderConnectionDemand);renderRoutingWorkflow=wrap('routing',renderRoutingWorkflow);renderRouteGuidance=wrap('guidance',renderRouteGuidance);renderStorageState=wrap('storage',renderStorageState);updateStatus=wrap('status',updateStatus);
+  let elapsed;
+  try {const start=performance.now();for(let i=0;i<8;i++)render();elapsed=performance.now()-start;}
+  finally {({renderRooms,renderReferences,renderInspector,renderConnectionDemand,renderRoutingWorkflow,renderRouteGuidance,renderStorageState,updateStatus}=originals);}
+  const measure = fn => {const t=performance.now();for(let i=0;i<8;i++)fn();return (performance.now()-t)/8;};
+  const legacyStatusMeanMs=measure(()=>{canUndo(history);canRedo(history);updateStatus();});
+  const optimizedStatusMeanMs=measure(()=>updateStatus());
+  const uncachedSerializeMeanMs=measure(()=>serializeProject(history.present));
+  serializedSnapshot(history.present);
+  const cachedSerializeMeanMs=measure(()=>serializedSnapshot(history.present));
+  const savedModel=serializeProject(history.present), savedRender=render, savedQueue=queueWorkingSession;
+  let burstRenders=0,burstRecoveryWrites=0;
+  render=()=>{burstRenders++;return savedRender();};queueWorkingSession=(...args)=>{burstRecoveryWrites++;return savedQueue(...args);};
+  try {
+    const rect=canvas.getBoundingClientRect();
+    for(let i=0;i<20;i++)canvas.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,ctrlKey:true,deltaY:-1,clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2}));
+    await tabsQaFrame();await new Promise(resolve=>setTimeout(resolve,200));
+    tabsQaAssert(burstRenders===1,'Wheel burst redraws once per animation frame');
+    tabsQaAssert(burstRecoveryWrites===1,'Wheel burst writes final view recovery once');
+    tabsQaEqual(serializeProject(history.present),savedModel,'Wheel burst leaves model unchanged');
+  } finally {render=savedRender;queueWorkingSession=savedQueue;}
+  const report={walls:p.walls.length,rooms:p.rooms.length,components:p.components.length,renderMeanMs:elapsed/8,stagesMeanMs:Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,v/8])),legacyStatusMeanMs,optimizedStatusMeanMs,uncachedSerializeMeanMs,cachedSerializeMeanMs,burstRenders,burstRecoveryWrites};
+  tabsQaFixture('mixed');tabsQaOutput.textContent=`PASS performance ${JSON.stringify(report)}`;
+});

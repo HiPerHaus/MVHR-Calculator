@@ -211,7 +211,7 @@
               <button id="tablet-inspector-toggle" aria-controls="inspector-panel" type="button" aria-expanded="false">Inspector</button>
             </div>
           </div>
-          <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas">
+          <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas. Pinch or scroll to zoom the drawing. When focused, plus and minus zoom; zero fits the drawing.">
             <defs>
               <pattern id="minor-grid" width="10" height="10" patternUnits="userSpaceOnUse">
                 <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e4e9ed" stroke-width="0.5" />
@@ -295,6 +295,8 @@
             <dt>Height</dt><dd id="wall-height"></dd>
           </dl>
           <div id="wall-actions" class="inspector-actions" hidden>
+            <button id="add-wall-point" type="button">Add bend point</button>
+            <small>Adds a midpoint. Drag the selected point to redirect the wall. Repeat on either segment for more bends. Linked openings/items are not reassigned automatically.</small>
             <button id="delete-wall" type="button" class="danger-action">Delete…</button>
             <small>Delete or Backspace also opens the guarded choice.</small>
           </div>

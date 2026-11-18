@@ -904,3 +904,12 @@ dialog legend { padding: 0 5px; color: #344850; font-size: 12px; font-weight: 70
 .field-photo-grid figcaption { padding: 8px 0; overflow-wrap: anywhere; }
 @media(max-width: 900px) { .field-airflow-row, .field-details-form { grid-template-columns: repeat(2,minmax(0,1fr)); } .task-nav { flex-wrap: wrap; } }
 @media(max-width: 560px) { .field-workspace { padding: 14px; } .field-airflow-row, .field-details-form { grid-template-columns: 1fr; } }
+
+/* Wall bend controls remain at least 44 CSS pixels at any drawing zoom. */
+.wall-add-point { cursor: pointer; }
+.wall-add-point-hit { fill: transparent; stroke: none; pointer-events: all; }
+.wall-add-point-disc { fill: white; stroke: var(--teal); stroke-width: 1.5; pointer-events: none; }
+.wall-add-point-plus { fill: none; stroke: var(--teal); stroke-width: 2; pointer-events: none; }
+.wall-add-point:focus .wall-add-point-disc { stroke: var(--accent); stroke-width: 3; }
+.wall-node.wall-node-touch-hit { fill: transparent; stroke: none; pointer-events: all; }
+#add-wall-point { min-height: 44px; }
