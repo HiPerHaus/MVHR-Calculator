@@ -38,7 +38,7 @@ test("selected export option has independent plan, engineering details, parts an
   for (const result of [first, second]) {
     assert.equal(result.pages[0].kind, "drawing");
     assert.equal(result.pages[1].kind, "installation-details");
-    const airflowIndex = result.pages.findIndex(page => page.kind === "airflows");
+    const airflowIndex = result.pages.findIndex(page => page.kind === "airflow-proposal");
     assert.equal(airflowIndex, 2);
     if (result === first) assert.match(result.pages[1].svg, /data-role="q-electrical-source"/);
     assert.ok(result.pages.slice(airflowIndex + 1).every(page => ["airflow-proposal","parts-list"].includes(page.kind)));
@@ -125,7 +125,7 @@ test("multi-storey output includes each storey in preview and page selection", (
   ) });
   const { pages } = createDesignOptionOutput(project, { createSheet });
   assert.deepEqual(pages.filter(page => page.kind !== "airflow-proposal").map(page => page.kind), [
-    "drawing", "drawing", "installation-details", "installation-details", "airflows", "airflows", "parts-list", "parts-list",
+    "drawing", "drawing", "installation-details", "installation-details", "parts-list", "parts-list",
   ]);
   for (const [index, page] of pages.entries()) {
     assert.equal(page.pageNumber, index + 1);

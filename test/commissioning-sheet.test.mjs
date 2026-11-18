@@ -35,7 +35,7 @@ test('commissioning pagination and mixed-floor global numbering preserve separat
  const other={...model,airflowReport:{...active,lines:[],record:{details:{},measurements:{'room-1':{measuredLps:99}}}}};
  const output=createSheetOutputDocument([{...model,airflowReport:active},other]);
  assert.equal(output.filter(page=>page.kind==='commissioning').length,3);
- assert.equal(output.filter(page=>page.kind==='airflows').length,4);
+ assert.equal(output.filter(page=>page.kind==='airflows').length,0);
  for(const [i,page]of output.entries()){assert.equal(page.pageNumber,i+1);assert.match(page.svg,new RegExp(`Page ${i+1} of ${output.length}`));}
  const selected=selectSheetOutputPages(output,output.flatMap((page,index)=>page.kind==='commissioning'?[index]:[]));
  assert.deepEqual(selected.map(page=>page.commissioningPageNumber),[1,2,3]);assert.match(selected[2].svg,/Page 3 of 3/);

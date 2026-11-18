@@ -39,7 +39,7 @@ test('four equipment references paginate three per sheet without overflowing A3 
 });
 test('detail pagination offsets airflow and parts pages and selected-page numbering',()=>{
  const sheet=sheetFor(project()),pages=createSheetOutputPages(sheet);
- assert.deepEqual(pages.filter(page=>page.kind!=='airflow-proposal').map(page=>page.kind),['drawing','installation-details','installation-details','airflows','parts-list']);
+ assert.deepEqual(pages.filter(page=>page.kind!=='airflow-proposal').map(page=>page.kind),['drawing','installation-details','installation-details','parts-list']);
  for(const [index,page]of pages.entries()){assert.equal(page.pageNumber,index+1);assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length}`));}
  const selected=selectSheetOutputPages(pages,[2,pages.length-1]);assert.deepEqual(selected.map(page=>page.pageNumber),[1,2]);assert.match(selected[0].svg,/Page 1 of 2/);assert.equal(selected[0].installationPageNumber,2);
 });

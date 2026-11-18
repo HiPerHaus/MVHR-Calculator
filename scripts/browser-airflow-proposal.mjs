@@ -79,6 +79,8 @@ try {
   await click(cdp,"#airflows-nav");
   for(const width of [1440,1024,768,390]){
    await cdp.send("Emulation.setDeviceMetricsOverride",{width,height:1100,deviceScaleFactor:1,mobile:false});
+   assert.equal(await evaluate(cdp,'document.querySelector("#airflows-nav").nextElementSibling.id'),'sheets-nav');
+   assert.equal(await evaluate(cdp,'(()=>{const a=document.querySelector("#airflows-nav").getBoundingClientRect(),e=document.querySelector("#sheets-nav").getBoundingClientRect();return e.top>a.top||(e.top===a.top&&e.left>=a.right);})()'),true);
    const shot=await cdp.send("Page.captureScreenshot",{format:"png",fromSurface:true});
    await writeFile("/tmp/hiper-airflow-proposal-"+width+".png",Buffer.from(shot.data,"base64"));
    assert.equal(await evaluate(cdp,'document.querySelector(".airflow-proposal").scrollWidth <= document.querySelector(".airflow-proposal").clientWidth'),true);
@@ -106,6 +108,7 @@ try {
   await writeFile("/tmp/hiper-airflow-phpp-profile-768.png",Buffer.from((await cdp.send("Page.captureScreenshot",{format:"png",fromSurface:true})).data,"base64"));
   await evaluate(cdp,'document.querySelector(".proposal-actions button[type=button]").click()');
   await waitFor(cdp,'!document.querySelector("#sheet-preview-panel").hidden');
+  assert.doesNotMatch(await evaluate(cdp,'document.querySelector("#sheet-preview-panel").textContent'),/LIVE DESIGN AIRFLOWS/);
   assert.equal(await evaluate(cdp,'document.querySelector("#airflows-workspace").hidden'),true);
   assert.deepEqual(exceptions,[]);cdp.close();process.stdout.write(JSON.stringify({ok:true,proposed})+"\n");
 } catch (error) {

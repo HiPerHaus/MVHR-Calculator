@@ -42,7 +42,7 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
   });
   if (!selected.some(({ project }) => project.floors.length > 1)) return { entries, pages };
 
-  const pageKinds = ["drawing", "installation-details", "airflows", "airflow-proposal", "commissioning", "parts-list"];
+  const pageKinds = ["drawing", "installation-details", "airflow-proposal", "commissioning", "parts-list"];
   const ordered = selected.flatMap(({ option }) => pageKinds.flatMap(kind =>
     pages.filter(page => page.optionId === option.id && page.kind === kind),
   ));

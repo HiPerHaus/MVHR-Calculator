@@ -36,7 +36,7 @@ test('reviewed proposal feeds live schedule/export and explicit single-terminal 
  const line=report.lines.find(l=>l.id==='ground-supply');assert.equal(line.measuredLps,11);assert.equal(line.designChanged,true);
  const sheet=createA3SheetModel(p,{floorId:'ground',orientation:'landscape',includeSchedule:false,projectName:'Proposal integration',issueDate:'2026-11-18',drawingTitle:'Ventilation',drawingId:'V01',status:'Preliminary — not for construction',revision:'A',revisionText:'Test'});
  assert.ok(Math.abs(sheet.airflowReport.lines.find(l=>l.id==='ground-supply').designLps*3.6-150)<1e-9);
- assert.match(createSheetOutputPages(sheet).find(page=>page.kind==='airflows').svg,/>150.0</);
+ assert.equal(createSheetOutputPages(sheet).some(page=>page.kind==='airflows'),false);
  const draft=createEngineeringNetworkDraft(p,'ground');
  assert.equal(draft.unresolved.length,0);assert.equal(draft.design.terminalAllocations.length,2);
  for(const allocation of draft.design.terminalAllocations){assert.equal(allocation.inputUnit,'m3/h');assert.equal(allocation.inputValue,150);}
@@ -58,6 +58,6 @@ test('reviewed PHPP normal, not design maximum, feeds assigned schedule and engi
  assert.ok(Math.abs(buildCommissioningReport(p,'ground').totals.supply.designLps*3.6-normal)<1e-8);
  const draft=createEngineeringNetworkDraft(p,'ground');for(const allocation of draft.design.terminalAllocations)assert.ok(Math.abs(allocation.inputValue-normal)<1e-8);
  const sheet=createA3SheetModel(p,{floorId:'ground',orientation:'landscape',includeSchedule:false,projectName:'PHPP integration',issueDate:'2026-11-18',drawingTitle:'Ventilation',drawingId:'V01',status:'Preliminary — not for construction',revision:'A',revisionText:'Test'});
- const pages=createSheetOutputPages(sheet);assert.match(pages.find(page=>page.kind==='airflows').svg,/>126.9</);
+ const pages=createSheetOutputPages(sheet);assert.equal(pages.some(page=>page.kind==='airflows'),false);
  assert.match(pages.filter(page=>page.kind==='airflow-proposal').map(page=>page.svg).join(''),/maximum 165.0/);
 });

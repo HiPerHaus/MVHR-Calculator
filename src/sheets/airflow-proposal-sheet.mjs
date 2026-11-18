@@ -19,13 +19,14 @@ function content(sheet){
  add(`Proposed whole-option flows (m³/h): ${phpp?'basic':'low'} ${quantity(report.lowM3h)} · normal ${quantity(report.normalM3h)} · ${phpp?'maximum':'boost'} ${quantity(report.boostM3h)}`);
  add(`${phpp?'Fixed PHPP profile factors: basic':'Mode factors: low'} ${parameter(settings.lowFactor)} × normal · ${phpp?'maximum':'boost'} ${parameter(settings.boostFactor)} × normal`);
  add('Equipment capacity NOT VERIFIED. Not an approved design, certified PHPP result, compliance check or measured delivery.');
- add('');add('ROOM / ZONE PROPOSALS — THIS FLOOR ONLY',true);
+ add('');add('ROOM / ZONE ALLOCATION EVIDENCE — THIS FLOOR ONLY',true);
  const rows=sheet.airflowProposalLines??(report.lines??[]).filter(line=>line.floorId===sheet.metadata.floorId);
  if(!rows.length)add('No room/zone proposal rows on this floor. Whole-option inputs and unresolved issues still require review.');
  for(const row of rows){
   add(`${row.name} · ${row.ventilationRole} · ID ${row.id}`,true);
-  add(`Proposed m³/h: ${phpp?'basic':'low'} ${quantity(row.lowM3h)} · normal ${quantity(row.normalM3h)} · ${phpp?'maximum':'boost'} ${quantity(row.boostM3h)}`);
+  add(`Chart rates (m³/h): ${phpp?'basic':'low'} ${quantity(row.lowM3h)} · normal ${quantity(row.normalM3h)} · ${phpp?'maximum':'boost'} ${quantity(row.boostM3h)}`);
   add(`Existing assigned design: ${quantity(row.assignedExistingM3h)} m³/h (unchanged; not this proposal)`);
+  add(`Size: ${quantity(row.areaM2)} m² (wall-reference area, not TFA)`);
   add(`Weight: ${parameter(row.weight)} · Source: ${row.weightSource??'Unknown'}`);
   for(const missing of row.missing??[])add(`Unresolved: ${describe(missing)}`);
   add('');
@@ -42,8 +43,11 @@ function content(sheet){
 }
 export function createAirflowProposalPages(sheet,{firstPageNumber=1,totalPageCount=null}={}){
  if(!sheet.airflowProposal||sheet.metadata.systemScope==='decentralised'||sheet.airflowProposal.status==='not-applicable')return [];
- const lines=content(sheet),count=Math.max(1,Math.ceil(lines.length/PAGE_LINES));
- return Array.from({length:count},(_,index)=>({lines:lines.slice(index*PAGE_LINES,(index+1)*PAGE_LINES),proposalPageNumber:index+1,proposalPageCount:count,pageNumber:firstPageNumber+index,totalPageCount:totalPageCount??firstPageNumber+count-1}));
+ const rows=[...(sheet.airflowProposalLines??(sheet.airflowProposal.lines??[]).filter(row=>row.floorId===sheet.metadata.floorId))].sort((a,b)=>roleOrder(a.ventilationRole)-roleOrder(b.ventilationRole));
+ const charts=Array.from({length:Math.max(1,Math.ceil(rows.length/16))},(_,index)=>({section:'outlet-chart',rows:rows.slice(index*16,(index+1)*16),lines:[]}));
+ const lines=content(sheet),notes=Array.from({length:Math.max(1,Math.ceil(lines.length/PAGE_LINES))},(_,index)=>({section:'evidence',rows:[],lines:lines.slice(index*PAGE_LINES,(index+1)*PAGE_LINES)}));
+ const pages=[...charts,...notes],count=pages.length;
+ return pages.map((page,index)=>({...page,proposalPageNumber:index+1,proposalPageCount:count,pageNumber:firstPageNumber+index,totalPageCount:totalPageCount??firstPageNumber+count-1}));
 }
 export function renderAirflowProposalSheetSvg(sheet,page){
  const report=sheet.airflowProposal,scope=sheet.airflowProposalScope??{},m=sheet.metadata;
@@ -56,8 +60,36 @@ export function renderAirflowProposalSheetSvg(sheet,page){
  out.push(text(14,40,bounded(`Option: ${scope.optionName??report.optionId??'Unknown'} · ID ${scope.optionId??report.optionId??'Unknown'}`),2.5));
  out.push(text(14,46,bounded(`Floor rows: ${sheet.printScene.floorName} · Whole-option totals: all floors · ${report.status}`),2.5));
  out.push(text(14,52,`Proposal sheet ${page.proposalPageNumber} of ${page.proposalPageCount} · All airflow in m³/h`,2.5));
- page.lines.forEach((line,index)=>out.push(text(14,61+index*LINE_HEIGHT,line.text,line.heading?2.9:2.7,line.heading?'font-weight="700"':'')));
- out.push(text(14,274,'Proposal only. Existing live design and recorded site measurements are separate.',2.4));
+ if(page.section==='outlet-chart') out.push(renderOutletChart(sheet,page,text));
+ else page.lines.forEach((line,index)=>out.push(text(14,61+index*LINE_HEIGHT,line.text,line.heading?2.9:2.7,line.heading?'font-weight="700"':'')));
+ out.push(text(14,274,page.section==='outlet-chart'?'Room distribution is a Studio heuristic. See method/evidence continuation.':'Proposal only. Existing live design and recorded site measurements are separate.',2.4));
  out.push(text(14,281,'Unknown means missing or unresolved; no zero has been inferred.',2.4));
  out.push(text(196,291,`Page ${page.pageNumber} of ${page.totalPageCount} · A4`,2.5,'text-anchor="end" data-output-page-number="true"'),'</svg>');return out.join('');
+}
+
+function roleOrder(role){return role==='supply'?0:role==='extract'?1:2;}
+function renderOutletChart(sheet,page,text){
+ const report=sheet.airflowProposal,phpp=report.settings?.profile==='phpp-9.6a-standard-v1';
+ const out=[text(14,62,'ROOM / ZONE PROPOSALS — THIS FLOOR ONLY',3.2,'font-weight="700"'),text(14,69,'Whole-option duty (ALL floors, per stream; do not add repeated floor sheets):',2.5),text(14,76,`${phpp?'Basic':'Low'} ${quantity(report.lowM3h)} · Normal ${quantity(report.normalM3h)} · ${phpp?'Maximum':'Boost'} ${quantity(report.boostM3h)} m³/h`,3),text(14,83,'Room size is drawn wall-reference area (m²), not verified net area or PHPP TFA.',2.3),text(14,90,'Proposed room flows only, not outlet measurements or per-terminal allocations.',2.3)];
+ out.push('<rect x="12" y="96" width="186" height="10" fill="#e8eef0"/>');
+ for(const [x,label]of [[14,'ROOM / ZONE'],[76,'TYPE'],[100,'m²'],[121,phpp?'BASIC':'LOW'],[146,'NORMAL'],[174,phpp?'MAXIMUM':'BOOST']])out.push(text(x,102,label,2.6,'font-weight="700"'));
+ let y=107;
+ for(const row of page.rows){
+  const role=row.ventilationRole==='supply'?'Supply':row.ventilationRole==='extract'?'Extract':row.ventilationRole;
+  out.push(`<g data-role="proposal-outlet-row" data-space-id="${escapeXml(row.id)}">`);
+  if(row.ventilationRole==='extract')out.push(`<rect x="12" y="${y}" width="186" height="8" fill="#f5f8f9"/>`);
+  wrapSheetText(row.name,38,2).forEach((line,i)=>out.push(text(14,y+3.1+i*3.1,line,2.5)));
+  out.push(text(76,y+3.5,role,2.4),text(100,y+3.5,quantity(row.areaM2),2.4));
+  for(const [x,key]of [[121,'lowM3h'],[146,'normalM3h'],[174,'boostM3h']])out.push(text(x,y+3.5,["supply","extract"].includes(row.ventilationRole)?quantity(row[key]):"—",2.6));
+  out.push(`<line x1="12" y1="${y+8}" x2="198" y2="${y+8}" stroke="#d7dfe2" stroke-width=".15"/></g>`);y+=8;
+ }
+ if(!page.rows.length)out.push(text(14,113,'No room/zone rows on this floor. Inputs remain unresolved.',2.7));
+ const all=sheet.airflowProposalLines??(report.lines??[]).filter(row=>row.floorId===sheet.metadata.floorId);
+ for(const [index,role]of ['supply','extract'].entries()){
+  const side=all.filter(row=>row.ventilationRole===role),known=side.filter(row=>Number.isFinite(row.normalM3h));
+  const total=known.length?known.reduce((sum,row)=>sum+row.normalM3h,0):null;
+  out.push(text(14,246+index*6,`This floor ${role} normal: ${quantity(total)} m³/h${known.length<side.length?' (partial)':''} · ${side.length} room/zone(s)`,2.7));
+ }
+ out.push(text(14,261,'Supply and extract are separate streams, not additive dwelling demand.',2.5));
+ return out.join('');
 }

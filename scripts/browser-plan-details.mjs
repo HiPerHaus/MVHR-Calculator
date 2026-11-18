@@ -49,7 +49,7 @@ return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>res
 };
 window.__makeFieldPdf=async(phpp=false)=>{
  const fieldSheet={...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:"bed",name:"Bedroom",ventilationRole:"supply",requiredLps:10,designLps:14,terminalIds:["terminal"],measuredLps:9,deltaLps:-5,designChanged:true,measurement:{setting:"2 turns",recordedAt:"2026-11-18"}}],totals:{supply:{designLps:14,measuredLps:9},extract:{designLps:null,measuredLps:null,incompleteDesign:true,incompleteMeasured:true}},record:{details:{engineer:"Field QA",date:"2026-11-18"},measurements:{},photos:[]}}};
- fieldSheet.airflowProposal={...sheet.airflowProposal,status:"provisional",candidatesM3h:{occupancy:120,volume:150,extract:60},volumeM3:500,normalM3h:150,lowM3h:105,boostM3h:195,governingBasis:["volume"],issues:[],lines:[{id:"bed",floorId:"ground",name:"Bedroom",ventilationRole:"supply",weight:16,weightSource:"Studio wall-reference-area weighting",assignedExistingM3h:50.4,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]},{id:"kitchen",floorId:"ground",name:"Kitchen",ventilationRole:"extract",weight:60,weightSource:"PHI-protocol-inspired reference: kitchen",assignedExistingM3h:null,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]}]};
+ fieldSheet.airflowProposal={...sheet.airflowProposal,status:"provisional",candidatesM3h:{occupancy:120,volume:150,extract:60},volumeM3:500,normalM3h:150,lowM3h:105,boostM3h:195,governingBasis:["volume"],issues:[],lines:[{id:"bed",floorId:"ground",name:"Bedroom",ventilationRole:"supply",areaM2:16,weight:16,weightSource:"Studio wall-reference-area weighting",assignedExistingM3h:50.4,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]},{id:"kitchen",floorId:"ground",name:"Kitchen",ventilationRole:"extract",areaM2:12,weight:60,weightSource:"PHI-protocol-inspired reference: kitchen",assignedExistingM3h:null,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]}]};
  if(phpp){const r=fieldSheet.airflowProposal; r.settings={...r.settings,profile:'phpp-9.6a-standard-v1',basis:'max',volumeSource:'phpp-reference',personRateM3h:30,ach:.3,lowFactor:.7,boostFactor:1.3};r.method='phpp-9.6a-standard-v1';r.assumptions=['PHPP 9.6a standard single-unit calculation profile. No project certification or equipment-capacity verification.','Supply allocation by area and extract allocation by selected reference weights are separate Studio heuristics, not PHPP room calculations.','Maximum and basic are fixed profile design modes, not certified physical fan settings.','This is not a multiple-unit apportionment or hours-weighted average calculation.'];r.volumeM3=422.9653375;r.normalM3h=r.volumeM3*.3;r.lowM3h=r.normalM3h*.7;r.boostM3h=r.normalM3h*1.3;r.candidatesM3h={occupancy:120,extract:160,volume:r.normalM3h};r.maximumCandidatesM3h={occupancy:120,extract:160,volume:r.boostM3h};r.lines=r.lines.map(l=>({...l,normalM3h:r.normalM3h,lowM3h:r.lowM3h,boostM3h:r.boostM3h}));}
  fieldSheet.airflowProposalLines=fieldSheet.airflowProposal.lines;
  window.__fieldPages=createSheetOutputPages(fieldSheet);
@@ -153,21 +153,20 @@ try{
  }
  const fieldPdf=await evaluate("window.__makeFieldPdf()");
  await writeFile(join(output,"design-commissioning-record.pdf"),Buffer.from(fieldPdf,"base64"));
- const designIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflows')");
+ assert.equal(await evaluate("window.__fieldPages.some(p=>p.kind==='airflows')"),false);
  const commissioningIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='commissioning')");
- await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(designIndex+1)+")");
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
  const fieldEvidence=await evaluate("window.__pdfEvidence");
- assert.match(fieldEvidence[designIndex].text,/LIVE DESIGN AIRFLOWS/);
- assert.doesNotMatch(fieldEvidence[designIndex].text,/MEASURED|2 turns|Field QA/);
+ assert.doesNotMatch(fieldEvidence.map(p=>p.text).join(" "),/LIVE DESIGN AIRFLOWS/);
  assert.match(fieldEvidence[commissioningIndex].text,/COMMISSIONING \/ SITE RECORD/);
  assert.match(fieldEvidence[commissioningIndex].text,/2 turns/);
- await capture("pdf-design-airflows.png",794,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
  await capture("pdf-commissioning-record.png",794,1123);
  const proposalIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflow-proposal')");
  assert.match(fieldEvidence[proposalIndex].text,/PROVISIONAL AIRFLOW PROPOSAL/);
- assert.match(fieldEvidence[proposalIndex].text,/normal 150.0/);
+ assert.match(fieldEvidence[proposalIndex].text,/Normal 150.0/);
  await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(proposalIndex+1)+")");
+ assert.match(fieldEvidence[proposalIndex].text,/Bedroom\s+Supply\s+16.0/);assert.match(fieldEvidence[proposalIndex].text,/Kitchen\s+Extract\s+12.0/);
  await capture("pdf-airflow-proposal.png",794,1123);
 
  const phppPdf=await evaluate("window.__makeFieldPdf(true)");
@@ -175,7 +174,7 @@ try{
  const phppIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflow-proposal')");
  await evaluate("window.__renderPdf("+JSON.stringify(phppPdf)+","+(phppIndex+1)+")");
  const phppEvidence=await evaluate("window.__pdfEvidence");
- assert.match(phppEvidence[phppIndex].text,/normal 126.9/);assert.match(phppEvidence[phppIndex].text,/maximum 165.0/);assert.match(phppEvidence[phppIndex].text,/phpp-9.6a-standard-v1/);
+ assert.match(phppEvidence[phppIndex].text,/Normal 126.9/);assert.match(phppEvidence[phppIndex].text,/Maximum 165.0/);assert.match(phppEvidence.map(p=>p.text).join(" "),/phpp-9.6a-standard-v1/);
  await capture("pdf-phpp-9.6a-proposal.png",794,1123);
  assert.deepEqual(errors,[]);
  await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,printPageSizes:printed.map(p=>({width:p.width,height:p.height})),pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));

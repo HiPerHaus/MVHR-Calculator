@@ -50,3 +50,24 @@ test('PHPP profile export distinguishes maximum comparison from standard normal 
  assert.match(text,/phpp-9.6a-standard-v1/);assert.match(text,/maximum = max/);assert.match(text,/normal = maximum \/ 1.3/);
  assert.match(text,/basic 88.8 · normal 126.9 · maximum 165.0/);assert.match(text,/Maximum-duty candidates/);assert.match(text,/separate Studio heuristic/);
 });
+
+test('outlet charts show geometric room area, separate streams and repeated table headers',()=>{
+ const longName='LONG ROOM NAME '+ 'continuation '.repeat(14);
+ const rows=Array.from({length:33},(_,i)=>({...report.lines[0],id:`chart-${i}`,name:i===0?longName:`Chart room ${i}`,ventilationRole:i<17?'supply':'extract',areaM2:i===1?null:16+i,weight:999,normalM3h:i===1?null:10,lowM3h:i===1?null:7,boostM3h:i===1?null:13,missing:[]}));
+ rows.push({...rows[0],id:'transfer-room',name:'Transfer only',ventilationRole:'transfer',areaM2:12,normalM3h:9999,lowM3h:9999,boostM3h:9999});
+ const s={...sheet,airflowProposal:{...report,settings:{...report.settings,profile:'phpp-9.6a-standard-v1'},lines:rows,normalM3h:170,lowM3h:119,boostM3h:221},airflowProposalLines:rows};
+ const pages=createAirflowProposalPages(s),charts=pages.filter(page=>page.section==='outlet-chart');
+ assert.deepEqual(charts.map(page=>page.rows.length),[16,16,2]);
+ for(const page of charts){
+  const svg=renderAirflowProposalSheetSvg(s,page),text=plain(svg);
+  for(const header of ['ROOM / ZONE','TYPE','m²','BASIC','NORMAL','MAXIMUM'])assert.ok(text.includes(header));
+  assert.match(text,/wall-reference area/);assert.match(text,/not verified net area or PHPP TFA/);
+  assert.match(text,/This floor supply normal: 160.0 m³\/h \(partial\)/);assert.match(text,/This floor extract normal: 160.0 m³\/h/);
+  assert.match(text,/separate streams, not additive/);assert.doesNotMatch(text,/9999.0/);
+  assert.ok(page.rows.length*8+107<=235);
+ }
+ const first=renderAirflowProposalSheetSvg(s,charts[0]);assert.match(first,/>16.0</);assert.match(first,/>Unknown</);assert.doesNotMatch(first,/>999.0</);
+ const last=renderAirflowProposalSheetSvg(s,charts.at(-1));assert.match(last,/Transfer only/);assert.match(last,/>—</);
+ const full=plain(pages.map(page=>renderAirflowProposalSheetSvg(s,page)).join(''));
+ assert.ok(full.includes(longName.trim()));assert.match(full,/Existing assigned design/);assert.match(full,/METHOD \/ ASSUMPTIONS \/ LIMITATIONS/);
+});

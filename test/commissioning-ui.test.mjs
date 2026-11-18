@@ -12,3 +12,9 @@ test('design airflows and commissioning have separate tabs and forms',async()=>{
  const asBuilt=main.slice(main.indexOf('function renderFieldAsBuilt'),main.indexOf('async function prepareSitePhoto'));
  assert.match(asBuilt,/Site photos/);assert.doesNotMatch(asBuilt,/Commissioning engineer|Airflow instrument/);
 });
+
+test('Export navigation follows Airflows without removing the live workspace',async()=>{
+ const html=await readFile(new URL('../app/index.html',import.meta.url),'utf8');
+ assert.match(html, /id="airflows-nav"[^>]*>Airflows<\/button>\s*<button id="sheets-nav"/);
+ assert.match(html,/aria-label="Live design airflows"/);
+});

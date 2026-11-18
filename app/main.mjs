@@ -3278,11 +3278,10 @@ function renderSheetOptionPreview(optionId) {
   exportPartsCsvButton.disabled = allOptions;
   exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-  const airflowPageCount = pages.filter(page => page.kind === "airflows").length;
   const commissioningPageCount = pages.filter(page => page.kind === "commissioning").length;
   const proposalPageCount = pages.filter(page => page.kind === "airflow-proposal").length;
   const installationPageCount = pages.filter(page => page.kind === "installation-details").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${airflowPageCount ? ` + ${airflowPageCount} A4 airflow sheet${airflowPageCount === 1 ? "" : "s"}` : ""}${proposalPageCount ? ` + ${proposalPageCount} A4 provisional proposal sheet${proposalPageCount === 1 ? "" : "s"}` : ""}${commissioningPageCount ? ` + ${commissioningPageCount} A4 commissioning sheet${commissioningPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${proposalPageCount ? ` + ${proposalPageCount} A4 provisional proposal sheet${proposalPageCount === 1 ? "" : "s"}` : ""}${commissioningPageCount ? ` + ${commissioningPageCount} A4 commissioning sheet${commissioningPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
   sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references, airflow records and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
@@ -3340,9 +3339,9 @@ function openSheetOutputPicker(action, output = null) {
     input.checked = sheetPageSelections.get(page.pageKey) !== false;
     const description = document.createElement("span");
     const title = document.createElement("strong");
-    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflows" ? "Design airflows" : page.kind === "airflow-proposal" ? "Provisional airflow proposal" : page.kind === "commissioning" ? "Commissioning" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflow-proposal" ? "Provisional airflow proposal" : page.kind === "commissioning" ? "Commissioning" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
     const detail = document.createElement("small");
-    detail.textContent = `Page ${index + 1} · ${["parts-list", "airflows", "airflow-proposal", "commissioning"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
+    detail.textContent = `Page ${index + 1} · ${["parts-list", "airflow-proposal", "commissioning"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
     description.append(title, detail);
     label.append(input, description);
     fieldset.append(label);
@@ -11409,9 +11408,9 @@ function renderDesignAirflows(host, report) {
   host.append(createAirflowProposalSection(history.present,{currentFloorId:currentFloorId(),onApply:command=>commitFieldCommand(command,"Reviewed proposal applied to assigned targets; site readings retained"),onSave:settings=>commitFieldCommand({type:"airflowProposal.setSettings",settings},"Proposal assumptions saved; assigned targets unchanged"),onExport:()=>selectDesignStage("export"),onEditReference:()=>host.querySelector(".volume-reference")?.scrollIntoView({behavior:"smooth",block:"start"})}));
   const section=fieldNode("section",undefined,"design-airflow-section");
   section.append(fieldNode("h2","Live design airflow schedule"),fieldNode("p","Normal-mode design values for the active option and floor, in m³/h. Assigned room targets take priority; otherwise a complete explicit outlet allocation is shown. No room flows are inferred from whole-dwelling references."));
-  const exportButton=fieldNode("button","Export design airflow schedule");exportButton.type="button";
+  const exportButton=fieldNode("button","Open export");exportButton.type="button";
   exportButton.addEventListener("click",()=>selectDesignStage("export"));section.append(exportButton);
-  section.append(fieldNode("p","Opens Export, where you can choose the Airflows page. The schedule scope is shown in the preview."));
+  section.append(fieldNode("p","Export includes the provisional airflow proposal and commissioning records; this live design schedule remains available here."));
   const totals=fieldNode("div",undefined,"field-totals");
   for(const stream of ["supply","extract"]) {const t=report.totals[stream];totals.append(fieldNode("p",`${stream === "supply"?"Supply":"Extract"}: ${fieldNumber(lpsToM3h(t.designLps))} m³/h${t.incompleteDesign?" (known subtotal; incomplete)":""}`));}section.append(totals);
   if(report.unassignedTerminals?.length)section.append(fieldNode("p",`${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals.`,"field-warning"));

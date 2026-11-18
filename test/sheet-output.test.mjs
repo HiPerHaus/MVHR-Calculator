@@ -41,11 +41,11 @@ test("sheet output plans an A3 drawing and installation details followed by exac
     [
       { kind: "drawing", widthMm: 420, heightMm: 297, orientation: "landscape" },
       { kind: "installation-details", widthMm: 420, heightMm: 297, orientation: "landscape" },
-      { kind: "airflows", widthMm: 210, heightMm: 297, orientation: "portrait" },
       { kind: "parts-list", widthMm: 210, heightMm: 297, orientation: "portrait" },
     ],
   );
   assert.ok(pages.some(page => page.kind === "airflow-proposal"));
+  assert.ok(pages.every(page => page.kind !== "airflows" && !page.svg.includes("LIVE DESIGN AIRFLOWS")));
   for (const [index,page] of pages.entries()) assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length}`));
   assert.match(pages[1].svg, /data-role="q-electrical-source"/);
 });
