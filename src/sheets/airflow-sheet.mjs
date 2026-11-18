@@ -31,7 +31,8 @@ export function renderAirflowSheetSvg(sheet, page) {
     nameLines.forEach((line,i)=>out.push(text(14,y+4+i*3.4,line,2.6)));
     out.push(text(93,y+4,flow(row.designLps)),text(119,y+4,flow(row.measuredLps)),text(153,y+4,Number.isFinite(row.deltaLps)?`${row.deltaLps>0?'+':''}${row.deltaLps.toFixed(1)}`:'—'));
     wrapSheetText(row.measurement?.setting || '—',15,2).forEach((line,i)=>out.push(text(171,y+4+i*3.4,line,2.5)));
-    if(row.designChanged) out.push(text(14,y+10,'Design changed since measurement; review required',2.2,'fill="#9b4e00"'));
+    if(row.boundaryNeedsReassignment) out.push(text(14,y+10,'Boundary needs reassignment; excluded from totals',2.2,'fill="#9b4e00"'));
+    else if(row.designChanged) out.push(text(14,y+10,'Design changed since measurement; review required',2.2,'fill="#9b4e00"'));
     out.push(`<line x1="12" y1="${y+10.8}" x2="198" y2="${y+10.8}" stroke="#d7dfe2" stroke-width=".15"/>`); y+=11;
   }
   if (!page.rows.length) out.push(text(14,72,'No centralised room airflow data on this floor.'));

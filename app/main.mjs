@@ -59,6 +59,7 @@ import {
   unresolvedAirflowTarget,
   unknownMm,
   wallConnectedComponentIds,
+  inspectWallDeletion,
   worldPointToSource,
 } from "../src/domain/spatial.mjs";
 import {
@@ -5467,11 +5468,14 @@ function openWallDeleteDialog() {
   deleteWallDialog.querySelector('[value="delete-connected"]').hidden = isDivider;
   deleteWallDialog.querySelector('[value="delete-wall"]').textContent = isDivider ? "Delete divider segment" : "Delete wall only";
   deleteWallDialog.querySelector("h2").textContent = isDivider ? "Delete room divider" : "Delete selected wall";
-  deleteWallMessage.textContent = isDivider
-    ? `Delete ${wall.id}? Confirmed zones that reference this divider must be removed or reassigned first. Physical walls are never included.`
-    : connectedCount === 1
-    ? `Delete ${wall.id}? Both choices remove this one isolated wall. Cancel leaves the project unchanged.`
-    : `Delete only ${wall.id} and preserve its ${connectedCount - 1} connected neighbour${connectedCount === 2 ? "" : "s"}, or delete the whole ${connectedCount}-wall connected chain. Shared junctions survive when remaining walls still use them.`;
+  const describe = (ids) => {
+    const affected = inspectWallDeletion(history.present, ids);
+    const names = [...affected.rooms, ...affected.zones].map(space => space.name);
+    return names.length ? ` Affected rooms/zones: ${names.join(", ")}. Their names, airflow inputs and terminal records are retained, but boundaries and calculated outputs need reassignment/review. No rooms are automatically merged.` : " No room boundaries are affected.";
+  };
+  deleteWallMessage.textContent = `Delete only ${wall.id}: neighbouring walls and shared junctions are preserved.${describe([wall.id])}`
+    + (!isDivider && connectedCount > 1 ? ` Delete connected chain removes ALL ${connectedCount} connected walls.${describe(wallConnectedComponentIds(history.present, wall.id))}` : "")
+    + " Hosted equipment references still block deletion. Undo restores the complete previous state.";
   deleteWallDialog.showModal();
 }
 
@@ -5493,6 +5497,7 @@ function applyWallDeleteChoice() {
   const committed = commitCommand({
     type: connected ? "wall.deleteConnected" : "wall.delete",
     wallId,
+    retainAffectedRooms: true,
   }, connected ? "Connected wall chain deleted" : "Selected wall deleted; connected neighbours preserved");
   if (committed) {
     selectedWallId = null;
@@ -7207,6 +7212,20 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
   const eligibleCount = derivation.candidates.filter((candidate) => !assignedKeys.has(candidate.key)).length;
   roomSummary.textContent = `${history.present.rooms.length} room${history.present.rooms.length === 1 ? "" : "s"} · ${history.present.zones.length} zone${history.present.zones.length === 1 ? "" : "s"} · ${eligibleCount} room face${eligibleCount === 1 ? "" : "s"} to confirm · ${zoneState.unassignedZoneFaces} zone face${zoneState.unassignedZoneFaces === 1 ? "" : "s"} to name`;
   roomIssues.replaceChildren();
+  for (const space of [...history.present.rooms, ...history.present.zones].filter(onCurrentFloor).filter(space => space.boundaryState === "reassignment-required")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.style.minHeight = "44px";
+    button.textContent = `${space.name}: reassign boundary`;
+    button.addEventListener("click", () => {
+      selectedWallId = selectedNodeId = selectedRouteId = selectedFloorAreaId = null;
+      selectedZoneId = space.parentRoomId ? space.id : null;
+      selectedRoomId = space.parentRoomId ?? space.id;
+      render();
+      beginRoomReassignment();
+    });
+    roomIssues.append(button);
+  }
   const diagnostics = [...derivation.diagnostics, ...zoneState.diagnostics];
   if (diagnostics.length === 0) {
     roomIssues.append(htmlText("span", "No open-endpoint or crossing diagnostics on this floor."));
@@ -11305,6 +11324,7 @@ function renderFieldAirflows(host, report) {
     const form = fieldNode("form", undefined, "field-airflow-row");
     const title = fieldNode("div", undefined, "field-room-title");
     title.append(fieldNode("h2", line.name), fieldNode("p", `${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`));
+    if (line.boundaryNeedsReassignment) title.append(fieldNode("p", "Boundary needs reassignment. Saved measurements are retained but excluded from totals."));
     title.append(fieldNode("p", `Required: ${fieldNumber(line.requiredLps)} l/s · Live design: ${fieldNumber(line.designLps)} l/s`));
     if (line.measurement?.recordedAt) title.append(fieldNode("p", `Reading recorded: ${line.measurement.recordedAt}`));
     if (line.designChanged) title.append(fieldNode("p", "Design target changed since this reading. Recheck before issuing.", "field-warning"));

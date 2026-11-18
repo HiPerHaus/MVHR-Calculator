@@ -318,3 +318,20 @@ tabsQaButton('Profile large plan', async () => {
   const report={walls:p.walls.length,rooms:p.rooms.length,components:p.components.length,renderMeanMs:elapsed/8,stagesMeanMs:Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,v/8])),legacyStatusMeanMs,optimizedStatusMeanMs,uncachedSerializeMeanMs,cachedSerializeMeanMs,burstRenders,burstRecoveryWrites};
   tabsQaFixture('mixed');tabsQaOutput.textContent=`PASS performance ${JSON.stringify(report)}`;
 });
+
+tabsQaButton('Run room wall deletion checks', async () => {
+  await tabsQaReady();tabsQaFixture('centralised');selectDesignStage('plan');setTool('select');
+  history=executeCommand(history,{type:'wall.addChain',floorId:currentFloorId(),nodeIds:['delete-a','delete-b','delete-c','delete-d','delete-a'],wallIds:['delete-ab','delete-bc','delete-cd','delete-da'],points:[[1000,1000],[5000,1000],[5000,4000],[1000,4000],[1000,1000]].map(([x,y])=>({x,y,z:unknownMm('test')})),splits:[],thicknessMm:140,heightMm:unknownMm('test'),referenceLine:'centreline',classification:'physical'});
+  history=executeCommand(history,{type:'room.createFromBoundary',roomId:'delete-room',floorId:currentFloorId(),boundaryKey:deriveRoomBoundaries(history.present,currentFloorId()).candidates[0].key,name:'Deletion QA Room',use:'living',ventilationRole:'supply'});
+  selectedWallId='delete-ab';render();openWallDeleteDialog();
+  tabsQaAssert(deleteWallMessage.textContent.includes('Deletion QA Room'),'Affected room named before deletion');
+  deleteWallDialog.close('delete-wall');await tabsQaFrame();
+  tabsQaAssert(history.present.walls.length===3,'Only selected wall removed');
+  tabsQaAssert(history.present.rooms[0].boundaryState==='reassignment-required','Room data retained explicitly detached');
+  const button=[...roomIssues.querySelectorAll('button')].find(b=>b.textContent.includes('Deletion QA Room'));
+  tabsQaAssert(button,'Detached room remains accessible');button.click();
+  tabsQaAssert(reassignRoomId==='delete-room','Reassignment action works');
+  tabsQaAssert(document.querySelector('#room-area-value').textContent==='Unavailable','No stale area accepted');
+  history=undoCommand(history);tabsQaAssert(history.present.walls.length===4&&!history.present.rooms[0].boundaryState,'Undo fully restores room');
+  tabsQaFixture('mixed');tabsQaOutput.textContent='PASS room wall deletion: named warning, only segment removed, room retained, reassignment and undo';
+});

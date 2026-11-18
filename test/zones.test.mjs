@@ -318,3 +318,20 @@ test("terminal placement selects the confirmed child zone role without falling b
   assert.equal(terminalPlacementSpace(project, "floor-ground", {x:3000,y:2000}), null);
   assert.equal(terminalPlacementSpace(project, "floor-ground", {x:-100,y:2000}), null);
 });
+
+test('explicit wall deletion retains detached parent and zones without losing divider geometry', () => {
+  let p = partitionedProject();
+  const room = p.rooms[0];
+  for (const [i, face] of deriveZoneBoundaries(p, room.id).candidates.entries()) {
+    p = createZone(p, `zone-delete-${i}`, room.id, face.key, `Zone ${i}`, 'living', 'supply');
+  }
+  const original = structuredClone(p);
+  const wallId = room.boundary[0].wallId;
+  p = applyCommand(p, { type: 'wall.delete', wallId, retainAffectedRooms: true });
+  assert.equal(p.rooms[0].boundaryState, 'reassignment-required');
+  assert.ok(p.zones.every(z => z.boundaryState === 'reassignment-required'));
+  assert.deepEqual(p.zones.map(z => z.terminalAssociations), original.zones.map(z => z.terminalAssociations));
+  assert.equal(deriveZoneBoundaries(p, room.id).candidates.length, 0);
+  assert.ok(p.zones.every(z => inspectZoneBoundary(p,z).status === 'invalid'));
+  assert.deepEqual(deserializeProject(serializeProject(p)), p);
+});

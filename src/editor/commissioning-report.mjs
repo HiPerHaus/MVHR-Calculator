@@ -8,12 +8,12 @@ export function buildCommissioningReport(project,floorId) {
     const requiredLps=line.required.state==='known'?line.required.valueLps:null;
     const measurement=Object.hasOwn(record.measurements,line.id)?record.measurements[line.id]:null;
     const measuredLps=measurement?.measuredLps ?? null;
-    return {id:line.id,name:line.name,ventilationRole:line.ventilationRole,terminalIds:line.terminalIds,requiredLps,designLps,measuredLps,deltaLps:measuredLps!==null&&designLps!==null?measuredLps-designLps:null,designChanged:measurement!==null&&measurement.designLpsAtMeasurement!==designLps,measurement};
+    return {id:line.id,name:line.name,boundaryNeedsReassignment:line.boundaryNeedsReassignment,ventilationRole:line.ventilationRole,terminalIds:line.terminalIds,requiredLps,designLps,measuredLps,deltaLps:measuredLps!==null&&designLps!==null?measuredLps-designLps:null,designChanged:measurement!==null&&measurement.designLpsAtMeasurement!==designLps,measurement};
   });
   const totals={};
   for(const role of ['supply','extract']) {
     const selected=lines.filter(l=>l.ventilationRole===role);
-    totals[role]={designLps:selected.reduce((sum,l)=>sum+(l.designLps??0),0),measuredLps:selected.reduce((sum,l)=>sum+(l.measuredLps??0),0),incompleteDesign:!selected.length||selected.some(l=>l.designLps===null),incompleteMeasured:!selected.length||selected.some(l=>l.measuredLps===null)};
+    totals[role]={designLps:selected.reduce((sum,l)=>sum+(l.designLps??0),0),measuredLps:selected.reduce((sum,l)=>sum+(l.boundaryNeedsReassignment?0:(l.measuredLps??0)),0),incompleteDesign:!selected.length||selected.some(l=>l.designLps===null),incompleteMeasured:!selected.length||selected.some(l=>l.measuredLps===null||l.boundaryNeedsReassignment)};
   }
   return {floorId,optionId:project.activeDesignOptionId,lines,totals,record,unassignedTerminals:balance.unassignedTerminals};
 }

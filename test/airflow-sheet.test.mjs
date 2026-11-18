@@ -28,3 +28,11 @@ test('airflow output bounds metadata and identifies room totals and omissions',(
  assert.match(svg,/Room totals include all terminals; no per-terminal allocation/);
  assert.match(svg,/Incomplete: 1 unassigned terminal/);
 });
+
+test('detached room output identifies excluded historical measurements',()=>{
+ const s={...sheet,airflowReport:{...sheet.airflowReport,lines:[{name:'Bedroom',ventilationRole:'supply',boundaryNeedsReassignment:true,designLps:null,measuredLps:11,deltaLps:null,designChanged:true,measurement:{setting:'Normal'}}]}};
+ const svg=renderAirflowSheetSvg(s,createAirflowPages(s)[0]);
+ assert.match(svg,/Boundary needs reassignment; excluded from totals/);
+ assert.match(svg,/>11.0</);
+ assert.doesNotMatch(svg,/Design changed since measurement/);
+});

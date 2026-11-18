@@ -1,3 +1,7 @@
+import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs";
+import { createEngineeringNetworkDraft } from "../src/editor/engineering-network-draft.mjs";
+import { evaluateEngineeringNetwork } from "../src/editor/engineering-engine.mjs";
+import { spaceBoundaryNeedsReassignment } from "../src/editor/space-boundary-state.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -267,3 +271,44 @@ function wallChain(nodeIds, wallIds, points) {
 function point(x, y) {
   return { x, y, z: unknownMm("not measured") };
 }
+
+
+test("detached boundaries retain inputs but cannot contribute current airflow or engineering outputs", () => {
+  let project = twoRoomProject();
+  project = createRoom(project, "room-bedroom", "Bedroom", "supply", leftBoundary(project));
+  project = updateTargets(project, "room-bedroom", "room", {
+    required: airflowTargetFromInput(10, "l/s", "Required", "Test"),
+    assigned: airflowTargetFromInput(12, "l/s", "Assigned", "Test"),
+  });
+  project = addAndAssignTerminal(project, "terminal", "synthetic-supply-terminal", "room-bedroom", 2000, 2000);
+  project = applyCommand(project, {type:"commissioning.recordMeasurement",spaceId:"room-bedroom",measuredLps:11,setting:"Normal",notes:"",recordedAt:"2026-11-18T00:00:00Z"});
+  project = applyCommand(project, {type:"wall.delete",wallId:project.rooms[0].boundary[0].wallId,retainAffectedRooms:true});
+  const before = structuredClone(project);
+  const result = inspectAirflowBalance(project, "floor-ground");
+  assert.equal(result.lines[0].boundaryNeedsReassignment, true);
+  assert.equal(result.lines[0].coverageStatus, "boundary-reassignment-required");
+  assert.equal(result.lines[0].assigned.state, "unresolved");
+  assert.equal(result.totals.supply.assignedKnownLps, 0);
+  assert.equal(result.totals.supply.requiredKnownLps, 0);
+  assert.equal(result.assignedBalanceState, "incomplete");
+  assert.equal(result.suggestions.length, 0);
+  const report = buildCommissioningReport(project, "floor-ground");
+  assert.equal(report.lines[0].measuredLps, 11);
+  assert.equal(report.lines[0].designLps, null);
+  assert.equal(report.lines[0].deltaLps, null);
+  assert.equal(report.totals.supply.measuredLps, 0);
+  assert.equal(report.totals.supply.incompleteMeasured, true);
+  const draft = createEngineeringNetworkDraft(project, "floor-ground");
+  assert.equal(draft.design.terminalAllocations.length, 0);
+  assert.equal(draft.unresolved[0].code, "boundary-reassignment-required");
+  const engineering = evaluateEngineeringNetwork(project, "floor-ground");
+  assert.equal(engineering.status, "incomplete");
+  assert.equal(engineering.diagnostics[0].code, "boundary-reassignment-required");
+  assert.deepEqual(engineering.routes, []);
+  assert.deepEqual(project, before);
+});
+
+test("a zone inherits its detached parent boundary state", () => {
+  assert.equal(spaceBoundaryNeedsReassignment({rooms:[{id:"parent",boundaryState:"reassignment-required"}]}, {id:"zone",parentRoomId:"parent"}), true);
+  assert.equal(spaceBoundaryNeedsReassignment({rooms:[{id:"parent"}]}, {id:"zone",parentRoomId:"parent"}), false);
+});

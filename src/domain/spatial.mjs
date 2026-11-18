@@ -62,7 +62,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -948,12 +948,12 @@ export function applyCommand(project, command, options = {}) {
     }
     case "wall.delete": {
       const wall = requireEntity(next.walls, command.wallId, "Wall to delete");
-      deleteWalls(next, new Set([wall.id]));
+      deleteWalls(next, new Set([wall.id]), command);
       break;
     }
     case "wall.deleteConnected": {
       const wall = requireEntity(next.walls, command.wallId, "Connected wall seed");
-      deleteWalls(next, new Set(wallConnectedComponentIds(next, wall.id)));
+      deleteWalls(next, new Set(wallConnectedComponentIds(next, wall.id)), command);
       break;
     }
     case "reference.addImage": {
@@ -1647,6 +1647,7 @@ export function migrateProjectData(project) {
       })),
     };
   }
+  if (migrated.schemaVersion === 27) migrated = { ...migrated, schemaVersion: 28 };
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -2404,6 +2405,7 @@ function assignRoomBoundary(project, command) {
   const candidate = requireRoomCandidate(project, room.floorId, command.boundaryKey);
   requireUnassignedRoomCandidate(project, candidate.key, room.id);
   room.boundary = structuredClone(candidate.boundary);
+  delete room.boundaryState;
 }
 
 function createZoneFromBoundary(project, command) {
@@ -2436,6 +2438,7 @@ function assignZoneBoundary(project, command) {
   const candidate = requireZoneCandidate(project, zone.parentRoomId, command.boundaryKey);
   requireUnassignedZoneCandidate(project, zone.parentRoomId, candidate.key, zone.id);
   zone.boundary = structuredClone(candidate.boundary);
+  delete zone.boundaryState;
 }
 
 function requireZoneCandidate(project, parentRoomId, boundaryKey) {
@@ -2905,15 +2908,29 @@ export function wallConnectedComponentIds(project, seedWallId) {
   return [...selected];
 }
 
-function deleteWalls(project, wallIds) {
+export function inspectWallDeletion(project, wallIds) {
+  const ids = new Set(wallIds);
+  const rooms = project.rooms.filter(room => room.boundary.some(edge => ids.has(edge.wallId)));
+  const parentIds = new Set(rooms.map(room => room.id));
+  const zones = project.zones.filter(zone => parentIds.has(zone.parentRoomId) || zone.boundary.some(edge => ids.has(edge.wallId)));
+  return { rooms, zones };
+}
+
+function deleteWalls(project, wallIds, options = {}) {
   if (!(wallIds instanceof Set) || wallIds.size === 0) {
     throw new TypeError("Wall deletion requires at least one wall identity");
   }
   const deletedWalls = project.walls.filter((wall) => wallIds.has(wall.id));
   if (deletedWalls.length !== wallIds.size) throw new TypeError("Wall deletion scope is invalid");
-  const dependencies = findExplicitWallDependencies(project, wallIds);
+  const dependencies = findExplicitWallDependencies(project, wallIds, { ignoreBoundaryHistory: options.retainAffectedRooms === true });
   if (dependencies.length > 0) {
     throw new TypeError(`Wall deletion is blocked by dependent references: ${dependencies.join(", ")}`);
+  }
+  if (options.retainAffectedRooms === true) {
+    const affected = inspectWallDeletion(project, wallIds);
+    for (const space of [...affected.rooms, ...affected.zones]) {
+      space.boundaryState = "reassignment-required";
+    }
   }
   const candidateNodeIds = new Set(
     deletedWalls.flatMap((wall) => [wall.startNodeId, wall.endNodeId]),
@@ -2933,6 +2950,7 @@ function findExplicitWallDependencies(project, wallIds, options = {}) {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
       const childPath = `${path}.${key}`;
+      if (options.ignoreBoundaryHistory && key === "boundary" && /^(rooms|zones)\.\d+$/.test(path)) continue;
       const wallReferenceField = /wall/i.test(key) && (key.endsWith("Id") || key.endsWith("Ids"));
       if (wallReferenceField && typeof child === "string" && wallIds.has(child)) {
         dependencies.push(childPath);
@@ -3085,6 +3103,7 @@ function validateWall(project, wall) {
   if (parent.floorId !== wall.floorId) {
     throw new TypeError("Room divider and parent room must belong to the same floor");
   }
+  if (parent.boundaryState === "reassignment-required") return;
   const parentGeometry = roomPolygonFromBoundary(project, parent);
   const midpoint = {
     x: (start.positionMm.x + end.positionMm.x) / 2,
@@ -3097,7 +3116,14 @@ function validateWall(project, wall) {
   }
 }
 
+function validateBoundaryState(space) {
+  if (space.boundaryState !== undefined && space.boundaryState !== "reassignment-required") {
+    throw new TypeError("Unsupported room or zone boundary state");
+  }
+}
+
 function normalizeRoom(room) {
+  validateBoundaryState(room);
   requireOpaqueId(room?.id, "Room ID");
   requireOpaqueId(room?.floorId, "Room floor ID");
   if (!Array.isArray(room.boundary)) {
@@ -3152,7 +3178,7 @@ function normalizeRoom(room) {
 function validateRoom(project, room) {
   const normalized = normalizeRoom(room);
   requireEntity(project.floors, normalized.floorId, "Room floor");
-  const oriented = normalized.boundary.map((entry) => {
+  const oriented = (normalized.boundaryState === "reassignment-required" ? [] : normalized.boundary).map((entry) => {
     const wall = requireEntity(project.walls, entry.wallId, "Room boundary wall");
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Room boundary wall belongs to another floor: ${wall.id}`);
@@ -3183,6 +3209,7 @@ function validateRoom(project, room) {
 }
 
 function normalizeZone(zone) {
+  validateBoundaryState(zone);
   requireOpaqueId(zone?.id, "Zone ID");
   requireOpaqueId(zone?.parentRoomId, "Zone parent room ID");
   requireOpaqueId(zone?.floorId, "Zone floor ID");
@@ -3301,7 +3328,7 @@ function validateZone(project, zone) {
     throw new TypeError("Zone and parent room must belong to the same floor");
   }
   const parentWallIds = new Set(parent.boundary.map((entry) => entry.wallId));
-  const oriented = normalized.boundary.map((entry) => {
+  const oriented = (normalized.boundaryState === "reassignment-required" ? [] : normalized.boundary).map((entry) => {
     const wall = requireEntity(project.walls, entry.wallId, "Zone boundary edge");
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Zone boundary edge belongs to another floor: ${wall.id}`);

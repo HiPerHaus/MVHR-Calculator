@@ -101,6 +101,8 @@ try {
     assert.deepEqual(zoomChecks, {pinchWorks:true,keyWorks:true,typingPreserved:true,pageScaleUnchanged:true});
     await clickQa('Run wall closure checks');
     await waitResult(/^PASS wall closure/);
+    await clickQa('Run room wall deletion checks');
+    await waitResult(/^PASS room wall deletion/);
     await clickQa('Prepare wall bend');
     await waitResult(/^PASS bend prepared/);
     const bend = await evaluate(`(() => {const r=document.querySelector('.wall-node-touch-hit').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
