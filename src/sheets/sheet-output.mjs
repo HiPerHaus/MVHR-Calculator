@@ -1,14 +1,19 @@
+import { createQSeriesElectricalPages, renderQSeriesElectricalSheetSvg } from "./q-series-electrical-reference.mjs";
 import { createAirflowPages, renderAirflowSheetSvg } from "./airflow-sheet.mjs";
-import { renderInstallationDetailSheetSvg } from "./installation-detail-sheet.mjs";
+import { createInstallationDetailPages, renderInstallationDetailSheetSvg } from "./installation-detail-sheet.mjs";
 import { renderA3SheetSvg } from "./a3-sheet.mjs";
 import { createA4PartsListPages, renderA4PartsListSvg } from "./a4-parts-list.mjs";
 
 export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null}={}) {
   const partCount = createA4PartsListPages(sheet).length;
   const airflowCount = createAirflowPages(sheet).length;
-  const total = totalPageCount ?? pageOffset + partCount + airflowCount + 2;
-  const airflowPages = createAirflowPages(sheet, { firstPageNumber: pageOffset + 3, totalPageCount: total });
-  const partsPages = createA4PartsListPages(sheet, { firstPageNumber: pageOffset + 3 + airflowCount, totalPageCount: total });
+  const installationCount = createInstallationDetailPages(sheet).length;
+  const electricalCount = createQSeriesElectricalPages(sheet).length;
+  const total = totalPageCount ?? pageOffset + partCount + airflowCount + installationCount + electricalCount + 1;
+  const installationPages = createInstallationDetailPages(sheet, { firstPageNumber: pageOffset + 2, totalPageCount: total });
+  const electricalPages = createQSeriesElectricalPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount, totalPageCount: total });
+  const airflowPages = createAirflowPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + electricalCount, totalPageCount: total });
+  const partsPages = createA4PartsListPages(sheet, { firstPageNumber: pageOffset + 2 + installationCount + electricalCount + airflowCount, totalPageCount: total });
   const drawingSvg = renderA3SheetSvg(sheet).replace(
     "</svg>",
     `<text data-output-page-number="true" x="12" y="${sheet.page.heightMm - 4}" font-size="2.3" fill="#687880">Page ${pageOffset+1} of ${total} · A3</text></svg>`,
@@ -20,12 +25,18 @@ export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null
       orientation: sheet.page.orientation, className: a3Class,
       label: `Page ${pageOffset+1} · A3 drawing`, svg: drawingSvg,
     }),
-    Object.freeze({
-      kind: "installation-details", pageNumber: pageOffset + 2, pageDescription: "A3 installation details", widthMm: sheet.page.widthMm, heightMm: sheet.page.heightMm,
+    ...installationPages.map(page => Object.freeze({
+      kind: "installation-details", pageNumber: page.pageNumber, installationPageNumber: page.installationPageNumber, installationPageCount: page.installationPageCount,
+      pageDescription: "A3 installation details", widthMm: sheet.page.widthMm, heightMm: sheet.page.heightMm,
       orientation: sheet.page.orientation, className: a3Class,
-      label: `Page ${pageOffset+2} · A3 installation details`,
-      svg: renderInstallationDetailSheetSvg(sheet, {pageNumber:pageOffset+2,totalPageCount:total}),
-    }),
+      label: `Page ${page.pageNumber} · A3 installation details`,
+      svg: renderInstallationDetailSheetSvg(sheet, page),
+    })),
+    ...electricalPages.map(page => Object.freeze({
+      kind: "q-series-electrical", pageNumber: page.pageNumber, pageDescription: "A3 Q-series electrical reference", widthMm: sheet.page.widthMm, heightMm: sheet.page.heightMm,
+      orientation: sheet.page.orientation, className: a3Class,
+      label: `Page ${page.pageNumber} · A3 Q-series electrical reference`, svg: renderQSeriesElectricalSheetSvg(sheet, page),
+    })),
     ...airflowPages.map(page => Object.freeze({
       kind: "airflows", pageNumber: page.pageNumber, airflowPageNumber: page.airflowPageNumber,
       pageDescription: "A4 airflow record", widthMm: 210, heightMm: 297, orientation: "portrait", className: "sheet-a4",
@@ -43,7 +54,7 @@ export function createSheetOutputPages(sheet, {pageOffset=0, totalPageCount=null
 // All-options exports are one document with global page numbers. Each option
 // keeps its own plan, details and parts list; no equipment is combined.
 export function createSheetOutputDocument(sheets) {
-  const totalPageCount = sheets.reduce((count,sheet)=>count+2+createAirflowPages(sheet).length+createA4PartsListPages(sheet).length,0);
+  const totalPageCount = sheets.reduce((count,sheet)=>count+1+createInstallationDetailPages(sheet).length+createQSeriesElectricalPages(sheet).length+createAirflowPages(sheet).length+createA4PartsListPages(sheet).length,0);
   const pages=[];
   for (const sheet of sheets) pages.push(...createSheetOutputPages(sheet,{pageOffset:pages.length,totalPageCount}));
   return pages;

@@ -1,3 +1,4 @@
+import {normalizeCeiling,normalizeVentilationReference} from "./room-volume.mjs";
 import {applyCommissioningCommand,validateCommissioning} from "./commissioning.mjs";
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
 import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
@@ -250,6 +251,20 @@ export function applyCommand(project, command, options = {}) {
     case "commissioning.addPhoto":
     case "commissioning.removePhoto": {
       applyCommissioningCommand(next, command);
+      break;
+    }
+    case "floor.setCeiling": {
+      const floor = requireEntity(next.floors, command.floorId, "Floor");
+      floor.ceiling = normalizeCeiling(command.ceiling, false);
+      break;
+    }
+    case "room.setCeiling": {
+      const room = requireEntity(next.rooms, command.roomId, "Room");
+      room.ceiling = normalizeCeiling(command.ceiling);
+      break;
+    }
+    case "ventilation.setReference": {
+      next.ventilationReference = normalizeVentilationReference(command.reference);
       break;
     }
     case "floor.add": {
@@ -1720,6 +1735,7 @@ function validateProjectInternal(project, skipDesignOptions) {
     }
     assertUniqueIds(project[collection], collection);
   }
+  normalizeVentilationReference(project.ventilationReference);
   validateCommissioning(project.commissioning);
   normalizeProjectDetails(project.projectDetails);
   normalizeQuoteDraft(project.quoteDraft);
@@ -3174,6 +3190,7 @@ function validateBoundaryState(space) {
 }
 
 function normalizeRoom(room) {
+  if(room?.ceiling !== undefined) normalizeCeiling(room.ceiling);
   validateBoundaryState(room);
   requireOpaqueId(room?.id, "Room ID");
   requireOpaqueId(room?.floorId, "Room floor ID");
@@ -3518,6 +3535,7 @@ function pointOnSegment(point, start, end) {
 }
 
 function normalizeFloor(floor) {
+  if(floor?.ceiling !== undefined) normalizeCeiling(floor.ceiling, false);
   requireOpaqueId(floor?.id, "Floor ID");
   if (!floor.name || typeof floor.name !== "string") {
     throw new TypeError("Floor name is required");

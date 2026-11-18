@@ -18,7 +18,7 @@ import {PLAN_DETAIL_REFERENCES} from "/src/sheets/plan-details.mjs";
 import {renderInstallationDetailSheetSvg} from "/src/sheets/installation-detail-sheet.mjs";
 import {createMixedPagePdfBlob} from "/app/sheet-pdf-export.mjs";
 let project=d.applyCommand(d.createProject("detail-browser"),{type:"floor.add",floor:{id:"ground",name:"Ground floor",transform:{translationMm:{x:0,y:0,z:d.knownMm(0,"test")},orientation:d.identityQuaternion()}}});
-for(const [i,[model,cwSize]]of [["q350-hrv","320"],["aerofresh-450-hrv","520"],["q350-hrv","625"]].entries())project=d.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model,mounting:"vertical",handing:i%2?"right":"left",layout:"unit-mounted-cw",cwSize},{id:"unit-"+i,floorId:"ground",xMm:2000+i*4000,yMm:3000})});
+for(const [i,[model,cwSize]]of [["q350-hrv","320"],["q350-hrv","420"],["aerofresh-450-hrv","520"],["q350-hrv","625"]].entries())project=d.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model,mounting:"vertical",handing:i%2?"right":"left",layout:"unit-mounted-cw",cwSize},{id:"unit-"+i,floorId:"ground",xMm:2000+i*4000,yMm:3000})});
 const meta={floorId:"ground",orientation:"landscape",includeSchedule:false,projectName:"A3 drawing details",siteName:"Synthetic verification fixture",clientName:"QA",issueDate:"2026-11-09",drawingTitle:"Mixed Q and AeroFresh references",drawingId:"V01",status:"Preliminary — not for construction",revision:"A",revisionText:"QA"};
 const sheet=createA3SheetModel(project,meta),pages=createSheetOutputPages(sheet);
 document.querySelector("#pages").innerHTML=pages[1].svg;
@@ -91,6 +91,9 @@ try{
  await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
  await writeFile(join(output,"print-mixed-a3-a4.pdf"),Buffer.from(print.data,"base64"));
+ await evaluate(`document.querySelector('#pages').innerHTML=window.__pages.find(p=>p.kind==='q-series-electrical').svg`);
+ assert.equal(await evaluate(`document.querySelectorAll('[data-source="owner-q350-q450-q600-controls-2026-11-18"]').length`),1);
+ await capture("q-series-electrical-preview.png",1588,1123);
  await evaluate("window.__allFive()");
  const fiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(fiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(fiveLayout));
@@ -113,12 +116,15 @@ try{
  assert.ok(Math.abs(evidence[0].height-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].width-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].height-420*72/25.4)<.1);
- for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
+ for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","824","566","1414","870","650","1400","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
  for(const [i,p] of evidence.entries())assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Page number missing "+i);
  assertPageSeparation(evidence,firstPartCount);
  await capture("pdf-plan-actual-size.png",1588,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
  await capture("pdf-details-actual-size.png",1588,1123);
+ await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",3)");
+ await capture("pdf-electrical-actual-size.png",1588,1123);
+ assert.ok(evidence[2].text.includes("Q-SERIES ELECTRICAL REFERENCE"));
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(firstPartCount+2)+")");
  await capture("pdf-details-portrait-actual-size.png",1123,1588);
  await evaluate("window.__renderPdf("+JSON.stringify(print.data)+")");
@@ -151,7 +157,7 @@ function assertPageSeparation(pages, firstPartCount) {
   assert.ok(!pages[start].text.includes("Ducts within thermal envelope"),"Engineering details must not share the plan page");
   assert.ok(pages[start+1].text.includes("Ducts within thermal envelope"));
   assert.ok(pages[start+1].text.includes("128 horizontal × 140 vertical"));
-  assert.ok(pages[start+1].text.includes("120 horizontal · 115 inner · 140 overall"));
+  assert.ok(pages[start+1].text.includes("120 mm housing depth"));
   assert.ok(!pages[start+1].text.includes("SYMBOL KEY"),"The engineering page must not contain the plan");
  }
 }
@@ -164,6 +170,6 @@ function assertFittingGeometry(layout) {
  assert.ok(tva.ductSpigotGap<.1&&tva.ductSmallerThanSpigot,JSON.stringify(tva));
  assert.ok(tva.fittingNotes.includes("128 horizontal × 140 vertical"));
  assert.ok(!tva.fittingNotes.includes("120 horizontal"));
- assert.ok(wall.fittingNotes.includes("120 horizontal · 115 inner · 140 overall"));
+ assert.ok(wall.fittingNotes.includes("120 mm housing depth"));
  assert.ok(!wall.fittingNotes.includes("128 horizontal"));
 }

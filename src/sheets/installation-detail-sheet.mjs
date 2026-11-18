@@ -7,12 +7,27 @@ const AEROFRESH_CONTROLS = [
   "Boost: low-voltage 2-core to SW1 via momentary switches in bathroom and WC, and in kitchen/laundry where an extract grille is fitted.",
 ];
 
- // These sheets are reference annotations, not project engineering inputs.
+const EQUIPMENT_CARDS_PER_PAGE = 3;
+const isEquipmentCard = card => !["ceiling-tva", "wall-housing", "equipment-notes"].includes(card.id);
+export function createInstallationDetailPages(sheet, { firstPageNumber = 2, totalPageCount = null } = {}) {
+  const count = sheet.metadata.systemScope === "decentralised" ? 1 : Math.max(1, Math.ceil(sheet.installationDetails.cards.filter(isEquipmentCard).length / EQUIPMENT_CARDS_PER_PAGE));
+  return Array.from({ length: count }, (_, index) => ({
+    installationPageNumber: index + 1, installationPageCount: count,
+    pageNumber: firstPageNumber + index,
+    totalPageCount: totalPageCount ?? firstPageNumber + count - 1,
+  }));
+}
+
+// These sheets are reference annotations, not project engineering inputs.
 // Only the labelled dimensions in the owner sources are specified values.
-export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalPageCount = 3 } = {}) {
+export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalPageCount = 3, installationPageNumber = 1 } = {}) {
   if (sheet.metadata.systemScope === "decentralised") return renderDecentralisedDetailSheet(sheet, { pageNumber, totalPageCount });
   const { widthMm: width, heightMm: height } = sheet.page;
   const m = sheet.metadata, details = sheet.installationDetails;
+  const allEquipment = details.cards.filter(isEquipmentCard);
+  const installationPageCount = Math.max(1, Math.ceil(allEquipment.length / EQUIPMENT_CARDS_PER_PAGE));
+  if (!Number.isInteger(installationPageNumber) || installationPageNumber < 1 || installationPageNumber > installationPageCount) throw new RangeError("Installation detail page is unavailable");
+  const equipmentOffset = (installationPageNumber - 1) * EQUIPMENT_CARDS_PER_PAGE;
   const gap = 4, x = 10, top = 43, contentWidth = width - 20;
   const cardWidth = (contentWidth - gap * 2) / 3;
   const cardHeight = (height - 20 - top - gap - 10) / 2;
@@ -20,7 +35,7 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
   const out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="Installation details for ${escapeXml(m.drawingId)}">`,
     '<rect width="100%" height="100%" fill="white"/>',
     rect(10, 10, width - 20, height - 20),
-    text(15, 19, "INSTALLATION DETAILS", 5.5, 'font-weight="700"'),
+    text(15, 19, `INSTALLATION DETAILS${installationPageCount > 1 ? ` · ${installationPageNumber} OF ${installationPageCount}` : ""}`, 5.5, 'font-weight="700"'),
     ...lines(`${m.projectName} · ${sheet.printScene.floorName}`, 15, 26, width - 30, 3.2, 2),
     ...lines(`${m.drawingId} / DETAILS · Revision ${m.revision} · ${m.issueDate} · ${m.drawingTitle}`, 15, 35, width - 30, 2.8, 1),
     text(15, 40, "Dimensions in mm · Reference sections NTS · Read with the corresponding plan", 2.8),
@@ -29,14 +44,14 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
   out.push(referenceCard(details.cards.find(c => c.id === "ceiling-tva"), "01", box(0)),
     referenceCard(details.cards.find(c => c.id === "wall-housing"), "02", box(1)),
     insulationCard(box(2)));
-  const equipment = details.cards.filter(c => !["ceiling-tva", "wall-housing", "equipment-notes"].includes(c.id));
-  equipment.forEach((card, i) => out.push(referenceCard(card, String(i + 4).padStart(2, "0"), box(i, lowerY), equipment.length === 3 && card.id === "af300-remote")));
+  const equipment = allEquipment.slice(equipmentOffset, equipmentOffset + EQUIPMENT_CARDS_PER_PAGE);
+  equipment.forEach((card, i) => out.push(referenceCard(card, String(equipmentOffset + i + 4).padStart(2, "0"), box(i, lowerY), equipment.length === 3 && card.id === "af300-remote")));
   if (equipment.length < 3) {
     const start = equipment.length;
     out.push(coordinationCard(details, box(start, lowerY, contentWidth - start * (cardWidth + gap))));
   }
   if (details.unmatchedComponentIds.length) out.push(text(15, height - 21, `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required. Verify exact model, mounting and CW arrangement.`, 2.5));
-  out.push(text(15, height - 14, "Owner reference drawings supplied 09 and 17 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
+  out.push(text(15, height - 14, "Owner reference drawings supplied 09, 17 and 18 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
     text(12, height - 4, m.status, 2.5),
     text(width - 12, height - 4, `Page ${pageNumber} of ${totalPageCount} · A3`, 2.5, 'text-anchor="end" data-output-page-number="true"'), "</svg>");
   return out.join("");
@@ -48,7 +63,8 @@ function referenceCard(card, number, b, includeControls = false) {
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
-    "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."],
+    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Service/drain clearances and wiring not specified by this source; verify current instructions."],
+    "q-cw320": ["Assembly envelope excludes service clearances. Drain space: not dimensioned.", "See Q-series electrical reference; verify current model instructions."],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
   }[card.id];
@@ -91,7 +107,7 @@ function coordinationCard(details, b) {
     ...(details.unmatchedComponentIds.length ? [`${details.unmatchedComponentIds.length} other unit(s) on this floor: no supplied assembly matches. Obtain the exact model, mounting and CW arrangement drawing.`] : []),
     ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["No matching central unit on this floor. Terminal sections are general references."] : []),
     "Assembly envelopes are not service clearances. Confirm access, supports, condensate arrangement and manufacturer installation requirements.",
-    ...(details.hasQ ? ["Q-series wiring source unreadable. Original wiring drawing required."] : []),
+    ...(details.hasQ ? ["See Q-series electrical reference; verify current model instructions."] : []),
     ...(details.hasAeroFresh ? AEROFRESH_CONTROLS : []),
     "Use the current model-specific manufacturer wiring diagram.",
     "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",

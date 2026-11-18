@@ -9,6 +9,7 @@ export function renderInstallReferenceIllustration(id) {
     "ceiling-tva": ceilingHousing,
     "wall-housing": wallHousing,
     "q-cw320": qAssembly,
+    "q-cw420": q420Assembly,
     "af-cw520": aeroFreshAssembly,
     "af300-remote": remoteAssembly,
   }[id];
@@ -101,6 +102,36 @@ function qAssembly() {
     dimV(y + 83 * s, y + 333 * s, 2.7, "1414", INK, x + 45 * s),
     // Blank allowance arrow preserved, never supplied a guessed drain value.
     dimV(y + 333 * s, 46, 2.7, null, "#858585", x + 69 * s),
+  ].join("");
+}
+
+function q420Assembly() {
+  // Owner screenshot 2026-11-18: Q350/450 TR with mounting set, identified
+  // by owner as CW420. 824/566/1414 are overall envelopes, not clearances.
+  // Front, side and plan are source-shaped NTS drawings; no port coordinates inferred.
+  return [
+    '<g data-source-feature="q-cw420-front">',
+    box(7, 20, 20, 22, "#fafafa"),
+    path("M11 20 H23 Q24 20 24 22 V34 Q24 36 22 36 H13 Q11 36 11 34 Z", "white"),
+    seg(7, 28, 27, 28),
+    path("M7 20 H12 V23 Q10 26 8 24 Z", "white"),
+    path("M24 20 H28 V24 L27 25 L24 22 Z", "white"),
+    box(17, 5, 12, 15, "#fafafa"), box(17, 4.5, 12, .8, "#ddd"), box(17, 19.5, 12, .8, "#ddd"),
+    ...[20.5,25.5].map(x => path(`M${x-2} 9 Q${x-2} 6 ${x} 6 Q${x+2} 6 ${x+2} 9 V16 Q${x+2} 19 ${x} 19 Q${x-2} 19 ${x-2} 16 Z`, "none", .2)),
+    ...[20.5,25.5].map(x => path(`M${x} 15 V11 M${x-0.7} 12 L${x} 11 L${x+0.7} 12`, "none", .3)),
+    '</g>',
+    '<g data-source-feature="q-cw420-side">',
+    box(38,20,15,22,"#fafafa"),
+    ...[38,46].map(x => box(x,5,6.5,14.5,"#fafafa")),
+    ...[38,46].map(x => box(x,4.5,6.5,.8,"#ddd")),
+    ...[38,46].map(x => path(`M${x} 20 H${x+6.5} V23 Q${x+6.5} 26 ${x+3} 26 Q${x} 26 ${x} 23 Z`, "white")),
+    '</g>',
+    dimH(7,29,2,"824",INK,4.5), dimH(38,53,2,"566",INK,4.5), dimV(4.5,42,3,"1414",INK,7),
+    '<g data-source-feature="q-cw420-eight-port-plan">',
+    box(7,46,22,13,"#fafafa"),
+    ...[49,56].map(y=>circle(10,y,2.5,"white",.3)),
+    ...[46,53.5].flatMap(y=>[box(17,y,12,5.5,"#ddd",.25),...[0,1].flatMap(row=>[0,1,2,3].map(col=>`<g data-source-feature="cw420-outlet">${circle(18.5+col*3,y+1.35+row*2.7,1.15,"white",.18)}</g>`))]),
+    '</g>',
   ].join("");
 }
 

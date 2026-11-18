@@ -33,14 +33,14 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
     const { option, floor, project: optionProject } = entries[entryIndex];
     const floorLabel = optionProject.floors.length > 1 ? ` · ${floor.name}` : "";
     return Object.freeze({
-      ...page, systemScope, pageKey: JSON.stringify([option.id, floor.id, systemScope, page.kind, page.partsPageNumber ?? page.airflowPageNumber ?? 0]), floorId: floor.id, optionId: option.id, optionName: option.name, optionRevision: option.revision,
+      ...page, systemScope, pageKey: JSON.stringify([option.id, floor.id, systemScope, page.kind, page.partsPageNumber ?? page.airflowPageNumber ?? page.installationPageNumber ?? 0]), floorId: floor.id, optionId: option.id, optionName: option.name, optionRevision: option.revision,
       pageDescription: page.pageDescription + floorLabel,
       label: `${option.name} · ${option.revision} · ${ventilationWorkspaceLabel(systemScope)} · ${page.label}${floorLabel}`,
     });
   });
   if (!selected.some(({ project }) => project.floors.length > 1)) return { entries, pages };
 
-  const pageKinds = ["drawing", "installation-details", "airflows", "parts-list"];
+  const pageKinds = ["drawing", "installation-details", "q-series-electrical", "airflows", "parts-list"];
   const ordered = selected.flatMap(({ option }) => pageKinds.flatMap(kind =>
     pages.filter(page => page.optionId === option.id && page.kind === kind),
   ));
