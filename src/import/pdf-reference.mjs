@@ -3,9 +3,9 @@ export const PDF_IMPORTER = Object.freeze({
   version: "6.4.299",
 });
 
-export const MAX_PDF_SOURCE_BYTES = 12 * 1024 * 1024;
-export const MAX_PDF_REFERENCE_ASSETS = 4;
 export const MAX_TOTAL_PDF_SOURCE_BYTES = 20 * 1024 * 1024;
+export const MAX_PDF_SOURCE_BYTES = MAX_TOTAL_PDF_SOURCE_BYTES;
+export const MAX_PDF_REFERENCE_ASSETS = 4;
 export const MAX_PDF_PAGE_COUNT = 100;
 export const MAX_PDF_RENDER_DIMENSION_PX = 4096;
 export const MAX_PDF_RENDER_PIXELS = 12_000_000;
@@ -15,7 +15,7 @@ export function validatePdfSourceBytes(bytes, fileName = "PDF") {
   if (!(bytes instanceof Uint8Array)) throw new TypeError("PDF source must be binary bytes");
   if (bytes.byteLength < 8) throw new TypeError(`${fileName} is too short to be a PDF`);
   if (bytes.byteLength > MAX_PDF_SOURCE_BYTES) {
-    throw new RangeError(`${fileName} exceeds the ${MAX_PDF_SOURCE_BYTES}-byte PDF source limit`);
+    throw new RangeError(`${fileName} exceeds the ${MAX_PDF_SOURCE_BYTES / (1024 * 1024)} MiB PDF source limit`);
   }
   const headerWindow = bytes.subarray(0, Math.min(bytes.byteLength, 1024));
   let headerFound = false;
