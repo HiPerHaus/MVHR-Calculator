@@ -176,7 +176,7 @@ test("a snapped room divider preserves the physical room and creates zone faces"
   const dividerCommand = wallCommand(
     ["node-divider-start", "node-divider-end"],
     ["wall-divider"],
-    [[3000, 0], [3000, 4000]],
+    [[3000, -1e-8], [3000, 4000 + 1e-8]],
   );
   dividerCommand.classification = "virtual";
   dividerCommand.parentRoomId = "room-kitchen-dining";

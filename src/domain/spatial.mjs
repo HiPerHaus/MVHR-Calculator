@@ -3538,16 +3538,17 @@ function pointInOrOnPolygon(point, polygon) {
 }
 
 function pointOnSegment(point, start, end) {
-  const crossProduct =
-    (point.x - start.x) * (end.y - start.y) -
-    (point.y - start.y) * (end.x - start.x);
-  if (Math.abs(crossProduct) > PLAN_OPERATION_EPSILON_MM) return false;
-  const dotProduct =
-    (point.x - start.x) * (end.x - start.x) +
-    (point.y - start.y) * (end.y - start.y);
-  if (dotProduct < -PLAN_OPERATION_EPSILON_MM) return false;
-  const lengthSquared = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
-  return dotProduct <= lengthSquared + PLAN_OPERATION_EPSILON_MM;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return Math.hypot(point.x - start.x, point.y - start.y) <= PLAN_OPERATION_EPSILON_MM;
+  const x = point.x - start.x;
+  const y = point.y - start.y;
+  const distanceAcross = Math.abs(x * dy - y * dx) / length;
+  const distanceAlong = (x * dx + y * dy) / length;
+  return distanceAcross <= PLAN_OPERATION_EPSILON_MM &&
+    distanceAlong >= -PLAN_OPERATION_EPSILON_MM &&
+    distanceAlong <= length + PLAN_OPERATION_EPSILON_MM;
 }
 
 function normalizeFloor(floor) {
