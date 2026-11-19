@@ -79,11 +79,12 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
 function referenceCard(card, number, b, includeControls = false) {
   const scale = Math.min(1.6, (b.w - 12) / 59, (b.h - (includeControls ? 54 : 43)) / 61);
   const artX = b.x + (b.w - 58 * scale) / 2, artY = b.y + 13;
+  const cupboardClearances = "Allow 150 mm below the unit for the trap, 50 mm on each side in cupboards and 200 mm above.";
   const notes = {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
-    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", "Allow 150 mm below unit for trap and 50 mm each side in cupboards.", "Owner allowances; verify manufacturer service requirements."],
-    "q-cw320": ["Assembly envelope excludes service clearances.", "Allow 150 mm below unit for trap and 50 mm each side in cupboards.", "Owner allowances; verify manufacturer service requirements."],
+    "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", cupboardClearances],
+    "q-cw320": ["Dimensions shown are the external dimensions of the unit.", cupboardClearances],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
   }[card.id];
@@ -125,30 +126,34 @@ function coordinationCard(details, b, includeQElectrical = false) {
   const messages = [
     ...(details.unmatchedComponentIds.length ? [`${details.unmatchedComponentIds.length} other unit(s) on this floor: no supplied assembly matches. Obtain the exact model, mounting and CW arrangement drawing.`] : []),
     ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["No matching central unit on this floor. Terminal sections are general references."] : []),
-    "Assembly envelopes are not service clearances. Confirm access, supports, condensate arrangement and manufacturer installation requirements.",
-    ...(details.hasQ ? ["See Q-series electrical reference; verify current model instructions."] : []),
+    "Confirm access, supports, condensate arrangement and manufacturer installation requirements.",
+    ...(details.hasQ && !includeQElectrical ? ["See Q-series electrical reference; verify current model instructions."] : []),
     ...(details.hasAeroFresh ? AEROFRESH_CONTROLS : []),
     "Use the current model-specific manufacturer wiring diagram.",
     "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",
     "Project insulation specification is not supplied. This sheet is preliminary, not installation approval.",
   ];
   if (includeQElectrical) {
-    const imageWidth = Math.min(b.w * .56, (b.h - 16) * 858 / 758);
+    const gap = 4;
+    const notesWidth = Math.max(70, b.w * .27);
+    const electricalBox = { ...b, w: b.w - notesWidth - gap };
+    const notesBox = { ...b, x: b.x + electricalBox.w + gap, w: notesWidth };
+    const imageWidth = Math.min(electricalBox.w * .61, (b.h - 16) * 858 / 758);
     const imageHeight = imageWidth * 758 / 858;
-    const notesBox = { x: b.x + imageWidth + 8, y: b.y, w: b.w - imageWidth - 12, h: b.h };
+    const summaryBox = { ...electricalBox, x: b.x + imageWidth + 4, w: electricalBox.w - imageWidth - 4 };
     const summary = [
-      `Q-series electrical reference: ${details.qElectricalModels.join(", ")}. Owner source, 18 Nov 2026.`,
-      "Source: Q350 — 10 A GPO; Q450 / Q600 — 15 A GPO.",
-      "Boost: low-voltage 2-core, momentary switches; bathroom, kitchen, laundry and WC shown.",
-      "Comfoconnect Pro and Option Box shown. No terminal pinout inferred; verify exact accessories and current instructions with the installer.",
-      "Not project circuit, cable-size or protective-device design, and not installation approval.",
-      ...messages.filter(message => !message.startsWith("See Q-series electrical reference")),
+      "Q-series electrical reference: Q350 — 10 A GPO; Q450 / Q600 — 15 A GPO.",
+      "Boost / momentary switches: low-voltage 2-core cable to the bathroom, kitchen, laundry and WC shown.",
+      "Comfoconnect Pro and Option Box shown. Verify exact accessories and current instructions with the installer.",
     ];
-    return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "owner-q350-q450-q600-controls-2026-11-18")
-      + `<image data-role="q-electrical-source" data-source="owner-q350-q450-q600-controls-2026-11-18" href="${Q_SERIES_ELECTRICAL_IMAGE}" x="${b.x + 4}" y="${b.y + 12}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid meet"/>`
-      + `<g data-role="coordination-notes">${paragraphs(summary, notesBox, b.y + 15)}</g></g>`;
+    const source = "owner-q350-q450-q600-controls-2026-11-18";
+    return panelStart(electricalBox, "Electrical", "electrical", source)
+      + `<image data-role="q-electrical-source" data-source="${source}" href="${Q_SERIES_ELECTRICAL_IMAGE}" x="${b.x + 4}" y="${b.y + 12}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="xMidYMid meet"/>`
+      + paragraphs(summary, summaryBox, b.y + 15) + "</g>"
+      + panelStart(notesBox, "Notes", "coordination-notes", "selection-status")
+      + `<g data-role="coordination-notes">${paragraphs(messages, notesBox, b.y + 15)}</g></g>`;
   }
-  return panelStart(b, "COORDINATION / SOURCE NOTES", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
+  return panelStart(b, "Notes", "coordination-notes", "selection-status") + paragraphs(messages, b, b.y + 17) + "</g>";
 }
 
 function panelStart(b, title, id, source) {

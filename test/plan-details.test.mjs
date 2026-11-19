@@ -85,14 +85,14 @@ test("AF300 layout and controls reflect supplied references with separate Q wiri
     const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground",layout),metadata);
     const afSvg=createSheetOutputPages(afSheet)[1].svg;
     assert.match(afSvg,/data-detail-id="af300-remote"/);
-    assert.match(afSvg,/COORDINATION \/ SOURCE NOTES/);
+    assert.match(afSvg,/>Notes<\/text>/);
     assert.match(afSvg,/10 A GPO/);assert.doesNotMatch(afSvg,/15 A|preheater/i);assert.match(afSvg,/40 mm waste connection for condensate/);assert.match(afSvg,/2-core to SW1/);
     assert.match(afSvg,/120 mm housing depth/);
     assert.match(afSvg,/140 mm grille height in section/);
   }
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
   assert.match(createSheetOutputPages(q)[1].svg,/Q-series electrical reference/);
-  assert.match(createSheetOutputPages(q)[1].svg,/Allow 150 mm below unit for trap and 50 mm each side in cupboards/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Allow 150 mm below the unit for the trap, 50 mm on each side in cupboards and 200 mm above/);
   assert.equal(PLAN_DETAIL_REFERENCES.q320.drainAllowanceMm,null);
   assert.equal(PLAN_DETAIL_REFERENCES.af520.drainAllowanceMm,150);
 });

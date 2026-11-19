@@ -34,7 +34,9 @@ test('four equipment references paginate three per sheet without overflowing A3 
   assert.deepEqual(seen,equipment);
   const combined=pages.map(page=>renderInstallationDetailSheetSvg(sheet,page)).join('').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
   assert.match(combined,/824 W × 566 D × 1414 H/);assert.match(combined,/8 outlets per CW manifold/);
-  assert.match(combined,/Owner allowances; verify manufacturer service requirements/);assert.match(combined,/09, 17 and 18 Nov 2026/);
+  assert.match(combined,/Dimensions shown are the external dimensions of the unit/);
+  assert.equal([...combined.matchAll(/Allow 150 mm below the unit for the trap, 50 mm on each side in cupboards and 200 mm above/g)].length, 2);
+  assert.doesNotMatch(combined,/Owner allowances/);assert.match(combined,/09, 17 and 18 Nov 2026/);
  }
 });
 test('detail pagination offsets airflow and parts pages and selected-page numbering',()=>{
@@ -58,14 +60,14 @@ test('multi-floor multi-option detail pages have unique identities and continuou
 });
 
 
-test('Q electrical source occupies coordination panel, never shrunk into a one-column card',()=>{
+test('Q electrical source occupies its own Electrical panel, never shrunk into a one-column card',()=>{
  for(const orientation of ['landscape','portrait'])for(const count of [0,1,2,3,4]){
   const base=sheetFor(project(),orientation);
   const sheet={...base,installationDetails:{...base.installationDetails,qElectricalModels:['Q350','Q450','Q600'],cards:base.installationDetails.cards.filter(card=>!equipment.includes(card.id)).concat(base.installationDetails.cards.filter(card=>equipment.includes(card.id)).slice(0,count))}};
   const pages=createInstallationDetailPages(sheet),svgs=pages.map(page=>renderInstallationDetailSheetSvg(sheet,page));
   const withElectrical=svgs.filter(svg=>svg.includes('data-role="q-electrical-source"'));
   assert.equal(withElectrical.length,1);
-  const svg=withElectrical[0];assert.match(svg,/COORDINATION \/ SOURCE NOTES/);
+  const svg=withElectrical[0];assert.match(svg,/>Electrical<\/text>/);assert.match(svg,/>Notes<\/text>/);
   const image=svg.match(/<image data-role="q-electrical-source"[^>]* x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
   assert.ok(image);const [x,y,w,h]=image.slice(1).map(Number);
   assert.ok(h>=100,`source height ${h}mm for ${orientation}/${count}`);assert.ok(x+w<=sheet.page.widthMm-10);assert.ok(y+h<=sheet.page.heightMm-30);
@@ -76,6 +78,7 @@ test('Q electrical source occupies coordination panel, never shrunk into a one-c
   assert.match(plain,/Q350 — 10 A GPO; Q450 \/ Q600 — 15 A GPO/);
   assert.match(plain,/AeroFresh 300 \/ 450 \/ 600 controls reference/);
   assert.match(plain,/Project insulation specification is not supplied/);
+  assert.match(plain,/Boost \/ momentary switches: low-voltage 2-core cable/);
   const output=createSheetOutputPages(sheet);assert.ok(output.every(page=>page.kind!=='q-series-electrical'));
  }
 });
