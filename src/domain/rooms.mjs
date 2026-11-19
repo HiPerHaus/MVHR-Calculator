@@ -47,6 +47,7 @@ export function deriveZoneBoundaries(project, parentRoomId) {
   requireProjectCollections(project);
   const room = project.rooms?.find((candidate) => candidate.id === parentRoomId);
   if (!room) throw new TypeError(`Parent room not found: ${String(parentRoomId)}`);
+  if (room.boundaryState === "reassignment-required") return { candidates: [], diagnostics: [] };
   const parent = roomPolygonFromBoundary(project, room);
   const boundaryWallIds = new Set(room.boundary.map((entry) => entry.wallId));
   const boundaryWalls = project.walls.filter((wall) => boundaryWallIds.has(wall.id));
@@ -272,6 +273,9 @@ export function inspectZoneBoundary(project, zone, derivation = null) {
 }
 
 export function roomPolygonFromBoundary(project, room) {
+  if (room?.boundaryState === "reassignment-required") {
+    throw new TypeError("Boundary needs reassignment after wall deletion; saved room data is retained");
+  }
   if (!Array.isArray(room?.boundary) || room.boundary.length < 3) {
     throw new TypeError("Room boundary requires at least three wall references");
   }

@@ -1,3 +1,4 @@
+import { spaceBoundaryNeedsReassignment } from "./space-boundary-state.mjs";
 import { unresolvedPressureInput } from "../domain/engineering-inputs.mjs";
 
 /**
@@ -11,6 +12,10 @@ export function createEngineeringNetworkDraft(project, floorId, mode = "normal",
   const unresolved = [];
   for (const { kind, space } of activeSpaces(project, floorId)) {
     if (!["supply", "extract"].includes(space.ventilationRole)) continue;
+    if (spaceBoundaryNeedsReassignment(project, space)) {
+      unresolved.push({ code: "boundary-reassignment-required", spaceKind: kind, spaceId: space.id, message: `${space.name} needs its boundary reassigned before saved targets can be used.` });
+      continue;
+    }
     const target = space.airflowTargets.normal.assigned;
     if (target.state !== "known") {
       unresolved.push({ code: "assigned-target-unresolved", spaceKind: kind, spaceId: space.id, message: `${space.name} has no assigned Normal target.` });

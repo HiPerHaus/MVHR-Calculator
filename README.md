@@ -68,3 +68,11 @@ The active tool tab is restored with the browser working copy. Older Place and R
 
 
 To reproduce the synthetic desktop/tablet workspace checks, run `npm run predev` followed by `node scripts/browser-drawing-workspaces.mjs`. The runner uses an isolated loopback server and disposable Chrome profile, blocks external requests, checks tab switching and recovery, and saves screenshots under `tmp/`. It does not use customer drawings or the live service.
+
+### Airflows and as-built field records
+
+The **Airflows** tab reads the active design option's current Normal-mode room/zone targets directly. Site measurements are stored separately in l/s as **room totals**; multiple-terminal rooms are not automatically split. Blank values remain unknown, incomplete totals are labelled as partial, and a changed design target flags an earlier reading for review. Supply/extract totals are floor-specific. There is no inferred regulatory tolerance or certification verdict.
+
+The **As built** tab stores commissioning engineer/instrument details, installed unit and filter information, unit/control settings, service notes and up to ten compressed JPEG/PNG/WebP photos per option. Save each form before leaving it. Records participate in project undo/redo, working recovery, explicit project saves and portable backups; confirm cloud save status before leaving site. Duplicating an option does not copy commissioning evidence. These tabs are for centralised systems, not decentralised commissioning.
+
+Centralised/combined PDF exports include paginated A4 airflow working-record sheets before the final parts pages. The current PDF airflow sheet is not yet a full photo/service handover report. This first implementation does not provide per-terminal measurement rows, Low/Boost airflow tests, graphical as-built overlays, multi-unit commissioning schedules or PHPP import/certification.

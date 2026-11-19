@@ -1,3 +1,4 @@
+import {createSnapshotMemo} from "../src/editor/view-performance.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -14,6 +15,8 @@ import {
   serializeProject,
   unknownMm,
   worldPortTransform,
+  floorPortTransform,
+  floorPortTransformIndex,
 } from "../src/domain/spatial.mjs";
 
 const fixtureUrl = new URL("./fixtures/spatial-round-trip.json", import.meta.url);
@@ -173,3 +176,25 @@ function assertVectorClose(actual, expected, tolerance = 1e-9) {
   }
 }
 
+
+
+test("batch floor port transforms match individually validated transforms", async () => {
+  const project = deserializeProject(await readFile(fixtureUrl, "utf8"));
+  const index = floorPortTransformIndex(project);
+  for (const component of project.components) for (const port of component.ports) {
+    assert.deepEqual(index.get(component.id).get(port.id), floorPortTransform(project, component.id, port.id));
+  }
+  assert.throws(() => floorPortTransformIndex({...project,schemaVersion:999}), /Unsupported schema/);
+});
+
+
+test("port snapshot cache invalidates after a component move", async () => {
+  const project = deserializeProject(await readFile(fixtureUrl, "utf8"));
+  const read = createSnapshotMemo(floorPortTransformIndex);
+  const component = project.components.find(c => c.ports.length);
+  const before = read(project);
+  const moved = applyCommand(project,{type:"component.moveXY",componentId:component.id,xMm:component.positionMm.x+500,yMm:component.positionMm.y+300});
+  const after = read(moved);
+  assert.notEqual(after,before);assert.equal(read(project),before);
+  assert.deepEqual(after.get(component.id).get(component.ports[0].id),floorPortTransform(moved,component.id,component.ports[0].id));
+});

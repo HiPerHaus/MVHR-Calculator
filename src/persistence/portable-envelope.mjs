@@ -62,9 +62,14 @@ export function assertPortableEnvelopeText(encoded, options = {}) {
 }
 
 export function assertPortableProjectGrowth(currentProjectJson, nextProjectJson, options = {}) {
-  const current = inspectPortableEnvelopeBudget(currentProjectJson, options);
+  // currentProjectJson may be a function so callers can skip serialising the
+  // previous state in the common case where the next state is within budget.
   const next = inspectPortableEnvelopeBudget(nextProjectJson, options);
   if (next.portable) return next;
+  const current = inspectPortableEnvelopeBudget(
+    typeof currentProjectJson === "function" ? currentProjectJson() : currentProjectJson,
+    options,
+  );
   if (!current.portable && next.totalBytes <= current.totalBytes) return next;
   const code = current.portable
     ? "portable_budget_exceeded"

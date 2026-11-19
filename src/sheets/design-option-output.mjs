@@ -1,3 +1,4 @@
+import { buildAirflowProposal } from "../domain/airflow-proposal.mjs";
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import { designOptionProjects } from "../domain/design-options.mjs";
 import { createSheetOutputDocument, selectSheetOutputPages } from "./sheet-output.mjs";
@@ -10,9 +11,21 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
   const candidates = designOptionProjects(project);
   const selected = optionId === null ? candidates : candidates.filter(({ option }) => option.id === optionId);
   if (!selected.length) throw new TypeError("The selected design option is unavailable");
-  const entries = selected.flatMap(({ option, project: optionProject }) => optionProject.floors.map(floor => ({
-    option, project: optionProject, floor, sheet: createSheet(optionProject, option, { systemScope, floorId: floor.id }),
-  })));
+  const entries = selected.flatMap(({ option, project: optionProject }) => {
+    const airflowProposal = systemScope === "decentralised" ? null : buildAirflowProposal(optionProject);
+    const floors = optionProject.floors.map(floor => ({
+      option, project: optionProject, floor, sheet: createSheet(optionProject, option, { systemScope, floorId: floor.id, airflowProposal }),
+    }));
+    const sharedDenominator = Math.max(0, ...floors.map(({ sheet }) => sheet.fit?.denominator ?? 0));
+    return floors.map(entry => {
+      const denominator = entry.sheet.fit?.denominator;
+      if (!denominator || denominator === sharedDenominator) return entry;
+      return {
+        ...entry,
+        sheet: createSheet(optionProject, option, { systemScope, floorId: entry.floor.id, minimumScaleDenominator: sharedDenominator, airflowProposal }),
+      };
+    });
+  });
   if (!entries.length) throw new TypeError("The project has no floor to export");
   const output = createSheetOutputDocument(entries.map(entry => entry.sheet));
   // Each drawing starts a storey's plan, installation details and parts group.
@@ -22,14 +35,14 @@ export function createDesignOptionOutput(project, { optionId = project.activeDes
     const { option, floor, project: optionProject } = entries[entryIndex];
     const floorLabel = optionProject.floors.length > 1 ? ` · ${floor.name}` : "";
     return Object.freeze({
-      ...page, systemScope, pageKey: JSON.stringify([option.id, floor.id, systemScope, page.kind, page.partsPageNumber ?? 0]), floorId: floor.id, optionId: option.id, optionName: option.name, optionRevision: option.revision,
+      ...page, systemScope, pageKey: JSON.stringify([option.id, floor.id, systemScope, page.kind, page.partsPageNumber ?? page.airflowPageNumber ?? page.proposalPageNumber ?? page.commissioningPageNumber ?? page.installationPageNumber ?? 0]), floorId: floor.id, optionId: option.id, optionName: option.name, optionRevision: option.revision,
       pageDescription: page.pageDescription + floorLabel,
       label: `${option.name} · ${option.revision} · ${ventilationWorkspaceLabel(systemScope)} · ${page.label}${floorLabel}`,
     });
   });
   if (!selected.some(({ project }) => project.floors.length > 1)) return { entries, pages };
 
-  const pageKinds = ["drawing", "installation-details", "parts-list"];
+  const pageKinds = ["drawing", "installation-details", "airflow-proposal", "commissioning", "parts-list"];
   const ordered = selected.flatMap(({ option }) => pageKinds.flatMap(kind =>
     pages.filter(page => page.optionId === option.id && page.kind === kind),
   ));

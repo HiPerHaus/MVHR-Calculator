@@ -1,3 +1,4 @@
+import { spaceBoundaryNeedsReassignment } from "./space-boundary-state.mjs";
 import { validateProject } from "../domain/spatial.mjs";
 
 /**
@@ -17,8 +18,10 @@ export function inspectAirflowBalance(project, floorId) {
       assignedEndpointKeys.add(endpointKey(association.componentId, association.portId));
       if (!terminalIds.includes(association.componentId)) terminalIds.push(association.componentId);
     }
-    const required = space.airflowTargets.normal.required;
-    const assigned = space.airflowTargets.normal.assigned;
+    const boundaryNeedsReassignment = spaceBoundaryNeedsReassignment(project, space);
+    const unresolved = { state: "unresolved", valueLps: null, inputValue: null, inputUnit: null, basis: null, source: null, reason: "Room boundary must be reassigned before these saved targets can be used." };
+    const required = boundaryNeedsReassignment ? unresolved : space.airflowTargets.normal.required;
+    const assigned = boundaryNeedsReassignment ? unresolved : space.airflowTargets.normal.assigned;
     const ventilated = space.ventilationRole === "supply" || space.ventilationRole === "extract";
     return {
       kind,
@@ -28,13 +31,14 @@ export function inspectAirflowBalance(project, floorId) {
       parentRoomId: kind === "zone" ? space.parentRoomId : null,
       ventilationRole: space.ventilationRole,
       terminalIds,
+      boundaryNeedsReassignment,
       terminalCount: terminalIds.length,
       required: structuredClone(required),
       assigned: structuredClone(assigned),
       assignedMinusRequiredLps: required.state === "known" && assigned.state === "known"
         ? assigned.valueLps - required.valueLps
         : null,
-      coverageStatus: !ventilated
+      coverageStatus: boundaryNeedsReassignment ? "boundary-reassignment-required" : !ventilated
         ? "not-a-supply-or-extract-space"
         : assigned.state === "known" && terminalIds.length > 0
           ? terminalIds.length === 1

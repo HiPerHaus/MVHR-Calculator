@@ -5,6 +5,7 @@ import {
   applyCommand,
   createProject,
   identityQuaternion,
+  inspectFloorVentilationClear,
   knownMm,
   SCHEMA_VERSION,
   serializeProject,
@@ -305,6 +306,25 @@ test("portable and embedded-source bounds reject oversized or malformed input be
   assert.throws(() => serializeProject(mismatchedClaim), /encoded source length/);
 });
 
+test("a previously validated reference image is still checked against each byte-length claim", async () => {
+  const project = await projectWithUncalibratedReference();
+  serializeProject(project);
+  const wrongClaim = structuredClone(project);
+  wrongClaim.referenceAssets[0].byteLength += 3;
+  assert.throws(() => serializeProject(wrongClaim), /encoded source length/);
+  const wrongMediaType = structuredClone(project);
+  wrongMediaType.referenceAssets[0].dataUrl = wrongMediaType.referenceAssets[0].dataUrl.replace("image/png", "image/jpeg");
+  assert.throws(() => serializeProject(wrongMediaType), /matching embedded source bytes/);
+});
+
+test("read-only port queries still reject a project that was never validated", async () => {
+  const project = await projectWithUncalibratedReference();
+  const tampered = structuredClone(project);
+  tampered.referenceAssets[0].byteLength += 3;
+  assert.throws(() => inspectFloorVentilationClear(tampered, "floor-synthetic-ground"), /encoded source length/);
+  assert.doesNotThrow(() => inspectFloorVentilationClear(project, "floor-synthetic-ground"));
+});
+
 test("schema 1 portable projects migrate sequentially without gaining authority", async () => {
   const current = baseProject();
   const legacy = structuredClone(current);
@@ -549,3 +569,10 @@ function syntheticPngHeader(widthPx, heightPx) {
   bytes.set([0x49, 0x45, 0x4e, 0x44], 37);
   return bytes;
 }
+
+test('read-only guards still reject mutation of an already validated object', async () => {
+  const project = await projectWithUncalibratedReference();
+  inspectFloorVentilationClear(project, 'floor-synthetic-ground');
+  project.referenceAssets[0].byteLength += 3;
+  assert.throws(() => inspectFloorVentilationClear(project, 'floor-synthetic-ground'), /encoded source length/);
+});

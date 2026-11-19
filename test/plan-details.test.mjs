@@ -1,3 +1,4 @@
+import { renderInstallReferenceIllustration } from "../src/sheets/install-reference-illustrations.mjs";
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -35,15 +36,15 @@ test("terminal dimensions belong to matching fittings on the separate sheet with
   assert.equal(serializeProject(project),before);
 });
 
-test("only exact mounted Q/CW320 and AF/CW520 combinations receive the supplied envelopes", () => {
-  const pairs = [["q350-hrv","320","q-cw320"],["q350-erv","320","q-cw320"],["aerofresh-450-hrv","520","af-cw520"],["aerofresh-450-erv","520","af-cw520"]];
+test("only exact mounted Q/CW320, Q/CW420 and AF/CW520 combinations receive the supplied envelopes", () => {
+  const pairs = [["q350-hrv","420","q-cw420"],["q350-hrv","320","q-cw320"],["q350-erv","320","q-cw320"],["aerofresh-450-hrv","520","af-cw520"],["aerofresh-450-erv","520","af-cw520"]];
   for (const [model,cwSize,key] of pairs) {
     const details = selectPlanDetails(unit(fixture(),model,cwSize),"ground");
     assert.ok(ids(details).includes(key));
     assert.equal(details.unmatchedComponentIds.length,0);
   }
   for (const model of ["q350-hrv","aerofresh-450-hrv"]) for (const cwSize of ["320","420","520","625"]) {
-    if ((model==="q350-hrv"&&cwSize==="320") || (model==="aerofresh-450-hrv"&&cwSize==="520")) continue;
+    if ((model==="q350-hrv"&&["320","420"].includes(cwSize)) || (model==="aerofresh-450-hrv"&&cwSize==="520")) continue;
     const details = selectPlanDetails(unit(fixture(),model,cwSize),"ground");
     assert.deepEqual(ids(details),["ceiling-tva","wall-housing","equipment-notes"]);
     assert.equal(details.unmatchedComponentIds.length,1);
@@ -74,7 +75,7 @@ test("repeated matching units deduplicate and floor/option references remain ind
   assert.match(pages[1].svg,/data-detail-id="af-cw520"/);assert.doesNotMatch(pages[1].svg,/data-detail-id="q-cw320"/);
 });
 
-test("AF300 layout and controls reflect supplied references while Q wiring stays unresolved", () => {
+test("AF300 layout and controls reflect supplied references with separate Q wiring reference", () => {
   const project={components:[{id:"af300",floorId:"ground",catalogueItemId:"aerofresh-300-hrv-drawing-profile",mvhrDesignIntent:{mounting:"vertical",layout:"remote-attenuators"}}]};
   const details=selectPlanDetails(project,"ground"), af=details.cards.find(card=>card.id==="af300-remote");
   assert.deepEqual([af.widthMm, af.depthMm, af.heightMm, af.drainAllowanceMm], [660, 470, 760, 150]);
@@ -84,14 +85,14 @@ test("AF300 layout and controls reflect supplied references while Q wiring stays
     const afSheet=createA3SheetModel(unit(fixture(),"aerofresh-300-hrv",null,"af300","ground",layout),metadata);
     const afSvg=createSheetOutputPages(afSheet)[1].svg;
     assert.match(afSvg,/data-detail-id="af300-remote"/);
-    assert.match(afSvg,/AEROFRESH ELECTRICAL/);
+    assert.match(afSvg,/>Notes<\/text>/);
     assert.match(afSvg,/10 A GPO/);assert.doesNotMatch(afSvg,/15 A|preheater/i);assert.match(afSvg,/40 mm waste connection for condensate/);assert.match(afSvg,/2-core to SW1/);
     assert.match(afSvg,/120 mm housing depth/);
     assert.match(afSvg,/140 mm grille height in section/);
   }
   const q=createA3SheetModel(unit(fixture(),"q350-hrv","320"),metadata);
-  assert.match(createSheetOutputPages(q)[1].svg,/Wiring source unreadable/);
-  assert.match(createSheetOutputPages(q)[1].svg,/Drain space: not dimensioned/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Q-series electrical reference/);
+  assert.match(createSheetOutputPages(q)[1].svg,/Allow 150 mm below the unit for the trap, 50 mm on each side in cupboards and 200 mm above/);
   assert.equal(PLAN_DETAIL_REFERENCES.q320.drainAllowanceMm,null);
   assert.equal(PLAN_DETAIL_REFERENCES.af520.drainAllowanceMm,150);
 });
@@ -108,14 +109,14 @@ test("moving the terminal strip restores the full plan area without affecting op
   }
 });
 
-test("all five reference kinds fit in landscape and portrait without shrinking annotation text", () => {
+test("all reference kinds fit in landscape and portrait without shrinking annotation text", () => {
   const details={cards:Object.values(PLAN_DETAIL_REFERENCES),unmatchedComponentIds:[],hasQ:true,hasAeroFresh:true};
   for (const [widthMm,heightMm] of [[325,277],[202,400]]) {
     const layout=layoutPlanDetails(details,{xMm:10,yMm:10,widthMm,heightMm});
     assert.ok(layout.bounds.yMm>70);
     const svg=renderPlanDetails(layout);
     assert.ok([...svg.matchAll(/font-size="([\d.]+)"/g)].every(m=>Number(m[1])>=2.5));
-    assert.equal((svg.match(/data-kind="plan-detail"/g)||[]).length,5);
+    assert.equal((svg.match(/data-kind="plan-detail"/g)||[]).length,Object.keys(PLAN_DETAIL_REFERENCES).length);
   }
 });
 
@@ -126,15 +127,15 @@ test("export pages preserve exact A3 orientation and shared detail SVG while A4 
     assert.match(pages[1].svg,/data-detail-id="ceiling-tva"/);assert.match(pages[1].svg,/data-detail-id="q-cw320"/);
     assert.equal(pages[1].widthMm,sheet.page.widthMm);assert.equal(pages[1].heightMm,sheet.page.heightMm);
     assert.doesNotMatch(pages[0].svg,/data-detail-id="q-cw320"/);
-    assert.ok(pages.slice(2).every(page=>page.widthMm===210&&page.heightMm===297&&!page.svg.includes('id="plan-details"')));
+    assert.ok(pages.filter(page=>["airflows","parts-list"].includes(page.kind)).every(page=>page.widthMm===210&&page.heightMm===297&&!page.svg.includes('id="plan-details"')));
     assert.match(pages[0].svg,new RegExp(`y="${sheet.page.heightMm-4}"[^>]*>Page 1`));
   }
 });
 
-test("a mixed matched AF and unmatched Q retains the unreadable Q wiring warning", () => {
+test("a mixed matched AF and unmatched Q retains its electrical reference", () => {
  const project=unit(unit(fixture(),"q350-hrv","625"),"aerofresh-450-hrv","520");
  const svg=createSheetOutputPages(createA3SheetModel(project,metadata))[1].svg;
- assert.match(svg,/Q-series wiring source unreadable. Original wiring drawing required/);
+ assert.match(svg,/Q-series electrical reference/);
  assert.match(svg,/data-detail-id="af-cw520"/);
  assert.doesNotMatch(svg,/data-detail-id="q-cw320"/);
 });
@@ -143,7 +144,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   const { renderInstallReferenceIllustration: render } = await import("../src/sheets/install-reference-illustrations.mjs");
   const expected = {
     "ceiling-tva": [128,140], "wall-housing": [120,115,140],
-    "q-cw320": [791,566,1414], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
+    "q-cw320": [791,566,1414,150], "q-cw420": [824,566,1414,150], "af-cw520": [870,650,1400,150], "af300-remote": [660,470,760,150],
   };
   for (const [id,values] of Object.entries(expected)) {
     const svg=render(id);
@@ -155,7 +156,7 @@ test("source-shaped illustrations preserve dimension labels and characteristic p
   for(const id of ["ceiling-tva","wall-housing","af300-remote"]) assert.match(render(id),/data-source-feature="hatched-section"/);
   assert.match(render("q-cw320"),/data-source-feature="q-mounting-set"/);
   assert.match(render("af-cw520"),/data-source-feature="af-cw520-elevations"/);
-  assert.match(render("q-cw320"),/data-dimension="unresolved"/);
+  assert.match(render("q-cw320"),/data-owner-allowance="trap-below-unit"/);
   assert.doesNotMatch(render("af300-remote"),/data-dimension="unresolved"/);
   assert.match(render("af300-remote"), />AeroFresh 300<.*>660<.*>Includes wall bracket</);
   assert.throws(()=>render("unknown"),/Unknown installation reference/);
@@ -176,10 +177,12 @@ test("all-options documents have global numbering with independent per-option de
   const af=createA3SheetModel(unit(fixture(),"aerofresh-450-hrv","520"),{...metadata,orientation:"portrait"});
   const pages=createSheetOutputDocument([q,af]);
   for(const [index,page] of pages.entries())assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length} · A[34]`));
-  assert.deepEqual(pages.map(p=>p.kind),["drawing","installation-details","parts-list","drawing","installation-details","parts-list"]);
-  assert.match(pages[1].svg,/q-cw320/);assert.doesNotMatch(pages[1].svg,/af-cw520/);
-  assert.match(pages[4].svg,/af-cw520/);assert.doesNotMatch(pages[4].svg,/q-cw320/);
-  assert.match(pages[4].className,/sheet-a3-portrait/);
+  const base=pages.filter(p=>p.kind!=="airflow-proposal");
+  assert.ok(pages.some(p=>p.kind==="airflow-proposal"));
+  assert.deepEqual(base.map(p=>p.kind),["drawing","installation-details","parts-list","drawing","installation-details","parts-list"]);
+  assert.match(base[1].svg,/q-cw320/);assert.doesNotMatch(base[1].svg,/af-cw520/);
+  assert.match(base[4].svg,/af-cw520/);assert.doesNotMatch(base[4].svg,/q-cw320/);
+  assert.match(base[4].className,/sheet-a3-portrait/);
 });
 
 test("multi-page A4 lists start after both A3 pages and retain every row", () => {
@@ -237,11 +240,13 @@ test("engineering artwork stays on a separate page for all sheet variations", ()
         assert.doesNotMatch(page.svg, /data-kind="installation-detail"|data-illustration=|Ducts within thermal envelope/);
         assert.equal(document[i + 1].kind, "installation-details");
       } else if (page.kind === "installation-details") {
-        assert.equal(document[i - 1].kind, "drawing");
-        assert.match(page.svg, /data-illustration="ceiling-tva"/);
-        assert.match(page.svg, /data-insulation-arrangement="service-zone"/);
+        assert.ok(["drawing", "installation-details"].includes(document[i - 1].kind));
+        if (document[i - 1].kind === "drawing") {
+          assert.match(page.svg, /data-illustration="ceiling-tva"/);
+          assert.match(page.svg, /data-insulation-arrangement="service-zone"/);
+        }
         assert.doesNotMatch(page.svg, /id="drawing-content"|TERMINAL DIMENSIONS/);
-        assert.equal(document[i + 1].kind, "parts-list");
+        assert.ok(["installation-details", "airflow-proposal", "commissioning", "parts-list"].includes(document[i + 1].kind));
       } else {
         assert.doesNotMatch(page.svg, /data-kind="installation-detail"|data-illustration=/);
       }
@@ -264,4 +269,33 @@ test("TVA duct meets its smaller side spigot and grille collar fits the dimensio
   assert.equal(dashed.length,1,"Only the vertical source datum remains");
   assert.match(dashed[0],/x1="11"[^>]+x2="11"/);
   assert.deepEqual([...wall.matchAll(/data-dimension="(\d+)"/g)].map(m=>Number(m[1])),[120,115,140]);
+});
+
+
+test("owner CW420 reference shows eight outlets per manifold without changing model geometry", () => {
+  const project=unit(fixture(),"q350-hrv","420"),before=serializeProject(project);
+  const details=selectPlanDetails(project,"ground"),card=details.cards.find(card=>card.id==="q-cw420");
+  assert.deepEqual([card.widthMm,card.depthMm,card.heightMm,card.outletsPerManifold,card.drainAllowanceMm],[824,566,1414,8,null]);
+  assert.equal(card.sourceDate,"2026-11-18");
+  const q450=structuredClone(project);q450.components[0].catalogueItemId="zehnder-q450-hrv-left-drawing-profile";assert.ok(selectPlanDetails(q450,"ground").cards.some(card=>card.id==="q-cw420"));
+  const svg=renderInstallReferenceIllustration("q-cw420");
+  for(const dimension of [824,566,1414])assert.match(svg,new RegExp(`>${dimension}<`));
+  assert.equal((svg.match(/data-source-feature="cw420-outlet"/g)||[]).length,16);
+  assert.doesNotMatch(svg,/>791</);
+  assert.equal(serializeProject(project),before);
+  for(const mutate of [p=>p.components[0].mvhrDesignIntent.mounting="horizontal",p=>p.components[0].mvhrDesignIntent.layout="remote-attenuators",p=>p.components[0].catalogueItemId="zehnder-q350-de-hrv-left-bim-profile"]){
+    const alternate=structuredClone(project);mutate(alternate);assert.ok(!selectPlanDetails(alternate,"ground").cards.some(card=>card.id==="q-cw420"));
+  }
+});
+
+test("Q casing reference adds a schematic trap without importing alternate CW520 dimensions", () => {
+  for (const [id, expected] of [["q-cw320",["791","566","1414"]],["q-cw420",["824","566","1414"]]]) {
+    const svg=renderInstallReferenceIllustration(id);
+    assert.match(svg,/data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance"/);
+    assert.match(svg,/data-owner-allowance="trap-below-unit"><g data-dimension="150"/);
+    for(const value of expected) assert.match(svg,new RegExp('data-dimension="'+value+'"'));
+    for(const value of ["924","600","50"]) assert.doesNotMatch(svg,new RegExp('data-dimension="'+value+'"'));
+  }
+  assert.match(renderInstallReferenceIllustration("q-cw420"),/data-source-feature="q-sculpted-unit-face"/);
+  assert.equal((renderInstallReferenceIllustration("q-cw420").match(/data-source-feature="cw420-outlet"/g)||[]).length,16);
 });

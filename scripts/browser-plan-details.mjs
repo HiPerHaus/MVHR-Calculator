@@ -18,12 +18,13 @@ import {PLAN_DETAIL_REFERENCES} from "/src/sheets/plan-details.mjs";
 import {renderInstallationDetailSheetSvg} from "/src/sheets/installation-detail-sheet.mjs";
 import {createMixedPagePdfBlob} from "/app/sheet-pdf-export.mjs";
 let project=d.applyCommand(d.createProject("detail-browser"),{type:"floor.add",floor:{id:"ground",name:"Ground floor",transform:{translationMm:{x:0,y:0,z:d.knownMm(0,"test")},orientation:d.identityQuaternion()}}});
-for(const [i,[model,cwSize]]of [["q350-hrv","320"],["aerofresh-450-hrv","520"],["q350-hrv","625"]].entries())project=d.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model,mounting:"vertical",handing:i%2?"right":"left",layout:"unit-mounted-cw",cwSize},{id:"unit-"+i,floorId:"ground",xMm:2000+i*4000,yMm:3000})});
+for(const [i,[model,cwSize]]of [["q350-hrv","320"],["q350-hrv","420"],["aerofresh-450-hrv","520"],["q350-hrv","625"]].entries())project=d.applyCommand(project,{type:"component.add",component:createConfiguredMvhrComponent({model,mounting:"vertical",handing:i%2?"right":"left",layout:"unit-mounted-cw",cwSize},{id:"unit-"+i,floorId:"ground",xMm:2000+i*4000,yMm:3000})});
 const meta={floorId:"ground",orientation:"landscape",includeSchedule:false,projectName:"A3 drawing details",siteName:"Synthetic verification fixture",clientName:"QA",issueDate:"2026-11-09",drawingTitle:"Mixed Q and AeroFresh references",drawingId:"V01",status:"Preliminary — not for construction",revision:"A",revisionText:"QA"};
 const sheet=createA3SheetModel(project,meta),pages=createSheetOutputPages(sheet);
 document.querySelector("#pages").innerHTML=pages[1].svg;
 window.__pages=pages;
 window.__sheet=sheet;
+window.__singleQ=()=>{const single=structuredClone(project);single.components=single.components.slice(0,1);document.querySelector("#pages").innerHTML=createSheetOutputPages(createA3SheetModel(single,meta))[1].svg;};
 window.__svgText=document.querySelector("#pages").textContent;
 window.__layoutEvidence=()=>[...document.querySelectorAll('[data-kind="installation-detail"]')].map(card=>{
 const bounds=card.querySelector("rect").getBoundingClientRect();
@@ -45,6 +46,16 @@ document.querySelector("#pages").innerHTML=renderInstallationDetailSheetSvg(targ
 window.__makePdf=async()=>{
 const blob=await createMixedPagePdfBlob(window.__documentPages,{title:"Drawing detail browser QA"});
 return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
+};
+window.__makeFieldPdf=async(phpp=false,large=false)=>{
+ const fieldSheet={...sheet,airflowReport:{...sheet.airflowReport,lines:[{id:"bed",name:"Bedroom",ventilationRole:"supply",requiredLps:10,designLps:14,terminalIds:["terminal"],measuredLps:9,deltaLps:-5,designChanged:true,measurement:{setting:"2 turns",recordedAt:"2026-11-18"}}],totals:{supply:{designLps:14,measuredLps:9},extract:{designLps:null,measuredLps:null,incompleteDesign:true,incompleteMeasured:true}},record:{details:{engineer:"Field QA",date:"2026-11-18"},measurements:{},photos:[]}}};
+ fieldSheet.airflowProposal={...sheet.airflowProposal,status:"provisional",candidatesM3h:{occupancy:120,volume:150,extract:60},volumeM3:500,normalM3h:150,lowM3h:105,boostM3h:195,governingBasis:["volume"],issues:[],lines:[{id:"bed",floorId:"ground",name:"Bedroom",ventilationRole:"supply",areaM2:16,weight:16,weightSource:"Studio wall-reference-area weighting",assignedExistingM3h:50.4,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]},{id:"kitchen",floorId:"ground",name:"Kitchen",ventilationRole:"extract",areaM2:12,weight:60,weightSource:"PHI-protocol-inspired reference: kitchen",assignedExistingM3h:null,normalM3h:150,lowM3h:105,boostM3h:195,missing:[]}]};
+ if(phpp){const r=fieldSheet.airflowProposal; r.settings={...r.settings,profile:'phpp-9.6a-standard-v1',basis:'max',volumeSource:'phpp-reference',personRateM3h:30,ach:.3,lowFactor:.7,boostFactor:1.3};r.method='phpp-9.6a-standard-v1';r.assumptions=['PHPP 9.6a standard single-unit calculation profile. No project certification or equipment-capacity verification.','Supply allocation by area and extract allocation by selected reference weights are separate Studio heuristics, not PHPP room calculations.','Maximum and basic are fixed profile design modes, not certified physical fan settings.','This is not a multiple-unit apportionment or hours-weighted average calculation.'];r.volumeM3=422.9653375;r.normalM3h=r.volumeM3*.3;r.lowM3h=r.normalM3h*.7;r.boostM3h=r.normalM3h*1.3;r.candidatesM3h={occupancy:120,extract:160,volume:r.normalM3h};r.maximumCandidatesM3h={occupancy:120,extract:160,volume:r.boostM3h};r.lines=r.lines.map(l=>({...l,normalM3h:r.normalM3h,lowM3h:r.lowM3h,boostM3h:r.boostM3h}));}
+ if(large){const r=fieldSheet.airflowProposal;r.normalM3h=170;r.lowM3h=119;r.boostM3h=221;r.lines=Array.from({length:34},(_,i)=>({...r.lines[i%2],id:'large-'+i,name:'Room '+String(i+1).padStart(2,'0'),areaM2:12+i,normalM3h:10,lowM3h:7,boostM3h:13}));}
+ fieldSheet.airflowProposalLines=fieldSheet.airflowProposal.lines;
+ window.__fieldPages=createSheetOutputPages(fieldSheet);
+ const blob=await createMixedPagePdfBlob(window.__fieldPages,{title:"Design and commissioning separation QA"});
+ return new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(",")[1]);reader.readAsDataURL(blob);});
 };
 window.__renderPdf=async (data,pageNumber=1)=>{
 const pdfjs=await import("/node_modules/pdfjs-dist/legacy/build/pdf.mjs");pdfjs.GlobalWorkerOptions.workerSrc="/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
@@ -91,6 +102,13 @@ try{
  await evaluate("window.__printPages()");
  const print=await cdp.send("Page.printToPDF",{printBackground:true,preferCSSPageSize:true});
  await writeFile(join(output,"print-mixed-a3-a4.pdf"),Buffer.from(print.data,"base64"));
+ await evaluate(`document.querySelector('#pages').innerHTML=window.__pages.find(p=>p.svg.includes('data-source=\"owner-q350-q450-q600-controls-2026-11-18\"')).svg`);
+ assert.equal(await evaluate(`document.querySelectorAll('image[data-source="owner-q350-q450-q600-controls-2026-11-18"]').length`),1);
+ await capture("q-series-electrical-preview.png",1588,1123);
+ await evaluate("window.__singleQ()");
+ const singleQLayout=await evaluate("window.__layoutEvidence()");
+ assert.deepEqual(singleQLayout.flatMap(c=>c.overflow),[],JSON.stringify(singleQLayout));
+ await capture("single-q-coordination-preview.png",1588,1123);
  await evaluate("window.__allFive()");
  const fiveLayout=await evaluate("window.__layoutEvidence()");
  assert.deepEqual(fiveLayout.flatMap(c=>c.overflow),[],JSON.stringify(fiveLayout));
@@ -113,12 +131,16 @@ try{
  assert.ok(Math.abs(evidence[0].height-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].width-297*72/25.4)<.1);
  assert.ok(Math.abs(evidence[firstPartCount].height-420*72/25.4)<.1);
- for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","566","1414","870","650","1400","Wiring","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
+ for(const i of [1,firstPartCount+1])for(const word of ["128","140","120","115","791","824","566","1414","870","650","1400","not specified","Dropped ceiling","Ducts protected by insulation","Finished body flush with plasterboard face"])assert.ok(evidence[i].text.includes(word),word+" missing from PDF");
  for(const [i,p] of evidence.entries())assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Page number missing "+i);
  assertPageSeparation(evidence,firstPartCount);
  await capture("pdf-plan-actual-size.png",1588,1123);
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+",2)");
  await capture("pdf-details-actual-size.png",1588,1123);
+ const electricalPageIndex=await evaluate("window.__documentPages.findIndex(p=>p.svg.includes('data-source=\"owner-q350-q450-q600-controls-2026-11-18\"'))");
+ await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(electricalPageIndex+1)+")");
+ await capture("pdf-electrical-actual-size.png",1588,1123);
+ assert.ok(evidence[electricalPageIndex].text.includes("COORDINATION / SOURCE NOTES"));
  await evaluate("window.__renderPdf("+JSON.stringify(pdf)+","+(firstPartCount+2)+")");
  await capture("pdf-details-portrait-actual-size.png",1123,1588);
  await evaluate("window.__renderPdf("+JSON.stringify(print.data)+")");
@@ -130,6 +152,44 @@ try{
   assert.ok(Math.abs(p.height-evidence[i].height)<1, "Print height "+i);
   assert.ok(p.text.includes("Page "+(i+1)+" of "+evidence.length),"Print numbering "+i);
  }
+ const fieldPdf=await evaluate("window.__makeFieldPdf()");
+ await writeFile(join(output,"design-commissioning-record.pdf"),Buffer.from(fieldPdf,"base64"));
+ assert.equal(await evaluate("window.__fieldPages.some(p=>p.kind==='airflows')"),false);
+ const commissioningIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='commissioning')");
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
+ const fieldEvidence=await evaluate("window.__pdfEvidence");
+ assert.doesNotMatch(fieldEvidence.map(p=>p.text).join(" "),/LIVE DESIGN AIRFLOWS/);
+ assert.match(fieldEvidence[commissioningIndex].text,/COMMISSIONING \/ SITE RECORD/);
+ assert.match(fieldEvidence[commissioningIndex].text,/2 turns/);
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(commissioningIndex+1)+")");
+ await capture("pdf-commissioning-record.png",794,1123);
+ const proposalIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflow-proposal')");
+ assert.equal(await evaluate("window.__fieldPages.filter(p=>p.kind==='airflow-proposal').length"),1);
+ assert.doesNotMatch(fieldEvidence.map(p=>p.text).join(" "),/METHOD REFERENCES|ALLOCATION EVIDENCE/);
+ assert.match(fieldEvidence[proposalIndex].text,/PROVISIONAL AIRFLOW PROPOSAL/);
+ assert.match(fieldEvidence[proposalIndex].text,/Normal 150.0/);
+ await evaluate("window.__renderPdf("+JSON.stringify(fieldPdf)+","+(proposalIndex+1)+")");
+ assert.match(fieldEvidence[proposalIndex].text,/Bedroom\s+Supply\s+16.0/);assert.match(fieldEvidence[proposalIndex].text,/Kitchen\s+Extract\s+12.0/);
+ await capture("pdf-airflow-proposal.png",794,1123);
+
+ const phppPdf=await evaluate("window.__makeFieldPdf(true)");
+ await writeFile(join(output,"phpp-9.6a-proposal.pdf"),Buffer.from(phppPdf,"base64"));
+ const phppIndex=await evaluate("window.__fieldPages.findIndex(p=>p.kind==='airflow-proposal')");
+ await evaluate("window.__renderPdf("+JSON.stringify(phppPdf)+","+(phppIndex+1)+")");
+ const phppEvidence=await evaluate("window.__pdfEvidence");
+ assert.match(phppEvidence[phppIndex].text,/Normal 126.9/);assert.match(phppEvidence[phppIndex].text,/Maximum 165.0/);assert.match(phppEvidence.map(p=>p.text).join(" "),/phpp-9.6a-standard-v1/);
+ await capture("pdf-phpp-9.6a-proposal.png",794,1123);
+ const largePdf=await evaluate("window.__makeFieldPdf(true,true)");
+ await writeFile(join(output,"large-room-schedule.pdf"),Buffer.from(largePdf,"base64"));
+ const largeIndexes=await evaluate("window.__fieldPages.map((p,i)=>p.kind==='airflow-proposal'?i:-1).filter(i=>i>=0)");
+ assert.equal(largeIndexes.length,3,'34 rows must have three chart pages, no evidence pages');
+ await evaluate("window.__renderPdf("+JSON.stringify(largePdf)+","+(largeIndexes[2]+1)+")");
+ const largeEvidence=await evaluate("window.__pdfEvidence");
+ const chartText=largeIndexes.map(i=>largeEvidence[i].text).join(' ');
+ for(let i=1;i<=34;i++)assert.match(chartText,new RegExp('Room '+String(i).padStart(2,'0')));
+ for(const i of largeIndexes)assert.match(largeEvidence[i].text,/ROOM \/ ZONE\s+TYPE/);
+ assert.doesNotMatch(largeEvidence.map(p=>p.text).join(' '),/METHOD REFERENCES|ALLOCATION EVIDENCE|METHOD \/ ASSUMPTIONS/);
+ await capture("pdf-large-room-schedule-last-page.png",794,1123);
  assert.deepEqual(errors,[]);
  await writeFile(join(output,"evidence.json"),JSON.stringify({layout,fiveLayout,portraitFiveLayout,printPageSizes:printed.map(p=>({width:p.width,height:p.height})),pageSizes:evidence.map(p=>({width:p.width,height:p.height})),errors},null,2));
  console.log(JSON.stringify({output,layout,fiveLayout,portraitFiveLayout,pages:evidence.length,errors},null,2));
@@ -151,7 +211,7 @@ function assertPageSeparation(pages, firstPartCount) {
   assert.ok(!pages[start].text.includes("Ducts within thermal envelope"),"Engineering details must not share the plan page");
   assert.ok(pages[start+1].text.includes("Ducts within thermal envelope"));
   assert.ok(pages[start+1].text.includes("128 horizontal × 140 vertical"));
-  assert.ok(pages[start+1].text.includes("120 horizontal · 115 inner · 140 overall"));
+  assert.ok(pages[start+1].text.includes("120 mm housing depth"));
   assert.ok(!pages[start+1].text.includes("SYMBOL KEY"),"The engineering page must not contain the plan");
  }
 }
@@ -164,6 +224,6 @@ function assertFittingGeometry(layout) {
  assert.ok(tva.ductSpigotGap<.1&&tva.ductSmallerThanSpigot,JSON.stringify(tva));
  assert.ok(tva.fittingNotes.includes("128 horizontal × 140 vertical"));
  assert.ok(!tva.fittingNotes.includes("120 horizontal"));
- assert.ok(wall.fittingNotes.includes("120 horizontal · 115 inner · 140 overall"));
+ assert.ok(wall.fittingNotes.includes("120 mm housing depth"));
  assert.ok(!wall.fittingNotes.includes("128 horizontal"));
 }

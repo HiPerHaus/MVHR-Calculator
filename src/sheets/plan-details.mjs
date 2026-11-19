@@ -10,6 +10,7 @@ export const PLAN_DETAIL_REFERENCES = Object.freeze({
   tva: Object.freeze({ id: "ceiling-tva", source: "owner-terminal-housings-2026-11-09", title: "Ceiling TVA housing", widthMm: 128, heightMm: 140 }),
   wall: Object.freeze({ id: "wall-housing", source: "owner-terminal-housings-2026-11-09", title: "Wall / floor / bulkhead", horizontalMm: 120, innerVerticalMm: 115, overallVerticalMm: 140, spigotMm: 90 }),
   q320: Object.freeze({ id: "q-cw320", source: "owner-q350-q450-cw320-2026-11-09", title: "Q350 / Q450 + CW320", widthMm: 791, depthMm: 566, heightMm: 1414, drainAllowanceMm: null }),
+  q420: Object.freeze({ id: "q-cw420", source: "owner-q350-q450-cw420-2026-11-18", sourceDate: "2026-11-18", title: "Q350 / Q450 + CW420 (8 port)", widthMm: 824, depthMm: 566, heightMm: 1414, drainAllowanceMm: null, outletsPerManifold: 8 }),
   af520: Object.freeze({ id: "af-cw520", source: "owner-aerofresh-450-600-cw520-2026-11-09", title: "AeroFresh 450 / 600 + CW520", widthMm: 870, depthMm: 650, heightMm: 1400, drainAllowanceMm: 150, suggestedCabinetryMm: 700 }),
   af300: Object.freeze({ id: "af300-remote", source: "owner-aerofresh-300-layout-2026-11-17", title: "AeroFresh 300 · installation layout", widthMm: 660, depthMm: 470, heightMm: 760, drainAllowanceMm: 150 }),
 });
@@ -22,17 +23,20 @@ export function selectPlanDetails(project, floorId) {
   const components = project.components.filter(component => component.floorId === floorId);
   const matches = new Map(), unmatched = [];
   let hasQ = false, hasAeroFresh = false;
+  const qElectricalModels = new Set();
   for (const component of components) {
     const record = recordId(component), intent = component.mvhrDesignIntent;
-    const q = /^zehnder-q(350|450)(?:-de)?-/u.test(record);
+    const qModel = record.match(/^zehnder-q(350|450|600)(?:-de)?-/u);
+    const q = Boolean(qModel);
+    if (qModel) qElectricalModels.add(`Q${qModel[1]}`);
     const af = /^aerofresh-(300|450|600)-/u.test(record);
     hasQ ||= q;
     hasAeroFresh ||= af;
     let detail = null;
     const upright = intent?.mounting === "vertical";
     if (upright && intent?.layout === "unit-mounted-cw") {
-      // Other CW sizes and German BIM profiles are not the supplied TR assembly.
-      if (/^zehnder-q(350|450)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && intent.cwSize === "320") detail = PLAN_DETAIL_REFERENCES.q320;
+      // Only owner-identified mounted TR combinations; no German BIM or alternate mounting inference.
+      if (/^zehnder-q(350|450)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && ["320", "420"].includes(intent.cwSize)) detail = intent.cwSize === "420" ? PLAN_DETAIL_REFERENCES.q420 : PLAN_DETAIL_REFERENCES.q320;
       if (/^aerofresh-(450|600)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && intent.cwSize === "520") detail = PLAN_DETAIL_REFERENCES.af520;
     }
     if (/^aerofresh-300-(hrv|erv)(?:-(?:left|right))?(?:-drawing-profile)?$/u.test(record) && (!intent?.mounting || upright)) detail = PLAN_DETAIL_REFERENCES.af300;
@@ -43,10 +47,11 @@ export function selectPlanDetails(project, floorId) {
       unmatched.push(component.id);
     }
   }
-  const equipment = [PLAN_DETAIL_REFERENCES.q320, PLAN_DETAIL_REFERENCES.af520, PLAN_DETAIL_REFERENCES.af300]
+  const equipment = [PLAN_DETAIL_REFERENCES.q320, PLAN_DETAIL_REFERENCES.q420, PLAN_DETAIL_REFERENCES.af520, PLAN_DETAIL_REFERENCES.af300]
     .flatMap(detail => matches.has(detail.id) ? [matches.get(detail.id)] : []);
   return {
     sourceDate: SOURCE_DATE,
+    qElectricalModels: [...qElectricalModels].sort(),
     cards: [{ ...PLAN_DETAIL_REFERENCES.tva }, { ...PLAN_DETAIL_REFERENCES.wall }, ...equipment,
       ...(equipment.length ? [] : [{ id: "equipment-notes", title: "Equipment reference", source: "selection-status" }])],
     unmatchedComponentIds: unmatched,
@@ -75,7 +80,7 @@ export function renderPlanDetails(details) {
     text(b.xMm + 1, b.yMm + 4.5, "INSTALLATION REFERENCES · dimensions in mm · schematics NTS", 2.8, 'font-weight="700"')];
   for (const card of details.cards) out.push(renderCard(card, details));
   const footer = details.unmatchedComponentIds.length
-    ? `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required.${details.hasQ && !details.cards.some(card => card.id === "q-cw320") ? " Q-series wiring source unreadable; original drawing required." : " Verify exact model, CW and arrangement."}`
+    ? `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required.${details.hasQ && !details.cards.some(card => ["q-cw320", "q-cw420"].includes(card.id)) ? " See Q-series electrical reference; verify current model instructions." : " Verify exact model, CW and arrangement."}`
     : "Assembly envelopes exclude service clearances. Confirm the current manufacturer instructions before installation.";
   out.push(text(b.xMm + 1, b.yMm + b.heightMm - 1, footer, 2.5), "</g>");
   return out.join("");
@@ -84,7 +89,7 @@ export function renderPlanDetails(details) {
 function renderCard(card, details) {
   const b = card.bounds, centre = b.xMm + b.widthMm / 2;
   const out = [`<g data-kind="plan-detail" data-detail-id="${card.id}" data-source="${card.source}">`,
-    `<title>${xml(card.title)} · supplied ${SOURCE_DATE}</title>`,
+    `<title>${xml(card.title)} · supplied ${card.sourceDate ?? SOURCE_DATE}</title>`,
     `<rect x="${b.xMm}" y="${b.yMm}" width="${b.widthMm}" height="${b.heightMm}" fill="white" stroke="#75858c" stroke-width=".25"/>`];
   const heading = wrap(card.title, b.widthMm - 6, 2.8);
   heading.forEach((line, index) => out.push(text(b.xMm + 3, b.yMm + 5 + index * 3.5, line, 2.8, 'font-weight="700"')));
@@ -96,10 +101,12 @@ function renderCard(card, details) {
     out.push(text(b.xMm + 3, b.yMm + 9, "AeroFresh grille housing", 2.5));
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
     out.push(paragraphs(["90 mm duct spigot.", "120 mm housing depth to framing face. 115 mm housing height. 140 mm grille height in section. Confirm cutout separately."], b, top + 55));
-  } else if (card.id === "q-cw320" || card.id === "af-cw520") {
+  } else if (card.id === "q-cw320" || card.id === "q-cw420" || card.id === "af-cw520") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
-    const notes = card.id === "q-cw320"
-      ? ["Drain space: not dimensioned.", "Wiring source unreadable. Original drawing required."]
+    const notes = card.id === "q-cw420"
+      ? ["8 outlets per CW manifold.", "Overall envelope only. Service/drain clearances and wiring not specified."]
+      : card.id === "q-cw320"
+      ? ["Drain space: not dimensioned.", "See Q-series electrical reference. Verify current model instructions."]
       : ["Source suggests 700 cabinetry.", "Wiring: original diagram required; fine labels not transcribed."];
     out.push(paragraphs(notes, b, top + 52));
   } else if (card.id === "af300-remote") {
@@ -108,7 +115,7 @@ function renderCard(card, details) {
   } else {
     out.push(paragraphs(details.unmatchedComponentIds.length
       ? ["No supplied setout matches the unit and arrangement on this floor.", "Select the exact model, mounting and CW size; obtain the matching assembly drawing.",
-        ...(details.hasQ ? ["Q-series wiring source unreadable. Original drawing required."] : details.hasAeroFresh ? ["Verify the model-specific original wiring drawing."] : [])]
+        ...(details.hasQ ? ["See Q-series electrical reference. Verify current model instructions."] : details.hasAeroFresh ? ["Verify the model-specific original wiring drawing."] : [])]
       : ["No matching central unit on this floor.", "TVA and AeroFresh housing sections are retained as general references."], b, top + 4));
   }
   out.push("</g>");

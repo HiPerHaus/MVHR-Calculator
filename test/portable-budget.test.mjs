@@ -71,6 +71,22 @@ test("several embedded assets and base64 amplification share the same total enve
   );
 });
 
+test("growth policy only serialises the previous state when the next state is over budget", () => {
+  const maximumBytes = 2048;
+  const small = JSON.stringify({ id: "project-growth", notes: "x".repeat(200) });
+  const oversized = JSON.stringify({ id: "project-growth", notes: "x".repeat(3000) });
+  let previousStateReads = 0;
+  const previous = (json) => () => { previousStateReads += 1; return json; };
+
+  assert.equal(assertPortableProjectGrowth(previous(small), small, { maximumBytes }).portable, true);
+  assert.equal(previousStateReads, 0);
+  assert.throws(
+    () => assertPortableProjectGrowth(previous(small), oversized, { maximumBytes }),
+    (error) => error instanceof PortableBudgetError && error.code === "portable_budget_exceeded",
+  );
+  assert.equal(previousStateReads, 1);
+});
+
 test("growth policy rejects a new overflow and only permits non-growing legacy recovery", () => {
   const maximumBytes = 2048;
   const current = JSON.stringify({ id: "project-growth", notes: "x".repeat(200) });
@@ -202,3 +218,13 @@ function memoryStorage() {
     removeItem(key) { values.delete(key); },
   };
 }
+
+
+test("lazy previous-state budget preserves oversized recovery and propagates serialization failures", () => {
+  const maximumBytes=2048,oversized=JSON.stringify({notes:'x'.repeat(3000)}),smaller=JSON.stringify({notes:'x'.repeat(2900)});
+  let calls=0;
+  assert.equal(assertPortableProjectGrowth(()=>{calls++;return oversized;},smaller,{maximumBytes}).portable,false);
+  assert.equal(calls,1);
+  assert.throws(()=>assertPortableProjectGrowth(()=>{throw new Error('Previous serialization failed');},oversized,{maximumBytes}),/Previous serialization failed/);
+  assert.throws(()=>assertPortableProjectGrowth(()=>42,oversized,{maximumBytes}),/serialized JSON text/);
+});

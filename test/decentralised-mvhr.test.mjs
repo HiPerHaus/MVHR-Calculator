@@ -33,6 +33,7 @@ import {
 } from "../src/domain/history.mjs";
 import { createPartsSchedule } from "../src/editor/parts-schedule.mjs";
 import { auditVentilation } from "../src/editor/ventilation-audit.mjs";
+import { renderInstallationDetailSheetSvg } from "../src/sheets/installation-detail-sheet.mjs";
 import { createA3SheetModel, renderA3SheetSvg } from "../src/sheets/a3-sheet.mjs";
 
 const DECENTRALISED_IDS = [
@@ -303,6 +304,12 @@ test("drawing key and electrical note list actual mixed models, cable types and 
   assert.match(lunosConnection.mains, /Separate 230 V mains PSU/);
   assert.match(lunosConnection.limitations, /No verified maximum fan-cable length is stored/);
   const svg = renderA3SheetSvg(sheet);
+  const details = renderInstallationDetailSheetSvg(createA3SheetModel(project, { ...sheetMetadata(), systemScope: "decentralised" }));
+  assert.match(details, /data-detail-id="lunos-e2-60-decentralised"/);
+  assert.match(details, /data-detail-id="aerofresh-30-compact-decentralised"/);
+  assert.match(details, /Individual star runs/);
+  assert.match(details, /Confirm current manual/);
+  assert.doesNotMatch(details, /ceiling-tva|af300-remote/);
   assert.match(svg, /data-layout="single-column"/);
   assert.match(svg, /230 V to controller location/);
   assert.match(svg, /manufacturer-authored-mirror-original-unverified/);

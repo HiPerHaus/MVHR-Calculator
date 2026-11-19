@@ -1,3 +1,4 @@
+import { spaceBoundaryNeedsReassignment } from "./space-boundary-state.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { engineeringComponentFingerprint, engineeringRouteFingerprint, engineeringSystemFingerprint } from "../domain/engineering-inputs.mjs";
 import { solveOperatingPoint, solveParallelBranchFlows } from "./engineering-solvers.mjs";
@@ -17,6 +18,10 @@ export function evaluateEngineeringNetwork(project, floorId, mode = "normal") {
   if (centralVentilationScope(project, floorId).decentralisedOnly) {
     return deepFreeze({ ...emptyResult(floorId, mode, ""), status: "not-applicable", diagnostics: [],
       evidenceBoundary: "Central duct-network pressure is not applicable to this decentralised-only floor. Decentralised airflow, wall suitability and commissioning remain separate, uncalculated checks." });
+  }
+  const detachedSpaces = [...project.rooms, ...project.zones].filter(space => space.floorId === floorId && spaceBoundaryNeedsReassignment(project, space));
+  if (detachedSpaces.length) {
+    return deepFreeze({ ...emptyResult(floorId, mode, ""), status: "incomplete", diagnostics: detachedSpaces.map(space => diagnostic("boundary-reassignment-required", "error", `${space.name} needs its boundary reassigned before engineering results can be calculated. Saved inputs are retained.`, { spaceId: space.id })) });
   }
   const design = project.engineeringInputs.networkDesigns.find(candidate => candidate.floorId === floorId && candidate.mode === mode) ?? null;
   if (!design) return emptyResult(floorId, mode, "No saved engineering network design exists for this floor and mode.");

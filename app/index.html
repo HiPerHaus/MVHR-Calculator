@@ -23,8 +23,11 @@
             <button id="plan-nav" type="button" data-design-stage="plan">Plan</button>
             <button id="ventilation-nav" type="button" data-design-stage="draw">Draw</button>
             <button id="checks-nav" type="button" data-design-stage="check">Check</button>
-            <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
           </div>
+          <button id="airflows-nav" type="button">Airflows</button>
+          <button id="sheets-nav" type="button" data-design-stage="export">Export</button>
+          <button id="commissioning-nav" type="button">Commissioning</button>
+          <button id="as-built-nav" type="button">As built</button>
           <!-- Temporarily hide 3D entry during customer testing; retain its workspace and export implementation. -->
           <button id="three-d-nav" type="button" hidden>3D</button>
           <button id="catalogue-nav" type="button">Catalogue</button>
@@ -209,7 +212,7 @@
               <button id="tablet-inspector-toggle" aria-controls="inspector-panel" type="button" aria-expanded="false">Inspector</button>
             </div>
           </div>
-          <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas">
+          <svg id="plan-canvas" viewBox="0 0 1200 800" tabindex="0" aria-label="Plan drawing canvas. Pinch or scroll to zoom the drawing. When focused, plus and minus zoom; zero fits the drawing.">
             <defs>
               <pattern id="minor-grid" width="10" height="10" patternUnits="userSpaceOnUse">
                 <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#e4e9ed" stroke-width="0.5" />
@@ -293,6 +296,8 @@
             <dt>Height</dt><dd id="wall-height"></dd>
           </dl>
           <div id="wall-actions" class="inspector-actions" hidden>
+            <button id="add-wall-point" type="button">Add bend point</button>
+            <small>Adds a midpoint. Drag the selected point to redirect the wall. Repeat on either segment for more bends. Linked openings/items are not reassigned automatically.</small>
             <button id="delete-wall" type="button" class="danger-action">Delete…</button>
             <small>Delete or Backspace also opens the guarded choice.</small>
           </div>
@@ -513,6 +518,9 @@
         <div id="catalogue-library-records" class="catalogue-library-records"></div>
       </section>
 
+      <section id="airflows-workspace" class="field-workspace" aria-label="Live design airflows" hidden></section>
+      <section id="commissioning-workspace" class="field-workspace" aria-label="Commissioning measurements and test details" hidden></section>
+      <section id="as-built-workspace" class="field-workspace" aria-label="As-built field record" hidden></section>
       <section id="checks-workspace" class="checks-workspace" aria-labelledby="checks-workspace-heading" hidden>
         <header class="checks-workspace-heading">
           <div>
@@ -928,6 +936,20 @@
         </div>
       </form>
     </dialog>
+    <dialog id="restore-room-dialog" aria-labelledby="restore-room-title">
+      <form method="dialog">
+        <h2 id="restore-room-title">Restore a saved room?</h2>
+        <p>The walls form a closed room again. Choose the saved room that belongs to this boundary to keep its name, airflow inputs and terminal records. Rooms will not be merged automatically.</p>
+        <label>Saved room<select id="restore-room-choice" style="min-height:44px"></select></label>
+        <p id="restore-room-detail"></p>
+        <div class="dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="new">Create a different room</button>
+          <button id="restore-room-confirm" value="restore" class="primary-action">Restore selected room</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="room-dialog" class="wide-dialog" aria-labelledby="room-dialog-title">
       <form id="room-form">
         <h2 id="room-dialog-title">Confirm room</h2>

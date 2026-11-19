@@ -37,16 +37,17 @@ test("sheet output plans an A3 drawing and installation details followed by exac
   });
   const pages = createSheetOutputPages(sheet);
   assert.deepEqual(
-    pages.map(({ kind, widthMm, heightMm, orientation }) => ({ kind, widthMm, heightMm, orientation })),
+    pages.filter(page => page.kind !== "airflow-proposal").map(({ kind, widthMm, heightMm, orientation }) => ({ kind, widthMm, heightMm, orientation })),
     [
       { kind: "drawing", widthMm: 420, heightMm: 297, orientation: "landscape" },
       { kind: "installation-details", widthMm: 420, heightMm: 297, orientation: "landscape" },
       { kind: "parts-list", widthMm: 210, heightMm: 297, orientation: "portrait" },
     ],
   );
-  assert.match(pages[0].svg, /Page 1 of 3 · A3/u);
-  assert.match(pages[1].svg, /Page 2 of 3 · A3/u);
-  assert.match(pages[2].svg, /Page 3 of 3 · A4/u);
+  assert.ok(pages.some(page => page.kind === "airflow-proposal"));
+  assert.ok(pages.every(page => page.kind !== "airflows" && !page.svg.includes("LIVE DESIGN AIRFLOWS")));
+  for (const [index,page] of pages.entries()) assert.match(page.svg,new RegExp(`Page ${index+1} of ${pages.length}`));
+  assert.match(pages[1].svg, /data-role="q-electrical-source"/);
 });
 
 test("PDF filenames remain portable and retain useful project and drawing identity", () => {

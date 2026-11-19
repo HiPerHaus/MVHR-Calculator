@@ -23,7 +23,7 @@ test("sheet preview describes the mixed print sizes before browser printing", as
   const source = await readFile(mainUrl, "utf8");
 
   assert.match(source, /\$\{entries\.length\} A3 drawing/u);
-  assert.match(source, /\$\{entries\.length\} A3 installation detail sheet/u);
+  assert.match(source, /\$\{installationPageCount\} A3 installation detail sheet/u);
   assert.match(source, /\$\{partsPageCount\} A4 parts-list page/u);
   assert.match(source, /window\.print\(\)/u);
 });

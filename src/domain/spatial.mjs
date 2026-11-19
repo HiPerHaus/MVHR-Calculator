@@ -1,3 +1,6 @@
+import {normalizeAirflowProposalSettings,validateAirflowProposalSettingsByOption,applyReviewedAirflowProposal} from './airflow-proposal.mjs';
+import {normalizeCeiling,normalizeVentilationReference} from "./room-volume.mjs";
+import {applyCommissioningCommand,validateCommissioning} from "./commissioning.mjs";
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
 import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
@@ -61,7 +64,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 29;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -244,6 +247,37 @@ export function applyCommand(project, command, options = {}) {
   const current = validateProject(project);
   const next = structuredClone(current);
   switch (command?.type) {
+    case "commissioning.updateDetails":
+    case "commissioning.recordMeasurement":
+    case "commissioning.addPhoto":
+    case "commissioning.removePhoto": {
+      applyCommissioningCommand(next, command);
+      break;
+    }
+    case "airflowProposal.apply": {
+      applyReviewedAirflowProposal(next, command);
+      break;
+    }
+    case "airflowProposal.setSettings": {
+      const settings = normalizeAirflowProposalSettings(command.settings);
+      const optionId = next.activeDesignOptionId;
+      next.airflowProposalSettingsByOption = {...(next.airflowProposalSettingsByOption ?? {}), [optionId]: settings};
+      break;
+    }
+    case "floor.setCeiling": {
+      const floor = requireEntity(next.floors, command.floorId, "Floor");
+      floor.ceiling = normalizeCeiling(command.ceiling, false);
+      break;
+    }
+    case "room.setCeiling": {
+      const room = requireEntity(next.rooms, command.roomId, "Room");
+      room.ceiling = normalizeCeiling(command.ceiling);
+      break;
+    }
+    case "ventilation.setReference": {
+      next.ventilationReference = normalizeVentilationReference(command.reference);
+      break;
+    }
     case "floor.add": {
       const floor = normalizeFloor(command.floor);
       requireUniqueId(next.floors, floor.id, "Floor");
@@ -940,12 +974,12 @@ export function applyCommand(project, command, options = {}) {
     }
     case "wall.delete": {
       const wall = requireEntity(next.walls, command.wallId, "Wall to delete");
-      deleteWalls(next, new Set([wall.id]));
+      deleteWalls(next, new Set([wall.id]), command);
       break;
     }
     case "wall.deleteConnected": {
       const wall = requireEntity(next.walls, command.wallId, "Connected wall seed");
-      deleteWalls(next, new Set(wallConnectedComponentIds(next, wall.id)));
+      deleteWalls(next, new Set(wallConnectedComponentIds(next, wall.id)), command);
       break;
     }
     case "reference.addImage": {
@@ -1124,7 +1158,7 @@ export function applyCommand(project, command, options = {}) {
       throw new TypeError(`Unsupported command type: ${String(command?.type)}`);
   }
   const validated = validateProject(next);
-  assertPortableProjectGrowth(canonicalStringify(current), canonicalStringify(validated), {
+  assertPortableProjectGrowth(() => canonicalStringify(current), canonicalStringify(validated), {
     maximumBytes: options.portableMaximumBytes,
   });
   return validated;
@@ -1180,6 +1214,21 @@ export function routeEndpointTransform(project, routeId, end) {
 
 export function floorPortTransform(project, componentId, portId) {
   validateProject(project);
+  return floorPortTransformUnchecked(project, componentId, portId);
+}
+
+export function floorPortTransformIndex(project) {
+  validateProject(project);
+  const result = new Map();
+  for (const component of project.components) {
+    const ports = new Map();
+    for (const port of component.ports) ports.set(port.id, floorPortTransformUnchecked(project, component.id, port.id));
+    result.set(component.id, ports);
+  }
+  return result;
+}
+
+function floorPortTransformUnchecked(project, componentId, portId) {
   const component = requireEntity(project.components, componentId, "Component");
   const port = requireEntity(component.ports, portId, "Port");
   return {
@@ -1639,6 +1688,11 @@ export function migrateProjectData(project) {
       })),
     };
   }
+  if (migrated.schemaVersion === 27) migrated = { ...migrated, schemaVersion: 28 };
+  // Schema 29 makes the versioned airflow-profile semantics incompatible with
+  // older readers that otherwise silently treat every proposal as legacy.
+  // Preserve stored profile absence, targets, allocations and site evidence.
+  if (migrated.schemaVersion === 28) migrated = { ...migrated, schemaVersion: 29 };
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -1696,6 +1750,9 @@ function validateProjectInternal(project, skipDesignOptions) {
     }
     assertUniqueIds(project[collection], collection);
   }
+  normalizeVentilationReference(project.ventilationReference);
+  validateCommissioning(project.commissioning);
+  validateAirflowProposalSettingsByOption(project.airflowProposalSettingsByOption);
   normalizeProjectDetails(project.projectDetails);
   normalizeQuoteDraft(project.quoteDraft);
   const engineeringInputs = normalizeEngineeringInputs(project.engineeringInputs);
@@ -2125,23 +2182,54 @@ function normalizeReferenceAsset(asset) {
   if (typeof asset.dataUrl !== "string" || !asset.dataUrl.startsWith(expectedPrefix)) {
     throw new TypeError("Reference asset must contain matching embedded source bytes");
   }
-  const base64 = asset.dataUrl.slice(expectedPrefix.length);
-  const maximumBase64Length = Math.ceil(MAX_EMBEDDED_IMAGE_BYTES / 3) * 4;
-  if (base64.length > maximumBase64Length) {
-    throw new RangeError("Reference asset encoded source exceeds the prototype limit");
+  if (!validatedEmbeddedDataUrlMatches(asset.dataUrl, asset.byteLength)) {
+    const base64 = asset.dataUrl.slice(expectedPrefix.length);
+    const maximumBase64Length = Math.ceil(MAX_EMBEDDED_IMAGE_BYTES / 3) * 4;
+    if (base64.length > maximumBase64Length) {
+      throw new RangeError("Reference asset encoded source exceeds the prototype limit");
+    }
+    if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+      throw new TypeError("Reference asset source must use canonical base64 characters and padding");
+    }
+    const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    const encodedByteLength = base64.length / 4 * 3 - paddingLength;
+    if (encodedByteLength !== asset.byteLength) {
+      throw new TypeError("Reference asset encoded source length must match its byte-length claim");
+    }
+    rememberValidatedEmbeddedDataUrl(asset.dataUrl, asset.byteLength);
   }
-  if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-    throw new TypeError("Reference asset source must use canonical base64 characters and padding");
-  }
-  const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  const encodedByteLength = base64.length / 4 * 3 - paddingLength;
-  if (encodedByteLength !== asset.byteLength) {
-    throw new TypeError("Reference asset encoded source length must match its byte-length claim");
-  }
+  const { dataUrl, source, ...metadata } = asset;
   return {
-    ...structuredClone(asset),
-    source: normalizeRenderedReferenceSource(asset.source),
+    ...structuredClone(metadata),
+    dataUrl,
+    source: normalizeRenderedReferenceSource(source),
   };
+}
+
+// Embedded plans are megabytes of base64. JavaScript strings are immutable, so
+// a dataUrl that already passed the encoding checks for the same byte length is
+// neither re-scanned nor deep-copied on every validation pass.
+const validatedEmbeddedDataUrls = new Map();
+const MAX_REMEMBERED_EMBEDDED_DATA_URLS = 32;
+// Bound retained strings conservatively at two bytes per UTF-16 code unit.
+const MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES = 16 * 1024 * 1024;
+let rememberedEmbeddedDataUrlBytes = 0;
+
+function validatedEmbeddedDataUrlMatches(dataUrl, byteLength) {
+  return validatedEmbeddedDataUrls.get(dataUrl) === byteLength;
+}
+
+function rememberValidatedEmbeddedDataUrl(dataUrl, byteLength) {
+  const retainedBytes = dataUrl.length * 2;
+  if (retainedBytes > MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES) return;
+  if (validatedEmbeddedDataUrls.delete(dataUrl)) rememberedEmbeddedDataUrlBytes -= retainedBytes;
+  validatedEmbeddedDataUrls.set(dataUrl, byteLength);
+  rememberedEmbeddedDataUrlBytes += retainedBytes;
+  while (validatedEmbeddedDataUrls.size > MAX_REMEMBERED_EMBEDDED_DATA_URLS || rememberedEmbeddedDataUrlBytes > MAX_REMEMBERED_EMBEDDED_DATA_URL_BYTES) {
+    const oldest = validatedEmbeddedDataUrls.keys().next().value;
+    validatedEmbeddedDataUrls.delete(oldest);
+    rememberedEmbeddedDataUrlBytes -= oldest.length * 2;
+  }
 }
 
 function normalizeRenderedReferenceSource(source) {
@@ -2213,18 +2301,23 @@ function normalizePdfReferenceAsset(asset) {
   if (typeof asset.dataUrl !== "string" || !asset.dataUrl.startsWith(expectedPrefix)) {
     throw new TypeError("PDF reference must contain matching embedded source bytes");
   }
-  const base64 = asset.dataUrl.slice(expectedPrefix.length);
-  const maximumBase64Length = Math.ceil(MAX_PDF_SOURCE_BYTES / 3) * 4;
-  if (base64.length > maximumBase64Length) throw new RangeError("PDF encoded source exceeds the supported limit");
-  if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-    throw new TypeError("PDF source must use canonical base64 characters and padding");
+  if (!validatedEmbeddedDataUrlMatches(asset.dataUrl, asset.byteLength)) {
+    const base64 = asset.dataUrl.slice(expectedPrefix.length);
+    const maximumBase64Length = Math.ceil(MAX_PDF_SOURCE_BYTES / 3) * 4;
+    if (base64.length > maximumBase64Length) throw new RangeError("PDF encoded source exceeds the supported limit");
+    if (base64.length < 4 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+      throw new TypeError("PDF source must use canonical base64 characters and padding");
+    }
+    const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    if (base64.length / 4 * 3 - paddingLength !== asset.byteLength) {
+      throw new TypeError("PDF encoded source length must match its byte-length claim");
+    }
+    rememberValidatedEmbeddedDataUrl(asset.dataUrl, asset.byteLength);
   }
-  const paddingLength = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  if (base64.length / 4 * 3 - paddingLength !== asset.byteLength) {
-    throw new TypeError("PDF encoded source length must match its byte-length claim");
-  }
+  const { dataUrl, ...metadata } = asset;
   return {
-    ...structuredClone(asset),
+    ...structuredClone(metadata),
+    dataUrl,
     fileName,
   };
 }
@@ -2395,6 +2488,7 @@ function assignRoomBoundary(project, command) {
   const candidate = requireRoomCandidate(project, room.floorId, command.boundaryKey);
   requireUnassignedRoomCandidate(project, candidate.key, room.id);
   room.boundary = structuredClone(candidate.boundary);
+  delete room.boundaryState;
 }
 
 function createZoneFromBoundary(project, command) {
@@ -2427,6 +2521,7 @@ function assignZoneBoundary(project, command) {
   const candidate = requireZoneCandidate(project, zone.parentRoomId, command.boundaryKey);
   requireUnassignedZoneCandidate(project, zone.parentRoomId, candidate.key, zone.id);
   zone.boundary = structuredClone(candidate.boundary);
+  delete zone.boundaryState;
 }
 
 function requireZoneCandidate(project, parentRoomId, boundaryKey) {
@@ -2896,15 +2991,29 @@ export function wallConnectedComponentIds(project, seedWallId) {
   return [...selected];
 }
 
-function deleteWalls(project, wallIds) {
+export function inspectWallDeletion(project, wallIds) {
+  const ids = new Set(wallIds);
+  const rooms = project.rooms.filter(room => room.boundary.some(edge => ids.has(edge.wallId)));
+  const parentIds = new Set(rooms.map(room => room.id));
+  const zones = project.zones.filter(zone => parentIds.has(zone.parentRoomId) || zone.boundary.some(edge => ids.has(edge.wallId)));
+  return { rooms, zones };
+}
+
+function deleteWalls(project, wallIds, options = {}) {
   if (!(wallIds instanceof Set) || wallIds.size === 0) {
     throw new TypeError("Wall deletion requires at least one wall identity");
   }
   const deletedWalls = project.walls.filter((wall) => wallIds.has(wall.id));
   if (deletedWalls.length !== wallIds.size) throw new TypeError("Wall deletion scope is invalid");
-  const dependencies = findExplicitWallDependencies(project, wallIds);
+  const dependencies = findExplicitWallDependencies(project, wallIds, { ignoreBoundaryHistory: options.retainAffectedRooms === true });
   if (dependencies.length > 0) {
     throw new TypeError(`Wall deletion is blocked by dependent references: ${dependencies.join(", ")}`);
+  }
+  if (options.retainAffectedRooms === true) {
+    const affected = inspectWallDeletion(project, wallIds);
+    for (const space of [...affected.rooms, ...affected.zones]) {
+      space.boundaryState = "reassignment-required";
+    }
   }
   const candidateNodeIds = new Set(
     deletedWalls.flatMap((wall) => [wall.startNodeId, wall.endNodeId]),
@@ -2924,6 +3033,7 @@ function findExplicitWallDependencies(project, wallIds, options = {}) {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
       const childPath = `${path}.${key}`;
+      if (options.ignoreBoundaryHistory && key === "boundary" && /^(rooms|zones)\.\d+$/.test(path)) continue;
       const wallReferenceField = /wall/i.test(key) && (key.endsWith("Id") || key.endsWith("Ids"));
       if (wallReferenceField && typeof child === "string" && wallIds.has(child)) {
         dependencies.push(childPath);
@@ -3076,6 +3186,7 @@ function validateWall(project, wall) {
   if (parent.floorId !== wall.floorId) {
     throw new TypeError("Room divider and parent room must belong to the same floor");
   }
+  if (parent.boundaryState === "reassignment-required") return;
   const parentGeometry = roomPolygonFromBoundary(project, parent);
   const midpoint = {
     x: (start.positionMm.x + end.positionMm.x) / 2,
@@ -3088,7 +3199,15 @@ function validateWall(project, wall) {
   }
 }
 
+function validateBoundaryState(space) {
+  if (space.boundaryState !== undefined && space.boundaryState !== "reassignment-required") {
+    throw new TypeError("Unsupported room or zone boundary state");
+  }
+}
+
 function normalizeRoom(room) {
+  if(room?.ceiling !== undefined) normalizeCeiling(room.ceiling);
+  validateBoundaryState(room);
   requireOpaqueId(room?.id, "Room ID");
   requireOpaqueId(room?.floorId, "Room floor ID");
   if (!Array.isArray(room.boundary)) {
@@ -3143,7 +3262,7 @@ function normalizeRoom(room) {
 function validateRoom(project, room) {
   const normalized = normalizeRoom(room);
   requireEntity(project.floors, normalized.floorId, "Room floor");
-  const oriented = normalized.boundary.map((entry) => {
+  const oriented = (normalized.boundaryState === "reassignment-required" ? [] : normalized.boundary).map((entry) => {
     const wall = requireEntity(project.walls, entry.wallId, "Room boundary wall");
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Room boundary wall belongs to another floor: ${wall.id}`);
@@ -3174,6 +3293,7 @@ function validateRoom(project, room) {
 }
 
 function normalizeZone(zone) {
+  validateBoundaryState(zone);
   requireOpaqueId(zone?.id, "Zone ID");
   requireOpaqueId(zone?.parentRoomId, "Zone parent room ID");
   requireOpaqueId(zone?.floorId, "Zone floor ID");
@@ -3292,7 +3412,7 @@ function validateZone(project, zone) {
     throw new TypeError("Zone and parent room must belong to the same floor");
   }
   const parentWallIds = new Set(parent.boundary.map((entry) => entry.wallId));
-  const oriented = normalized.boundary.map((entry) => {
+  const oriented = (normalized.boundaryState === "reassignment-required" ? [] : normalized.boundary).map((entry) => {
     const wall = requireEntity(project.walls, entry.wallId, "Zone boundary edge");
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Zone boundary edge belongs to another floor: ${wall.id}`);
@@ -3431,6 +3551,7 @@ function pointOnSegment(point, start, end) {
 }
 
 function normalizeFloor(floor) {
+  if(floor?.ceiling !== undefined) normalizeCeiling(floor.ceiling, false);
   requireOpaqueId(floor?.id, "Floor ID");
   if (!floor.name || typeof floor.name !== "string") {
     throw new TypeError("Floor name is required");

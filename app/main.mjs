@@ -1,3 +1,14 @@
+import {createAirflowProposalSection} from "./airflow-proposal-ui.mjs";
+import {lpsToM3h,m3hToLps} from "../src/editor/field-airflow-units.mjs";
+import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
+import { buildTerminalAssignmentIndex } from "../src/editor/terminal-assignment-index.mjs";
+import { createKeyedReferenceLayer, rasterReferenceDescriptor } from "../src/editor/reference-layer-cache.mjs";
+import { createSnapshotMemo, createTrailingViewTask } from "../src/editor/view-performance.mjs";
+import { runPostCommitEffects } from "../src/editor/post-commit-effects.mjs";
+import { createWallMidpointCommand } from "../src/editor/wall-bend-point.mjs";
+import { hitWallDraftPoint, inspectWallDraftAppend } from "../src/editor/wall-draft-input.mjs";
+import { bindDrawingZoomInput } from "../src/editor/drawing-zoom-input.mjs";
+import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs";
 import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
@@ -39,6 +50,7 @@ import {
   createProject,
   deserializeProject,
   floorPortTransform,
+  floorPortTransformIndex,
   previewDuctRouteGeometry,
   identityQuaternion,
   inspectComponentDeletion,
@@ -53,6 +65,7 @@ import {
   unresolvedAirflowTarget,
   unknownMm,
   wallConnectedComponentIds,
+  inspectWallDeletion,
   worldPointToSource,
 } from "../src/domain/spatial.mjs";
 import {
@@ -754,6 +767,12 @@ const roomActions = document.querySelector("#room-actions");
 const editRoomButton = document.querySelector("#edit-room");
 const reassignRoomButton = document.querySelector("#reassign-room");
 const removeRoomButton = document.querySelector("#remove-room");
+const roomRestoreDialog = document.querySelector("#restore-room-dialog");
+const roomRestoreChoice = document.querySelector("#restore-room-choice");
+const roomRestoreConfirm = document.querySelector("#restore-room-confirm");
+let pendingRoomRestoreBoundaryKey = null;
+let selectedRecoveredBoundaryKey = null;
+let selectedTopologyDiagnostic = null;
 const roomDialog = document.querySelector("#room-dialog");
 const roomForm = document.querySelector("#room-form");
 const roomDialogTitle = document.querySelector("#room-dialog-title");
@@ -800,6 +819,13 @@ const initialNamedLoad = initialLibrary.ok && initialLibrary.activeProjectId
   ? projectLibrary.loadProject(initialLibrary.activeProjectId)
   : null;
 const initialLoad = initialNamedLoad?.ok && initialNamedLoad.found ? initialNamedLoad : legacyLoad;
+const serializedSnapshot = createSnapshotMemo(serializeProject);
+const defaultNumberFormat = new Intl.NumberFormat();
+let drawingPassDepth = 0, drawingPassCanvasRect = null;
+const terminalAssignmentsSnapshot = createSnapshotMemo(buildTerminalAssignmentIndex);
+const floorPortsSnapshot = createSnapshotMemo(floorPortTransformIndex);
+const clearInspectionSnapshot = createSnapshotMemo(() => new Map());
+const reconcileReferences = createKeyedReferenceLayer(referenceLayer);
 let history = createCommandHistory(
   initialLoad.ok && initialLoad.found ? initialLoad.project : createInitialProject(),
 );
@@ -867,6 +893,8 @@ let dragPreviewRendering = false;
 let dragPreviewProject = null;
 let routeCoordinationDiagnostics = [];
 const dragPreviewFrame = createFramePreviewScheduler(renderDragPreview);
+const cameraPreviewFrame = createFramePreviewScheduler(() => render());
+const viewRecoveryTask = createTrailingViewTask(() => queueWorkingSession());
 let panState = null;
 const canvasTouchPointers = new Map();
 let pinchCameraGesture = null;
@@ -964,21 +992,23 @@ mvhrDialog.addEventListener("close", () => {
 mvhrForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!pendingMvhrDrop) return;
-  const selection = { mounting: pendingMvhrDrop.mounting, model: mvhrModel.value,
+  const drop = pendingMvhrDrop;
+  const selection = { mounting: drop.mounting, model: mvhrModel.value,
     handing: mvhrHanding.value, layout: mvhrLayout.value, cwSize: mvhrCwSize.value };
-  const id = pendingMvhrDrop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
+  const id = drop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
   try {
     const component = createConfiguredMvhrComponent(selection, {
-      id, floorId: currentFloorId(), xMm: pendingMvhrDrop.point.x, yMm: pendingMvhrDrop.point.y,
+      id, floorId: currentFloorId(), xMm: drop.point.x, yMm: drop.point.y,
     });
-    if (!commitCommand(pendingMvhrDrop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, pendingMvhrDrop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
+    if (!commitCommand(drop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, drop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
       mvhrError.textContent = interactionMessage;
       return;
     }
-    if (!pendingMvhrDrop.componentId) componentIdentityCounter += 1;
+    if (!drop.componentId) componentIdentityCounter += 1;
+    pendingMvhrDrop = null; // Consume the successful drop before another submit can fire.
     mechanicalState.selectedComponentId = id;
     mvhrDefaults.set(selection.mounting, selection);
-    mvhrDialog.close(pendingMvhrDrop.repeat ? "placed-repeat" : "placed");
+    mvhrDialog.close(drop.repeat ? "placed-repeat" : "placed");
     render();
   } catch (error) { mvhrError.textContent = error.message; }
 });
@@ -1368,6 +1398,13 @@ referenceCropDialog.addEventListener("cancel", (event) => {
   cancelReferenceCrop("PDF crop cancelled; project unchanged");
 });
 deleteWallButton.addEventListener("click", openWallDeleteDialog);
+document.querySelector("#add-wall-point").addEventListener("click", () => addWallBendPoint(selectedWallId));
+canvas.addEventListener("keydown", event => {
+  const handle = event.target.closest?.(".wall-add-point");
+  if (!handle || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault(); event.stopPropagation();
+  addWallBendPoint(handle.dataset.wallId);
+});
 deleteComponentButton.addEventListener("click", openComponentDeleteDialog);
 deleteComponentDialog.addEventListener("close", applyComponentDeleteChoice);
 clearVentilationButton.addEventListener("click", openClearVentilationDialog);
@@ -1448,6 +1485,7 @@ removeRoutePointButton.addEventListener("click", removeSelectedRoutePoint);
 applyComponentElevationButton.addEventListener("click", applySelectedComponentElevation);
 clearComponentElevationButton.addEventListener("click", clearSelectedComponentElevation);
 projectNavigationButton.addEventListener("click", () => setTask("project"));
+for (const task of ["airflows", "commissioning", "as-built"]) document.querySelector(`#${task}-nav`).addEventListener("click", () => setTask(task));
 planNavigationButton.addEventListener("click", () => selectDesignStage("plan"));
 ventilationNavigationButton.addEventListener("click", () => selectDesignStage("draw"));
 for (const button of ventilationWorkspaceButtons) button.addEventListener("click", () => selectVentilationWorkspace(button.dataset.ventilationTab));
@@ -1543,6 +1581,8 @@ workflowMarkupMvhrButton.addEventListener("click", openVentilationTask);
 quoteInputForm.addEventListener("submit", saveQuoteInputs);
 convertProjectDialog.addEventListener("close", applyProjectConversionChoice);
 roomForm.addEventListener("submit", applyRoomDialog);
+roomRestoreChoice.addEventListener("change", () => { roomRestoreConfirm.disabled = !roomRestoreChoice.value; });
+roomRestoreDialog.addEventListener("close", applyRoomRestoreChoice);
 adoptRequiredAirflowButton.addEventListener("click", adoptRequiredAirflowInForm);
 cancelRoomButton.addEventListener("click", () => cancelRoomDialog("Room or zone change cancelled; project unchanged"));
 editRoomButton.addEventListener("click", openSelectedRoomEditor);
@@ -1589,14 +1629,22 @@ document.querySelector("#pan-up").addEventListener("click", () => panBy(0, -0.15
 document.querySelector("#pan-down").addEventListener("click", () => panBy(0, 0.15));
 document.querySelector("#pan-right").addEventListener("click", () => panBy(0.15, 0));
 
-canvas.addEventListener("wheel", (event) => {
-  event.preventDefault();
-  initialCameraFit.cancel();
-  const anchor = clientPointToCamera(camera, { x: event.clientX, y: event.clientY }, canvas.getBoundingClientRect());
-  camera = zoomCameraAt(camera, anchor, event.deltaY > 0 ? 1.15 : 0.87);
-  interactionMessage = "View zoom changed; project geometry unchanged";
-  render();
-}, { passive: false });
+bindDrawingZoomInput(canvas, {
+  enabled: () => ["plan", "ventilation"].includes(activeTask) && sheetPreviewPanel.hidden && !document.querySelector("dialog[open]"),
+  touchPinching: () => canvasTouchPointers.size >= 2,
+  zoom: (factor, clientPoint) => {
+    initialCameraFit.cancel();
+    const anchor = clientPoint
+      ? clientPointToCamera(camera, clientPoint, canvas.getBoundingClientRect())
+      : { x: camera.x + camera.width / 2, y: camera.y + camera.height / 2 };
+    camera = zoomCameraAt(camera, anchor, factor);
+    interactionMessage = "Drawing zoom changed; page and project geometry unchanged";
+    renderCamera();
+    cameraPreviewFrame.schedule();
+    viewRecoveryTask.schedule();
+  },
+  fit: () => { fitView(); queueWorkingSession(); },
+});
 
 function touchPoints() {
   return [...canvasTouchPointers.values()].slice(0, 2);
@@ -2083,6 +2131,13 @@ canvas.addEventListener("click", (event) => {
     suppressNextClick = false;
     return;
   }
+  selectedTopologyDiagnostic = null;
+  if (!event.target?.dataset?.roomBoundaryKey) selectedRecoveredBoundaryKey = null;
+  const wallAddPoint = event.target.closest?.(".wall-add-point");
+  if (activeTask === "plan" && activeTool === "select" && wallAddPoint) {
+    addWallBendPoint(wallAddPoint.dataset.wallId);
+    return;
+  }
   if (activeTask === "ventilation" && activeTool === "select" && event.altKey) {
     selectedRouteId = routeIdFromPointerEvent(event); selectedRoutePointIndex = null;
     mechanicalState = clearMechanicalSelection(mechanicalState);
@@ -2235,7 +2290,7 @@ canvas.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (mvhrDialog.open) return;
+  if (mvhrDialog.open || roomRestoreDialog.open) return;
   if (sheetOutputDialog.open) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -2516,7 +2571,7 @@ function selectDesignStage(stage) {
 
 function setTask(task, { designNavigation = false } = {}) {
   if (task !== "checks" && hasEngineeringEdits()) return requestEngineeringTransition(() => setTask(task, { designNavigation }));
-  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
+  if (!["project", "plan", "ventilation", "three-d", "catalogue", "checks", "account", "airflows", "commissioning", "as-built"].includes(task)) throw new TypeError(`Unsupported task: ${task}`);
   closeTabletPanels();
   if (!sheetPreviewPanel.hidden) {
     sheetPreviewPanel.hidden = true;
@@ -2551,13 +2606,20 @@ function setTask(task, { designNavigation = false } = {}) {
     if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
+  for (const fieldTask of ["airflows", "commissioning", "as-built"]) {
+    document.querySelector(`#${fieldTask}-workspace`).hidden = task !== fieldTask;
+    document.querySelector(`#${fieldTask}-nav`).classList.toggle("active", task === fieldTask);
+    if (task === fieldTask) document.querySelector(`#${fieldTask}-nav`).setAttribute("aria-current", "page");
+    else document.querySelector(`#${fieldTask}-nav`).removeAttribute("aria-current");
+  }
   projectWorkspace.hidden = task !== "project";
-  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account";
+  planWorkspace.hidden = task === "project" || task === "catalogue" || task === "checks" || task === "three-d" || task === "account" || task === "airflows" || task === "commissioning" || task === "as-built";
   viewOptionsAnchor.hidden = task !== "ventilation";
   if (task !== "ventilation") setViewOptionsOpen(false);
   catalogueWorkspace.hidden = task !== "catalogue";
   checksWorkspace.hidden = task !== "checks";
   threeDWorkspace.hidden = task !== "three-d";
+  if (["airflows", "commissioning", "as-built"].includes(task)) {cancelActivePointer(); renderCommissioningWorkspace(); return;}
   if (task === "account") {cancelActivePointer();return;}
   if (task === "project") {
     cancelActivePointer();
@@ -2632,7 +2694,7 @@ function setTask(task, { designNavigation = false } = {}) {
     reassignRoomId = null;
     reassignZoneId = null;
   }
-  setTool("select");
+  setTool("select", { deferRender: true });
   interactionMessage = task === "ventilation"
       ? `${ventilationWorkspaceLabel(activeVentilationWorkspace)} tools active · place and connect on the same plan`
       : "Plan tools active: references, walls, room dividers and room naming share this canvas";
@@ -3126,6 +3188,11 @@ function openSheetPreview({ designStage = false } = {}) {
     projectWorkspace.hidden = true;
     document.querySelector("#account-workspace").hidden=true;
     document.querySelector("#account-nav").classList.remove("active");
+    for(const fieldTask of ["airflows","commissioning","as-built"]) {
+      document.querySelector(`#${fieldTask}-workspace`).hidden=true;
+      document.querySelector(`#${fieldTask}-nav`).classList.remove("active");
+      document.querySelector(`#${fieldTask}-nav`).removeAttribute("aria-current");
+    }
     planWorkspace.hidden = true;
     catalogueWorkspace.hidden = true;
     checksWorkspace.hidden = true;
@@ -3211,12 +3278,15 @@ function renderSheetOptionPreview(optionId) {
   exportPartsCsvButton.disabled = allOptions;
   exportPartsCsvButton.title = allOptions ? "Choose one option for its independent parts CSV" : `Excel-compatible CSV: ${selected.option.name}, ${scopeLabel.toLowerCase()} system, all floors, project packs counted once, no prices`;
   const partsPageCount = pages.filter(page => page.kind === "parts-list").length;
-  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${entries.length} A3 installation detail sheet${entries.length === 1 ? "" : "s"} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
-  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
+  const commissioningPageCount = pages.filter(page => page.kind === "commissioning").length;
+  const proposalPageCount = pages.filter(page => page.kind === "airflow-proposal").length;
+  const installationPageCount = pages.filter(page => page.kind === "installation-details").length;
+  sheetPreviewStatus.textContent = `${scopeLabel} export · ${allOptions ? `All ${new Set(entries.map(entry => entry.option.id)).size} options` : `${selected.option.name} · ${selected.option.revision}`} · ${entries.length} A3 drawing${entries.length === 1 ? "" : "s"} + ${installationPageCount} A3 installation detail sheet${installationPageCount === 1 ? "" : "s"}${proposalPageCount ? ` + ${proposalPageCount} A4 provisional proposal sheet${proposalPageCount === 1 ? "" : "s"}` : ""}${commissioningPageCount ? ` + ${commissioningPageCount} A4 commissioning sheet${commissioningPageCount === 1 ? "" : "s"}` : ""} + ${partsPageCount} A4 parts-list page${partsPageCount === 1 ? "" : "s"} · ${allOptions ? "independent option page sets" : entries.length > 1 ? "all storeys" : selected.sheet.fit.label}`;
+  sheetPreviewNote.textContent = `${scopeLabel}: drawing, installation references, airflow records and parts use this export scope. ${allOptions ? "Choose one option for its parts CSV." : "CSV uses this system across all floors."} The complete design is unchanged. Preliminary, not construction or whole-system engineering approval. Print at 100%.`;
   document.querySelector(".sheet-preview-stage").scrollTop = 0;
 }
 
-function createSheetForDesignOption(project,option,{systemScope = "combined", floorId} = {}) {
+function createSheetForDesignOption(project,option,{systemScope = "combined", floorId, minimumScaleDenominator, airflowProposal} = {}) {
   const floor=project.floors.find(candidate => candidate.id === floorId);
   if(!floor)throw new TypeError("The project has no floor to preview");
   const optionName=option?.name??"Option";
@@ -3224,7 +3294,7 @@ function createSheetForDesignOption(project,option,{systemScope = "combined", fl
   const floorSuffix = project.floors.length > 1 ? `-L${project.floors.indexOf(floor)}` : "";
   const baseTitle=project.projectDetails.drawingTitle||defaultDrawingTitle(project.projectDetails.name||currentProjectName,floor.name);
   return createA3SheetModel(project,{
-    floorId:floor.id,orientation:"landscape",systemScope,projectName:project.projectDetails.name||currentProjectName,
+    floorId:floor.id,orientation:"landscape",systemScope,minimumScaleDenominator,airflowProposal,projectName:project.projectDetails.name||currentProjectName,
     siteName:project.projectDetails.address||"Not set",clientName:project.projectDetails.clientName||"Not set",
     company:cloudSession?.companyProfile?.details,companyLogoDataUrl:cloudSession?.companyProfile?.logoDataUrl,includeSchedule:false,
     drawingTitle:`${baseTitle}${floorSuffix && project.projectDetails.drawingTitle ? ` · ${floor.name}` : ""} · ${optionName} · ${ventilationWorkspaceLabel(systemScope)}`,drawingId:`${project.projectDetails.projectReference||"V"}-${optionName.replace(/[^a-z0-9]+/giu,"-").replace(/^-|-$/gu,"").slice(0,24)||"option"}-${systemScope}${floorSuffix}`,
@@ -3269,9 +3339,9 @@ function openSheetOutputPicker(action, output = null) {
     input.checked = sheetPageSelections.get(page.pageKey) !== false;
     const description = document.createElement("span");
     const title = document.createElement("strong");
-    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
+    title.textContent = page.kind === "drawing" ? "Drawing" : page.kind === "installation-details" ? "Engineering details" : page.kind === "airflow-proposal" ? "Provisional airflow proposal" : page.kind === "commissioning" ? "Commissioning" : `Parts list · ${page.partsPageNumber} of ${page.partsPageCount}`;
     const detail = document.createElement("small");
-    detail.textContent = `Page ${index + 1} · ${page.kind === "parts-list" ? "A4" : "A3"} ${page.orientation}`;
+    detail.textContent = `Page ${index + 1} · ${["parts-list", "airflow-proposal", "commissioning"].includes(page.kind) ? "A4" : "A3"} ${page.orientation}`;
     description.append(title, detail);
     label.append(input, description);
     fieldset.append(label);
@@ -3535,7 +3605,7 @@ function setTool(tool, options = {}) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  render();
+  if (!options.deferRender) render();
   canvas.focus();
 }
 
@@ -3563,15 +3633,15 @@ function toggleSnap() {
 
 function addDraftPoint(event) {
   if (activeChainId === null) activeChainId = identityCounter++;
-  const resolved = resolvePointerPoint(event);
-  const nodeId = resolved.nodeId ?? `wall-node-${activeChainId}-${draftPoints.length + 1}`;
-  const previous = draftPoints.at(-1);
-  if (previous && previous.nodeId === nodeId) {
+  const append = inspectWallDraftAppend(draftPoints, resolvePointerPoint(event), `wall-node-${activeChainId}-${draftPoints.length + 1}`);
+  if (append.duplicate) {
     interactionMessage = "Choose a different endpoint; zero-length walls are not committed";
     updateStatus();
     return;
   }
-  const split = resolved.wallId
+  const resolved = append.point;
+  const nodeId = resolved.nodeId;
+  const split = !append.closesLoop && resolved.wallId
     ? {
         wallId: resolved.wallId,
         nodeId,
@@ -3580,8 +3650,12 @@ function addDraftPoint(event) {
       }
     : null;
   draftPoints.push({ x: resolved.x, y: resolved.y, nodeId, snapKind: resolved.snapKind, split });
-  interactionMessage = resolved.nodeId
-    ? `Endpoint snapped to ${resolved.nodeId}`
+  if (append.closesLoop && activeTool === "wall") {
+    commitWallChain();
+    return;
+  }
+  interactionMessage = resolved.snapKind === "endpoint"
+    ? "Endpoint acquired · Enter or Finish commits the walls; click the first point to close a loop"
     : resolved.wallId
       ? `Wall interior acquired; ${resolved.wallId} will split only when the chain is committed`
       : resolved.snapKind === "free"
@@ -3830,7 +3904,12 @@ function commitWallChain() {
         : "Wall chain committed; local save queued";
     render();
     savePresent("automatic");
-    if (newRoomBoundaries.length === 1) {
+    const hasRetainedRooms = history.present.rooms.some(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required");
+    if (newRoomBoundaries.length && hasRetainedRooms) {
+      setTool("select", { deferRender: true });
+      interactionMessage = "Reconnected room boundary detected. Click inside it to highlight, then restore the saved room from Room boundaries.";
+      render();
+    } else if (newRoomBoundaries.length === 1) {
       interactionMessage = "New enclosed boundary detected; confirm the room details or cancel";
       render();
       openRoomCreationDialog(newRoomBoundaries[0].key);
@@ -3909,16 +3988,23 @@ function pointForCommand(point) {
 function commitCommand(command, message) {
   try {
     history = executeCommand(history, command);
-    portableDirty = true;
-    interactionMessage = message;
-    render();
-    savePresent("automatic");
-    return true;
   } catch (error) {
     interactionMessage = `${message} failed: ${error.message}`;
-    render();
+    runPostCommitEffects({view:render});
     return false;
   }
+  portableDirty = true;
+  interactionMessage = message;
+  const failures = runPostCommitEffects({view:render, recovery:() => savePresent("automatic")});
+  if (failures.length) {
+    const recoveryFailed = failures.some(failure => failure.name === "recovery");
+    interactionMessage = `${message}. Change applied; ${failures.map(failure => `${failure.name}: ${failure.message}`).join("; ")}. Do not repeat the placement. ${recoveryFailed ? "Save or export a backup before leaving." : "View refresh needs attention."}`;
+    if (recoveryFailed) storageState = {kind:"failed",label:"Recovery failed · save or export a backup",detail:"Change is present in this tab; do not reload before saving."};
+    runPostCommitEffects({status:updateStatus, storage:renderStorageState});
+  }
+  // A committed model change is successful even when a later UI/storage effect
+  // fails. Returning false here would offer a retry that duplicates the change.
+  return true;
 }
 
 function openAutomaticRadialPreview() {
@@ -5045,9 +5131,15 @@ function handleRoomCanvasClick(event) {
       }
       return;
     }
-    openRoomCreationDialog(boundaryKey);
+    if (history.present.rooms.some(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required")) {
+      selectedRecoveredBoundaryKey = boundaryKey;
+      selectedRoomId = selectedZoneId = selectedWallId = selectedNodeId = null;
+      interactionMessage = "Reconnected boundary selected. Choose Restore selected boundary in Room boundaries to keep the saved room data.";
+      render();
+    } else openRoomCreationDialog(boundaryKey);
     return;
   }
+  selectedRecoveredBoundaryKey = null;
   selectedRoomId = null;
   selectedZoneId = null;
   selectedFloorAreaId = null;
@@ -5055,12 +5147,28 @@ function handleRoomCanvasClick(event) {
   render();
 }
 
-function openRoomCreationDialog(boundaryKey) {
+function openRoomCreationDialog(boundaryKey, { offerRestore = true } = {}) {
   const derivation = deriveRoomBoundaries(history.present, currentFloorId());
   const candidate = derivation.candidates.find((item) => item.key === boundaryKey);
   if (!candidate) {
     interactionMessage = "That room boundary is no longer eligible; project unchanged";
     render();
+    return;
+  }
+  const retained = history.present.rooms.filter(room => room.floorId === currentFloorId() && room.boundaryState === "reassignment-required");
+  if (offerRestore && retained.length) {
+    pendingRoomRestoreBoundaryKey = boundaryKey;
+    roomRestoreChoice.replaceChildren();
+    if (retained.length > 1) {
+      const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose the saved room…"; roomRestoreChoice.append(placeholder);
+    }
+    for (const room of retained) {
+      const option = document.createElement("option"); option.value = room.id; option.textContent = room.name; roomRestoreChoice.append(option);
+    }
+    roomRestoreConfirm.disabled = !roomRestoreChoice.value;
+    document.querySelector("#restore-room-detail").textContent = `${formatArea(candidate.areaMm2)} enclosed. Restore only the room you select. Any child zones still need their own boundaries reassigned.`;
+    roomRestoreDialog.returnValue = "cancel";
+    roomRestoreDialog.showModal();
     return;
   }
   pendingRoomBoundaryKey = boundaryKey;
@@ -5078,6 +5186,25 @@ function openRoomCreationDialog(boundaryKey) {
   roomDialogError.textContent = "";
   roomDialog.showModal();
   roomNameInput.focus();
+}
+
+function applyRoomRestoreChoice() {
+  const boundaryKey = pendingRoomRestoreBoundaryKey;
+  pendingRoomRestoreBoundaryKey = null;
+  if (!boundaryKey) return;
+  if (roomRestoreDialog.returnValue === "new") {
+    openRoomCreationDialog(boundaryKey, { offerRestore: false });
+    return;
+  }
+  if (roomRestoreDialog.returnValue !== "restore" || !roomRestoreChoice.value) return;
+  const roomId = roomRestoreChoice.value;
+  if (commitCommand({ type: "room.assignBoundary", roomId, boundaryKey }, "Saved room restored on repaired walls; name, airflow inputs and terminal records preserved")) {
+    selectedRoomId = roomId;
+    selectedRecoveredBoundaryKey = null;
+    selectedZoneId = selectedWallId = selectedNodeId = null;
+    reassignRoomId = null;
+    render();
+  }
 }
 
 function openZoneCreationDialog(parentRoomId, boundaryKey) {
@@ -5355,6 +5482,14 @@ function beginRoomReassignment() {
   }
   const room = history.present.rooms.find((candidate) => candidate.id === selectedRoomId);
   if (!room) return;
+  const derivation = deriveRoomBoundaries(history.present, room.floorId);
+  const assigned = new Set(history.present.rooms.filter(other => other.floorId === room.floorId && other.id !== room.id).map(other => inspectRoomBoundary(history.present, other, derivation)).filter(item => item.status === "current").map(item => item.key));
+  if (!derivation.candidates.some(candidate => !assigned.has(candidate.key))) {
+    reassignRoomId = reassignZoneId = null;
+    interactionMessage = "No closed room face is available yet. Use Show issue under Room boundaries to find open ends or unjoined crossings, then reconnect the walls.";
+    render();
+    return;
+  }
   reassignRoomId = room.id;
   reassignZoneId = null;
   interactionMessage = "Choose an eligible shaded face for this room; Esc cancels";
@@ -5416,11 +5551,14 @@ function openWallDeleteDialog() {
   deleteWallDialog.querySelector('[value="delete-connected"]').hidden = isDivider;
   deleteWallDialog.querySelector('[value="delete-wall"]').textContent = isDivider ? "Delete divider segment" : "Delete wall only";
   deleteWallDialog.querySelector("h2").textContent = isDivider ? "Delete room divider" : "Delete selected wall";
-  deleteWallMessage.textContent = isDivider
-    ? `Delete ${wall.id}? Confirmed zones that reference this divider must be removed or reassigned first. Physical walls are never included.`
-    : connectedCount === 1
-    ? `Delete ${wall.id}? Both choices remove this one isolated wall. Cancel leaves the project unchanged.`
-    : `Delete only ${wall.id} and preserve its ${connectedCount - 1} connected neighbour${connectedCount === 2 ? "" : "s"}, or delete the whole ${connectedCount}-wall connected chain. Shared junctions survive when remaining walls still use them.`;
+  const describe = (ids) => {
+    const affected = inspectWallDeletion(history.present, ids);
+    const names = [...affected.rooms, ...affected.zones].map(space => space.name);
+    return names.length ? ` Affected rooms/zones: ${names.join(", ")}. Their names, airflow inputs and terminal records are retained, but boundaries and calculated outputs need reassignment/review. No rooms are automatically merged.` : " No room boundaries are affected.";
+  };
+  deleteWallMessage.textContent = `Delete only ${wall.id}: neighbouring walls and shared junctions are preserved.${describe([wall.id])}`
+    + (!isDivider && connectedCount > 1 ? ` Delete connected chain removes ALL ${connectedCount} connected walls.${describe(wallConnectedComponentIds(history.present, wall.id))}` : "")
+    + " Hosted equipment references still block deletion. Undo restores the complete previous state.";
   deleteWallDialog.showModal();
 }
 
@@ -5442,6 +5580,7 @@ function applyWallDeleteChoice() {
   const committed = commitCommand({
     type: connected ? "wall.deleteConnected" : "wall.delete",
     wallId,
+    retainAffectedRooms: true,
   }, connected ? "Connected wall chain deleted" : "Selected wall deleted; connected neighbours preserved");
   if (committed) {
     selectedWallId = null;
@@ -5583,7 +5722,7 @@ function savePresent(reason) {
 }
 
 function projectHasUnsavedChanges() {
-  return savedProjectJson !== serializeProject(history.present) || savedProjectName !== currentProjectName;
+  return savedProjectJson !== serializedSnapshot(history.present) || savedProjectName !== currentProjectName;
 }
 
 function applyLocalReopen(result, options = {}) {
@@ -6745,7 +6884,18 @@ function modelGroup(kind, id) {
 
 // Only disposable drawing nodes change during a drag. Expensive topology,
 // coordination, inspector and schedules are checked once after commit/cancel.
-function renderDragPreview() {
+function drawingCanvasRect() {
+  if (drawingPassDepth === 0) return canvas.getBoundingClientRect();
+  return drawingPassCanvasRect ??= canvas.getBoundingClientRect();
+}
+function withDrawingPass(draw) {
+  drawingPassDepth++;
+  try { return draw(); }
+  finally { drawingPassDepth--; if (drawingPassDepth === 0) drawingPassCanvasRect = null; }
+}
+
+function renderDragPreview() { return withDrawingPass(renderDragPreviewPass); }
+function renderDragPreviewPass() {
   if (activeTask !== "ventilation" || !(componentDragState || routePointDragState || decentralisedCablePointDragState)) {
     if (referenceCropState?.pointerId != null) renderDraft();
     else if (floorAreaDragState) renderFloorAreas();
@@ -6780,7 +6930,10 @@ function renderDragPreview() {
   } finally { dragPreviewRendering = false; dragPreviewProject = null; }
 }
 
-function render() {
+function render() { return withDrawingPass(renderPass); }
+function renderPass() {
+  cameraPreviewFrame.cancel();
+  if (["airflows", "commissioning", "as-built"].includes(activeTask)) { renderCommissioningWorkspace(); renderStorageState(); updateStatus(); return; }
   renderStoreyControl();
   dragPreviewFrame.cancel();
   dragPreviewProject = null;
@@ -6856,6 +7009,17 @@ function render() {
       "data-node-id": node.id,
     }));
   }
+  if (activeTask === "plan" && activeTool === "select") {
+    renderWallPointHandle();
+    const selectedNode = history.present.wallNodes.find(node => node.id === selectedNodeId && onCurrentFloor(node));
+    if (selectedNode) {
+      const p = displayPosition(selectedNode.id);
+      const rect = drawingCanvasRect();
+      const unitsPerPixel = Math.max(camera.width / Math.max(rect.width, 1), camera.height / Math.max(rect.height, 1));
+      modelLayer.append(svgElement("circle", {cx:toView(p.x), cy:toView(p.y), r:22*unitsPerPixel, class:"wall-node wall-node-touch-hit", "data-node-id":selectedNode.id, "aria-label":"Drag wall bend point"}));
+    }
+  }
+  renderTopologyDiagnostic();
   renderDraft();
   renderReferenceList();
   renderCadReferenceList();
@@ -6869,10 +7033,23 @@ function render() {
   if (activeTask === "checks") renderChecksWorkspace();
 }
 
+function renderTopologyDiagnostic() {
+  if (selectedTopologyDiagnostic?.project !== history.present) selectedTopologyDiagnostic = null;
+  if (activeTask !== "plan" || !selectedTopologyDiagnostic) return;
+  const diagnostic = selectedTopologyDiagnostic.diagnostic;
+  const nodes = new Map(history.present.wallNodes.map(node => [node.id, node]));
+  for (const wall of history.present.walls.filter(wall => diagnostic.wallIds.includes(wall.id))) {
+    const start = nodes.get(wall.startNodeId).positionMm, end = nodes.get(wall.endNodeId).positionMm;
+    modelLayer.append(svgElement("line", {x1:toView(start.x),y1:toView(start.y),x2:toView(end.x),y2:toView(end.y),stroke:"#d42c2c","stroke-width":5,"vector-effect":"non-scaling-stroke","pointer-events":"none","data-topology-highlight":wall.id}));
+  }
+  const point = diagnostic.pointMm;
+  if (point) modelLayer.append(svgElement("circle", {cx:toView(point.x),cy:toView(point.y),r:14*camera.width/Math.max(drawingCanvasRect().width,1),fill:"none",stroke:"#d42c2c","stroke-width":3,"vector-effect":"non-scaling-stroke","pointer-events":"none","data-topology-issue":diagnostic.code}));
+}
+
 function renderGrilleAlignmentGuides() {
   const layer = modelGroup("alignment-guides", "current");
     if(grilleAlignmentPreview && (componentDragState || activeTool==="place-component")) {
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      const unitsPerPixel=camera.width/Math.max(drawingCanvasRect().width,1);
       for(const guide of grilleAlignmentPreview.guides)layer.append(svgElement("line",{x1:toView(guide.from.x),y1:toView(guide.from.y),x2:toView(guide.to.x),y2:toView(guide.to.y),stroke:guide.stream==="intake"?"#359a78":"#89617d","stroke-width":1.5*unitsPerPixel,"stroke-dasharray":`${6*unitsPerPixel} ${4*unitsPerPixel}`,"pointer-events":"none","data-grille-alignment-guide":guide.stream}));
       const p=grilleAlignmentPreview.point,label=svgElement("text",{x:toView(p.x),y:toView(p.y)-30*unitsPerPixel,"font-size":11*unitsPerPixel,"text-anchor":"middle",fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","pointer-events":"none"});
       label.textContent="Intake + exhaust aligned";layer.append(label);
@@ -6889,7 +7066,7 @@ function renderRouteCeilingElbows(route) {
       if(selected)drawing.append(svgElement("circle",{cx:0,cy:0,r:elbow.nominalSizeMm*.82,fill:"none",stroke:"#f0a43c","stroke-width":10,"stroke-dasharray":"18 10","data-part":"selected-elbow-halo"}));
       for(const shape of hrvCeilingElbowShapes(elbow))drawing.append(svgElement(shape.tag,{...shape.attributes,"data-route-id":elbow.routeId}));
       const title=svgElement("title",{});title.textContent="Typed port centre aligned · 90° top elbow to ceiling · included in HRV port allowance · height pending";drawing.append(title);layer.append(drawing);
-      const unitsPerPixel=camera.width/Math.max(canvas.getBoundingClientRect().width,1);
+      const unitsPerPixel=camera.width/Math.max(drawingCanvasRect().width,1);
       const side=["extract","exhaust"].includes(elbow.stream)?-1:1;
       const label=svgElement("text",{x:toView(elbow.xMm+side*elbow.nominalSizeMm*.9),y:toView(elbow.yMm-elbow.nominalSizeMm/2)-7*unitsPerPixel,"font-size":9*unitsPerPixel,fill:"#29434d",stroke:"white","stroke-width":3*unitsPerPixel,"paint-order":"stroke","text-anchor":side<0?"end":"start","pointer-events":"none","data-ventilation-label":"ceiling-elbow","data-route-id":elbow.routeId});
       label.textContent="↑90°";
@@ -7093,7 +7270,7 @@ function renderRooms() {
       if (currentAssignedKeys.has(candidate.key)) continue;
       roomLayer.append(svgElement("polygon", {
         points: candidate.polygon.map((point) => `${toView(point.x)},${toView(point.y)}`).join(" "),
-        class: `room-candidate${reassignRoomId ? " reassign-target" : ""}`,
+        class: `room-candidate${reassignRoomId ? " reassign-target" : ""}${selectedRecoveredBoundaryKey === candidate.key ? " selected" : ""}`,
         "data-room-boundary-key": candidate.key,
         "aria-label": `Eligible room boundary, ${formatArea(candidate.areaMm2)}`,
       }));
@@ -7144,6 +7321,26 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
   const eligibleCount = derivation.candidates.filter((candidate) => !assignedKeys.has(candidate.key)).length;
   roomSummary.textContent = `${history.present.rooms.length} room${history.present.rooms.length === 1 ? "" : "s"} · ${history.present.zones.length} zone${history.present.zones.length === 1 ? "" : "s"} · ${eligibleCount} room face${eligibleCount === 1 ? "" : "s"} to confirm · ${zoneState.unassignedZoneFaces} zone face${zoneState.unassignedZoneFaces === 1 ? "" : "s"} to name`;
   roomIssues.replaceChildren();
+  const recovered = derivation.candidates.find(candidate => candidate.key === selectedRecoveredBoundaryKey && !assignedKeys.has(candidate.key));
+  if (recovered) {
+    roomIssues.append(htmlText("span", `Selected closed boundary: ${formatArea(recovered.areaMm2)}. Saved room data has not changed.`));
+    const restore = document.createElement("button"); restore.type = "button"; restore.style.minHeight = "44px"; restore.id = "restore-selected-boundary"; restore.textContent = "Restore selected boundary…";
+    restore.addEventListener("click", () => openRoomCreationDialog(recovered.key)); roomIssues.append(restore);
+  }
+  for (const space of [...history.present.rooms, ...history.present.zones].filter(onCurrentFloor).filter(space => space.boundaryState === "reassignment-required")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.style.minHeight = "44px";
+    button.textContent = `${space.name}: reassign boundary`;
+    button.addEventListener("click", () => {
+      selectedWallId = selectedNodeId = selectedRouteId = selectedFloorAreaId = null;
+      selectedZoneId = space.parentRoomId ? space.id : null;
+      selectedRoomId = space.parentRoomId ?? space.id;
+      render();
+      beginRoomReassignment();
+    });
+    roomIssues.append(button);
+  }
   const diagnostics = [...derivation.diagnostics, ...zoneState.diagnostics];
   if (diagnostics.length === 0) {
     roomIssues.append(htmlText("span", "No open-endpoint or crossing diagnostics on this floor."));
@@ -7151,6 +7348,21 @@ function renderRoomSummary(derivation, assignedKeys, zoneState) {
   }
   for (const diagnostic of diagnostics.slice(0, 8)) {
     roomIssues.append(htmlText("span", diagnostic.message, diagnostic.severity));
+    if (diagnostic.pointMm) {
+      const show = document.createElement("button"); show.type = "button"; show.textContent = "Show issue"; show.style.minHeight = "44px"; show.dataset.topologyCode = diagnostic.code;
+      show.addEventListener("click", () => {
+        selectedTopologyDiagnostic = { project: history.present, diagnostic };
+        selectedRecoveredBoundaryKey = null;
+        selectedRoomId = selectedZoneId = selectedWallId = selectedNodeId = selectedFloorAreaId = null;
+        reassignRoomId = reassignZoneId = null;
+        setTool("select", { deferRender: true });
+        const point = diagnostic.pointMm;
+        camera = { ...camera, x: toView(point.x) - camera.width / 2, y: toView(point.y) - camera.height / 2 };
+        interactionMessage = diagnostic.code === "open-endpoint" ? "Highlighted open endpoint: draw to the existing endpoint with Snap on, then finish the wall. A visual touch alone is not a shared junction." : "Highlighted unjoined crossing: redraw the affected connection with Snap on so it creates a shared junction. No geometry has been changed.";
+        render(); canvas.focus();
+      });
+      roomIssues.append(show);
+    }
   }
   if (diagnostics.length > 8) {
     roomIssues.append(htmlText("span", `${diagnostics.length - 8} more topology diagnostics`));
@@ -7255,7 +7467,7 @@ function renderDecentralisedCableEditHandles(cable) {
   const layer = modelGroup("cable-handles", cable.id);
   if (!cableIsVisible(cable)) return;
   const points = decentralisedCableDisplayPoints(cable);
-  const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+  const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
   for (let index = 0; index < points.length - 1; index += 1) {
     const midpoint = { x: (points[index].x + points[index + 1].x) / 2, y: (points[index].y + points[index + 1].y) / 2 };
     const add = svgElement("g", { class: "decentralised-cable-add-point", transform: `translate(${toView(midpoint.x)} ${toView(midpoint.y)})`, "data-decentralised-cable-id": cable.id, "data-segment-index": index, "aria-label": `Add cable bend point after segment ${index + 1}` });
@@ -7302,7 +7514,7 @@ function renderRouteEditHandles(route) {
   const points = routeDisplayPoints(route);
   const body = routeBodyGeometry(route);
   for (const lane of body.lanes) layer.append(svgElement("polyline", {points:routePointString(lane),class:"route-selection-halo","stroke-width":toView(body.diameterMm ?? 0)+5}));
-  const rect = canvas.getBoundingClientRect();
+  const rect = drawingCanvasRect();
   const viewUnitsPerCssPixel = camera.width / Math.max(rect.width, 1);
   layer.append(svgElement("polyline", {
     points: routePointString(points),
@@ -7422,7 +7634,7 @@ function renderComponent(component) {
     "data-component-id": component.id,
   });
   const evidenceLabel = componentEvidenceLabel(component);
-  const roomAssignment = terminalRoomAssignment(history.present, component.id);
+  const roomAssignment = terminalAssignmentsSnapshot(history.present).get(component.id) ?? null;
   const assignedSpace = roomAssignment?.zoneId
     ? history.present.zones.find((zone) => zone.id === roomAssignment.zoneId)
     : roomAssignment?.roomId
@@ -7461,7 +7673,7 @@ function renderComponent(component) {
     label.setAttribute("x", toView(position.x));
     label.setAttribute("y", toView(position.y + Math.max(symbol.widthMm, symbol.heightMm) / 2) + 16);
     if ([EXTERNAL_GRILLE_PLAN_GRAPHIC_ID, WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic.graphicId)) {
-      const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+      const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
       label.style.fontSize = `${11 * unitsPerPixel}px`;
       label.setAttribute("y", toView(position.y + symbol.heightMm / 2) + 15 * unitsPerPixel);
       if (planGraphic.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID) {
@@ -7471,7 +7683,7 @@ function renderComponent(component) {
       }
     }
     if ([Q350_PLAN_GRAPHIC_ID, STANDALONE_CW_GRAPHIC_ID, CA200_GRAPHIC_ID].includes(planGraphic.graphicId)) {
-      const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+      const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
       const bounds = planGraphic.drawingBoundsMm ?? { minX: -symbol.widthMm/2, maxX: symbol.widthMm/2, minY: -symbol.heightMm/2, maxY: symbol.heightMm/2 };
       const angle = componentYaw(component.orientation);
       const corners = [bounds.minX, bounds.maxX].flatMap(x => [bounds.minY, bounds.maxY].map(y => ({ x: x*Math.cos(angle)-y*Math.sin(angle), y: x*Math.sin(angle)+y*Math.cos(angle) })));
@@ -7528,7 +7740,7 @@ function renderComponent(component) {
       }
       continue;
     }
-    const portTransform = floorPortTransform(history.present, component.id, port.id);
+    const portTransform = floorPortsSnapshot(history.present).get(component.id).get(port.id);
     const portPosition = portTransform.positionMm;
     const usage = portUsage(component.id, port.id);
     const routeState = portRouteState(port, usage);
@@ -7536,7 +7748,7 @@ function renderComponent(component) {
     const availability = usage.occupied ? `connected by ${usage.kind}` : routeState === "incompatible" ? "not compatible with selected route" : "available";
     const portClasses = `${portRoleClass(port.role)}${usage.occupied ? " occupied" : ""}${routeState ? ` route-${routeState}` : ""}`;
     if (isExpandedDrawingConnectionTarget(port)) {
-      const canvasRect = canvas.getBoundingClientRect();
+      const canvasRect = drawingCanvasRect();
       const cssPixelsPerViewUnit = Math.min(
         canvasRect.width / camera.width,
         canvasRect.height / camera.height,
@@ -7772,7 +7984,7 @@ function appendQ350PlanGraphic(group, graphic, options = {}) {
   group.append(drawing);
   for (const port of graphic.ports) {
     if (graphic.mountedCw && ["supply", "extract"].includes(port.stream)) continue;
-    const unitsPerPixel = camera.width / Math.max(canvas.getBoundingClientRect().width, 1);
+    const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
     const layout = q350PortLabelLayout(port);
     group.append(svgElement("line", { x1: toView(layout.leaderStartXmm), y1: toView(layout.yMm), x2: toView(layout.leaderEndXmm), y2: toView(layout.yMm), class: "port-label-leader" }));
     const portCode = svgElement("text", {
@@ -7994,69 +8206,29 @@ function renderCamera() {
 }
 
 function renderReferences() {
-  referenceLayer.replaceChildren();
+  const descriptors = [];
   for (const reference of history.present.floorReferences) {
     if (!reference.visible || !onCurrentFloor(reference)) continue;
-    const asset = history.present.referenceAssets.find((candidate) => candidate.id === reference.assetId);
+    const asset = history.present.referenceAssets.find(candidate => candidate.id === reference.assetId);
     if (!asset) continue;
     const scale = effectiveReferenceScale(reference) / MILLIMETRES_PER_VIEW_UNIT;
     const translation = reference.transform.translationMm;
     const transform = `translate(${toView(translation.x)} ${toView(translation.y)}) rotate(${reference.transform.rotationRad * 180 / Math.PI}) scale(${scale})`;
-    const group = svgElement("g", { transform, "data-reference-id": reference.id });
     const editingCrop = activeTool === "crop-reference" && referenceCropState?.referenceId === reference.id;
-    const visibleRect = !editingCrop && reference.cropSourceRectPx
-      ? reference.cropSourceRectPx
-      : { x: 0, y: 0, width: asset.widthPx, height: asset.heightPx };
-    const image = svgElement("image", {
-      href: asset.dataUrl,
-      x: 0,
-      y: 0,
-      width: asset.widthPx,
-      height: asset.heightPx,
-      opacity: editingCrop ? Math.max(0.25, reference.opacity * 0.72) : reference.opacity,
-      class: "reference-image",
-      preserveAspectRatio: "none",
-    });
-    if (reference.cropSourceRectPx && !editingCrop) {
-      const clipId = `reference-crop-${reference.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
-      const defs = svgElement("defs", {});
-      const clipPath = svgElement("clipPath", { id: clipId, clipPathUnits: "userSpaceOnUse" });
-      clipPath.append(svgElement("rect", reference.cropSourceRectPx));
-      defs.append(clipPath);
-      image.setAttribute("clip-path", `url(#${clipId})`);
-      group.append(defs);
-    }
-    group.append(
-      image,
-      svgElement("rect", {
-        ...visibleRect,
-        class: "reference-frame",
-        "vector-effect": "non-scaling-stroke",
-      }),
-    );
-    if (editingCrop && reference.cropSourceRectPx) {
-      group.append(svgElement("rect", {
-        ...reference.cropSourceRectPx,
-        class: "reference-crop-existing",
-        "vector-effect": "non-scaling-stroke",
-      }));
-    }
-    referenceLayer.append(group);
+    descriptors.push(rasterReferenceDescriptor({reference,asset,transform,editingCrop},svgElement));
   }
   for (const reference of history.present.floorCadReferences) {
     if (!reference.visible || !onCurrentFloor(reference)) continue;
-    const asset = history.present.cadReferenceAssets.find((candidate) => candidate.id === reference.assetId);
+    const asset = history.present.cadReferenceAssets.find(candidate => candidate.id === reference.assetId);
     if (!asset) continue;
-    const transformed = cachedCadReferenceProjection(asset, reference).transformed;
-    const group = svgElement("g", {
-      opacity: reference.opacity,
-      class: asset.partialImportAccepted ? "cad-reference-partial" : "",
-      "data-cad-reference-id": reference.id,
-      "data-locked": "true",
-    });
-    for (const item of transformed.geometry) group.append(renderCadGeometryItem(item));
-    referenceLayer.append(group);
+    const projection = cachedCadReferenceProjection(asset, reference);
+    descriptors.push({key:`cad:${reference.id}`,signature:[projection,reference.opacity,asset.partialImportAccepted],create:()=>{
+      const group = svgElement("g", {opacity:reference.opacity,class:asset.partialImportAccepted ? "cad-reference-partial" : "","data-cad-reference-id":reference.id,"data-locked":"true"});
+      for(const item of projection.transformed.geometry) group.append(renderCadGeometryItem(item));
+      return group;
+    }});
   }
+  reconcileReferences(descriptors);
 }
 
 function renderCadGeometryItem(item) {
@@ -8156,7 +8328,8 @@ function positiveAngleDelta(start, end) {
   return delta < 0 ? delta + Math.PI * 2 : delta;
 }
 
-function renderDraft() {
+function renderDraft() { return withDrawingPass(renderDraftPass); }
+function renderDraftPass() {
   draftLayer.replaceChildren();
   if (activeTask === "ventilation" && activeTool === "routing-exclusion" && routingExclusionDraftStart && hoverPoint) {
     const x = Math.min(routingExclusionDraftStart.x, hoverPoint.x), y = Math.min(routingExclusionDraftStart.y, hoverPoint.y);
@@ -8366,6 +8539,9 @@ function renderDraft() {
   }));
   for (const point of draftPoints) {
     draftLayer.append(svgElement("circle", {
+      "data-node-id": point.nodeId,
+      "data-wall-draft-node-id": point.nodeId,
+      "aria-label": point === draftPoints[0] && draftPoints.length >= 3 && activeTool === "wall" ? "Close wall loop" : "Wall draft endpoint",
       cx: toView(point.x), cy: toView(point.y), r: 5,
       class: `draft-node${point.snapKind === "endpoint" ? " snapped" : point.snapKind === "wall" ? " junction" : point.snapKind === "reference" ? " reference" : ""}`,
     }));
@@ -8724,7 +8900,9 @@ function renderClearVentilationControl() {
     clearVentilationButton.title = "No active floor";
     return;
   }
-  const inspection = inspectFloorVentilationClear(history.present, floor.id);
+  const cache = clearInspectionSnapshot(history.present);
+  if (!cache.has(floor.id)) cache.set(floor.id, inspectFloorVentilationClear(history.present, floor.id));
+  const inspection = cache.get(floor.id);
   clearVentilationButton.disabled = inspection.isEmpty;
   clearVentilationButton.title = inspection.isEmpty
     ? `No ventilation objects on ${floor.name}`
@@ -10129,6 +10307,32 @@ function componentEvidenceDescription(component) {
   return `Unclassified imported/domain component${version}`;
 }
 
+function addWallBendPoint(wallId) {
+  if (activeTask !== "plan" || activeTool !== "select") return;
+  const id = crypto.randomUUID();
+  try {
+    const command = createWallMidpointCommand(history.present, wallId, {newNodeId:`wall-bend-${id}`,newWallId:`wall-segment-${id}`});
+    if (!commitCommand(command, "Wall point added · drag the selected point to reshape · Undo available")) return;
+    selectedWallId = null;
+    selectedNodeId = command.newNodeId;
+    selectedRoomId = null; selectedZoneId = null;
+    render();
+    canvas.focus();
+  } catch (error) { interactionMessage = error.message; updateStatus(); }
+}
+
+function renderWallPointHandle() {
+  const wall = history.present.walls.find(item => item.id === selectedWallId && onCurrentFloor(item));
+  if (!wall) return;
+  const command = createWallMidpointCommand(history.present, wall.id, {newNodeId:"preview",newWallId:"preview"});
+  const rect = drawingCanvasRect();
+  const unitsPerPixel = Math.max(camera.width / Math.max(rect.width,1), camera.height / Math.max(rect.height,1));
+  const group = svgElement("g", {class:"wall-add-point", "data-wall-id":wall.id, role:"button", tabindex:0, "aria-label":"Add wall bend point at midpoint, then drag to reshape", transform:`translate(${toView(command.point.x)} ${toView(command.point.y)}) scale(${unitsPerPixel})`});
+  group.append(svgElement("circle", {r:22,class:"wall-add-point-hit"}),svgElement("circle",{r:10,class:"wall-add-point-disc"}));
+  group.append(svgElement("path",{d:"M -4 0 H 4 M 0 -4 V 4",class:"wall-add-point-plus"}));
+  modelLayer.append(group);
+}
+
 function renderInspector() {
   const wall = history.present.walls.find((candidate) => candidate.id === selectedWallId);
   const node = history.present.wallNodes.find((candidate) => candidate.id === selectedNodeId);
@@ -10150,6 +10354,7 @@ function renderInspector() {
   inspectorEmpty.hidden = Boolean(wall || node || component || route || floorArea || space);
   wallInspector.hidden = !wall;
   wallActions.hidden = !wall;
+  document.querySelector("#add-wall-point").disabled = activeTask !== "plan" || activeTool !== "select";
   nodeInspector.hidden = !node;
   componentInspector.hidden = !component;
   componentActions.hidden = !component;
@@ -10543,8 +10748,8 @@ function updateStatus() {
     ? "Click two image points · Apply is the only commit"
     : isWall
       ? snapEnabled
-        ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · target ring confirms acquisition · Enter commits one topology command"
-        : "Wall tool · Snap off uses free points and leaves crossings disconnected · Enter commits · Esc cancels"
+        ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · click first point to close a loop · Enter/Finish commits an open chain"
+        : "Wall tool · Snap off leaves crossings disconnected · click first marker to close · Enter commits · Esc cancels"
       : isDivider
         ? snapEnabled
           ? "Room Divider · endpoints and visible wall edges anchor to shared topology · Enter commits · Esc cancels"
@@ -10558,8 +10763,9 @@ function updateStatus() {
           : activeTask === "ventilation"
             ? "Select MVHR parts · drag to move · R rotates · building geometry is locked"
             : "Select walls or endpoints · drag to edit · wheel zoom · choose Pan to move the view · Space-drag pans");
-  undoButton.disabled = !canUndo(history);
-  redoButton.disabled = !canRedo(history);
+  // UI availability only: command paths retain full validation.
+  undoButton.disabled = history.past.length === 0;
+  redoButton.disabled = history.future.length === 0;
   const wallDraft = (isWall || isDivider) && draftPoints.length > 0;
   const outlineDraft = isFloorArea && floorAreaDraftPoints.length > 0;
   const routeDraft = isRoute && Boolean(mechanicalState.routeDraft?.points.length);
@@ -10580,6 +10786,8 @@ function updateStatus() {
 }
 
 function resolvePointerPoint(event) {
+  const directDraftPoint = hitWallDraftPoint(draftPoints, event.target?.dataset?.wallDraftNodeId);
+  if (directDraftPoint) return directDraftPoint;
   const raw = eventToSvgWorld(event);
   if (!snapEnabled) return { ...raw, nodeId: null, snapKind: "free" };
   const eligibleNodeIds = activeTool === "room-divider"
@@ -10845,15 +11053,15 @@ function toView(valueMm) {
 }
 
 function formatMm(valueMm) {
-  return `${Math.round(valueMm).toLocaleString()} mm`;
+  return `${defaultNumberFormat.format(Math.round(valueMm))} mm`;
 }
 
 function formatArea(areaMm2) {
-  return `${Number((areaMm2 / 1_000_000).toFixed(2)).toLocaleString()} m²`;
+  return `${defaultNumberFormat.format(Number((areaMm2 / 1_000_000).toFixed(2)))} m²`;
 }
 
 function formatNumberValue(value) {
-  return Number(value.toFixed(2)).toLocaleString();
+  return defaultNumberFormat.format(Number(value.toFixed(2)));
 }
 
 function formatAirflowLps(valueLps) {
@@ -11067,7 +11275,7 @@ function queueWorkingSession(modelChanged=false){
   workingQueued=false;const context=workingContext();if(!context||workingRestoring)return;
   if(currentCloudRecord&&currentCloudRecord.workspace_id!==context.workspaceId)return;
   try{
-   if(workingModel!==history.present){workingModel=history.present;workingJson=serializeProject(history.present);}
+   if(workingModel!==history.present){workingModel=history.present;workingJson=serializedSnapshot(history.present);}
    const snapshot={projectJson:workingJson,name:currentProjectName,dirty:workingJson!==savedProjectJson||currentProjectName!==savedProjectName,
     cloudRecord:currentCloudRecord?structuredClone(currentCloudRecord):null,
     task:sheetPreviewPanel.hidden?activeTask:"sheets",designStage:activeDesignStage,activeFloorId:currentFloorId(),camera:{...camera},catalogueGroup:selectedCatalogueGroup,ventilationWorkspace:activeVentilationWorkspace};
@@ -11140,12 +11348,211 @@ async function restoreWorkingSession(context){
   saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);
  }
 }
-window.addEventListener("pagehide",()=>queueWorkingSession());
+window.addEventListener("pagehide",()=>{viewRecoveryTask.flush();queueWorkingSession();});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)queueWorkingSession();});
 canvas.addEventListener("pointerup",()=>queueWorkingSession());
-canvas.addEventListener("wheel",()=>queueWorkingSession(),{passive:true});
+// Wheel view recovery is coalesced by viewRecoveryTask; model edits save immediately.
 document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>queueWorkingSession());
 
 window.addEventListener("beforeunload",event=>{
  if(hasEngineeringEdits()||cloudSavePending||workingQueued||workingWrites||(!workingReady&&workingActivity>0)||(workingRecoveryError&&projectHasUnsavedChanges())){event.preventDefault();event.returnValue="";}
 });
+
+
+// Site records preserve design targets; the separate reviewed proposal action is explicit. Empty readings remain unknown.
+function commitFieldCommand(command, message) {
+  const saved = commitCommand(command, message);
+  const notice = fieldNode("p", saved ? `${message}. Use Save to sync the project.` : interactionMessage, "field-feedback");
+  notice.setAttribute("role", "status");
+  document.querySelector(`#${activeTask}-workspace`)?.prepend(notice);
+  return saved;
+}
+function fieldNode(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function fieldInput(label, value = "", {type = "text", multiline = false} = {}) {
+  const wrapper = fieldNode("label", label, "field-input");
+  const input = document.createElement(multiline ? "textarea" : "input");
+  if (!multiline) input.type = type;
+  if (type === "number") { input.min = "0"; input.step = "any"; input.inputMode = "decimal"; }
+  else input.maxLength = 4000;
+  input.value = value ?? "";
+  wrapper.append(input);
+  return {wrapper, input};
+}
+function fieldNumber(value) { return Number.isFinite(value) ? `${Number(value.toFixed(2))}` : "Not set"; }
+function renderCommissioningWorkspace() {
+  const host = document.querySelector(`#${activeTask}-workspace`);
+  host.replaceChildren();
+  const heading = fieldNode("header", undefined, "field-heading");
+  heading.append(fieldNode("h1", activeTask === "airflows" ? "Airflows" : activeTask === "commissioning" ? "Commissioning" : "As built"));
+  const option = history.present.designOptions.find(item => item.id === history.present.activeDesignOptionId);
+  heading.append(fieldNode("p", `${option?.name ?? "Active design"} · Centralised ducted system · ${activeTask === "airflows" ? "Live design targets, not site measurements" : "Working field record, not certification"}`));
+  const floorLabel = fieldNode("label", "Floor ");
+  const floorSelect = document.createElement("select");
+  for (const floor of history.present.floors) { const o = fieldNode("option", floor.name); o.value = floor.id; floorSelect.append(o); }
+  floorSelect.value = currentFloorId();
+  floorSelect.addEventListener("change", () => { activeFloorId = floorSelect.value; render(); queueWorkingSession(); });
+  floorLabel.append(floorSelect); heading.append(floorLabel); host.append(heading);
+  if (!history.present.floors.length) { host.append(fieldNode("p", "Add a floor and rooms in Plan to start.")); return; }
+  if (history.present.ventilationDesignType === "decentralised") { host.append(fieldNode("p", "This field workflow is for centralised ducted systems. Decentralised commissioning is not included.")); return; }
+  const report = buildCommissioningReport(history.present, currentFloorId());
+  if (activeTask === "airflows") renderDesignAirflows(host, report);
+  else if (activeTask === "commissioning") {renderCommissioningDetails(host,report);renderFieldAirflows(host,report);}
+  else renderFieldAsBuilt(host, report);
+}
+function renderDesignAirflows(host, report) {
+  host.append(createAirflowProposalSection(history.present,{currentFloorId:currentFloorId(),onApply:command=>commitFieldCommand(command,"Reviewed proposal applied to assigned targets; site readings retained"),onSave:settings=>commitFieldCommand({type:"airflowProposal.setSettings",settings},"Proposal assumptions saved; assigned targets unchanged"),onExport:()=>selectDesignStage("export"),onEditReference:()=>host.querySelector(".volume-reference")?.scrollIntoView({behavior:"smooth",block:"start"})}));
+  const section=fieldNode("section",undefined,"design-airflow-section");
+  section.append(fieldNode("h2","Live design airflow schedule"),fieldNode("p","Normal-mode design values for the active option and floor, in m³/h. Assigned room targets take priority; otherwise a complete explicit outlet allocation is shown. No room flows are inferred from whole-dwelling references."));
+  const exportButton=fieldNode("button","Open export");exportButton.type="button";
+  exportButton.addEventListener("click",()=>selectDesignStage("export"));section.append(exportButton);
+  section.append(fieldNode("p","Export includes the provisional airflow proposal and commissioning records; this live design schedule remains available here."));
+  const totals=fieldNode("div",undefined,"field-totals");
+  for(const stream of ["supply","extract"]) {const t=report.totals[stream];totals.append(fieldNode("p",`${stream === "supply"?"Supply":"Extract"}: ${fieldNumber(lpsToM3h(t.designLps))} m³/h${t.incompleteDesign?" (known subtotal; incomplete)":""}`));}section.append(totals);
+  if(report.unassignedTerminals?.length)section.append(fieldNode("p",`${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals.`,"field-warning"));
+  const list=fieldNode("div",undefined,"design-airflow-list");
+  for(const line of report.lines) {
+    const card=fieldNode("article",undefined,"design-airflow-card");
+    card.append(fieldNode("h3",line.name),fieldNode("p",`${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`),fieldNode("p",`${line.designSource==="explicit-terminal-allocations"?"Allocated outlet total":"Assigned design target"}: ${fieldNumber(lpsToM3h(line.designLps))} m³/h`),fieldNode("p",`Required reference: ${fieldNumber(lpsToM3h(line.requiredLps))} m³/h`));
+    if(line.boundaryNeedsReassignment)card.append(fieldNode("p","Boundary needs reassignment; review before issuing.","field-warning"));
+    else if(line.designLps===null)card.append(fieldNode("p","No assigned room target or complete normal-mode outlet allocation. Set the room target in Plan / Draw, or complete the outlet allocations in Check. The whole-dwelling reference does not allocate room flows.","field-warning"));
+    if(line.allocationDisagrees)card.append(fieldNode("p",`Assigned target differs from allocated outlets (${fieldNumber(lpsToM3h(line.allocatedLps))} m³/h). Review before issuing.`,"field-warning"));
+    list.append(card);
+  }
+  if(!report.lines.length)section.append(fieldNode("p","No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
+  section.append(list);host.append(section);renderVolumeSettings(host);
+}
+function renderFieldAirflows(host, report) {
+  host.append(fieldNode("p", "Live normal-mode room targets from the current design. Enter measured room totals in m³/h, separately from design. Where a room has several terminals, add their measured readings yourself; no equal split is assumed.", "field-guidance"));
+  if (report.unassignedTerminals?.length) host.append(fieldNode("p", `${report.unassignedTerminals.length} unassigned terminal(s) are outside these room totals. Associate them with rooms before reviewing coverage.`, "field-warning"));
+  const totals = fieldNode("div", undefined, "field-totals");
+  for (const stream of ["supply", "extract"]) {
+    const total = report.totals[stream];
+    totals.append(fieldNode("p", `${stream === "supply" ? "Supply" : "Extract"}: design ${fieldNumber(lpsToM3h(total.designLps))} m³/h${total.incompleteDesign ? " (known subtotal; incomplete)" : ""} · measured ${fieldNumber(lpsToM3h(total.measuredLps))} m³/h${total.incompleteMeasured ? " (known subtotal; incomplete)" : ""}`));
+  }
+  host.append(totals);
+  if (!report.lines.length) host.append(fieldNode("p", "No room airflow targets yet. Define rooms and their ventilation roles in Plan / Draw."));
+  for (const line of report.lines) {
+    const form = fieldNode("form", undefined, "field-airflow-row");
+    const title = fieldNode("div", undefined, "field-room-title");
+    title.append(fieldNode("h2", line.name), fieldNode("p", `${line.ventilationRole} · ${line.terminalIds.length} associated terminal(s)`));
+    if (line.boundaryNeedsReassignment) title.append(fieldNode("p", "Boundary needs reassignment. Saved measurements are retained but excluded from totals."));
+    title.append(fieldNode("p", `Required: ${fieldNumber(lpsToM3h(line.requiredLps))} m³/h · Live design: ${fieldNumber(lpsToM3h(line.designLps))} m³/h`));
+    if (line.measurement?.recordedAt) title.append(fieldNode("p", `Reading recorded: ${line.measurement.recordedAt}`));
+    if (line.designChanged) title.append(fieldNode("p", "Design target changed since this reading. Recheck before issuing.", "field-warning"));
+    form.append(title);
+    const measured = fieldInput("Measured room total (m³/h)", lpsToM3h(line.measuredLps), {type: "number"});
+    const setting = fieldInput("Valve / terminal settings", line.measurement?.setting);
+    const notes = fieldInput("Reading notes", line.measurement?.notes);
+    form.append(measured.wrapper, setting.wrapper, notes.wrapper);
+    form.append(fieldNode("p", `Measured − design: ${fieldNumber(lpsToM3h(line.deltaLps))} m³/h. No pass/fail tolerance assumed.`));
+    const save = fieldNode("button", "Save reading"); save.type = "submit"; form.append(save);
+    const feedback = fieldNode("p", "", "field-feedback"); feedback.setAttribute("role", "status"); form.append(feedback);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const value = measured.input.value.trim() === "" ? null : Number(measured.input.value);
+      if (value !== null && (!Number.isFinite(value) || value < 0)) { feedback.textContent = "Enter a non-negative airflow, or leave blank for unknown."; return; }
+      commitFieldCommand({type:"commissioning.recordMeasurement", spaceId:line.id, recordedAt:new Date().toISOString(), measuredLps:m3hToLps(value), setting:setting.input.value, notes:notes.input.value}, "Site reading saved separately from design");
+    });
+    host.append(form);
+  }
+}
+function renderCommissioningDetails(host, report) {
+  host.append(fieldNode("p","Site test details and measurements are saved separately from design targets. Save each form before leaving. No acceptance tolerance or certification is assumed.","field-guidance"));
+  const form=fieldNode("form",undefined,"field-details-form commissioning-details");
+  form.append(fieldNode("h2","Commissioning test details"));
+  const fields=[["engineer","Commissioning engineer"],["date","Commissioning date","date"],["instrument","Airflow instrument"],["instrumentSerial","Instrument serial number"],["calibrationDate","Calibration date","date"],["unitModel","Installed unit model"],["unitSerial","Unit serial number"],["normalSetting","Normal unit settings"],["boostSetting","Boost unit settings"],["filterDuringTest","Filters fitted during measurement"]];
+  const inputs={};for(const [key,label,type] of fields){const f=fieldInput(label,report.record.details[key],{type:type??"text"});inputs[key]=f.input;form.append(f.wrapper);}
+  const save=fieldNode("button","Save commissioning details");save.type="submit";form.append(save);
+  form.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"commissioning.updateDetails",details:Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.value]))},"Commissioning details saved");});host.append(form);
+}
+function renderFieldAsBuilt(host, report) {
+  host.append(fieldNode("p", "Record the installed system and site evidence for this design option. Save each section before leaving. Photos and notes are included in project saves and backups; review cloud save status before leaving site.", "field-guidance"));
+  const form = fieldNode("form", undefined, "field-details-form");
+  const fields = [
+    ["filterFinal","Final installed filters"],["controls","Controls / boost switches and operation"],
+    ["asBuiltChanges","As-built changes from design"],["serviceNotes","Service instructions / access / maintenance notes"],
+  ];
+  const inputs = {};
+  for (const [key,label,type] of fields) {
+    const field = fieldInput(label, report.record.details[key], {type:type ?? "text", multiline:["controls","asBuiltChanges","serviceNotes"].includes(key)});
+    inputs[key] = field.input; form.append(field.wrapper);
+  }
+  const save = fieldNode("button", "Save as-built details"); save.type = "submit"; form.append(save);
+  form.addEventListener("submit", event => { event.preventDefault(); commitFieldCommand({type:"commissioning.updateDetails", details:Object.fromEntries(Object.entries(inputs).map(([key,input])=>[key,input.value]))}, "As-built details saved"); });
+  host.append(form);
+  const photos = fieldNode("section", undefined, "field-photos"); photos.append(fieldNode("h2", "Site photos"), fieldNode("p", "Unit, rating label, filters, boost switches, duct insulation and silencers. Up to 10 compressed photos per design option."));
+  const photoForm = fieldNode("form", undefined, "field-photo-form");
+  const caption = fieldInput("Photo description");
+  const upload = document.createElement("input"); upload.type="file"; upload.accept="image/jpeg,image/png,image/webp"; upload.setAttribute("aria-label","Select or take site photo");
+  const add=fieldNode("button","Add photo"); add.type="submit";
+  const status=fieldNode("p", ""); status.setAttribute("role","status");
+  photoForm.append(caption.wrapper,upload,add,status);
+  photoForm.addEventListener("submit", async event => {
+    event.preventDefault(); const file=upload.files?.[0]; if(!file){status.textContent="Choose a photo first.";return;}
+    const optionId=history.present.activeDesignOptionId, projectId=history.present.id;
+    add.disabled=true;
+    try {
+      const dataUrl=await prepareSitePhoto(file);
+      if(history.present.id!==projectId || history.present.activeDesignOptionId!==optionId) throw new Error("The project or option changed. Select the photo again for the intended option.");
+      if(!commitFieldCommand({type:"commissioning.addPhoto",photo:{id:crypto.randomUUID(),caption:caption.input.value,dataUrl}},"Site photo saved")) status.textContent="Photo could not be saved. Check the project status.";
+    } catch(error){ status.textContent=error.message; } finally {add.disabled=false;}
+  });
+  photos.append(photoForm);
+  const grid=fieldNode("div",undefined,"field-photo-grid");
+  for(const photo of report.record.photos){
+    const figure=document.createElement("figure"), img=document.createElement("img");img.src=photo.dataUrl;img.alt=photo.caption || "Site evidence";img.loading="lazy";
+    const remove=fieldNode("button","Remove photo");remove.type="button";remove.addEventListener("click",()=>commitFieldCommand({type:"commissioning.removePhoto",photoId:photo.id},"Photo removed · Undo available"));
+    figure.append(img,fieldNode("figcaption",photo.caption || "No description"),remove);grid.append(figure);
+  }
+  photos.append(grid);host.append(photos);
+}
+async function prepareSitePhoto(file){
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type)) throw new Error("Choose a JPEG, PNG or WebP photo.");
+  if(file.size>25*1024*1024) throw new Error("Choose a photo smaller than 25 MB.");
+  const url=URL.createObjectURL(file);
+  try {
+    const img=new Image();img.src=url;await img.decode();
+    const scale=Math.min(1,1200/Math.max(img.width,img.height)), canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,Math.round(img.width*scale));canvas.height=Math.max(1,Math.round(img.height*scale));
+    const context=canvas.getContext("2d");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(img,0,0,canvas.width,canvas.height);
+    for(const quality of [.7,.55,.4,.25]) {const result=canvas.toDataURL("image/jpeg",quality);if(result.length<=400000)return result;}
+    throw new Error("Photo is too detailed to save. Crop or resize it and try again.");
+  } finally {URL.revokeObjectURL(url);}
+}
+
+function renderVolumeSettings(host) {
+  const section=fieldNode("section",undefined,"volume-settings");
+  section.append(fieldNode("h2","Ceiling heights and room volumes"),fieldNode("p","Actual-height geometry estimate uses wall-reference-line room areas, not verified net area. Unset floor heights use an assumed 2.5 m, not a verified measurement. Explicit unknown or stale rooms are excluded. Split-level, vaulted/multiple-plane ceilings and void deductions need separate review. Defaults apply across design options; room overrides belong to their option."));
+  const floor=history.present.floors.find(f=>f.id===currentFloorId());
+  const effectiveFloor=floorCeiling(floor);
+  const form=fieldNode("form",undefined,"volume-floor-form"), height=fieldInput(`Floor ceiling height (m; blank = unknown)${effectiveFloor.assumed?" · assumed default, not verified":""}`,effectiveFloor.ceiling.type==="flat"?effectiveFloor.ceiling.heightMm/1000:"",{type:"number"});
+  const save=fieldNode("button","Save floor height");save.type="submit";form.append(height.wrapper,save);
+  form.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"floor.setCeiling",floorId:floor.id,ceiling:height.input.value.trim()?{type:"flat",heightMm:Number(height.input.value)*1000}:{type:"unknown"}},"Floor default saved; design airflow unchanged");});section.append(form);
+  const summary=floorVolumes(history.present,floor.id);
+  section.append(fieldNode("p",`Current-floor room volume ${summary.complete?"total":"known subtotal (incomplete)"}: ${fieldNumber(summary.knownSubtotalM3)} m³.${summary.assumedRoomCount?` Includes ${summary.assumedRoomCount} room(s) using assumed heights, not verified measurements.`:""} This is not PHPP reference volume or confirmed whole-building volume.`,"volume-summary"));
+  const roomList=fieldNode("div",undefined,"volume-room-list");section.append(roomList);
+  for(const room of history.present.rooms.filter(r=>r.floorId===floor.id)) {
+    const result=roomVolume(history.present,room), row=fieldNode("form",undefined,"volume-room-card");
+    row.append(fieldNode("h3",room.name),fieldNode("p",`${fieldNumber(result.valueM3)} m³ · ${result.source} · ${result.reason??"actual-height geometry estimate"}`));
+    const label=fieldNode("label","Ceiling shape ","field-input"),type=document.createElement("select");
+    for(const [v,t] of [["inherit","Use floor default"],["flat","Flat override"],["raked","Single-plane rake"],["unknown","Unknown / complex ceiling"]]) {const o=fieldNode("option",t);o.value=v;type.append(o);}
+    const selected=room.ceiling??(room.heightMm?.valueMm>0?{type:"flat",heightMm:room.heightMm.valueMm}:{type:"inherit"});type.value=selected.type;label.append(type);
+    const flat=fieldInput("Flat height (m)",selected.heightMm?selected.heightMm/1000:"",{type:"number"}),low=fieldInput("Rake low clear height (m)",selected.lowMm?selected.lowMm/1000:"",{type:"number"}),high=fieldInput("Rake high clear height (m)",selected.highMm?selected.highMm/1000:"",{type:"number"}),direction=fieldInput("Low-to-high direction (degrees: 0 = +X, 90 = +Y in plan coordinates)",selected.directionDeg??0,{type:"number"});
+    const refresh=()=>{flat.wrapper.hidden=type.value!=="flat";for(const f of [low,high,direction]) f.wrapper.hidden=type.value!=="raked";};type.addEventListener("change",refresh);refresh();
+    const submit=fieldNode("button","Save room ceiling");submit.type="submit";const controls=fieldNode("div",undefined,"volume-room-controls");controls.append(label,flat.wrapper,low.wrapper,high.wrapper,direction.wrapper);row.append(controls,submit);
+    row.addEventListener("submit",event=>{event.preventDefault();const ceiling=type.value==="flat"?{type:"flat",heightMm:Number(flat.input.value)*1000}:type.value==="raked"?{type:"raked",lowMm:Number(low.input.value)*1000,highMm:Number(high.input.value)*1000,directionDeg:direction.input.value.trim()?Number(direction.input.value):NaN}:{type:type.value};commitFieldCommand({type:"room.setCeiling",roomId:room.id,ceiling},"Room ceiling saved; design airflow unchanged");});roomList.append(row);
+  }
+  host.append(section);
+  const ref=history.present.ventilationReference??{tfaM2:null,occupants:null,source:""}, assessment=ventilationReferenceAssessment(history.present.ventilationReference);
+  const refForm=fieldNode("form",undefined,"volume-reference");refForm.append(fieldNode("h2","Whole-dwelling ventilation references"),fieldNode("p","Enter independently reviewed dwelling TFA, not this floor’s drawn room area. PHPP residential reference volume uses TFA × 2.5 m regardless of actual ceiling height. These references do not size, balance or allocate room targets."));
+  const tfa=fieldInput("Reviewed dwelling TFA (m²)",ref.tfaM2,{type:"number"}),occupants=fieldInput("Design occupants (whole dwelling)",ref.occupants,{type:"number"}),source=fieldInput("TFA / occupancy source and assumptions",ref.source);
+  const refInputs=fieldNode("div",undefined,"volume-reference-inputs");refInputs.append(tfa.wrapper,occupants.wrapper,source.wrapper);refForm.append(refInputs,fieldNode("p",`PHPP reference volume: ${fieldNumber(assessment.referenceVolumeM3)} m³ · 0.3/h reference: ${fieldNumber(assessment.areaReferenceM3h)} m³/h · 30 m³/h/person assumption: ${fieldNumber(assessment.occupantReferenceM3h)} m³/h · higher reference: ${fieldNumber(assessment.comparisonM3h)} m³/h.`),fieldNode("p",assessment.boundary));
+  const a=fieldNode("a","PHI reference-volume guidance");a.href=assessment.source;a.target="_blank";a.rel="noopener";refForm.append(a);
+  const button=fieldNode("button","Save reference inputs (does not change targets)");button.type="submit";refForm.append(button);
+  refForm.addEventListener("submit",event=>{event.preventDefault();commitFieldCommand({type:"ventilation.setReference",reference:{tfaM2:tfa.input.value.trim()?Number(tfa.input.value):null,occupants:occupants.input.value.trim()?Number(occupants.input.value):null,source:source.input.value}},"Reference inputs saved separately from room targets");});host.append(refForm);
+}

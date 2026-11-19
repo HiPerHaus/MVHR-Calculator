@@ -85,9 +85,12 @@ test("missing, invalid and over-limit PDF inputs fail before parsing or project 
     () => validatePdfSourceBytes(new TextEncoder().encode("not a PDF source"), "invalid.pdf"),
     /does not contain a PDF header/,
   );
+  const maximumSource = new Uint8Array(MAX_PDF_SOURCE_BYTES);
+  maximumSource.set(new TextEncoder().encode("%PDF-1.7"));
+  assert.equal(validatePdfSourceBytes(maximumSource), maximumSource);
   assert.throws(
     () => validatePdfSourceBytes(new Uint8Array(MAX_PDF_SOURCE_BYTES + 1), "large.pdf"),
-    /exceeds the .* PDF source limit/,
+    /exceeds the 20 MiB PDF source limit/,
   );
   const missing = normalizePdfImportError(Object.assign(new Error("source unavailable"), {
     name: "MissingPDFException",

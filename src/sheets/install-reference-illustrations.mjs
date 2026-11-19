@@ -9,6 +9,7 @@ export function renderInstallReferenceIllustration(id) {
     "ceiling-tva": ceilingHousing,
     "wall-housing": wallHousing,
     "q-cw320": qAssembly,
+    "q-cw420": q420Assembly,
     "af-cw520": aeroFreshAssembly,
     "af300-remote": remoteAssembly,
   }[id];
@@ -76,11 +77,15 @@ function qAssembly() {
   return [
     `<g transform="translate(${x} ${y}) scale(${s})" data-source-feature="q-mounting-set">`,
     // Left source view: asymmetrical mounted CW, elbow and sculpted unit face.
-    box(50, 236, 127, 97, "#fbfbfb", 1.4),
-    path("M45 184 H183 L183 208 L176 222 L151 199 V333 H50 V222 L45 207 Z", "#f7f7f7", 1.4),
-    seg(50, 238, 177, 238, 1.3), seg(67, 200, 67, 333, 1.2), seg(153, 200, 153, 333, 1.2),
-    path("M74 240 V287 Q74 296 84 296 H143 Q151 296 151 287 V240", "none", 1.5),
-    path("M79 240 V284 Q79 290 85 290 H142 Q147 290 147 284 V240", "none", .8),
+    '<g data-source-feature="q-sculpted-unit-face">',
+    box(50, 184, 127, 149, "#fbfbfb", 1.4),
+    path("M50 184 H76 V192 L50 220 Z", "#f7f7f7", 1.4),
+    path("M153 184 H177 V220 L153 192 Z", "#f7f7f7", 1.4),
+    seg(70, 199, 70, 333, 1.2), seg(158, 199, 158, 333, 1.2),
+    path("M76 238 V190 Q76 184 82 184 H147 Q153 184 153 190 V285 Q153 296 142 296 H87 Q76 296 76 285 Z", "#fbfbfb", 1.5),
+    path("M82 238 V283 Q82 289 88 289 H141 Q147 289 147 283 V238 Z", "none", .8),
+    text(127, 324, "zehnder", 7, 'transform="rotate(-17 127 324)" font-weight="700"'),
+    "</g>",
     box(45, 181, 35, 6, "#eeeeee", 1.2), seg(45, 184, 78, 184, 1),
     box(128, 87, 57, 95, "#fafafa", 1.3),
     box(127, 83, 59, 5, "#dadada", 1.2), box(127, 179, 59, 5, "#dadada", 1.2),
@@ -94,13 +99,53 @@ function qAssembly() {
     path("M342 190 C340 211 345 218 358 219 C372 218 380 213 380 190 Z", "white", 1.3),
     ...[291, 341].flatMap(px => [box(px, 88, 39, 94, "#fafafa", 1.3), box(px - 1, 83, 41, 5, "#dddddd", 1), box(px - 1, 178, 41, 6, "#dddddd", 1),
       ...[92, 112, 154, 174].flatMap(v => [circle(px + 3, v, 1.05, INK, .3), circle(px + 36, v, 1.05, INK, .3)])]),
-    drain(74, 340),
+    '<g data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance">',
+    `<g transform="translate(142 340) scale(-1 1)">${drain(0,0)}</g>`, "</g>",
     "</g>",
     dimH(x + 45 * s, x + 186 * s, 2.1, "791", INK, y + 83 * s),
     dimH(x + 290 * s, x + 389 * s, 2.1, "566", INK, y + 83 * s),
     dimV(y + 83 * s, y + 333 * s, 2.7, "1414", INK, x + 45 * s),
-    // Blank allowance arrow preserved, never supplied a guessed drain value.
-    dimV(y + 333 * s, 46, 2.7, null, "#858585", x + 69 * s),
+    // Owner-requested allowance from unchanged envelope bottom to drawn trap bottom.
+    '<g data-owner-allowance="trap-below-unit">',
+    dimV(y + 333 * s, y + 379.5 * s, 2.7, "150", INK, x + 142 * s), "</g>",
+  ].join("");
+}
+
+function q420Assembly() {
+  // Owner screenshot 2026-11-18: Q350/450 TR with mounting set, identified
+  // by owner as CW420. 824/566/1414 are overall envelopes, not clearances.
+  // Front, side and plan are source-shaped NTS drawings; no port coordinates inferred.
+  return [
+    '<g data-source-feature="q-cw420-front">',
+    // New owner reference supplies casing appearance only, not its CW520 dimensions.
+    '<g data-source-feature="q-sculpted-unit-face">',
+    box(7, 20, 20, 22, "#fafafa"),
+    path("M11 20 H22 Q23 20 23 21 V34 Q23 36 21 36 H13 Q11 36 11 34 Z", "white"),
+    path("M11.7 28 V33.7 Q11.7 35.2 13 35.2 H21 Q22.3 35.2 22.3 33.7 V28", "none", .13),
+    seg(7, 28, 27, 28), seg(10,24,10,42), seg(24,24,24,42),
+    path("M7 20 H11 V22 L7 26 Z", "white"),
+    path("M23 21 L27 25 V20 H23 Z", "white"),
+    '</g>',
+    '<g data-source-feature="q-condensate-trap" data-dimension-status="owner-allowance">',
+    '<g transform="translate(16 42.7) scale(-.13 .13)">', drain(0,0), '</g></g>',
+    box(17, 5, 12, 15, "#fafafa"), box(17, 4.5, 12, .8, "#ddd"), box(17, 19.5, 12, .8, "#ddd"),
+    ...[20.5,25.5].map(x => path(`M${x-2} 9 Q${x-2} 6 ${x} 6 Q${x+2} 6 ${x+2} 9 V16 Q${x+2} 19 ${x} 19 Q${x-2} 19 ${x-2} 16 Z`, "none", .2)),
+    ...[20.5,25.5].map(x => path(`M${x} 15 V11 M${x-0.7} 12 L${x} 11 L${x+0.7} 12`, "none", .3)),
+    '</g>',
+    '<g data-source-feature="q-cw420-side">',
+    box(38,20,15,22,"#fafafa"),
+    ...[38,46].map(x => box(x,5,6.5,14.5,"#fafafa")),
+    ...[38,46].map(x => box(x,4.5,6.5,.8,"#ddd")),
+    ...[38,46].map(x => path(`M${x} 20 H${x+6.5} V23 Q${x+6.5} 26 ${x+3} 26 Q${x} 26 ${x} 23 Z`, "white")),
+    '</g>',
+    dimH(7,29,2,"824",INK,4.5), dimH(38,53,2,"566",INK,4.5), dimV(4.5,42,3,"1414",INK,7),
+    '<g data-owner-allowance="trap-below-unit">', dimV(42,47.835,3,"150",INK,16), "</g>",
+    '<g data-source-feature="q-cw420-eight-port-plan">',
+    '<g transform="translate(27 0)">',
+    box(7,46,22,13,"#fafafa"),
+    ...[49,56].map(y=>circle(10,y,2.5,"white",.3)),
+    ...[46,53.5].flatMap(y=>[box(17,y,12,5.5,"#ddd",.25),...[0,1].flatMap(row=>[0,1,2,3].map(col=>`<g data-source-feature="cw420-outlet">${circle(18.5+col*3,y+1.35+row*2.7,1.15,"white",.18)}</g>`))]),
+    '</g></g>',
   ].join("");
 }
 

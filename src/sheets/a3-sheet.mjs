@@ -1,3 +1,5 @@
+import { buildAirflowProposal } from "../domain/airflow-proposal.mjs";
+import { buildCommissioningReport } from "../editor/commissioning-report.mjs";
 import { ventilationOutputView } from "../editor/ventilation-output-scope.mjs";
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import {normalizeCompanyProfile,validateLogoDataUrl} from "../persistence/company-profile.mjs";
@@ -87,11 +89,16 @@ export function createA3SheetModel(project, metadata) {
   const drawingArea=Object.freeze({xMm:printableBounds.xMm,yMm:printableBounds.yMm,widthMm:printableBounds.widthMm-TITLE_BLOCK_WIDTH_MM-(normalized.includeSchedule?DRAWING_GAP_MM:0),heightMm:printableBounds.heightMm-(normalized.includeSchedule?SCHEDULE_HEIGHT_MM+SCHEDULE_GAP_MM:0)});
   const outputProject = ventilationOutputView(sourceProject, normalized.systemScope);
   const installationDetails = selectPlanDetails(outputProject, normalized.floorId);
+  const airflowReport = normalized.systemScope === "decentralised" ? null : buildCommissioningReport(sourceProject, normalized.floorId);
+  const airflowProposal = normalized.systemScope === "decentralised" ? null : (metadata.airflowProposal ?? buildAirflowProposal(sourceProject));
+  const airflowProposalLines = airflowProposal?.lines.filter(line => line.floorId === normalized.floorId) ?? [];
+  const airflowProposalScope = {floorId: normalized.floorId, optionId: sourceProject.activeDesignOptionId, optionName: sourceProject.designOptions.find(option => option.id === sourceProject.activeDesignOptionId)?.name ?? sourceProject.activeDesignOptionId};
   const drawingBounds = drawingArea;
   const partsSchedule = createPartsSchedule(sourceProject, { floorId: normalized.floorId, systemScope: normalized.systemScope });
   const printScene = buildPrintScene(outputProject, normalized.floorId, partsSchedule);
   const fit = calculateSheetFit(printScene.modelBoundsMm, drawingBounds, {
     forceNotToScale: printScene.hasUncalibratedReference,
+    minimumDenominator: normalized.minimumScaleDenominator,
   });
   const projectJson = serializeProject(sourceProject);
   const sourceFingerprint = fnv1a32(projectJson);
@@ -106,6 +113,10 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     installationDetails,
+    airflowReport,
+    airflowProposal,
+    airflowProposalLines,
+    airflowProposalScope,
     printScene,
     partsSchedule,
     fit,
@@ -125,6 +136,10 @@ export function createA3SheetModel(project, metadata) {
     titleBlockBounds,
     legendBounds,
     installationDetails,
+    airflowReport,
+    airflowProposal,
+    airflowProposalLines,
+    airflowProposalScope,
     printScene,
     partsSchedule,
     fit,
@@ -152,7 +167,7 @@ export function calculateSheetFit(modelBoundsMm, drawingBounds, options = {}) {
   const modelWidth = Math.max(1, modelBoundsMm.maxX - modelBoundsMm.minX);
   const modelHeight = Math.max(1, modelBoundsMm.maxY - modelBoundsMm.minY);
   const requiredDenominator = Math.max(modelWidth / inner.widthMm, modelHeight / inner.heightMm);
-  const denominator = chooseScaleDenominator(requiredDenominator);
+  const denominator = chooseScaleDenominator(Math.max(requiredDenominator, options.minimumDenominator ?? 0));
   const transform = {
     scale: 1 / denominator,
     offsetX: inner.xMm + (inner.widthMm - modelWidth / denominator) / 2 - modelBoundsMm.minX / denominator,
@@ -1087,12 +1102,14 @@ function normalizeMetadata(project, metadata) {
   return {
     orientation: metadata.orientation ?? "landscape",
     includeSchedule:metadata.includeSchedule===true,
+    ...(Number.isFinite(metadata.minimumScaleDenominator) && metadata.minimumScaleDenominator > 0
+      ? { minimumScaleDenominator: metadata.minimumScaleDenominator } : {}),
     company:normalizeCompanyProfile(metadata.company),
     companyLogoDataUrl:validateLogoDataUrl(metadata.companyLogoDataUrl),
     floorId,
     systemScope: normalizeVentilationWorkspace(metadata.systemScope ?? "combined"),
     ventilationDesignType:project.ventilationDesignType,
-    ventilationDesignTypeLabel:metadata.systemScope && metadata.systemScope !== "combined" ? `${ventilationWorkspaceLabel(metadata.systemScope)} export` : ventilationProjectTypeLabel(project.ventilationDesignType),
+    ventilationDesignTypeLabel:metadata.systemScope && metadata.systemScope !== "combined" ? ventilationWorkspaceLabel(metadata.systemScope) : ventilationProjectTypeLabel(project.ventilationDesignType),
     projectName: sanitizeXmlText(metadata.projectName ?? project.projectDetails?.name, "Project name", true),
     siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
     clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),
