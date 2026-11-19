@@ -2216,6 +2216,20 @@ canvas.addEventListener("click", (event) => {
     addCalibrationPoint(event);
     return;
   }
+  if (activeTool === "room-divider" && !selectedRoomId) {
+    const { roomId, parentRoomId } = event.target.dataset ?? {};
+    const room = history.present.rooms.find(candidate => candidate.id === (roomId ?? parentRoomId) && onCurrentFloor(candidate));
+    if (room && inspectRoomBoundary(history.present, room).status === "current") {
+      selectedRoomId = room.id;
+      selectedZoneId = null;
+      interactionMessage = "";
+      render();
+    } else {
+      interactionMessage = "Click inside a confirmed room with a current boundary. Confirm or repair the room in Select first if needed.";
+      updateStatus();
+    }
+    return;
+  }
   if (activeTool === "wall" || activeTool === "room-divider") {
     addDraftPoint(event);
     return;
@@ -2270,7 +2284,7 @@ canvas.addEventListener("click", (event) => {
     selectedZoneId = null;
     selectedFloorAreaId = null;
     mechanicalState = clearMechanicalSelection(mechanicalState);
-  } else if (event.target.classList.contains("wall")) {
+  } else if (event.target.matches(".wall, .room-divider-hit")) {
     selectedWallId = event.target.dataset.wallId;
     selectedNodeId = null;
     selectedRoomId = null;
@@ -3515,17 +3529,13 @@ function setTool(tool, options = {}) {
     if (activeTask !== "plan") return;
     const selectedZone = history.present.zones.find((zone) => zone.id === selectedZoneId);
     if (selectedZone) selectedRoomId = selectedZone.parentRoomId;
-    if (!history.present.rooms.some((room) => room.id === selectedRoomId)) {
-      const currentRooms = history.present.rooms.filter(
-        (room) => onCurrentFloor(room) && inspectRoomBoundary(history.present, room).status === "current",
-      );
-      if (currentRooms.length === 1) selectedRoomId = currentRooms[0].id;
-      else {
-        interactionMessage = "Select one confirmed room before drawing its nonphysical divider";
-        updateStatus();
-        return;
-      }
+    const currentRooms = history.present.rooms.filter(
+      room => onCurrentFloor(room) && inspectRoomBoundary(history.present, room).status === "current",
+    );
+    if (!currentRooms.some(room => room.id === selectedRoomId)) {
+      selectedRoomId = currentRooms.length === 1 ? currentRooms[0].id : null;
     }
+    interactionMessage = "";
     selectedZoneId = null;
   }
   if (tool === "floor-area") {
@@ -6965,13 +6975,22 @@ function renderPass() {
     const start = displayPosition(wall.startNodeId);
     const end = displayPosition(wall.endNodeId);
     const divider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
+    const coordinates = { x1: toView(start.x), y1: toView(start.y), x2: toView(end.x), y2: toView(end.y) };
     modelLayer.append(svgElement("line", {
-      x1: toView(start.x), y1: toView(start.y), x2: toView(end.x), y2: toView(end.y),
+      ...coordinates,
       "stroke-width": divider ? 2 : Math.max(3, toView(wall.thicknessMm)),
       class: `wall${divider ? " room-divider" : ""}${activeTask === "ventilation" ? " locked-context" : ""}${selectedWallId === wall.id ? " selected" : ""}`,
       "data-wall-id": wall.id,
       "data-boundary-kind": divider ? "room-divider" : "physical-wall",
     }));
+    if (divider && activeTask === "plan" && activeTool === "select") {
+      modelLayer.append(svgElement("line", {
+        ...coordinates,
+        class: "room-divider-hit",
+        "data-wall-id": wall.id,
+        "aria-hidden": "true",
+      }));
+    }
   }
   if (activeTask === "ventilation") {
     for (const assembly of history.present.equipmentAssemblies) renderEquipmentAssemblyServiceZone(assembly);
@@ -10751,7 +10770,9 @@ function updateStatus() {
         ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · click first point to close a loop · Enter/Finish commits an open chain"
         : "Wall tool · Snap off leaves crossings disconnected · click first marker to close · Enter commits · Esc cancels"
       : isDivider
-        ? snapEnabled
+        ? !selectedRoomId
+          ? "Room Divider · click inside the confirmed room you want to divide"
+          : snapEnabled
           ? "Room Divider · endpoints and visible wall edges anchor to shared topology · Enter commits · Esc cancels"
           : "Room Divider · free placement may leave an incomplete partition · Enter commits · Esc cancels"
       : isFloorArea
