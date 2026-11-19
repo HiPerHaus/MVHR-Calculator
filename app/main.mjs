@@ -1092,11 +1092,11 @@ function openComponentContextAt(component, clientX, clientY) {
   if (!component) return;
   setTool("select");mechanicalState.selectedComponentId=component.id;render();
   componentContext.replaceChildren();
-  const action=(label,fn)=>{const button=document.createElement("button");button.type="button";button.setAttribute("role","menuitem");button.textContent=label;button.addEventListener("click",()=>{closeComponentContext();fn();});componentContext.append(button);};
-  action("Rotate 90°",()=>rotateSelectedComponent());
+  componentContext.setAttribute("aria-label", "Component actions");
+  addContextAction("Rotate 90°",()=>rotateSelectedComponent());
   const lowerFloor = history.present.floors[history.present.floors.findIndex(floor => floor.id === component.floorId) - 1];
   if (lowerFloor && component.displaySymbol?.shape === "wall-grille" && component.ports.length === 1) {
-    action(`Feed floor grille from ${lowerFloor.name} ceiling…`, () => {
+    addContextAction(`Feed floor grille from ${lowerFloor.name} ceiling…`, () => {
       selectDrawingStorey(lowerFloor.id);
       pendingFloorGrilleFeed = { componentId: component.id, floorId: lowerFloor.id };
       interactionMessage = "Click the duct connection location in the ceiling below the floor grille.";
@@ -1105,29 +1105,65 @@ function openComponentContextAt(component, clientX, clientY) {
   }
 
   if(component.mvhrDesignIntent) {
-    action("Change unit / CW size…",()=>editPlacedMvhr(component));
-    if(component.mvhrDesignIntent.model!=="generic")action("Flip Left / Right",()=>{
+    addContextAction("Change unit / CW size…",()=>editPlacedMvhr(component));
+    if(component.mvhrDesignIntent.model!=="generic")addContextAction("Flip Left / Right",()=>{
       const intent={...component.mvhrDesignIntent,handing:component.mvhrDesignIntent.handing==="left"?"right":"left"};
       const replacement=createConfiguredMvhrComponent(intent,{id:component.id,floorId:component.floorId,xMm:component.positionMm.x,yMm:component.positionMm.y});
       commitCommand({type:"component.replaceDrawingConfiguration",componentId:component.id,component:replacement},"Unit orientation flipped; attached ducts updated");render();
     });
   } else if(component.displaySymbol?.cwProfile){
-    action("Change CW size / orientation…",()=>openCw({x:component.positionMm.x,y:component.positionMm.y},false,component));
-    action("Turn end-for-end",()=>{commitCommand({type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI},"CW turned end-for-end");render();});
+    addContextAction("Change CW size / orientation…",()=>openCw({x:component.positionMm.x,y:component.positionMm.y},false,component));
+    addContextAction("Turn end-for-end",()=>{commitCommand({type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI},"CW turned end-for-end");render();});
   } else if(/external.*grille|grille.*external/.test(component.catalogueItemId??"") && component.ports.length===2){
-    action("Flip Left / Right",()=>{commitCommand({type:"component.setExternalGrilleHanding",componentId:component.id,handing:(component.externalGrilleHanding??"left")==="left"?"right":"left"},"Grille flipped; attached ducts updated");render();});
-  } else action("Turn 180°",()=>{commitCommand({type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI},"Component turned 180°");render();});
+    addContextAction("Flip Left / Right",()=>{commitCommand({type:"component.setExternalGrilleHanding",componentId:component.id,handing:(component.externalGrilleHanding??"left")==="left"?"right":"left"},"Grille flipped; attached ducts updated");render();});
+  } else addContextAction("Turn 180°",()=>{commitCommand({type:"component.rotateFloorZ",componentId:component.id,angleRad:Math.PI},"Component turned 180°");render();});
+  showContextMenu(clientX, clientY);
+}
+
+function addContextAction(label, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.setAttribute("role", "menuitem");
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    closeComponentContext();
+    onClick();
+  });
+  componentContext.append(button);
+}
+
+function showContextMenu(clientX, clientY) {
   componentContext.hidden=false;
-  componentContext.style.left=`${Math.max(0,Math.min(clientX,window.innerWidth-290))}px`;
-  componentContext.style.top=`${Math.max(0,Math.min(clientY,window.innerHeight-200))}px`;
+  const { width, height } = componentContext.getBoundingClientRect();
+  componentContext.style.left = `${Math.max(0, Math.min(clientX, window.innerWidth - width))}px`;
+  componentContext.style.top = `${Math.max(0, Math.min(clientY, window.innerHeight - height))}px`;
   componentContext.querySelector("button")?.focus();
 }
 canvas.addEventListener("contextmenu",event=>{
   const hit=mechanicalHitFromTarget(event.target);
   const component=history.present.components.find(c=>c.id===hit?.componentId);
-  if(!component)return;
+  if (component) {
+    event.preventDefault();
+    openComponentContextAt(component, event.clientX, event.clientY);
+    return;
+  }
+  if (activeTask !== "plan" || activeTool !== "select") return;
+  const { roomId, parentRoomId, zoneId } = event.target.dataset ?? {};
+  const zones = history.present.zones.filter(zone => zone.id === zoneId ||
+    zone.parentRoomId === (roomId ?? parentRoomId));
+  if (!zones.length) return;
   event.preventDefault();
-  openComponentContextAt(component,event.clientX,event.clientY);
+  componentContext.replaceChildren();
+  componentContext.setAttribute("aria-label", "Room and zone actions");
+  for (const zone of zones) {
+    addContextAction(`Reassign zone boundary · ${zone.name}`, () => {
+      selectedRoomId = zone.parentRoomId;
+      selectedZoneId = zone.id;
+      selectedWallId = selectedNodeId = selectedFloorAreaId = null;
+      beginRoomReassignment();
+    });
+  }
+  showContextMenu(event.clientX, event.clientY);
 });
 tabletMoreActions.addEventListener("click", () => {
   const component = history.present.components.find((candidate) => candidate.id === mechanicalState.selectedComponentId);
@@ -5112,6 +5148,11 @@ function handleRoomCanvasClick(event) {
   if (zoneBoundaryKey && parentRoomId) {
     if (reassignZoneId) {
       const zoneIdToAssign = reassignZoneId;
+      if (!history.present.zones.some(zone => zone.id === zoneIdToAssign && zone.parentRoomId === parentRoomId)) {
+        interactionMessage = "Choose a shaded face within the selected zone’s parent room.";
+        updateStatus();
+        return;
+      }
       if (commitCommand({
         type: "zone.assignBoundary",
         zoneId: zoneIdToAssign,
@@ -5304,9 +5345,14 @@ function applyRoomDialog(event) {
     roomDialogError.textContent = error instanceof Error ? error.message : "Airflow target is invalid.";
     return;
   }
+  const saveSpace = (command, message) => {
+    if (commitCommand(command, message)) return true;
+    roomDialogError.textContent = interactionMessage;
+    return false;
+  };
   if (editingZoneId) {
     const zoneId = editingZoneId;
-    if (commitCommand({
+    if (saveSpace({
       type: "zone.updateMetadata",
       zoneId,
       name,
@@ -5323,7 +5369,7 @@ function applyRoomDialog(event) {
   }
   if (editingRoomId) {
     const roomId = editingRoomId;
-    if (commitCommand({
+    if (saveSpace({
       type: "room.updateMetadata",
       roomId,
       name,
@@ -5339,8 +5385,9 @@ function applyRoomDialog(event) {
     return;
   }
   if (pendingZoneBoundaryKey && pendingZoneParentRoomId) {
+    zoneIdentityCounter = Math.max(zoneIdentityCounter, nextZoneIdentityCounter(history.present));
     const zoneId = `zone-local-${zoneIdentityCounter}`;
-    if (commitCommand({
+    if (saveSpace({
       type: "zone.createFromBoundary",
       zoneId,
       parentRoomId: pendingZoneParentRoomId,
@@ -5364,7 +5411,7 @@ function applyRoomDialog(event) {
     return;
   }
   const roomId = `room-local-${roomIdentityCounter}`;
-  if (commitCommand({
+  if (saveSpace({
     type: "room.createFromBoundary",
     roomId,
     floorId: currentFloorId(),
@@ -7276,7 +7323,7 @@ function renderRooms() {
         unassignedZoneFaces += 1;
         roomLayer.append(svgElement("polygon", {
           points: candidate.polygon.map((point) => `${toView(point.x)},${toView(point.y)}`).join(" "),
-          class: `zone-candidate${reassignZoneId ? " reassign-target" : ""}`,
+          class: `zone-candidate${history.present.zones.some(zone => zone.id === reassignZoneId && zone.parentRoomId === room.id) ? " reassign-target" : ""}`,
           "data-zone-boundary-key": candidate.key,
           "data-parent-room-id": room.id,
           "aria-label": `Eligible ventilation zone, ${formatArea(candidate.areaMm2)}`,

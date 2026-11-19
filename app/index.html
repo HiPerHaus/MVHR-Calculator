@@ -953,84 +953,86 @@
     <dialog id="room-dialog" class="wide-dialog" aria-labelledby="room-dialog-title">
       <form id="room-form">
         <h2 id="room-dialog-title">Confirm room</h2>
-        <p id="room-boundary-summary"></p>
-        <label id="room-name-label">Room name
-          <input id="room-name" maxlength="120" autocomplete="off" placeholder="e.g. Kitchen / Dining" required />
-        </label>
-        <label id="room-use-label">Room use
-          <select id="room-use" required>
-            <option value="unspecified">Unspecified</option>
-            <option value="living">Living</option>
-            <option value="kitchen">Kitchen</option>
-            <option value="dining">Dining</option>
-            <option value="living-dining">Living / Dining</option>
-            <option value="kitchen-dining">Kitchen / Dining</option>
-            <option value="butlers-pantry">Butler’s Pantry</option>
-            <option value="pantry">Pantry</option>
-            <option value="bedroom">Bedroom</option>
-            <option value="study">Study</option>
-            <option value="bathroom">Bathroom</option>
-            <option value="ensuite">Ensuite</option>
-            <option value="wc">WC</option>
-            <option value="laundry">Laundry</option>
-            <option value="hallway">Hallway</option>
-            <option value="storage">Storage</option>
-            <option value="wir">WIR</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label id="room-role-label">MVHR room role
-          <select id="room-ventilation-role" required>
-            <option value="unassigned">Unassigned</option>
-            <option value="supply">Supply</option>
-            <option value="extract">Extract</option>
-            <option value="transfer">Transfer</option>
-            <option value="none">None</option>
-          </select>
-          <small>This is explicit design metadata only; no airflow rate is inferred.</small>
-        </label>
-        <fieldset class="airflow-targets-fieldset">
-          <legend>Normal airflow targets</legend>
-          <p>Required and assigned airflow remain separate. Blank values stay unresolved.</p>
-          <div class="airflow-target-grid">
-            <strong>Required flow</strong>
-            <label>Value
-              <input id="room-required-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
-            </label>
-            <label>Unit
-              <select id="room-required-airflow-unit">
-                <option value="l/s">L/s</option>
-                <option value="m3/h">m³/h</option>
-              </select>
-            </label>
-            <label>Basis
-              <input id="room-required-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
-            </label>
-            <label>Source
-              <input id="room-required-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
-            </label>
-          </div>
-          <button id="adopt-required-airflow" type="button">Use required as assigned</button>
-          <div class="airflow-target-grid">
-            <strong>Assigned designer target</strong>
-            <label>Value
-              <input id="room-assigned-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
-            </label>
-            <label>Unit
-              <select id="room-assigned-airflow-unit">
-                <option value="l/s">L/s</option>
-                <option value="m3/h">m³/h</option>
-              </select>
-            </label>
-            <label>Basis
-              <input id="room-assigned-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
-            </label>
-            <label>Source
-              <input id="room-assigned-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
-            </label>
-          </div>
-          <small>Supply/extract totals are arithmetic only. No rate, tolerance, compliance result or terminal split is inferred.</small>
-        </fieldset>
+        <div class="room-dialog-fields">
+          <p id="room-boundary-summary"></p>
+          <label id="room-name-label">Room name
+            <input id="room-name" maxlength="120" autocomplete="off" placeholder="e.g. Kitchen / Dining" required />
+          </label>
+          <label id="room-use-label">Room use
+            <select id="room-use" required>
+              <option value="unspecified">Unspecified</option>
+              <option value="living">Living</option>
+              <option value="kitchen">Kitchen</option>
+              <option value="dining">Dining</option>
+              <option value="living-dining">Living / Dining</option>
+              <option value="kitchen-dining">Kitchen / Dining</option>
+              <option value="butlers-pantry">Butler’s Pantry</option>
+              <option value="pantry">Pantry</option>
+              <option value="bedroom">Bedroom</option>
+              <option value="study">Study</option>
+              <option value="bathroom">Bathroom</option>
+              <option value="ensuite">Ensuite</option>
+              <option value="wc">WC</option>
+              <option value="laundry">Laundry</option>
+              <option value="hallway">Hallway</option>
+              <option value="storage">Storage</option>
+              <option value="wir">WIR</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label id="room-role-label">MVHR room role
+            <select id="room-ventilation-role" required>
+              <option value="unassigned">Unassigned</option>
+              <option value="supply">Supply</option>
+              <option value="extract">Extract</option>
+              <option value="transfer">Transfer</option>
+              <option value="none">None</option>
+            </select>
+            <small>This is explicit design metadata only; no airflow rate is inferred.</small>
+          </label>
+          <fieldset class="airflow-targets-fieldset">
+            <legend>Normal airflow targets</legend>
+            <p>Required and assigned airflow remain separate. Blank values stay unresolved.</p>
+            <div class="airflow-target-grid">
+              <strong>Required flow</strong>
+              <label>Value
+                <input id="room-required-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
+              </label>
+              <label>Unit
+                <select id="room-required-airflow-unit">
+                  <option value="l/s">L/s</option>
+                  <option value="m3/h">m³/h</option>
+                </select>
+              </label>
+              <label>Basis
+                <input id="room-required-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
+              </label>
+              <label>Source
+                <input id="room-required-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
+              </label>
+            </div>
+            <button id="adopt-required-airflow" type="button">Use required as assigned</button>
+            <div class="airflow-target-grid">
+              <strong>Assigned designer target</strong>
+              <label>Value
+                <input id="room-assigned-airflow" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Unresolved" />
+              </label>
+              <label>Unit
+                <select id="room-assigned-airflow-unit">
+                  <option value="l/s">L/s</option>
+                  <option value="m3/h">m³/h</option>
+                </select>
+              </label>
+              <label>Basis
+                <input id="room-assigned-airflow-basis" maxlength="500" placeholder="Required when a value is entered" />
+              </label>
+              <label>Source
+                <input id="room-assigned-airflow-source" maxlength="500" placeholder="Required when a value is entered" />
+              </label>
+            </div>
+            <small>Supply/extract totals are arithmetic only. No rate, tolerance, compliance result or terminal split is inferred.</small>
+          </fieldset>
+        </div>
         <p id="room-dialog-error" class="dialog-error" role="alert"></p>
         <div class="dialog-actions">
           <button id="cancel-room" type="button">Cancel</button>
