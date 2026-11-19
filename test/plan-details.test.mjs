@@ -168,7 +168,7 @@ test("engineering page includes only conceptual insulation and explicit project 
   assert.equal(pages[1].kind,"installation-details");
   assert.match(pages[1].svg,/Project material, thickness, R-value and vapour-control detail: not specified./);
   assert.match(pages[1].svg,/concept-not-project-specification/);
-  assert.match(pages[1].svg,/No matching central unit/);
+  assert.match(pages[1].svg,/Use the outlet details as a guide when planning this floor/);
   assert.doesNotMatch(pages[1].svg.replaceAll(/data:image\/jpeg;base64,[^"]+/g, ""),/R[0-9]|R-value[:=] ?[0-9]/);
 });
 
@@ -312,6 +312,8 @@ test("Q450 CW520 placement exports the shared mounting detail and distinct Q450 
     const engineering = pages.find(page => page.kind === "installation-details").svg;
     for (const dimension of [924, 566, 1414, 250]) assert.match(engineering, new RegExp(`data-dimension="${dimension}"`));
     assert.match(engineering, /10 outlets per CW manifold/);
+    assert.match(engineering, /250 mm below the unit for the condensate trap/);
+    assert.match(engineering.replace(/<[^>]*>/g, " "), /250 mm above the unit and 50 mm on each side/);
     assert.match(pages.filter(page => page.kind === "parts-list").map(page => page.svg).join(""), new RegExp(`ZEN-Q450${type.toUpperCase()}`));
   }
 });

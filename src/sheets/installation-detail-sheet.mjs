@@ -84,7 +84,7 @@ function referenceCard(card, number, b, includeControls = false) {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
     "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", cupboardClearances],
-    "q-cw520": [`${card.widthMm} W × ${card.depthMm} D × ${card.heightMm} H overall assembly. ${card.outletsPerManifold} outlets per CW manifold.`, `${card.drainAllowanceMm} mm below the unit for the condensate trap. Confirm service clearances separately.`],
+    "q-cw520": [`${card.widthMm} W × ${card.depthMm} D × ${card.heightMm} H overall assembly. ${card.outletsPerManifold} outlets per CW manifold.`, `${card.drainAllowanceMm} mm below the unit for the condensate trap.`, card.cupboardClearanceNote],
     "q-cw320": ["Dimensions shown are the external dimensions of the unit.", cupboardClearances],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],
@@ -125,14 +125,13 @@ function insulationCard(b) {
 
 function coordinationCard(details, b, includeQElectrical = false) {
   const messages = [
-    ...(details.unmatchedComponentIds.length ? [`${details.unmatchedComponentIds.length} other unit(s) on this floor: no supplied assembly matches. Obtain the exact model, mounting and CW arrangement drawing.`] : []),
-    ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["No matching central unit on this floor. Terminal sections are general references."] : []),
-    "Confirm access, supports, condensate arrangement and manufacturer installation requirements.",
-    ...(details.hasQ && !includeQElectrical ? ["See Q-series electrical reference; verify current model instructions."] : []),
+    ...(details.unmatchedComponentIds.length ? [`Confirm the mounting and duct connection details for any unit without a matching detail on this sheet.`] : []),
+    ...(details.cards.some(c => c.id === "equipment-notes") && !details.unmatchedComponentIds.length ? ["Use the outlet details as a guide when planning this floor."] : []),
+    "Confirm equipment and installation specifications with the installer before site works begin.",
+    ...(details.hasQ && !includeQElectrical ? ["See the Q-series electrical reference and confirm wiring for the selected model."] : []),
     ...(details.hasAeroFresh ? AEROFRESH_CONTROLS : []),
-    "Use the current model-specific manufacturer wiring diagram.",
-    "Source: owner-supplied installation drawings. Schematics are references only and do not change model geometry or parts quantities.",
-    "Project insulation specification is not supplied. This sheet is preliminary, not installation approval.",
+    "Allow space for the unit, ducts and outlets during planning and construction. Keep filters and service points accessible.",
+    "Coordinate duct routes, supports, insulation, power and condensate drainage with the relevant trades before walls and ceilings are closed.",
   ];
   if (includeQElectrical) {
     const gap = 4;

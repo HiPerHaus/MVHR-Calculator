@@ -13,7 +13,7 @@ export const PLAN_DETAIL_REFERENCES = Object.freeze({
   wall: Object.freeze({ id: "wall-housing", source: "owner-terminal-housings-2026-11-09", title: "Wall / floor / bulkhead", horizontalMm: 120, innerVerticalMm: 115, overallVerticalMm: 140, spigotMm: 90 }),
   q320: Object.freeze({ id: "q-cw320", source: "owner-q350-q450-cw320-2026-11-09", title: "Q350 / Q450 + CW320", widthMm: 791, depthMm: 566, heightMm: 1414, drainAllowanceMm: null }),
   q420: Object.freeze({ id: "q-cw420", source: "owner-q350-q450-cw420-2026-11-18", sourceDate: "2026-11-18", title: "Q350 / Q450 + CW420 (8 port)", widthMm: 824, depthMm: 566, heightMm: 1414, drainAllowanceMm: null, outletsPerManifold: 8 }),
-  q520: Object.freeze({ id: "q-cw520", source: "owner-q350-q450-cw520-2026-11-19", sourceDate: "2026-11-19", title: "Q350 / Q450 + CW520", widthMm: cw520.widthMm, depthMm: cw520.depthMm, heightMm: cw520.heightMm, drainAllowanceMm: cw520.drainAllowanceBelowMm, outletsPerManifold: cw520.branchCount }),
+  q520: Object.freeze({ id: "q-cw520", source: "owner-q350-q450-cw520-2026-11-19", sourceDate: "2026-11-19", title: "Q350 / Q450 + CW520", widthMm: cw520.widthMm, depthMm: cw520.depthMm, heightMm: cw520.heightMm, drainAllowanceMm: cw520.drainAllowanceBelowMm, outletsPerManifold: cw520.branchCount, cupboardClearanceNote: "Allow 250 mm above the unit and 50 mm on each side in cupboards." }),
   af520: Object.freeze({ id: "af-cw520", source: "owner-aerofresh-450-600-cw520-2026-11-09", title: "AeroFresh 450 / 600 + CW520", widthMm: 870, depthMm: 650, heightMm: 1400, drainAllowanceMm: 150, suggestedCabinetryMm: 700 }),
   af300: Object.freeze({ id: "af300-remote", source: "owner-aerofresh-300-layout-2026-11-17", title: "AeroFresh 300 · installation layout", widthMm: 660, depthMm: 470, heightMm: 760, drainAllowanceMm: 150 }),
 });
@@ -107,7 +107,7 @@ function renderCard(card, details) {
   } else if (card.id === "q-cw320" || card.id === "q-cw420" || card.id === "q-cw520" || card.id === "af-cw520") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
     const notes = card.id === "q-cw520"
-      ? ["250 mm below unit for condensate trap.", "Confirm service clearances separately."]
+      ? [`${card.drainAllowanceMm} mm below the unit for the condensate trap.`, card.cupboardClearanceNote]
       : card.id === "q-cw420"
       ? ["8 outlets per CW manifold.", "Overall envelope only. Service/drain clearances and wiring not specified."]
       : card.id === "q-cw320"

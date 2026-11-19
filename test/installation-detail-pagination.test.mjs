@@ -77,7 +77,9 @@ test('Q electrical source occupies its own Electrical panel, never shrunk into a
   const plain=svg.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
   assert.match(plain,/Q350 — 10 A GPO; Q450 \/ Q600 — 15 A GPO/);
   assert.match(plain,/AeroFresh 300 \/ 450 \/ 600 controls reference/);
-  assert.match(plain,/Project insulation specification is not supplied/);
+  assert.match(plain,/Confirm equipment and installation specifications with the installer before site works begin/);
+  assert.match(plain,/Allow space for the unit, ducts and outlets during planning and construction/);
+  assert.match(plain,/before walls and ceilings are closed/);
   assert.match(plain,/Boost \/ momentary switches: low-voltage 2-core cable/);
   const output=createSheetOutputPages(sheet);assert.ok(output.every(page=>page.kind!=='q-series-electrical'));
  }

@@ -1324,7 +1324,7 @@ The owner subsequently requested removal of the detailed provisional-method/evid
 
 The Q450 sensible and enthalpy selections reuse the Q350 handed drawing layout and keep their own Q450 product codes. The shared layout describes drawing connections. The exact local manufacturer article remains unverified. German BIM records retain their article-specific connections.
 
-The owner-supplied Q350/Q450 TR CW520 reference is shown for upright, unit-mounted CW520 selections. Its front and side elevations show an overall assembly of 924 mm wide, 566 mm deep and 1414 mm high, with 250 mm below the unit for the condensate trap. Service clearances require separate confirmation.
+The owner-supplied Q350/Q450 TR CW520 reference is shown for upright, unit-mounted CW520 selections. Its front and side elevations show an overall assembly of 924 mm wide, 566 mm deep and 1414 mm high, with 250 mm below the unit for the condensate trap. The owner also specifies cupboard clearances of 250 mm above the unit and 50 mm on each side.
 
 ## 2026-11-19 – A3 plan export fit
 
