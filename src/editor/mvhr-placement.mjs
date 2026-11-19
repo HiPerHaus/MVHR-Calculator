@@ -13,7 +13,7 @@ export function createConfiguredMvhrComponent(selection, placement) {
   if (!["horizontal", "vertical"].includes(mounting)) throw new TypeError("Choose horizontal or vertical mounting");
   const aerofresh300 = model === "aerofresh-300-hrv" || model === "aerofresh-300-erv";
   if (aerofresh300 && layout === "unit-mounted-cw") throw new TypeError("Aerofresh 300 is remote only");
-  if (!aerofresh300 && !["generic", "ca200", "q350-hrv", "q350-erv", "q350-de-hrv", "q350-de-erv", "q450-de-hrv", "q450-de-erv", "aerofresh-450-hrv", "aerofresh-450-erv"].includes(model)) throw new TypeError("Unsupported MVHR model");
+  if (!aerofresh300 && !["generic", "ca200", "q350-hrv", "q350-erv", "q450-hrv", "q450-erv", "q350-de-hrv", "q350-de-erv", "q450-de-hrv", "q450-de-erv", "aerofresh-450-hrv", "aerofresh-450-erv"].includes(model)) throw new TypeError("Unsupported MVHR model");
   if (!["left", "right"].includes(handing)) throw new TypeError("Choose left or right handing");
   if (!Object.hasOwn(MVHR_LAYOUTS, layout)) throw new TypeError("Choose an MVHR layout");
   if (mounting === "horizontal" && !["generic","ca200"].includes(model)) throw new TypeError("A horizontal manufacturer profile is not available");
@@ -30,7 +30,7 @@ export function createConfiguredMvhrComponent(selection, placement) {
   const component = createCatalogueComponent(recordId, placement);
   const cwSize = selection.cwSize ?? (aerofresh ? "520" : "320");
   if (layout === "unit-mounted-cw" && !["320", "420", "520", "625"].includes(cwSize)) throw new TypeError("Choose a supported CW size");
-  if (layout === "unit-mounted-cw" && model === "generic") throw new TypeError("Mounted CW symbols currently require a handed Q350 profile");
+  if (layout === "unit-mounted-cw" && model === "generic") throw new TypeError("Mounted CW symbols currently require a handed Q-series drawing profile");
   component.mvhrDesignIntent = {
     version: 1, mounting, model, handing: model === "generic" ? null : handing, layout,
     ...(layout === "unit-mounted-cw" ? { cwSize } : {}),

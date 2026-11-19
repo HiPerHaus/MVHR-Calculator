@@ -976,7 +976,7 @@ function updateMvhrPreview() {
     : aerofresh300 ? `Aerofresh 300 ${mvhrHanding.value}-hand · 660 × 443 × 760 mm · four DN125 drawing connections. Side-to-centre setout is provisional.${mvhrHanding.value === "left" ? " Left-hand port roles are provisional. Verify against the unit before installation." : ""} Place attenuators and ComfoWell remotely.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
     : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
-    : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
+    : `${mvhrModel.value.startsWith("q450") ? "Q450" : "Q350"} drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
 }
 mvhrForm.addEventListener("change", updateMvhrPreview);
 document.querySelector("#cancel-mvhr-placement").addEventListener("click", () => mvhrDialog.close("cancel"));
@@ -8654,7 +8654,7 @@ function renderCataloguePalette() {
     ...["vertical", "horizontal"].map((mounting) => ({
       id: `mvhr-${mounting}`, group: "Units", category: "mvhr-placement", mounting,
       name: `${mounting === "vertical" ? "Vertical" : "Horizontal"} MVHR`,
-      searchTerms: "CA200 ComfoAir 200 Q350 Zehnder Aerofresh 450 HRV ERV CW ComfoWell attenuators", placeable: true,
+      searchTerms: "CA200 ComfoAir 200 Q350 Q450 Zehnder Aerofresh 450 HRV ERV CW ComfoWell attenuators", placeable: true,
     })),
     ...["round", "rectangular"].map(shape => ({
       id: `terminal-${shape}`, group: "Terminals", terminalSection:"Internal", category: "terminal-placement", terminalShape: shape,
@@ -8882,7 +8882,7 @@ function renderRoutingWorkflow() {
 function renderRouteGuidance() {
   if (activeTool !== "route" || !mechanicalState.ductKind) {
     routeGuidance.classList.remove("active");
-    routeGuidance.textContent = "Use rigid EPP DN160 between the generic HRV and each remote main, then semi-rigid DN90 from each radial branch to an outlet. A handed Q350 profile may use DN160 for drawing topology only; installation fit remains unverified. Click one free labelled port, then a matching free port.";
+    routeGuidance.textContent = "Use rigid EPP DN160 between the generic HRV and each remote main, then semi-rigid DN90 from each radial branch to an outlet. A handed Q350 or Q450 drawing profile may use DN160 for drawing topology only; installation fit remains unverified. Click one free labelled port, then a matching free port.";
     return;
   }
   const family = routeFamilyForKind(mechanicalState.ductKind);

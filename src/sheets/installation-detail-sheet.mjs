@@ -70,7 +70,7 @@ export function renderInstallationDetailSheetSvg(sheet, { pageNumber = 2, totalP
   }
   }
   if (details.unmatchedComponentIds.length) out.push(text(15, height - 21, `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required. Verify exact model, mounting and CW arrangement.`, 2.5));
-  out.push(text(15, height - 14, "Owner reference drawings supplied 09, 17 and 18 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
+  out.push(text(15, height - 14, "Owner reference drawings supplied 09 and 17–19 Nov 2026. Confirm current manufacturer instructions and exact arrangement.", 2.5),
     text(12, height - 4, m.status, 2.5),
     text(width - 12, height - 4, `Page ${pageNumber} of ${totalPageCount} · A3`, 2.5, 'text-anchor="end" data-output-page-number="true"'), "</svg>");
   return out.join("");
@@ -84,6 +84,7 @@ function referenceCard(card, number, b, includeControls = false) {
     "ceiling-tva": ["128 horizontal × 140 vertical (mm).", "Finished body flush with plasterboard face. Leave proud at first fix; trim after plastering.", "Source section dimensions only. Not a cutout specification."],
     "wall-housing": ["120 mm housing depth to framing face.", "115 mm housing height. 140 mm grille height in section.", "Ø90 duct spigot. Confirm the cutout separately."],
     "q-cw420": ["824 W × 566 D × 1414 H overall assembly. 8 outlets per CW manifold.", cupboardClearances],
+    "q-cw520": [`${card.widthMm} W × ${card.depthMm} D × ${card.heightMm} H overall assembly. ${card.outletsPerManifold} outlets per CW manifold.`, `${card.drainAllowanceMm} mm below the unit for the condensate trap. Confirm service clearances separately.`],
     "q-cw320": ["Dimensions shown are the external dimensions of the unit.", cupboardClearances],
     "af-cw520": ["Assembly envelope + 150 drain. Source suggests 700 cabinetry; not service clearance.", "See AeroFresh controls reference."],
     "af300-remote": ["470 depth includes wall bracket allowance.", "Provide a 40 mm waste connection for condensate."],

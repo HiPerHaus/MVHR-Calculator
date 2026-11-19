@@ -10,7 +10,7 @@ export function mountedCwDrawingLayout(component){
   if(component.mvhrDesignIntent?.layout!=="unit-mounted-cw")return null;
   const record=component.catalogueItemId??component.catalogueSnapshot?.recordId??component.id;
   const aero=record?.startsWith("aerofresh-450");
-  if(!aero && !/^zehnder-q350-/.test(record??""))return null;
+  if(!aero && !/^zehnder-q(?:350-|450-(?:hrv|erv)-(?:left|right)-drawing-profile$)/u.test(record??""))return null;
   const size=component.mvhrDesignIntent.cwSize??(aero?"520":"320"),base=MOUNTED_CW_DIMENSIONS[size];
   if(!base)return null;
   const symbol=component.displaySymbol??component.symbol??component.catalogueSnapshot?.symbol;

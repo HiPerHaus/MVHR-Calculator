@@ -1,3 +1,5 @@
+import { MOUNTED_CW_DIMENSIONS } from "../domain/mounted-cw-drawing-connections.mjs";
+
 // Source-shaped vector illustrations from the five owner reference screenshots
 // reviewed 2026-11-09. These are not product models or electrical instructions.
 // Drawing geometry is pictorial; only the labelled source dimensions are values.
@@ -10,6 +12,7 @@ export function renderInstallReferenceIllustration(id) {
     "wall-housing": wallHousing,
     "q-cw320": qAssembly,
     "q-cw420": q420Assembly,
+    "q-cw520": q520Assembly,
     "af-cw520": aeroFreshAssembly,
     "af300-remote": remoteAssembly,
   }[id];
@@ -117,7 +120,6 @@ function q420Assembly() {
   // Front, side and plan are source-shaped NTS drawings; no port coordinates inferred.
   return [
     '<g data-source-feature="q-cw420-front">',
-    // New owner reference supplies casing appearance only, not its CW520 dimensions.
     '<g data-source-feature="q-sculpted-unit-face">',
     box(7, 20, 20, 22, "#fafafa"),
     path("M11 20 H22 Q23 20 23 21 V34 Q23 36 21 36 H13 Q11 36 11 34 Z", "white"),
@@ -146,6 +148,41 @@ function q420Assembly() {
     ...[49,56].map(y=>circle(10,y,2.5,"white",.3)),
     ...[46,53.5].flatMap(y=>[box(17,y,12,5.5,"#ddd",.25),...[0,1].flatMap(row=>[0,1,2,3].map(col=>`<g data-source-feature="cw420-outlet">${circle(18.5+col*3,y+1.35+row*2.7,1.15,"white",.18)}</g>`))]),
     '</g></g>',
+  ].join("");
+}
+
+function q520Assembly() {
+  const { widthMm, depthMm, heightMm, drainAllowanceBelowMm } = MOUNTED_CW_DIMENSIONS["520"];
+  return [
+    '<g data-source-feature="q-cw520-front">',
+    box(6.7, 20, 20.2, 23.5, "#fafafa"),
+    path("M9.6 20 H22 Q23 20 23 21.2 V36 Q23 37.7 21.2 37.7 H12 Q9.6 37.7 9.6 36 Z", "white"),
+    path("M10.4 28.5 V35.4 Q10.4 36.8 12 36.8 H21 Q22.2 36.8 22.2 35.4 V28.5", "none", .14),
+    seg(6.7, 28.5, 26.9, 28.5),
+    path("M6 19.7 H11 L6.7 25.3 Q6 24 6 19.7 Z", "#eee"),
+    path("M22.7 20 H28 V23.5 Q28 24.7 27 25.5 Z", "#eee"),
+    box(17.2, 5, 14.7, 14.7, "#fafafa"),
+    box(17, 4.5, 15, .7, "#ddd"), box(17, 19.3, 15, .7, "#ddd"),
+    ...[21.5, 27.6].flatMap(x => [
+      path(`M${x-2.6} 9.5 Q${x-2.6} 6.6 ${x} 6.6 Q${x+2.6} 6.6 ${x+2.6} 9.5 V15 Q${x+2.6} 18.2 ${x} 18.2 Q${x-2.6} 18.2 ${x-2.6} 15 Z`, "white"),
+      path(`M${x} 14 V11.5 M${x-.65} 12.4 L${x} 11.5 L${x+.65} 12.4`, "none", .28),
+      ...[9, 11, 14, 16].flatMap(y => [circle(x-2.4, y, .12, INK, .08), circle(x+2.4, y, .12, INK, .08)]),
+    ]),
+    '<g data-source-feature="q-condensate-trap">',
+    path("M13.3 43.5 V47 Q13.3 49.8 11.3 49.8 Q9.8 49.8 9.8 47 H6.8", "none", 1.05, INK),
+    '</g></g>',
+    '<g data-source-feature="q-cw520-side">',
+    box(40, 20, 15.6, 23.5, "#fafafa"),
+    ...[40, 48.2].flatMap(x => [
+      box(x, 5, 7.4, 14.8, "#fafafa"),
+      box(x, 4.5, 7.4, .7, "#ddd"), box(x, 19.3, 7.4, .7, "#ddd"),
+      path(`M${x} 20 H${x+7.4} V23 Q${x+7.4} 25.5 ${x+3.7} 25.5 Q${x} 25.5 ${x} 23 Z`, "white"),
+    ]),
+    seg(40, 26, 55.6, 26),
+    '</g>',
+    dimH(6, 32, 2, widthMm, INK, 4.5), dimH(40, 55.6, 2, depthMm, INK, 4.5),
+    dimV(4.5, 43.5, 2.2, heightMm, INK, 6),
+    dimV(43.5, 50.4, 2.2, drainAllowanceBelowMm, INK, 6.8),
   ].join("");
 }
 

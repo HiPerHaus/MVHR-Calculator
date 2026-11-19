@@ -36,15 +36,15 @@ test("terminal dimensions belong to matching fittings on the separate sheet with
   assert.equal(serializeProject(project),before);
 });
 
-test("only exact mounted Q/CW320, Q/CW420 and AF/CW520 combinations receive the supplied envelopes", () => {
-  const pairs = [["q350-hrv","420","q-cw420"],["q350-hrv","320","q-cw320"],["q350-erv","320","q-cw320"],["aerofresh-450-hrv","520","af-cw520"],["aerofresh-450-erv","520","af-cw520"]];
+test("only exact mounted Q/CW320, Q/CW420, Q/CW520 and AF/CW520 combinations receive the supplied envelopes", () => {
+  const pairs = [["q350-hrv","520","q-cw520"],["q450-hrv","520","q-cw520"],["q450-erv","520","q-cw520"],["q350-hrv","420","q-cw420"],["q350-hrv","320","q-cw320"],["q350-erv","320","q-cw320"],["aerofresh-450-hrv","520","af-cw520"],["aerofresh-450-erv","520","af-cw520"]];
   for (const [model,cwSize,key] of pairs) {
     const details = selectPlanDetails(unit(fixture(),model,cwSize),"ground");
     assert.ok(ids(details).includes(key));
     assert.equal(details.unmatchedComponentIds.length,0);
   }
   for (const model of ["q350-hrv","aerofresh-450-hrv"]) for (const cwSize of ["320","420","520","625"]) {
-    if ((model==="q350-hrv"&&["320","420"].includes(cwSize)) || (model==="aerofresh-450-hrv"&&cwSize==="520")) continue;
+    if ((model==="q350-hrv"&&["320","420","520"].includes(cwSize)) || (model==="aerofresh-450-hrv"&&cwSize==="520")) continue;
     const details = selectPlanDetails(unit(fixture(),model,cwSize),"ground");
     assert.deepEqual(ids(details),["ceiling-tva","wall-housing","equipment-notes"]);
     assert.equal(details.unmatchedComponentIds.length,1);
@@ -298,4 +298,20 @@ test("Q casing reference adds a schematic trap without importing alternate CW520
   }
   assert.match(renderInstallReferenceIllustration("q-cw420"),/data-source-feature="q-sculpted-unit-face"/);
   assert.equal((renderInstallReferenceIllustration("q-cw420").match(/data-source-feature="cw420-outlet"/g)||[]).length,16);
+});
+
+test("Q450 CW520 placement exports the shared mounting detail and distinct Q450 parts", () => {
+  for (const type of ["hrv", "erv"]) {
+    const project = unit(fixture(), `q450-${type}`, "520");
+    const component = project.components[0];
+    assert.equal(component.ports.filter(port => port.interface.nominalSizeMm === 90).length, 20);
+    const sheet = createA3SheetModel(project, metadata);
+    const detail = sheet.installationDetails.cards.find(card => card.id === "q-cw520");
+    assert.deepEqual([detail.widthMm, detail.depthMm, detail.heightMm, detail.drainAllowanceMm], [924, 566, 1414, 250]);
+    const pages = createSheetOutputPages(sheet);
+    const engineering = pages.find(page => page.kind === "installation-details").svg;
+    for (const dimension of [924, 566, 1414, 250]) assert.match(engineering, new RegExp(`data-dimension="${dimension}"`));
+    assert.match(engineering, /10 outlets per CW manifold/);
+    assert.match(pages.filter(page => page.kind === "parts-list").map(page => page.svg).join(""), new RegExp(`ZEN-Q450${type.toUpperCase()}`));
+  }
 });

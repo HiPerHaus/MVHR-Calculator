@@ -1,7 +1,9 @@
+import { MOUNTED_CW_DIMENSIONS } from "../domain/mounted-cw-drawing-connections.mjs";
 import { renderInstallReferenceIllustration } from "./install-reference-illustrations.mjs";
 
 // Drawing references are annotations only, never equipment geometry or quantities.
 // Measurements transcribed from owner-supplied drawings reviewed 2026-11-09.
+const cw520 = MOUNTED_CW_DIMENSIONS["520"];
 const SOURCE_DATE = "2026-11-09";
 const CARD_HEIGHT_MM = 88;
 const GAP_MM = 3;
@@ -11,6 +13,7 @@ export const PLAN_DETAIL_REFERENCES = Object.freeze({
   wall: Object.freeze({ id: "wall-housing", source: "owner-terminal-housings-2026-11-09", title: "Wall / floor / bulkhead", horizontalMm: 120, innerVerticalMm: 115, overallVerticalMm: 140, spigotMm: 90 }),
   q320: Object.freeze({ id: "q-cw320", source: "owner-q350-q450-cw320-2026-11-09", title: "Q350 / Q450 + CW320", widthMm: 791, depthMm: 566, heightMm: 1414, drainAllowanceMm: null }),
   q420: Object.freeze({ id: "q-cw420", source: "owner-q350-q450-cw420-2026-11-18", sourceDate: "2026-11-18", title: "Q350 / Q450 + CW420 (8 port)", widthMm: 824, depthMm: 566, heightMm: 1414, drainAllowanceMm: null, outletsPerManifold: 8 }),
+  q520: Object.freeze({ id: "q-cw520", source: "owner-q350-q450-cw520-2026-11-19", sourceDate: "2026-11-19", title: "Q350 / Q450 + CW520", widthMm: cw520.widthMm, depthMm: cw520.depthMm, heightMm: cw520.heightMm, drainAllowanceMm: cw520.drainAllowanceBelowMm, outletsPerManifold: cw520.branchCount }),
   af520: Object.freeze({ id: "af-cw520", source: "owner-aerofresh-450-600-cw520-2026-11-09", title: "AeroFresh 450 / 600 + CW520", widthMm: 870, depthMm: 650, heightMm: 1400, drainAllowanceMm: 150, suggestedCabinetryMm: 700 }),
   af300: Object.freeze({ id: "af300-remote", source: "owner-aerofresh-300-layout-2026-11-17", title: "AeroFresh 300 · installation layout", widthMm: 660, depthMm: 470, heightMm: 760, drainAllowanceMm: 150 }),
 });
@@ -36,7 +39,7 @@ export function selectPlanDetails(project, floorId) {
     const upright = intent?.mounting === "vertical";
     if (upright && intent?.layout === "unit-mounted-cw") {
       // Only owner-identified mounted TR combinations; no German BIM or alternate mounting inference.
-      if (/^zehnder-q(350|450)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && ["320", "420"].includes(intent.cwSize)) detail = intent.cwSize === "420" ? PLAN_DETAIL_REFERENCES.q420 : PLAN_DETAIL_REFERENCES.q320;
+      if (/^zehnder-q(350|450)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record)) detail = { "320": PLAN_DETAIL_REFERENCES.q320, "420": PLAN_DETAIL_REFERENCES.q420, "520": PLAN_DETAIL_REFERENCES.q520 }[intent.cwSize];
       if (/^aerofresh-(450|600)-(hrv|erv)-(left|right)-drawing-profile$/u.test(record) && intent.cwSize === "520") detail = PLAN_DETAIL_REFERENCES.af520;
     }
     if (/^aerofresh-300-(hrv|erv)(?:-(?:left|right))?(?:-drawing-profile)?$/u.test(record) && (!intent?.mounting || upright)) detail = PLAN_DETAIL_REFERENCES.af300;
@@ -47,7 +50,7 @@ export function selectPlanDetails(project, floorId) {
       unmatched.push(component.id);
     }
   }
-  const equipment = [PLAN_DETAIL_REFERENCES.q320, PLAN_DETAIL_REFERENCES.q420, PLAN_DETAIL_REFERENCES.af520, PLAN_DETAIL_REFERENCES.af300]
+  const equipment = [PLAN_DETAIL_REFERENCES.q320, PLAN_DETAIL_REFERENCES.q420, PLAN_DETAIL_REFERENCES.q520, PLAN_DETAIL_REFERENCES.af520, PLAN_DETAIL_REFERENCES.af300]
     .flatMap(detail => matches.has(detail.id) ? [matches.get(detail.id)] : []);
   return {
     sourceDate: SOURCE_DATE,
@@ -80,7 +83,7 @@ export function renderPlanDetails(details) {
     text(b.xMm + 1, b.yMm + 4.5, "INSTALLATION REFERENCES · dimensions in mm · schematics NTS", 2.8, 'font-weight="700"')];
   for (const card of details.cards) out.push(renderCard(card, details));
   const footer = details.unmatchedComponentIds.length
-    ? `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required.${details.hasQ && !details.cards.some(card => ["q-cw320", "q-cw420"].includes(card.id)) ? " See Q-series electrical reference; verify current model instructions." : " Verify exact model, CW and arrangement."}`
+    ? `${details.unmatchedComponentIds.length} other unit(s): matching assembly reference required.${details.hasQ && !details.cards.some(card => ["q-cw320", "q-cw420", "q-cw520"].includes(card.id)) ? " See Q-series electrical reference; verify current model instructions." : " Verify exact model, CW and arrangement."}`
     : "Assembly envelopes exclude service clearances. Confirm the current manufacturer instructions before installation.";
   out.push(text(b.xMm + 1, b.yMm + b.heightMm - 1, footer, 2.5), "</g>");
   return out.join("");
@@ -101,9 +104,11 @@ function renderCard(card, details) {
     out.push(text(b.xMm + 3, b.yMm + 9, "AeroFresh grille housing", 2.5));
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
     out.push(paragraphs(["90 mm duct spigot.", "120 mm housing depth to framing face. 115 mm housing height. 140 mm grille height in section. Confirm cutout separately."], b, top + 55));
-  } else if (card.id === "q-cw320" || card.id === "q-cw420" || card.id === "af-cw520") {
+  } else if (card.id === "q-cw320" || card.id === "q-cw420" || card.id === "q-cw520" || card.id === "af-cw520") {
     out.push(`<g transform="translate(${centre - 29} ${top})">`, renderInstallReferenceIllustration(card.id), "</g>");
-    const notes = card.id === "q-cw420"
+    const notes = card.id === "q-cw520"
+      ? ["250 mm below unit for condensate trap.", "Confirm service clearances separately."]
+      : card.id === "q-cw420"
       ? ["8 outlets per CW manifold.", "Overall envelope only. Service/drain clearances and wiring not specified."]
       : card.id === "q-cw320"
       ? ["Drain space: not dimensioned.", "See Q-series electrical reference. Verify current model instructions."]

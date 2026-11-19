@@ -1319,3 +1319,13 @@ At the owner's request, omit the separate LIVE DESIGN AIRFLOWS pages from export
 ### Follow-up — chart-only airflow export
 
 The owner subsequently requested removal of the detailed provisional-method/evidence continuation pages. Export now retains only room-chart pages, with essential provisional, capacity, area-basis, profile and unknown-value labels. Detailed assumptions/checks remain in the existing on-screen workflow and domain report. Room names wrap without truncation, and table-height pagination preserves every room in larger schedules. Other export page types are unchanged.
+
+## 2026-11-19 – Zehnder Q450 selection and CW520 installation reference
+
+The Q450 sensible and enthalpy selections reuse the Q350 handed drawing layout and keep their own Q450 product codes. The shared layout describes drawing connections. The exact local manufacturer article remains unverified. German BIM records retain their article-specific connections.
+
+The owner-supplied Q350/Q450 TR CW520 reference is shown for upright, unit-mounted CW520 selections. Its front and side elevations show an overall assembly of 924 mm wide, 566 mm deep and 1414 mm high, with 250 mm below the unit for the condensate trap. Service clearances require separate confirmation.
+
+## 2026-11-19 – A3 plan export fit
+
+Fit the full visible plan to its printable drawing area, rounding the required scale denominator up to the next tenth for the title block. Calibrated storeys in the same design option use the largest common scale that fits them all. The 6 mm drawing inset leaves room for printed linework and symbols.

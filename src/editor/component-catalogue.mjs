@@ -318,13 +318,17 @@ export const COMPONENT_CATALOGUE = deepFreeze([
   }),
   qSetoutRecord("zehnder-q350-hrv-setout", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2"),
   qSetoutRecord("zehnder-q350-erv-setout", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3"),
-  q350DrawingProfileRecord("zehnder-q350-hrv-left-drawing-profile", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2", "471502110", "left"),
-  q350DrawingProfileRecord("zehnder-q350-hrv-right-drawing-profile", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2", "471502110", "right"),
-  q350DrawingProfileRecord("zehnder-q350-erv-left-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "left"),
-  q350DrawingProfileRecord("zehnder-q350-erv-right-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "right"),
+  qDrawingProfileRecord("zehnder-q350-hrv-left-drawing-profile", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2", "471502110", "left"),
+  qDrawingProfileRecord("zehnder-q350-hrv-right-drawing-profile", "ZEN-Q350HRV", "ComfoAir Q350 TR - sensible", "Price List!A2:C2", "471502110", "right"),
+  qDrawingProfileRecord("zehnder-q350-erv-left-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "left"),
+  qDrawingProfileRecord("zehnder-q350-erv-right-drawing-profile", "ZEN-Q350ERV", "ComfoAir Q350 TR - enthalpy", "Price List!A3:C3", "471502111", "right"),
   ...["hrv", "erv"].flatMap((type) => ["left", "right"].map((handing) => qDeBimProfileRecord("350", type, handing))),
   qSetoutRecord("zehnder-q450-hrv-setout", "ZEN-Q450HRV", "ComfoAir Q450 TR - sensible", "Price List!A4:C4"),
   qSetoutRecord("zehnder-q450-erv-setout", "ZEN-Q450ERV", "ComfoAir Q450 TR - enthalpy", "Price List!A5:C5"),
+  ...["left", "right"].flatMap(handing => [
+    qDrawingProfileRecord(`zehnder-q450-hrv-${handing}-drawing-profile`, "ZEN-Q450HRV", "ComfoAir Q450 TR - sensible", "Price List!A4:C4", null, handing),
+    qDrawingProfileRecord(`zehnder-q450-erv-${handing}-drawing-profile`, "ZEN-Q450ERV", "ComfoAir Q450 TR - enthalpy", "Price List!A5:C5", null, handing),
+  ]),
   ...["hrv", "erv"].flatMap((type) => ["left", "right"].map((handing) => qDeBimProfileRecord("450", type, handing))),
   ...remoteAssemblyRecords("supply", "Dwelling supply"),
   ...remoteAssemblyRecords("extract", "Dwelling extract"),
@@ -754,7 +758,7 @@ function qSetoutRecord(id, productId, name, identifierLocator) {
   });
 }
 
-function q350DrawingProfileRecord(id, productId, name, identifierLocator, manufacturerArticle, handing) {
+function qDrawingProfileRecord(id, productId, name, identifierLocator, manufacturerArticle, handing) {
   const isLeft = handing === "left";
   const portDefinitions = isLeft
     ? [
@@ -781,7 +785,7 @@ function q350DrawingProfileRecord(id, productId, name, identifierLocator, manufa
     source: {
       identifier: { ...INTERNAL_IDENTIFIER_SOURCE, locator: identifierLocator },
       geometry: Q_SET_OUT_SOURCE,
-      manufacturerTechnical: Q350_TECHNICAL_SOURCE,
+      ...(manufacturerArticle ? { manufacturerTechnical: Q350_TECHNICAL_SOURCE } : {}),
     },
     manufacturerArticleCandidate: manufacturerArticle,
     localSkuCrosswalkStatus: "unverified",
@@ -815,7 +819,9 @@ function q350DrawingProfileRecord(id, productId, name, identifierLocator, manufa
       installationCompatibilityStatus: "unverified",
       note: "Port centres and roles support explicit drawing topology. Matching nominal DN160 does not approve a physical joint, adapter, seal, support or installation arrangement.",
     },
-    note: "Placeable handed drawing profile. The manufacturer article is source-backed, but its crosswalk to the local catalogue code and all physical installation compatibility remain unverified.",
+    note: manufacturerArticle
+      ? "Placeable handed drawing profile. The manufacturer article is source-backed, but its crosswalk to the local catalogue code and all physical installation compatibility remain unverified."
+      : "Uses the owner-confirmed shared Q350/Q450 drawing layout. Exact manufacturer article and physical installation compatibility remain unverified.",
   });
 }
 

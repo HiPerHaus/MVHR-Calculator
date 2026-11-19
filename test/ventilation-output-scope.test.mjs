@@ -24,7 +24,7 @@ function fixture() {
   p = applyCommand(p, { type: "engineering.setNetworkDesign", design: createEngineeringNetworkDraft(p, "upper").design });
   return p;
 }
-const makeSheet = (p, option, { systemScope = "combined" } = {}) => createA3SheetModel(p, { floorId: "upper", systemScope, orientation: "landscape", projectName: "QA", drawingTitle: `${option.name} ${systemScope}`, drawingId: "V-QA", issueDate: "2026-11-11", revision: option.revision, revisionText: "Working", status: "Preliminary — not for construction" });
+const makeSheet = (p, option, { systemScope = "combined", floorId = "upper", minimumScaleDenominator } = {}) => createA3SheetModel(p, { floorId, systemScope, minimumScaleDenominator, orientation: "landscape", projectName: "QA", drawingTitle: `${option.name} ${systemScope}`, drawingId: "V-QA", issueDate: "2026-11-11", revision: option.revision, revisionText: "Working", status: "Preliminary — not for construction" });
 const componentIds = sheet => sheet.componentLines.flatMap(row => row.componentIds).sort();
 
 test("each system has exactly its model components, cables, ducts and allowances; Combined is their union", () => {
@@ -80,15 +80,15 @@ test("all options scope independently, details contain no other system, and keys
   const before = serializeProject(p);
   const byScope = Object.fromEntries(["centralised", "decentralised", "combined"].map(systemScope => [systemScope, createDesignOptionOutput(p, { optionId: null, systemScope, createSheet: makeSheet })]));
   for (const [scope, output] of Object.entries(byScope)) {
-    assert.equal(output.entries.length, 2);
-    assert.equal(output.entries[1].sheet.printScene.components.length, 0);
+    assert.equal(output.entries.length, 4);
+    assert.ok(output.entries.filter(entry => entry.option.id === "empty").every(entry => entry.sheet.printScene.components.length === 0));
     assert.ok(output.pages.every(page => page.systemScope === scope));
-    assert.equal(output.pages.filter(page => page.kind === "drawing").length, 2);
+    assert.equal(output.pages.filter(page => page.kind === "drawing").length, 4);
   }
   const decDetails = byScope.decentralised.pages.find(page => page.kind === "installation-details").svg;
   assert.match(decDetails, /DECENTRALISED INSTALLATION DETAILS/);
   assert.doesNotMatch(decDetails, /data-illustration|data-detail-id="q-cw320"|128 horizontal|Ducts within thermal envelope/);
-  assert.match(byScope.centralised.pages[1].svg, /data-detail-id="q-cw320"/);
+  assert.match(byScope.centralised.pages.find(page => page.kind === "installation-details" && page.floorId === "upper").svg, /data-detail-id="q-cw320"/);
   assert.notEqual(byScope.centralised.pages[0].pageKey, byScope.decentralised.pages[0].pageKey);
   assert.equal(serializeProject(p), before);
 });
