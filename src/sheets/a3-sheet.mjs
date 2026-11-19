@@ -59,9 +59,6 @@ const SCHEDULE_HEIGHT_MM = 82;
 const DRAWING_PADDING_MM = 6;
 const MAX_LEGEND_ITEMS = 20;
 const MAX_SHEET_SCHEDULE_LINES = 14;
-const STANDARD_SCALE_DENOMINATORS = Object.freeze([
-  1, 2, 5, 10, 20, 25, 40, 50, 60, 75, 100, 125, 150, 200, 250, 400, 500, 750, 1000, 1500, 2000, 2500, 5000, 10000,
-]);
 
 export function a3PageBounds(orientation = "landscape") {
   if (orientation !== "landscape" && orientation !== "portrait") {
@@ -167,7 +164,8 @@ export function calculateSheetFit(modelBoundsMm, drawingBounds, options = {}) {
   const modelWidth = Math.max(1, modelBoundsMm.maxX - modelBoundsMm.minX);
   const modelHeight = Math.max(1, modelBoundsMm.maxY - modelBoundsMm.minY);
   const requiredDenominator = Math.max(modelWidth / inner.widthMm, modelHeight / inner.heightMm);
-  const denominator = chooseScaleDenominator(Math.max(requiredDenominator, options.minimumDenominator ?? 0));
+  // Round up so the printed ratio is readable and the full drawing fits.
+  const denominator = Math.max(Math.ceil(requiredDenominator * 10) / 10, options.minimumDenominator ?? 0);
   const transform = {
     scale: 1 / denominator,
     offsetX: inner.xMm + (inner.widthMm - modelWidth / denominator) / 2 - modelBoundsMm.minX / denominator,
@@ -1131,13 +1129,6 @@ function validateSheetModel(sheet) {
   if (!sheet.printScene || !sheet.fit || !sheet.metadata || !sheet.partsSchedule || !sheet.scheduleBounds) {
     throw new TypeError("Sheet model is incomplete");
   }
-}
-
-function chooseScaleDenominator(required) {
-  for (const denominator of STANDARD_SCALE_DENOMINATORS) {
-    if (denominator + 1e-9 >= required) return denominator;
-  }
-  return Math.ceil(required / 10000) * 10000;
 }
 
 function routeBounds(route) {

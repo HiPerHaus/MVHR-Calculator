@@ -17,6 +17,7 @@ import {
   knownMm,
   unknownMm,
 } from "../src/domain/spatial.mjs";
+import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
 import { createSyntheticComponent } from "../src/editor/synthetic-catalogue.mjs";
 import { createCatalogueComponent } from "../src/editor/component-catalogue.mjs";
 import { createEquipmentAssembly } from "../src/editor/equipment-assemblies.mjs";
@@ -55,16 +56,33 @@ test("A3 output hides the legacy synthetic floor sentinel without rewriting save
   assert.match(svg, /Ground Floor/);
 });
 
-test("a known ten-metre wall derives a numeric 1:40 sheet scale from model millimetres", () => {
-  const sheet = createA3SheetModel(projectWithWall(10000), metadata());
-  assert.equal(sheet.page.orientation, "landscape");
+test("a known ten-metre wall fills the available plan width at its printed scale", () => {
+  const sheet = createA3SheetModel(projectWithWall(10000), metadata({ includeSchedule: false }));
   assert.equal(sheet.fit.kind, "numeric");
-  assert.equal(sheet.fit.label, "1:40");
-  assert.equal(sheet.fit.denominator, 40);
-  assert.equal(sheet.fit.modelMmPerSheetMm, 40);
-  const projectedLengthMm = 10000 * sheet.fit.transform.scale;
-  assert.equal(projectedLengthMm, 250);
-  assert.ok(projectedLengthMm <= sheet.fit.innerBounds.widthMm);
+  assert.equal(sheet.fit.label, `1:${sheet.fit.denominator}`);
+  const { modelBoundsMm, innerBounds, modelMmPerSheetMm, transform } = sheet.fit;
+  const printedWidth = (modelBoundsMm.maxX - modelBoundsMm.minX) * transform.scale;
+  assert.ok(printedWidth <= innerBounds.widthMm);
+  assert.ok(printedWidth > innerBounds.widthMm * 0.995);
+  assert.equal(transform.scale, 1 / modelMmPerSheetMm);
+});
+
+test("export fits each storey at the largest shared calibrated scale", () => {
+  let project = addReference(projectWithWall(10000), { calibrated: true });
+  project = applyCommand(project, { type: "floor.add", floor: {
+    id: "upper", name: "Upper", transform: {
+      translationMm: { x: 0, y: 0, z: knownMm(3000, "test") }, orientation: identityQuaternion(),
+    },
+  } });
+  project = addWall(project, 5000, "upper");
+  const createSheet = (optionProject, _option, context) =>
+    createA3SheetModel(optionProject, metadata({ ...context, includeSchedule: false }));
+  const { entries } = createDesignOptionOutput(project, { createSheet });
+  const [ground, upper] = entries.map(entry => entry.sheet);
+  const standaloneUpper = createSheet(project, null, { floorId: "upper" });
+  assert.equal(ground.fit.denominator, upper.fit.denominator);
+  assert.equal(ground.fit.transform.scale, upper.fit.transform.scale);
+  assert.ok(upper.fit.denominator > standaloneUpper.fit.denominator);
 });
 
 test("uncalibrated input forces an explicit NTS sheet without a numeric scale claim", () => {
@@ -234,7 +252,6 @@ test("A3 shares the provisional CW-inspired assembly graphic for supply, extract
   const sheet = createA3SheetModel(project, metadata());
   const graphics = sheet.printScene.components.map((component) => component.planGraphic);
   assert.equal(graphics.length, 6);
-  assert.equal(sheet.fit.label, "1:40");
   assert.deepEqual(graphics.slice(0, 3).map((graphic) => [graphic.widthMm, graphic.depthMm]), [
     [51, 336], [500, 320], [41, 336],
   ]);
@@ -254,7 +271,7 @@ test("A3 shares the provisional CW-inspired assembly graphic for supply, extract
   assert.doesNotMatch(svg, /6×DN90 PLATE/);
   assert.match(svg, /data-generic-cw-service="supply"/);
   assert.match(svg, /data-generic-cw-service="extract"/);
-  assert.match(svg, /<g transform="scale\(0\.025\)"><rect[^>]*width="500" height="320"/);
+  assert.ok(svg.includes(`<g transform="scale(${formatNumber(sheet.fit.transform.scale)})"><rect x="-250" y="-160" width="500" height="320"`));
   assert.match(svg, /rotate\(180\)/);
 });
 
@@ -387,9 +404,9 @@ test("a calibrated PNG uses its saved model transform in the clipped print scene
   const project = addReference(projectWithFloor(), { calibrated: true, translationX: 500, translationY: 1000 });
   const sheet = createA3SheetModel(project, metadata());
   const svg = renderA3SheetSvg(sheet);
-  assert.equal(sheet.fit.label, "1:40");
   assert.match(svg, /data-calibration="calibrated"/);
-  assert.match(svg, /transform="matrix\(0\.25 0 0 0\.25 /);
+  const imageScale = formatNumber(10 * sheet.fit.transform.scale);
+  assert.ok(svg.includes(`transform="matrix(${imageScale} 0 0 ${imageScale} `));
   assert.match(svg, /data-kind="reference"/);
 });
 
@@ -456,11 +473,16 @@ function projectWithFloor() {
 }
 
 function projectWithWall(lengthMm) {
-  return applyCommand(projectWithFloor(), {
+  return addWall(projectWithFloor(), lengthMm);
+}
+
+function addWall(project, lengthMm, floorId = "floor-ground") {
+  const suffix = floorId === "floor-ground" ? "" : `-${floorId}`;
+  return applyCommand(project, {
     type: "wall.addChain",
-    floorId: "floor-ground",
-    nodeIds: ["node-a", "node-b"],
-    wallIds: ["wall-a"],
+    floorId,
+    nodeIds: [`node-a${suffix}`, `node-b${suffix}`],
+    wallIds: [`wall-a${suffix}`],
     points: [
       { x: 0, y: 0, z: unknownMm("not set") },
       { x: lengthMm, y: 0, z: unknownMm("not set") },

@@ -976,7 +976,7 @@ function updateMvhrPreview() {
     : aerofresh300 ? `Aerofresh 300 ${mvhrHanding.value}-hand · 660 × 443 × 760 mm · four DN125 drawing connections. Side-to-centre setout is provisional.${mvhrHanding.value === "left" ? " Left-hand port roles are provisional. Verify against the unit before installation." : ""} Place attenuators and ComfoWell remotely.${accessoryNote}`
     : aerofresh ? `Aerofresh 450, manufacturer ${mvhrHanding.value}-hand orientation. Body: 728 × 608 × 881 mm from reviewed manual/brochure. Unit spigots suit 160 mm EPP, as confirmed by you. No reducers added.${accessoryNote}`
     : germanBim ? `${mvhrModel.value.startsWith("q350") ? "Q350" : "Q450"} TR German BIM, ${mvhrHanding.value}-hand. Exact article identity, IFC4 solid and four connector placements are retained. This is not an export/Australian SKU crosswalk; CW mating and installation clearance remain unverified.${mvhrModel.value.startsWith("q450") ? " The IFC carries conflicting diameter text, so this exact record stays DN180/200 and will not auto-connect to DN160." : ""}${accessoryNote}`
-    : `Q350 drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
+    : `${mvhrModel.value.startsWith("q450") ? "Q450" : "Q350"} drawing profile: 725 × 570 mm body, supply/extract on the ${mvhrHanding.value}. Installation fit and service clearance remain unverified.${accessoryNote}`;
 }
 mvhrForm.addEventListener("change", updateMvhrPreview);
 document.querySelector("#cancel-mvhr-placement").addEventListener("click", () => mvhrDialog.close("cancel"));
@@ -2216,6 +2216,20 @@ canvas.addEventListener("click", (event) => {
     addCalibrationPoint(event);
     return;
   }
+  if (activeTool === "room-divider" && !selectedRoomId) {
+    const { roomId, parentRoomId } = event.target.dataset ?? {};
+    const room = history.present.rooms.find(candidate => candidate.id === (roomId ?? parentRoomId) && onCurrentFloor(candidate));
+    if (room && inspectRoomBoundary(history.present, room).status === "current") {
+      selectedRoomId = room.id;
+      selectedZoneId = null;
+      interactionMessage = "";
+      render();
+    } else {
+      interactionMessage = "Click inside a confirmed room with a current boundary. Confirm or repair the room in Select first if needed.";
+      updateStatus();
+    }
+    return;
+  }
   if (activeTool === "wall" || activeTool === "room-divider") {
     addDraftPoint(event);
     return;
@@ -2270,7 +2284,7 @@ canvas.addEventListener("click", (event) => {
     selectedZoneId = null;
     selectedFloorAreaId = null;
     mechanicalState = clearMechanicalSelection(mechanicalState);
-  } else if (event.target.classList.contains("wall")) {
+  } else if (event.target.matches(".wall, .room-divider-hit")) {
     selectedWallId = event.target.dataset.wallId;
     selectedNodeId = null;
     selectedRoomId = null;
@@ -3515,17 +3529,13 @@ function setTool(tool, options = {}) {
     if (activeTask !== "plan") return;
     const selectedZone = history.present.zones.find((zone) => zone.id === selectedZoneId);
     if (selectedZone) selectedRoomId = selectedZone.parentRoomId;
-    if (!history.present.rooms.some((room) => room.id === selectedRoomId)) {
-      const currentRooms = history.present.rooms.filter(
-        (room) => onCurrentFloor(room) && inspectRoomBoundary(history.present, room).status === "current",
-      );
-      if (currentRooms.length === 1) selectedRoomId = currentRooms[0].id;
-      else {
-        interactionMessage = "Select one confirmed room before drawing its nonphysical divider";
-        updateStatus();
-        return;
-      }
+    const currentRooms = history.present.rooms.filter(
+      room => onCurrentFloor(room) && inspectRoomBoundary(history.present, room).status === "current",
+    );
+    if (!currentRooms.some(room => room.id === selectedRoomId)) {
+      selectedRoomId = currentRooms.length === 1 ? currentRooms[0].id : null;
     }
+    interactionMessage = "";
     selectedZoneId = null;
   }
   if (tool === "floor-area") {
@@ -6965,13 +6975,22 @@ function renderPass() {
     const start = displayPosition(wall.startNodeId);
     const end = displayPosition(wall.endNodeId);
     const divider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
+    const coordinates = { x1: toView(start.x), y1: toView(start.y), x2: toView(end.x), y2: toView(end.y) };
     modelLayer.append(svgElement("line", {
-      x1: toView(start.x), y1: toView(start.y), x2: toView(end.x), y2: toView(end.y),
+      ...coordinates,
       "stroke-width": divider ? 2 : Math.max(3, toView(wall.thicknessMm)),
       class: `wall${divider ? " room-divider" : ""}${activeTask === "ventilation" ? " locked-context" : ""}${selectedWallId === wall.id ? " selected" : ""}`,
       "data-wall-id": wall.id,
       "data-boundary-kind": divider ? "room-divider" : "physical-wall",
     }));
+    if (divider && activeTask === "plan" && activeTool === "select") {
+      modelLayer.append(svgElement("line", {
+        ...coordinates,
+        class: "room-divider-hit",
+        "data-wall-id": wall.id,
+        "aria-hidden": "true",
+      }));
+    }
   }
   if (activeTask === "ventilation") {
     for (const assembly of history.present.equipmentAssemblies) renderEquipmentAssemblyServiceZone(assembly);
@@ -8654,7 +8673,7 @@ function renderCataloguePalette() {
     ...["vertical", "horizontal"].map((mounting) => ({
       id: `mvhr-${mounting}`, group: "Units", category: "mvhr-placement", mounting,
       name: `${mounting === "vertical" ? "Vertical" : "Horizontal"} MVHR`,
-      searchTerms: "CA200 ComfoAir 200 Q350 Zehnder Aerofresh 450 HRV ERV CW ComfoWell attenuators", placeable: true,
+      searchTerms: "CA200 ComfoAir 200 Q350 Q450 Zehnder Aerofresh 450 HRV ERV CW ComfoWell attenuators", placeable: true,
     })),
     ...["round", "rectangular"].map(shape => ({
       id: `terminal-${shape}`, group: "Terminals", terminalSection:"Internal", category: "terminal-placement", terminalShape: shape,
@@ -8882,7 +8901,7 @@ function renderRoutingWorkflow() {
 function renderRouteGuidance() {
   if (activeTool !== "route" || !mechanicalState.ductKind) {
     routeGuidance.classList.remove("active");
-    routeGuidance.textContent = "Use rigid EPP DN160 between the generic HRV and each remote main, then semi-rigid DN90 from each radial branch to an outlet. A handed Q350 profile may use DN160 for drawing topology only; installation fit remains unverified. Click one free labelled port, then a matching free port.";
+    routeGuidance.textContent = "Use rigid EPP DN160 between the generic HRV and each remote main, then semi-rigid DN90 from each radial branch to an outlet. A handed Q350 or Q450 drawing profile may use DN160 for drawing topology only; installation fit remains unverified. Click one free labelled port, then a matching free port.";
     return;
   }
   const family = routeFamilyForKind(mechanicalState.ductKind);
@@ -10751,7 +10770,9 @@ function updateStatus() {
         ? "Wall tool · Snap on joins endpoints, wall hits and true crossings · click first point to close a loop · Enter/Finish commits an open chain"
         : "Wall tool · Snap off leaves crossings disconnected · click first marker to close · Enter commits · Esc cancels"
       : isDivider
-        ? snapEnabled
+        ? !selectedRoomId
+          ? "Room Divider · click inside the confirmed room you want to divide"
+          : snapEnabled
           ? "Room Divider · endpoints and visible wall edges anchor to shared topology · Enter commits · Esc cancels"
           : "Room Divider · free placement may leave an incomplete partition · Enter commits · Esc cancels"
       : isFloorArea

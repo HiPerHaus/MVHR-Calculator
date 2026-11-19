@@ -7,13 +7,13 @@ import {PLAN_DETAIL_REFERENCES} from '../src/sheets/plan-details.mjs';
 import {createInstallationDetailPages,renderInstallationDetailSheetSvg} from '../src/sheets/installation-detail-sheet.mjs';
 import {createSheetOutputPages,selectSheetOutputPages} from '../src/sheets/sheet-output.mjs';
 import {createDesignOptionOutput} from '../src/sheets/design-option-output.mjs';
-const equipment=['q-cw320','q-cw420','af-cw520','af300-remote'];
+const equipment=['q-cw320','q-cw420','q-cw520','af-cw520','af300-remote'];
 function project(){return applyCommand(createProject('detail-pagination'),{type:'floor.add',floor:{id:'ground',name:'Ground',transform:{translationMm:{x:0,y:0,z:knownMm(0,'test')},orientation:identityQuaternion()}}});}
 function sheetFor(p,orientation='landscape',floorId='ground'){
  const sheet=createA3SheetModel(p,{floorId,orientation,includeSchedule:false,projectName:'Detail pagination',drawingTitle:'Installation reference',drawingId:'V-01',revision:'A',revisionText:'Test',status:'Preliminary — not for construction',issueDate:'2026-11-18'});
  return {...sheet,installationDetails:{...sheet.installationDetails,cards:Object.values(PLAN_DETAIL_REFERENCES).map(card=>({...card})),hasQ:true,hasAeroFresh:true,unmatchedComponentIds:[]}};
 }
-test('four equipment references paginate three per sheet without overflowing A3 landscape or portrait cards',()=>{
+test('five equipment references paginate three per sheet without overflowing A3 landscape or portrait cards',()=>{
  for(const orientation of ['landscape','portrait']){
   const sheet=sheetFor(project(),orientation),pages=createInstallationDetailPages(sheet,{firstPageNumber:4,totalPageCount:9});
   assert.equal(pages.length,2);const seen=[];
@@ -36,7 +36,7 @@ test('four equipment references paginate three per sheet without overflowing A3 
   assert.match(combined,/824 W × 566 D × 1414 H/);assert.match(combined,/8 outlets per CW manifold/);
   assert.match(combined,/Dimensions shown are the external dimensions of the unit/);
   assert.equal([...combined.matchAll(/Allow 150 mm below the unit for the trap, 50 mm on each side in cupboards and 200 mm above/g)].length, 2);
-  assert.doesNotMatch(combined,/Owner allowances/);assert.match(combined,/09, 17 and 18 Nov 2026/);
+  assert.doesNotMatch(combined,/Owner allowances/);assert.match(combined,/09 and 17–19 Nov 2026/);
  }
 });
 test('detail pagination offsets airflow and parts pages and selected-page numbering',()=>{
@@ -53,15 +53,15 @@ test('multi-floor multi-option detail pages have unique identities and continuou
  const result=createDesignOptionOutput(p,{optionId:null,createSheet:(project,_option,{floorId})=>sheetFor(project,'landscape',floorId)});
  assert.equal(result.pages.filter(page=>page.kind==='q-series-electrical').length,0);
  assert.equal(result.pages.filter(page=>/data-role="q-electrical-source"/.test(page.svg)).length,4);
- assert.equal(result.entries.length,4);assert.equal(result.pages.filter(page=>page.kind==='installation-details').length,8);
+ assert.equal(result.entries.length,4);assert.equal(result.pages.filter(page=>page.kind==='installation-details').length,12);
  assert.equal(new Set(result.pages.map(page=>page.pageKey)).size,result.pages.length);
  for(const [index,page]of result.pages.entries()){assert.equal(page.pageNumber,index+1);assert.match(page.svg,new RegExp(`Page ${index+1} of ${result.pages.length}`));}
- for(const option of p.designOptions)for(const floor of p.floors){const details=result.pages.filter(page=>page.optionId===option.id&&page.floorId===floor.id&&page.kind==='installation-details');assert.deepEqual(details.map(page=>page.installationPageNumber),[1,2]);}
+ for(const option of p.designOptions)for(const floor of p.floors){const details=result.pages.filter(page=>page.optionId===option.id&&page.floorId===floor.id&&page.kind==='installation-details');assert.deepEqual(details.map(page=>page.installationPageNumber),[1,2,3]);}
 });
 
 
 test('Q electrical source occupies its own Electrical panel, never shrunk into a one-column card',()=>{
- for(const orientation of ['landscape','portrait'])for(const count of [0,1,2,3,4]){
+ for(const orientation of ['landscape','portrait'])for(const count of [0,1,2,3,4,5]){
   const base=sheetFor(project(),orientation);
   const sheet={...base,installationDetails:{...base.installationDetails,qElectricalModels:['Q350','Q450','Q600'],cards:base.installationDetails.cards.filter(card=>!equipment.includes(card.id)).concat(base.installationDetails.cards.filter(card=>equipment.includes(card.id)).slice(0,count))}};
   const pages=createInstallationDetailPages(sheet),svgs=pages.map(page=>renderInstallationDetailSheetSvg(sheet,page));
@@ -77,7 +77,9 @@ test('Q electrical source occupies its own Electrical panel, never shrunk into a
   const plain=svg.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
   assert.match(plain,/Q350 — 10 A GPO; Q450 \/ Q600 — 15 A GPO/);
   assert.match(plain,/AeroFresh 300 \/ 450 \/ 600 controls reference/);
-  assert.match(plain,/Project insulation specification is not supplied/);
+  assert.match(plain,/Confirm equipment and installation specifications with the installer before site works begin/);
+  assert.match(plain,/Allow space for the unit, ducts and outlets during planning and construction/);
+  assert.match(plain,/before walls and ceilings are closed/);
   assert.match(plain,/Boost \/ momentary switches: low-voltage 2-core cable/);
   const output=createSheetOutputPages(sheet);assert.ok(output.every(page=>page.kind!=='q-series-electrical'));
  }
