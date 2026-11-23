@@ -237,6 +237,8 @@ test("portable export and open preserve source bytes, checksum, transforms, and 
   assert.deepEqual(opened.project, project);
   assert.equal(opened.authorityRestored, false);
   assert.equal(opened.migration.migrated, false);
+  assert.equal(opened.migration.fromSchemaVersion, 29);
+  assert.equal(opened.migration.toSchemaVersion, 29);
   assert.equal(opened.project.referenceAssets[0].fileName, "synthetic-reference-plan.png");
   assert.equal(opened.project.walls[0].heightMm.state, "unknown");
 });

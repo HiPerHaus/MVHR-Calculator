@@ -1,3 +1,4 @@
+import {SCHEMA_VERSION} from "../src/domain/spatial.mjs";
 import {createSyntheticComponent} from '../src/editor/synthetic-catalogue.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -162,16 +163,16 @@ test('profile selection is option-scoped, undoable and does not alter manual tar
  p=applyCommand(p,{type:'designOption.switch',optionId:original});assert.equal(buildAirflowProposal(p).profile,phppProfile);assert.deepEqual(p.rooms[0].airflowTargets,target);
 });
 
-test('schema 28 migrates to 29 without altering legacy settings, targets, readings or saved snapshot data',()=>{
+test('schema 28 loads into the current model without altering legacy settings, targets, readings or saved snapshot data',()=>{
  let p=fixture();p=settings(p,{basis:'occupancy',personRateM3h:25,lowFactor:.75,boostFactor:1.25});delete p.airflowProposalSettingsByOption[p.activeDesignOptionId].profile;
  const target=structuredClone(p.rooms[0].airflowTargets);target.normal.assigned=airflowTargetFromInput(14,'l/s','Manual','Before migration');
  p=applyCommand(p,{type:'room.updateMetadata',roomId:p.rooms[0].id,name:p.rooms[0].name,use:p.rooms[0].use,ventilationRole:'supply',airflowTargets:target});
  p=applyCommand(p,{type:'commissioning.recordMeasurement',spaceId:p.rooms[0].id,measuredLps:13,setting:'Keep',notes:'Original evidence',recordedAt:'2026-11-18'});
  const legacy=structuredClone(p);legacy.schemaVersion=28;const originalJson=JSON.stringify(legacy),reopened=deserializeProject(originalJson);
- assert.equal(reopened.schemaVersion,29);assert.deepEqual({...reopened,schemaVersion:28},legacy);assert.equal(JSON.stringify(legacy),originalJson);
+ assert.equal(reopened.schemaVersion,SCHEMA_VERSION);assert.deepEqual({...reopened,schemaVersion:28},legacy);assert.equal(JSON.stringify(legacy),originalJson);
  assert.equal(buildAirflowProposal(reopened).profile,'legacy-studio-v1');assert.equal(buildAirflowProposal(reopened).normalM3h,100);
- const profiled=settings(reopened,{profile:phppProfile});assert.equal(profiled.schemaVersion,29);assert.deepEqual(deserializeProject(serializeProject(profiled)),profiled);
- assert.throws(()=>deserializeProject(JSON.stringify({...profiled,schemaVersion:30})),/Unsupported schema version/);
+ const profiled=settings(reopened,{profile:phppProfile});assert.equal(profiled.schemaVersion,SCHEMA_VERSION);assert.deepEqual(deserializeProject(serializeProject(profiled)),profiled);
+ assert.throws(()=>deserializeProject(JSON.stringify({...profiled,schemaVersion:SCHEMA_VERSION+1})),/Unsupported schema version/);
 });
 test('PHPP source provenance identifies reviewed workbook formulas without claiming certified room allocation',()=>{
  const r=buildAirflowProposal(settings(fixture(),{profile:phppProfile}));
