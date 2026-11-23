@@ -133,3 +133,53 @@ test("removing a doorway excludes stale room volume but keeps the supply grille 
  assert.deepEqual(undone.rooms[0].terminalAssociations,stored);
  assert.equal(inspectRoomBoundary(undone,undone.rooms[0]).status,"current");
 });
+
+test("two adjoining bedrooms with independent doorway boundaries stay separate through reopen and deletion",()=>{
+ const vertices=[[0,0,800,0],[800,0,800,350],[800,350,0,350],[0,350,0,0],
+   [400,0,400,350],[0,220,145,220],[233,220,400,220],[400,220,550,220],[638,220,800,220]];
+ const walls=vertices.map(([a,b,c,d])=>w(p(a,b),p(c,d)));
+ const left={...w(p(145,220),p(233,220)),roomOpening:true};
+ const right={...w(p(550,220),p(638,220)),roomOpening:true};
+ const before=makeHistory();
+ const near=applyReviewedWallProposals(before,source,[...walls,left],"adjacent-one");
+ const next=applyReviewedWallProposals(before,source,[...walls,left,right],"adjacent-both").next;
+ const openings=next.present.walls.filter(w=>w.boundaryRole==="room-opening");
+ const candidates=deriveRoomBoundaries(next.present,floorId).candidates;
+ assert.equal(openings.length,2);
+ assert.equal(next.present.walls.filter(w=>w.classification==="physical").length,
+   near.next.present.walls.filter(w=>w.classification==="physical").length);
+ assert(next.present.walls.filter(w=>w.classification==="physical").every(w=>w.thicknessMm===100));
+ const beds=candidates.filter(c=>c.areaMm2>8_799_999&&c.areaMm2<8_800_001);
+ assert.equal(beds.length,2);
+ const used=bed=>bed.boundary.map(e=>e.wallId).filter(id=>openings.some(w=>w.id===id));
+ assert.deepEqual(beds.map(b=>used(b).length),[1,1]);
+ assert.notEqual(used(beds[0])[0],used(beds[1])[0]);
+ assert.equal(deriveRoomBoundaries(near.next.present,floorId).candidates.filter(c=>Math.abs(c.areaMm2-8_800_000)<1).length,1);
+ let live=next.present;
+ for(const [i,bed] of beds.entries())live=applyCommand(live,{type:"room.createFromBoundary",floorId,roomId:"qa-bed-"+i,boundaryKey:bed.key,name:"Bedroom "+i,use:"bedroom",ventilationRole:"supply"});
+ const reopened=deserializeProject(serializeProject(live));
+ const staged=executeCommand(createCommandHistory(reopened),{type:"wall.delete",wallId:used(beds[0])[0],retainAffectedRooms:true});
+ const volumes=staged.present.rooms.map(r=>roomVolume(staged.present,r).valueM3);
+ assert.equal(volumes[0],null);
+ assert(Math.abs(volumes[1]-22)<1e-8);
+ const restored=undoCommand(staged).present;
+ assert(restored.rooms.every(r=>inspectRoomBoundary(restored,r).status==="current"));
+});
+
+test("ordinary saves retain format 29 but current and inactive doorway designs are stored as 30",()=>{
+ const before=makeHistory();
+ assert.equal(before.present.schemaVersion,30);
+ const initialSave=serializeProject(before.present);
+ assert.equal(JSON.parse(initialSave).schemaVersion,29);
+ assert.deepEqual(deserializeProject(initialSave),before.present);
+ const walls=[w(a,p(155,0)),w(p(240,0),b),w(b,c),w(c,d),w(d,a)];
+ const withDoor=applyReviewedWallProposals(before,source,[...walls,{...w(p(155,0),p(240,0)),roomOpening:true}],"format-door").next.present;
+ assert.equal(JSON.parse(serializeProject(withDoor)).schemaVersion,30);
+ const originalOption=withDoor.activeDesignOptionId;
+ const switched=applyCommand(withDoor,{type:"designOption.duplicate",id:"option-no-door",name:"Blank alternate",copyScopes:[]});
+ assert.equal(switched.walls.length,0);
+ assert.equal(JSON.parse(serializeProject(switched)).schemaVersion,30);
+ const reopened=deserializeProject(serializeProject(switched));
+ const recovered=applyCommand(reopened,{type:"designOption.switch",optionId:originalOption});
+ assert.equal(recovered.walls.filter(w=>w.boundaryRole==="room-opening").length,1);
+});

@@ -1407,7 +1407,12 @@ export function terminalRoomAssignment(project, componentId) {
 }
 
 export function serializeProject(project) {
-  return canonicalStringify(validateProject(project));
+  const validated=validateProject(project);
+  // Schema 30 adds one boundary role. Keep ordinary saves readable by the
+  // previous release, but never drop a doorway (including inactive options).
+  const needsDoorwaySupport=validated.walls.some(isRoomOpening)||
+    validated.designOptions.some(option=>option.snapshot?.walls.some(isRoomOpening));
+  return canonicalStringify(needsDoorwaySupport?validated:{...validated,schemaVersion:29});
 }
 
 function validateNetworkDesignReferences(project, design) {
