@@ -74,7 +74,7 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
         const scale=roomPreviewScale(c.width,c.height,view.clientWidth,view.clientHeight)*zoom;
         c.style.width=Math.floor(c.width*scale)+"px";c.style.height=Math.floor(c.height*scale)+"px";
       };
-      let zoom=1, active=-1, drag=null, blocked=false, paint=0, tracing=false, start=null;
+      let zoom=1, active=-1, drag=null, blocked=false, paint=0, tracing=false, start=null, faces=[];
       control("Fit plan",toolbar,()=>{zoom=1;fit();});
       control("Zoom −",toolbar,()=>{zoom=Math.max(1,zoom/1.5);fit();});
       control("Zoom +",toolbar,()=>{zoom=Math.min(4,zoom*1.5);fit();});
@@ -105,12 +105,12 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
         (!w.roomOpening||Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel<=ROOM_OPENING_MAX_MM)&&
         planSegmentIsInside(w.a,w.b,outline)&&!hasWallOverlap(w,existing,tolerance);
       const traceButton=control("Trace missing wall",toolbar,()=>{
-        tracing=tracing==="wall"?false:"wall";start=null;
+        tracing=tracing==="wall"?false:"wall";start=null;faces=[];
         status.textContent=tracing?"Click the two ends of a visible wall. Don’t trace across door openings.":instructions;
         update();
       });
       const openingButton=control("Mark doorway boundary",toolbar,()=>{
-        tracing=tracing==="opening"?false:"opening";start=null;
+        tracing=tracing==="opening"?false:"opening";start=null;faces=[];
         status.textContent=tracing?openingInstructions:instructions;update();
       });
       const openingInstructions="Click the two physical wall ends at a visible doorway. This marks a room boundary, not a wall.";
@@ -132,10 +132,12 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
       const checkButton=checkRooms?control("Check rooms before adding",toolbar,()=>{
         try {
           const result=checkRooms(input,selection());
+          faces=(result.faces??[]).map(face=>({...face,polygon:face.polygon.map(toPixel)}));
           status.textContent=result.rooms
             ? result.rooms+" new closed room "+(result.rooms===1?"boundary":"boundaries")+" with this selection. Nothing added yet."
             : "No new closed room boundaries. Check the orange ends for missing walls. For a real doorway, use Mark doorway boundary. Nothing added yet.";
-        } catch(e){status.textContent=e.message;}
+          update();
+        } catch(e){faces=[];status.textContent=e.message;update();}
       }):null;
       const applyButton=control("Add selected walls",toolbar,()=>{
         if(blocked)return;
@@ -144,7 +146,10 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
       });
       const countText=element("strong","",list);
       const fields=[];
+      const faceSummary=element("p","",list);
+      faceSummary.setAttribute("aria-label","Detected room areas");
       const changed=()=>{
+        faces=[];
         status.textContent=tracing==="opening"?openingInstructions:tracing?"Click the two ends of a visible wall. Don’t trace across door openings.":instructions;
         update();
       };
@@ -156,6 +161,16 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
           toggle.setAttribute("aria-pressed",String(showWeaker));
         }
         ctx.putImageData(clean,0,0);
+        ctx.setLineDash([]);ctx.lineWidth=2;
+        for(const face of faces){
+          ctx.beginPath();
+          face.polygon.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+          ctx.closePath();
+          ctx.fillStyle="rgba(0,107,113,0.15)";ctx.fill();
+          ctx.strokeStyle="#006b71";ctx.stroke();
+        }
+        faceSummary.hidden=!faces.length;
+        faceSummary.textContent=faces.length?"Highlighted rooms (approx. area): "+faces.map(f=>f.areaM2.toFixed(1)+" m²").join(", "):"";
         ctx.setLineDash([8,5]);ctx.lineWidth=3;
         proposals.forEach((w,i)=>{
           fields[i].row.hidden=!displayed(w);
@@ -247,6 +262,7 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
         if(active>=0){
           const w=proposals[active],end=near(w.a)<=near(w.b)?"a":"b";
           if(!w.roomOpening&&near(w[end])<=16){
+            faces=[];
             drag={w,end,original:w[end],id:e.pointerId};
             c.setPointerCapture(e.pointerId);return;
           }
@@ -270,7 +286,7 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
       c.onpointerup=e=>{if(drag?.id===e.pointerId){drag=null;changed();}};
       const cancelDrag=e=>{
         if(drag?.id!==e.pointerId)return;
-        drag.w[drag.end]=drag.original;drag=null;update();
+        drag.w[drag.end]=drag.original;drag=null;changed();
       };
       c.onpointercancel=cancelDrag;
       c.onlostpointercapture=cancelDrag;

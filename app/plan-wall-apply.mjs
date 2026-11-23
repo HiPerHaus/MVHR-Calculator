@@ -27,5 +27,6 @@ export function applyReviewedWallProposals(history, source, approved, id) {
       classification:"physical",referenceLine:"centreline"
     },{idPrefix:stem+"-join"});
   });
-  return {next, rooms:newlyEligibleRoomBoundaries(history.present,next.present,source.floorId).length};
+  const boundaries=newlyEligibleRoomBoundaries(history.present,next.present,source.floorId);
+  return {next, rooms:boundaries.length, boundaries};
 }

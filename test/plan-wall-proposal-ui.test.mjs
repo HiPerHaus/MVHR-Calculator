@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {applyReviewedWallProposals} from "../app/plan-wall-apply.mjs";
-import {applyCommand,createProject,identityQuaternion,knownMm} from "../src/domain/spatial.mjs";
+import {applyCommand,createProject,identityQuaternion,knownMm,worldPointToSource} from "../src/domain/spatial.mjs";
 import {createCommandHistory,undoCommand} from "../src/domain/history.mjs";
 import {mountPlanWallProposal} from "../app/plan-wall-proposal.mjs";
 test("preview handles interrupted edits and traces, checks, applies and undoes selected walls with the real room engine",async()=>{
@@ -92,7 +92,12 @@ test("preview handles interrupted edits and traces, checks, applies and undoes s
     }));
     let callsToCheck=0;
     mountPlanWallProposal(dryHost,()=>source,(s,w)=>{current=applyReviewedWallProposals(current,s,w,"apply-qa").next;},
-      (s,w)=>{callsToCheck++;return applyReviewedWallProposals(current,s,w,"draft-qa");});
+      (s,w)=>{
+        callsToCheck++;
+        const {rooms,boundaries}=applyReviewedWallProposals(current,s,w,"draft-qa");
+        return {rooms,faces:boundaries.map(f=>({areaM2:f.areaMm2/1e6,
+          polygon:f.polygon.map(p=>worldPointToSource(s.reference.transform,p,s.scale))}))};
+      });
     const opened=dryHost.parent.children.filter(n=>n.textContent==="Propose walls from plan").at(-1);
     await opened.onclick();
     const c=find(body,n=>n.tag==="canvas");
@@ -114,6 +119,14 @@ test("preview handles interrupted edits and traces, checks, applies and undoes s
     assert(find(body,n=>n.textContent==="1 new closed room boundary with this selection. Nothing added yet."));
     assert.equal(callsToCheck,2);
     assert.equal(current.present.walls.length,0);
+    const area=find(body,n=>n.textContent==="Highlighted rooms (approx. area): 2.2 m²");
+    assert(area&&!area.hidden);
+    const traced=find(body,n=>n.type==="checkbox"&&n.checked);
+    traced.checked=false;traced.onchange();
+    assert(area.hidden);
+    traced.checked=true;traced.onchange();
+    dry.onclick();
+    assert(!area.hidden);
     save.onclick();
     assert.equal(current.present.walls.length,4);
     assert.equal(current.past.length,1);

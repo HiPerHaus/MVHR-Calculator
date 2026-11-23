@@ -1614,7 +1614,13 @@ queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
     " Undo removes the batch.";
   render();
   savePresent("automatic");
-}, (source, approved) => ({rooms:stageReviewedWallSelection(source, approved).rooms})));
+}, (source, approved) => {
+  const {rooms,boundaries}=stageReviewedWallSelection(source,approved);
+  return {rooms,faces:boundaries.map(face=>({
+    areaM2:face.areaMm2/1e6,
+    polygon:face.polygon.map(point=>worldPointToSource(source.reference.transform,point,source.scale)),
+  }))};
+}));
 function stageReviewedWallSelection(source, approved) {
   if (history.present !== source.project || currentFloorId() !== source.floorId ||
     selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
