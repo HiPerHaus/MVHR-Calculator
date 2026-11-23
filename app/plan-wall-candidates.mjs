@@ -44,12 +44,45 @@ export function detectPlanWallCandidates({data,width,height}, mmPerPixel, outlin
     throw new Error("A calibrated, readable plan image is required.");
   }
   const strong=scanWallInk({data,width,height},mmPerPixel,outline,152);
-  if(strong.length>=MAX_PLAN_WALL_PROPOSALS)return strong;
+
   // A washed-out render can obscure wall edges. Treat the lighter pass as
   // provisional evidence only; never promote a fitting because it is faint.
-  const faint=scanWallInk({data,width,height},mmPerPixel,outline,202).filter(w=>
-    !hasWallOverlap(w,strong,Math.max(2,50/mmPerPixel)));
-  return [...strong,...faint.map(w=>({...w,faint:true}))];
+  const faint=scanWallInk({data,width,height},mmPerPixel,outline,202);
+  // Retain thicker, independently corroborated bands even if a small part of their run
+  // was detected as a thin line in the darker pass.
+  return [...strong,...faint.filter(w=>!strong.some(d=>
+    (!w.structuralInk||d.structuralInk) && hasWallOverlap(w,[d],Math.max(2,50/mmPerPixel)) &&
+    distance(d.a,d.b)>=0.85*distance(w.a,w.b)
+  )).map(w=>({...w,faint:true}))];
+}
+
+// Read the ink between the edges. Multiple persistent thin tracks with little
+// ink between them can be glazing; distributed/diagonal infill better supports
+// masonry. The evidence describes the drawing, not the real wall construction.
+function inspectBand(dark,width,height,horizontal,start,end,center,thickness,solid) {
+  const half=thickness/2, rows=[];
+  for(let k=Math.ceil(center-half*0.78);k<=center+half*0.78;k++)rows.push(k);
+  if(rows.length<4)return {structuralInk:solid,striped:false,hatched:false};
+  const counts=rows.map(()=>0);let total=0, samples=0, marked=0;
+  const pad=Math.ceil((end-start)*0.12);
+  const stride=Math.max(1,Math.floor((end-start)/100));
+  for(let n=Math.ceil(start)+pad;n<end-pad;n+=stride){
+    samples++;
+    let column=0;
+    for(let j=0;j<rows.length;j++){
+      const x=horizontal?n:rows[j],y=horizontal?rows[j]:n;
+      if(x>=0&&x<width&&y>=0&&y<height&&dark[y*width+x]){total++;counts[j]++;column++;}
+    }
+    if(column)marked++;
+  }
+  if(!samples)return {structuralInk:solid,striped:false,hatched:false};
+  const coverage=total/(samples*rows.length);
+  const faint=counts.filter(n=>n/samples<0.2).length;
+  const continuous=counts.filter(n=>n/samples>0.72).length;
+  const intermittent=counts.filter(n=>n/samples>=0.16&&n/samples<=0.7).length;
+  const striped=!solid && continuous>=1 && faint>=2 && coverage<0.7;
+  const hatched=!striped && !solid && intermittent>=Math.max(3,Math.ceil(rows.length*0.5)) && coverage>=0.18 && marked/samples>=0.75;
+  return {structuralInk:solid||hatched||(!striped&&coverage>=0.72),striped,hatched};
 }
 
 function scanWallInk({data,width,height},mmPerPixel,outline,threshold) {
@@ -105,9 +138,12 @@ function scanWallInk({data,width,height},mmPerPixel,outline,threshold) {
     const add=(start,end,center,thickness,evidence)=>{
       const a=horizontal?{x:start,y:center}:{x:center,y:start};
       const b=horizontal?{x:end,y:center}:{x:center,y:end};
-      for(const [from,to] of insideSpans(a,b,outline)) if(distance(from,to)>=minRun) result.push({
-        a:from,b:to,thicknessMm:Math.round(Math.max(70,Math.min(420,thickness*mmPerPixel))),evidence
-      });
+      for(const [from,to] of insideSpans(a,b,outline)) if(distance(from,to)>=minRun){
+        const ink=inspectBand(dark,width,height,horizontal,horizontal?from.x:from.y,horizontal?to.x:to.y,
+          center,thickness,evidence==="Solid wall-width stroke");
+        result.push({a:from,b:to,thicknessMm:Math.round(Math.max(70,Math.min(420,thickness*mmPerPixel))),
+          evidence:ink.hatched?"Hatched band between wall edges":evidence,...ink});
+      }
     };
     const used=new Set();
     for(const [i,a] of bands.entries()){
@@ -193,35 +229,41 @@ export function rankWallProposals(walls, existing, outline, mmPerPixel) {
   const edges=outline.map((a,i)=>({a,b:outline[(i+1)%outline.length]}));
   const gap=(p,w)=>distance(p,segmentProjection(p,w.a,w.b));
   const near=(a,b)=>[a.a,a.b].some(p=>gap(p,b)<=context)||[b.a,b.b].some(p=>gap(p,a)<=context);
+  const orthogonal=(a,b)=>{
+    const ux=a.b.x-a.a.x,uy=a.b.y-a.a.y,vx=b.b.x-b.a.x,vy=b.b.y-b.a.y;
+    return Math.abs(ux*vy-uy*vx)>0.5*Math.hypot(ux,uy)*Math.hypot(vx,vy);
+  };
   const meta=walls.map(w=>{
-    const ends=[w.a,w.b];
+    const ends=[w.a,w.b], len=distance(w.a,w.b)*mmPerPixel;
     const perimeterRun=edges.some(e=>[...ends,{x:(w.a.x+w.b.x)/2,y:(w.a.y+w.b.y)/2}]
       .every(p=>gap(p,e)<=perimeter));
-    return {perimeterRun,confirmed:existing.some(e=>near(w,e)),
-      outlineEnds:ends.filter(p=>edges.some(e=>gap(p,e)<=perimeter)).length,
-      adjacent:[]};
+    return {perimeterRun,len,confirmed:existing.some(e=>orthogonal(w,e)&&near(w,e)),
+      perimeterEnds:ends.map(p=>edges.some(e=>gap(p,e)<=perimeter)),wall:w};
   });
-  const linked=(a,b)=>{
-    const ux=a.b.x-a.a.x,uy=a.b.y-a.a.y,vx=b.b.x-b.a.x,vy=b.b.y-b.a.y;
-    // Parallel cabinet edges do not independently corroborate each other.
-    return Math.abs(ux*vy-uy*vx)>0.5*Math.hypot(ux,uy)*Math.hypot(vx,vy)&&near(a,b);
-  };
-  for(let i=0;i<walls.length;i++)for(let j=i+1;j<walls.length;j++){
-    if(linked(walls[i],walls[j])){meta[i].adjacent.push(j);meta[j].adjacent.push(i);}
-  }
   return walls.map((wall,i)=>{
-    const {perimeterRun,confirmed,outlineEnds,adjacent}=meta[i];
-    const mm=distance(wall.a,wall.b)*mmPerPixel;
-    const anchoredPeers=adjacent.filter(j=>meta[j].confirmed||meta[j].outlineEnds||meta[j].perimeterRun).length;
-    const attachedToPerimeterAtBothEnds=outlineEnds===2&&mm>=1200;
-    const supported=confirmed||perimeterRun&&mm>=1200||attachedToPerimeterAtBothEnds||
-      (wall.faint ? mm>=3000&&anchoredPeers>=2 : (outlineEnds===1&&mm>=2350) ||
-        (anchoredPeers>=1&&mm>=2400) || (adjacent.length>=2&&mm>=2700));
-    const reason=confirmed?"Connects to a Studio wall":perimeterRun&&supported?"Follows the traced perimeter":
-      outlineEnds&&supported?"Reaches the traced perimeter":supported?"Joins other long wall strokes":
-      !adjacent.length&&!outlineEnds?"Isolated stroke; check for fittings":"Unconfirmed link; check against plan";
-    const score=Number(supported)*100 + Number(confirmed)*30 + Number(perimeterRun)*12 +
-      outlineEnds*8 + Math.min(anchoredPeers,2)*6 + Math.min(10,mm/500);
-    return {...wall,supported,reason:reason+(wall.faint?" · Faint ink":""),score};
+    const {perimeterRun,confirmed,perimeterEnds,len}=meta[i];
+    const outlineEnds=perimeterEnds.filter(Boolean).length;
+    const minWidth=wall.faint?145:105;
+    const structural=wall.structuralInk&&wall.thicknessMm>=minWidth;
+    const masonryEvidence=wall.hatched&&len>=1100&&!perimeterRun;
+    const neighbours=[wall.a,wall.b].map(p=>meta.filter((m,j)=>i!==j&&m.len>=1400&&
+      !m.wall.striped&&orthogonal(wall,m.wall)&&gap(p,m.wall)<=context));
+    const joinedAtBothEnds=neighbours[0].some(a=>neighbours[1].some(b=>a!==b));
+    const connectedAtOppositeEnd=outlineEnds===1&&neighbours[perimeterEnds[0]?1:0].some(m=>
+      m.confirmed||m.wall.structuralInk||m.perimeterEnds.some(Boolean));
+    // A cupboard can meet the shell and a window can follow it. Neither is
+    // enough alone. Two short returns on the same fitting also cannot vote.
+    const supported=!wall.striped&&(confirmed||
+      (perimeterRun?structural&&len>=1200:
+        (outlineEnds===2&&len>=1400)||
+        (structural&&len>=1600)||
+        (len>=1800&&(joinedAtBothEnds||connectedAtOppositeEnd))));
+    const reason=wall.striped?"Multiple thin lines; check for glazing":confirmed?"Connects to a Studio wall":
+      perimeterRun?(supported?"Wall-width ink along the traced perimeter":"Perimeter ink; check for glazing or trim"):
+      structural&&supported?"Wall-width infill or solid stroke":
+      supported?"Supported at both ends":masonryEvidence?"Possible masonry; verify both edges":outlineEnds?"Touches outline only; check for joinery":"Unconfirmed stroke; check against plan";
+    const score=Number(supported)*100 + Number(confirmed)*29 + Number(structural)*18 + Number(masonryEvidence)*25+Number(wall.hatched)*5 +
+      outlineEnds*5 + Number(joinedAtBothEnds||connectedAtOppositeEnd)*5 + Math.min(10,len/500);
+    return {...wall,supported,masonryReview:masonryEvidence&&!supported,reason:reason+(wall.faint?" · Faint ink":""),score};
   }).sort((a,b)=>b.score-a.score);
 }

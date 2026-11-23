@@ -86,19 +86,19 @@ export function mountPlanWallProposal(host, snapshot, accept) {
         if(distinct.length===MAX_PLAN_WALL_PROPOSALS)break;
       }
       const proposals=joinCloseWallEnds(distinct,existing,outline,tolerance).map(w=>({...w,checked:false}));
-      const weaker=proposals.filter(w=>!w.supported).length;
+      const weaker=proposals.filter(w=>!w.supported&&!w.masonryReview).length;
       let showWeaker=weaker===proposals.length;
       const toggle=weaker?control("",toolbar,()=>{
         showWeaker=!showWeaker;
-        if(!showWeaker && !proposals[active]?.supported && !proposals[active]?.checked)active=-1;
+        if(!showWeaker && !proposals[active]?.supported && !proposals[active]?.masonryReview && !proposals[active]?.checked)active=-1;
         update();
       }):null;
-      const displayed=w=>w.supported||showWeaker||w.checked;
+      const displayed=w=>w.supported||w.masonryReview||showWeaker||w.checked;
       cancelPaint=()=>{if(paint)cancelAnimationFrame(paint);};
       const paintSoon=()=>{
         if(!paint)paint=requestAnimationFrame(()=>{paint=0;update();});
       };
-      const instructions="Blue lines have more wall evidence; grey lines need closer review. Click a line to inspect it, drag its ends if needed, then tick it to add. Orange dots mark ends still open with the current selection.";
+      const instructions="Blue lines have more wall evidence. Purple lines may be masonry; grey lines need closer review. Click a line to inspect it, drag its ends if needed, then tick it to add. Orange dots mark ends still open with the current selection.";
       const valid=w=>visible(w.a)&&visible(w.b)&&Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel>=MIN_WALL_MM&&
         planSegmentIsInside(w.a,w.b,outline)&&!hasWallOverlap(w,existing,tolerance);
       const applyButton=control("Add selected walls",toolbar,()=>{
@@ -128,7 +128,7 @@ export function mountPlanWallProposal(host, snapshot, accept) {
         proposals.forEach((w,i)=>{
           fields[i].row.hidden=!displayed(w);
           if(!displayed(w))return;
-          ctx.strokeStyle=!valid(w)?"#b42318":w.checked?"#087443":w.supported?"#075e97":"#687281";
+          ctx.strokeStyle=!valid(w)?"#b42318":w.checked?"#087443":w.supported?"#075e97":w.masonryReview?"#75459a":"#687281";
           ctx.beginPath();ctx.moveTo(w.a.x,w.a.y);ctx.lineTo(w.b.x,w.b.y);ctx.stroke();
           ctx.fillStyle="#a8500c";
           for(const a of w.checked||i===active?gapEvidence[i].gaps:[]){ctx.beginPath();ctx.arc(a.x,a.y,4,0,Math.PI*2);ctx.fill();}
