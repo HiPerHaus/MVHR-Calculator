@@ -9,7 +9,7 @@ export function mountRoomTest(host, snapshot, client) {
   if (new URLSearchParams(location.search).get("roomTest") !== "1") return;
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = "Test room detection";
+  button.textContent = "Suggest room names";
   host.after(button);
   button.onclick = async () => {
     const dialog = document.createElement("dialog");

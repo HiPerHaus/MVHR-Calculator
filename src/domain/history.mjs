@@ -22,6 +22,23 @@ export function executeCommand(history, command) {
   };
 }
 
+// Plan each command against the staged result, and publish all changes as one undo step.
+export function executePlannedCommandBatch(history, count, plan) {
+  validateHistory(history);
+  if (!Number.isInteger(count) || count < 1 || count > 60 || typeof plan !== "function") {
+    throw new TypeError("Wall proposal batch must contain between 1 and 60 selected walls");
+  }
+  let present = history.present;
+  for (let i = 0; i < count; i += 1) {
+    present = applyCommand(present, plan(present, i));
+  }
+  return {
+    past: trimPast([...history.past, historyEntry(history.present, { type: "wall.addApprovedProposals" })]),
+    present,
+    future: [],
+  };
+}
+
 export function undoCommand(history) {
   validateHistory(history);
   if (history.past.length === 0) {

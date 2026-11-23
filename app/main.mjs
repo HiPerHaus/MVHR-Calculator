@@ -1,3 +1,4 @@
+import { mountPlanWallProposal } from "./plan-wall-proposal.mjs";
 import {createAirflowProposalSection} from "./airflow-proposal-ui.mjs";
 import {lpsToM3h,m3hToLps} from "../src/editor/field-airflow-units.mjs";
 import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
@@ -41,6 +42,7 @@ import {
   canUndo,
   createCommandHistory,
   executeCommand,
+  executePlannedCommandBatch,
   redoCommand,
   undoCommand,
 } from "../src/domain/history.mjs";
@@ -1583,6 +1585,54 @@ queueMicrotask(async () => {
     };
   }, getStudioClient());
 });
+queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
+  const project = history.present;
+  const floorId = currentFloorId();
+  const reference = selectedReference();
+  const scale = reference && referenceScaleMmPerPixel(reference);
+  const outline = project.floorAreaOutlines.find(item => item.floorId === floorId);
+  const asset = reference && project.referenceAssets.find(item => item.id === reference.assetId);
+  if (activeTask !== "plan" || !floorId || !asset?.dataUrl || !scale || !outline?.vertices?.length) {
+    throw new Error("In Plan, select a scaled PDF or image and draw a closed Floor area outline first.");
+  }
+  const toSource = point => worldPointToSource(reference.transform, point, scale);
+  const nodes = new Map(project.wallNodes.map(node => [node.id,node.positionMm]));
+  const existing = project.walls.filter(w => w.floorId === floorId).map(w => ({
+    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId))
+  }));
+  return {
+    project, floorId, reference, scale, dataUrl:asset.dataUrl, crop:reference.cropSourceRectPx,
+    outline:outline.vertices.map(v => toSource(v.positionMm)), existing
+  };
+}, (source, approved) => {
+  if (history.present !== source.project || currentFloorId() !== source.floorId ||
+    selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
+    throw new Error("The floor or plan changed. Reopen the preview before adding walls.");
+  }
+  const before = history.present;
+  const id = crypto.randomUUID();
+  const next = executePlannedCommandBatch(history, approved.length, (working, i) => {
+    const wall = approved[i], stem = "wall-proposal-"+id+"-"+(i+1);
+    const points = [wall.a,wall.b].map(p => ({
+      ...sourcePointToWorld(source.reference.transform,p,source.scale),
+      z:unknownMm("wall proposal elevation not confirmed"),
+    }));
+    return planSnappedWallChain(working,{
+      type:"wall.addChain", floorId:source.floorId, points,
+      nodeIds:[stem+"-start",stem+"-end"],wallIds:[stem],
+      thicknessMm:wall.thicknessMm,heightMm:unknownMm("wall proposal height not confirmed"),
+      classification:"physical",referenceLine:"centreline"
+    },{idPrefix:stem+"-join"});
+  });
+  const rooms = newlyEligibleRoomBoundaries(before,next.present,source.floorId).length;
+  history = next;
+  portableDirty = true;
+  interactionMessage = approved.length+" reviewed wall proposal(s) added. "+
+    (rooms ? rooms+" new closed boundary candidate(s); review in Rooms & zones." : "No new closed rooms yet. Check the open wall ends.")+
+    " Undo removes the batch.";
+  render();
+  savePresent("automatic");
+}));
 queueMicrotask(() => attachOsSendBack({
   button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
   referenceButton: document.querySelector("#apply-os-reference"),
