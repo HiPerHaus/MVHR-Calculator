@@ -1,0 +1,157 @@
+<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Studio doorway browser QA</title>
+<h1>Studio doorway test (synthetic data only)</h1><p id="anchor">Isolated browser fixture: no studio sign-in, customer plans, or cloud writes.</p>
+<button id="run">Run doorway browser test</button>
+<hr><p>Exact-plan test: select a local Studio portable backup. The backup is read in this browser only; do not use this test page to save cloud projects.</p>
+<label>Local portable backup <input id="backup" type="file" accept=".json,application/json"></label>
+<button id="exact" disabled>Run Bed 4 on local backup</button> <label><input type="checkbox" id="leave-highlight" checked> Leave the checked highlight open</label><pre role="status" id="out">Ready</pre>
+<script type="module">
+import {mountPlanWallProposal} from "./plan-wall-proposal.mjs";
+import {applyReviewedWallProposals} from "./plan-wall-apply.mjs";
+import {createCommandHistory,executeCommand,undoCommand} from "../src/domain/history.mjs";
+import {createProject,applyCommand,identityQuaternion,knownMm,serializeProject,deserializeProject,worldPointToSource,sourcePointToWorld} from "../src/domain/spatial.mjs";
+import {deriveRoomBoundaries,inspectRoomBoundary} from "../src/domain/rooms.mjs";
+import {exportPortableProject,importPortableProject} from "../src/persistence/portable-project.mjs";
+import {createCloudProjectStore,CloudConflictError} from "../src/persistence/cloud-project-store.mjs";
+import * as pdfjs from "../node_modules/pdfjs-dist/legacy/build/pdf.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc="/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
+const pdfOptions={pdfjs,pdfResourceUrls:{cMapUrl:"/node_modules/pdfjs-dist/cmaps/",standardFontDataUrl:"/node_modules/pdfjs-dist/standard_fonts/",wasmUrl:"/node_modules/pdfjs-dist/wasm/"}};
+import {roomVolume} from "../src/domain/room-volume.mjs";
+const p=(x,y)=>({x,y}),floorId="floor-fixture";
+const img=document.createElement("canvas");img.width=300;img.height=240;
+const ctx=img.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,300,240);ctx.strokeStyle="#ddd";ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(25,25);ctx.lineTo(250,25);ctx.lineTo(250,190);ctx.moveTo(191,190);ctx.lineTo(25,190);ctx.lineTo(25,25);ctx.stroke();
+let input={floorId,scale:20,dataUrl:img.toDataURL(),outline:[p(0,0),p(300,0),p(300,240),p(0,240)],existing:[],reference:{transform:{rotationRad:0,translationMm:p(0,0)}}};
+const initial=applyCommand(createProject("qa-project"),{type:"floor.add",floor:{id:floorId,name:"QA floor",transform:{translationMm:{...p(0,0),z:knownMm(0,"fixture")},orientation:identityQuaternion()}}});
+let state=createCommandHistory(initial);
+mountPlanWallProposal(document.querySelector("#anchor"),()=>input,
+ (s,selected)=>{state=applyReviewedWallProposals(state,s,selected,"apply").next;},
+ (s,selected)=>{
+  const result=applyReviewedWallProposals(state,s,selected,"dry");
+  return {rooms:result.rooms,faces:result.boundaries.map(f=>({areaM2:f.areaMm2/1e6,
+    polygon:f.polygon.map(p=>worldPointToSource(s.reference.transform,p,s.scale))}))};
+ });
+const out=document.querySelector("#out"),check=(v,m)=>{if(!v)throw Error(m)};
+const button=label=>Array.from(document.querySelectorAll("button")).find(b=>b.textContent===label);
+const waitCanvas=async()=>{for(let i=0;i<80;i++){const c=document.querySelector("dialog canvas");if(c&&button("Check rooms before adding"))return c;await new Promise(r=>requestAnimationFrame(r));}throw Error("Canvas did not load");};
+document.querySelector("#run").onclick=async()=>{
+ out.textContent="Running";state=createCommandHistory(initial);
+ try{
+  button("Propose walls from plan").click();const canvas=await waitCanvas();
+  const clickAt=(x,y)=>{const r=canvas.getBoundingClientRect();
+   canvas.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,button:0,clientX:r.left+x*r.width/canvas.width,clientY:r.top+y*r.height/canvas.height}));};
+  const trace=(a,b)=>{button("Trace missing wall").click();clickAt(...a);clickAt(...b);check(document.querySelector("dialog [role=status]").textContent.includes("Traced wall selected"),"Trace did not stage");};
+  trace([25,25],[250,25]);trace([250,25],[250,190]);trace([25,25],[25,190]);trace([25,190],[191,190]);
+  button("Check rooms before adding").click();check(document.querySelector("dialog [role=status]").textContent.startsWith("No new closed room"),"Open wall was treated as closed");
+  button("Mark doorway boundary").click();clickAt(191,190);clickAt(250,190);
+  button("Check rooms before adding").click();check(document.querySelector("dialog [role=status]").textContent.startsWith("1 new closed room"),"Corner doorway did not close room");
+  check(state.present.walls.length===0,"Room check wrote to project");
+  button("Add selected boundaries").click();
+  check(!document.querySelector("dialog")?.open,"Add did not close preview");
+  for(let i=0;i<20&&document.querySelector("dialog");i++)await new Promise(r=>requestAnimationFrame(r));
+  check(!document.querySelector("dialog"),"Closed preview was not removed");
+  check(state.present.walls.filter(w=>w.classification==="physical").length===4,"Wrong physical wall count");
+  const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"No nonphysical doorway");
+  const face=deriveRoomBoundaries(state.present,floorId).candidates[0];
+  const confirmed=applyCommand(state.present,{type:"room.createFromBoundary",floorId,roomId:"fixture-room",name:"Corner room",use:"bedroom",ventilationRole:"supply",boundaryKey:face.key});
+  const legacy=deserializeProject(JSON.stringify({...initial,schemaVersion:29}));check(legacy.schemaVersion===30,"Legacy migration failed");
+  const before=deserializeProject(serializeProject(confirmed));check(inspectRoomBoundary(before,before.rooms[0]).status==="current","Saved room not current");
+  let history=executeCommand(createCommandHistory(before),{type:"wall.delete",wallId:marker.id,retainAffectedRooms:true});
+  check(roomVolume(history.present,history.present.rooms[0]).valueM3===null,"Stale volume counted");
+  check(inspectRoomBoundary(undoCommand(history).present,before.rooms[0]).status==="current","Undo did not restore room");
+  check(undoCommand(state).present.walls.length===0,"Add did not undo in one batch");
+  out.textContent="PASS: actual browser canvas and controls; open gap → one room after nonphysical corner marker; four physical walls; read-only check; legacy migration; save/reopen; marker removal excludes stale volume; Undo restores room.";
+ }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
+};
+document.querySelector("#run").disabled=false;
+const backup=document.querySelector("#backup"), exact=document.querySelector("#exact");
+backup.onchange=()=>{exact.disabled=!backup.files?.length;};
+exact.onclick=async()=>{
+ exact.disabled=true;out.textContent="Checking Bed 4 in local backup…";
+ try{
+  const pkg=JSON.parse(await backup.files[0].text());
+  const old=JSON.parse(pkg.projectJson);
+  const project=(await importPortableProject(JSON.stringify(pkg),pdfOptions)).project;
+  const outline=project.floorAreaOutlines[0], ref=project.floorReferences.find(f=>f.floorId===outline.floorId);
+  const asset=project.referenceAssets.find(a=>a.id===ref.assetId);
+  check(asset.fileName.startsWith("PH 4 - MASTER LAYOUT")&&outline.vertices.length===8&&project.walls.length===0,"Wrong test backup");
+  const scale=ref.calibration.scaleMmPerPixel;
+  const sourceOutline=outline.vertices.map(v=>worldPointToSource(ref.transform,v.positionMm,scale));
+  input={floorId:outline.floorId,scale,dataUrl:asset.dataUrl,outline:sourceOutline,existing:[],reference:ref,crop:ref.cropSourceRectPx};
+  state=createCommandHistory(project);
+  const baseline={components:project.components.length,routes:project.routes.length,rooms:project.rooms.length};
+  const expectedWalls=4;
+  button("Propose walls from plan").click();const canvas=await waitCanvas();
+  const dialog=document.querySelector("dialog");
+  const summary=dialog.querySelector("aside").textContent;
+  check(summary.includes("Long narrow partition"),"Actual bedroom partition missing");
+  check((summary.match(/Possible masonry/g)||[]).length===2,"Expected two separate masonry suggestions");
+  const first=dialog.querySelector('aside input[type=checkbox]');first.click();
+  // Canvas has the exact native crop/scale. The coordinates identify the
+  // corners and doorway in the verified fixture, not geometry in the product.
+  const at=(x,y)=>{const r=canvas.getBoundingClientRect();
+   canvas.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,button:0,clientX:r.left+x*r.width/canvas.width,clientY:r.top+y*r.height/canvas.height}));};
+  const trace=(a,b)=>{button("Trace missing wall").click();at(...a);at(...b);check(dialog.querySelector("[role=status]").textContent.includes("Traced wall selected"),"Exact plan trace failed");};
+  trace([9,6],[173,6]);trace([9,6],[9,224]);trace([9,224],[109,224]);
+  button("Check rooms before adding").click();
+  check(dialog.querySelector("[role=status]").textContent.startsWith("No new closed room"),"Room falsely detected before marking the door");
+  button("Mark doorway boundary").click();at(109,224);at(173,224);button("Check rooms before adding").click();
+  check(dialog.querySelector("[role=status]").textContent.startsWith("1 new closed room"),"Bed 4 did not close: "+dialog.querySelector("[role=status]").textContent);
+  check(state.present.walls.length===0,"Checking wrote to copy");
+  const area=dialog.querySelector('[aria-label="Detected room areas"]');
+  check(!area.hidden&&/Highlighted rooms.*11[.,][0-9] m²/.test(area.textContent),"Expected Bed 4 area not visible: "+area.textContent);
+  const color=(x,y)=>[...canvas.getContext("2d").getImageData(x,y,1,1).data].slice(0,3);
+  const highlighted=color(38,90), outside=color(210,95);
+  check(highlighted[0]+20<highlighted[1]&&outside[0]>=240,"Tint was not visible inside only");
+  const selectedDoor=[...dialog.querySelectorAll('label')].find(l=>l.textContent.includes("Doorway boundary")).querySelector("input");
+  selectedDoor.click();
+  const cleared=color(38,90);
+  check(area.hidden&&cleared[0]>=240,"Selection change did not clear old tint and area");
+  selectedDoor.click();button("Check rooms before adding").click();
+  check(!area.hidden&&color(38,90)[0]+20<color(38,90)[1],"Rechecking did not restore highlight");
+  if(document.querySelector("#leave-highlight").checked){
+    out.textContent="PASS: Bed 4 highlight and area shown; selection change cleared both; recheck restored both. Nothing added.";
+    dialog.querySelector("[role=status]").textContent+=" Verified: changing the selection clears the highlight.";
+    return;
+  }
+  button("Add selected boundaries").click();
+  check(!dialog.open,"Add did not close the preview");
+  check(state.present.walls.filter(w=>w.classification==="physical").length===expectedWalls,"Expected four physical walls");
+  const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"Doorway is not nonphysical");
+  const face=deriveRoomBoundaries(state.present,input.floorId).candidates[0];check(Boolean(face),"No Bed 4 room face after adding");
+  const bed=applyCommand(state.present,{type:"room.createFromBoundary",floorId:input.floorId,roomId:"qa-bed-four-only",name:"Bed 4 QA",use:"bedroom",ventilationRole:"supply",boundaryKey:face.key});
+  const portable=await exportPortableProject(bed,pdfOptions);
+  const reopened=(await importPortableProject(portable,pdfOptions)).project;
+  const rows=new Map(),files=new Map(),removed=[];
+  const client={storage:{from:()=>({
+    async upload(k,v){files.set(k,v);return {data:{path:k}};},
+    async download(k){return files.has(k)?{data:files.get(k)}:{error:{message:"Missing"}};},
+    async remove(keys){removed.push(...keys);keys.forEach(k=>files.delete(k));return {data:[]};}
+  })},from(){
+    let body,update=false,filters=[];
+    const q={insert(p){body=p;return q;},update(p){body=p;update=true;return q;},eq(k,v){filters.push([k,v]);return q;},select(){return q;},
+      async maybeSingle(){
+        const old=rows.get(body.id);
+        if(update&&(!old||!filters.every(([k,v])=>old[k]===v)))return {data:null,error:null};
+        const fresh={...body,save_version:(old?.save_version??0)+1,previous_object_path:old?.object_path??null};
+        rows.set(body.id,fresh);return {data:structuredClone(fresh)};
+      }};
+    return q;
+  }};
+  let uid=0;const store=createCloudProjectStore(client,{uuid:()=>"browser-fixture-"+(++uid)});
+  const args={workspaceId:"fixture-workspace",userId:"fixture-user",project,name:"Older tab"};
+  const firstSave=await store.save(args);
+  const later=await store.save({...args,project:reopened,name:"Doorway updated",record:firstSave.record});
+  let rejected=false;
+  try{await store.save({...args,record:firstSave.record});}catch(e){rejected=e instanceof CloudConflictError;}
+  check(rejected&&removed.length===1,"An older tab did not hit the expected save-version conflict");
+  const latest=await store.open(rows.get(firstSave.record.id));
+  check(latest.record.save_version===2&&latest.project.walls.some(w=>w.boundaryRole==="room-opening")&&files.has(later.record.object_path),
+   "New doorway was lost following version conflict");
+  check(inspectRoomBoundary(reopened,reopened.rooms.find(r=>r.id==="qa-bed-four-only")).status==="current","Reopened Bed 4 boundary lost");
+  check(reopened.components.length===baseline.components&&reopened.routes.length===baseline.routes,"Existing ventilation layout changed");
+  check(undoCommand(state).present.walls.length===0,"Undo did not remove the proposal batch");
+  out.textContent="PASS: exact Bed 4 backup; Studio found the bedroom divider and two separate masonry runs; no room before marking doorway; one room after; four physical walls plus one nonphysical boundary; official PDF-backed export and import reopened; stale-tab save rejected by the local cloud-store test; existing design untouched; Undo passed. Legacy project "+old.schemaVersion+" → "+reopened.schemaVersion+".";
+ }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
+ finally{exact.disabled=false;}
+};
+</script>
