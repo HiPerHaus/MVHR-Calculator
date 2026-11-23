@@ -274,7 +274,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     line.routeIds.map((routeId) => [routeId, line.ref])
   )));
   const nodesById = new Map(project.wallNodes.map((node) => [node.id, node]));
-  const walls = project.walls.filter((wall) => wall.floorId === floorId).map((wall) => ({
+  const walls = project.walls.filter((wall) => wall.floorId === floorId && wall.boundaryRole !== "room-opening").map((wall) => ({
     id: wall.id,
     start: planPoint(nodesById.get(wall.startNodeId)?.positionMm, `Wall ${wall.id} start`),
     end: planPoint(nodesById.get(wall.endNodeId)?.positionMm, `Wall ${wall.id} end`),

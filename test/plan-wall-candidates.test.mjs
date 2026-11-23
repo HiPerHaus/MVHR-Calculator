@@ -115,3 +115,25 @@ test("a hatched masonry band is found in faint ink without bridging a doorway",(
  assert.equal(review.supported,false);
  assert.equal(review.masonryReview,true);
 });
+test("a long narrow partition can rank ahead without elevating both lips of a cupboard",()=>{
+ const part={...wall(p(75,3),p(75,105)),thicknessMm:95,evidence:"Parallel wall edges"};
+ const outer={...wall(p(101,55),p(196,55)),thicknessMm:95,evidence:"Parallel wall edges"};
+ const inner={...wall(p(101,78),p(196,78)),thicknessMm:95,evidence:"Parallel wall edges",faint:true};
+ const ranked=rankWallProposals([part,outer,inner],[],outline,30);
+ assert.equal(ranked.filter(w=>w.supported).length,1);
+ assert.deepEqual(ranked[0].a,part.a);
+ assert.match(ranked[0].reason,/Long narrow partition/);
+});
+test("a continuous nearby dimension line does not create one masonry proposal across an opening",()=>{
+ const f=pixels(), segments=[[12,63],[119,69]];
+ f.ink(10,32,180,1,[175,175,175]);f.ink(10,53,180,1,[175,175,175]);
+ for(const [x,w] of segments){
+   f.ink(x,39,w,1,[175,175,175]);f.ink(x,47,w,1,[175,175,175]);
+   for(let n=0;n<w;n++)for(let y=40;y<47;y++)
+     if((n+y)%7<2)f.ink(x+n,y,1,1,[175,175,175]);
+ }
+ const out=detectPlanWallCandidates(f,20,outline);
+ assert(out.some(w=>w.hatched&&w.b.x<80));
+ assert(out.some(w=>w.hatched&&w.a.x>115));
+ assert(!out.some(w=>w.a.x<70&&w.b.x>125&&w.a.y>35&&w.a.y<50));
+});

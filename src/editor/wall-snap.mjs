@@ -11,7 +11,7 @@ export function planSnappedWallChain(project, command, options = {}) {
   const idPrefix = requireId(options.idPrefix, "Wall snap ID prefix");
   const result = structuredClone(command);
   const existingWalls = project.walls.filter((wall) => {
-    if (wall.floorId !== command.floorId) return false;
+    if (wall.floorId !== command.floorId || wall.boundaryRole === "room-opening") return false;
     if (command.classification !== "virtual") return true;
     return wall.classification === "physical" || wall.parentRoomId === command.parentRoomId;
   });

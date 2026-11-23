@@ -180,6 +180,7 @@ import {
 import { createDefaultThreeDView, createThreeDDrawingScene, renderThreeDDrawingSvg } from "../src/sheets/three-d-drawing.mjs";
 import {
   deriveRoomBoundaries,
+  isRoomOpening,
   deriveZoneBoundaries,
   inspectRoomBoundary,
   inspectZoneBoundary,
@@ -1598,26 +1599,29 @@ queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
   const toSource = point => worldPointToSource(reference.transform, point, scale);
   const nodes = new Map(project.wallNodes.map(node => [node.id,node.positionMm]));
   const existing = project.walls.filter(w => w.floorId === floorId).map(w => ({
-    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId)), classification:w.classification
+    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId)), classification:w.classification, roomOpening:isRoomOpening(w)
   }));
   return {
     project, floorId, reference, scale, dataUrl:asset.dataUrl, crop:reference.cropSourceRectPx,
     outline:outline.vertices.map(v => toSource(v.positionMm)), existing
   };
 }, (source, approved) => {
-  if (history.present !== source.project || currentFloorId() !== source.floorId ||
-    selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
-    throw new Error("The floor or plan changed. Reopen the preview before adding walls.");
-  }
-  const { next, rooms } = applyReviewedWallProposals(history, source, approved, crypto.randomUUID());
+  const { next, rooms } = stageReviewedWallSelection(source, approved);
   history = next;
   portableDirty = true;
-  interactionMessage = approved.length+" reviewed wall proposal(s) added. "+
+  interactionMessage = approved.length+" reviewed plan boundary item(s) added. "+
     (rooms ? rooms+" new closed boundary candidate(s); review in Rooms & zones." : "No new closed rooms yet. Check the open wall ends.")+
     " Undo removes the batch.";
   render();
   savePresent("automatic");
-}));
+}, (source, approved) => ({rooms:stageReviewedWallSelection(source, approved).rooms})));
+function stageReviewedWallSelection(source, approved) {
+  if (history.present !== source.project || currentFloorId() !== source.floorId ||
+    selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
+    throw new Error("The floor or plan changed. Reopen the preview before checking or adding walls.");
+  }
+  return applyReviewedWallProposals(history, source, approved, crypto.randomUUID());
+}
 queueMicrotask(() => attachOsSendBack({
   button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
   referenceButton: document.querySelector("#apply-os-reference"),
@@ -5308,7 +5312,7 @@ function openRoomCreationDialog(boundaryKey, { offerRestore = true } = {}) {
   editingZoneId = null;
   setSpaceDialogLabels("room");
   roomDialogTitle.textContent = "Confirm room";
-  roomBoundarySummary.textContent = `${formatArea(candidate.areaMm2)} from ${candidate.boundary.length} physical wall references. Area follows wall reference lines.`;
+  roomBoundarySummary.textContent = `${formatArea(candidate.areaMm2)} from ${candidate.boundary.length} wall or doorway boundary edges. Area follows wall reference lines.`;
   roomNameInput.value = "";
   roomUseInput.value = "unspecified";
   roomVentilationRoleInput.value = "unassigned";
@@ -5683,10 +5687,11 @@ function openWallDeleteDialog() {
   if (!wall) return;
   pendingDeleteWallId = wall.id;
   const isDivider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
+  const doorway=isRoomOpening(wall);
   const connectedCount = wallConnectedComponentIds(history.present, wall.id).length;
-  deleteWallDialog.querySelector('[value="delete-connected"]').hidden = isDivider;
-  deleteWallDialog.querySelector('[value="delete-wall"]').textContent = isDivider ? "Delete divider segment" : "Delete wall only";
-  deleteWallDialog.querySelector("h2").textContent = isDivider ? "Delete room divider" : "Delete selected wall";
+  deleteWallDialog.querySelector('[value="delete-connected"]').hidden = isDivider||doorway;
+  deleteWallDialog.querySelector('[value="delete-wall"]').textContent = doorway ? "Remove doorway boundary" : isDivider ? "Delete divider segment" : "Delete wall only";
+  deleteWallDialog.querySelector("h2").textContent = doorway ? "Remove doorway boundary" : isDivider ? "Delete room divider" : "Delete selected wall";
   const describe = (ids) => {
     const affected = inspectWallDeletion(history.present, ids);
     const names = [...affected.rooms, ...affected.zones].map(space => space.name);
@@ -7100,16 +7105,19 @@ function renderPass() {
   for (const wall of history.present.walls.filter(onCurrentFloor)) {
     const start = displayPosition(wall.startNodeId);
     const end = displayPosition(wall.endNodeId);
+    const doorway = isRoomOpening(wall);
+    if(doorway && activeTask !== "plan")continue;
     const divider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
     const coordinates = { x1: toView(start.x), y1: toView(start.y), x2: toView(end.x), y2: toView(end.y) };
     modelLayer.append(svgElement("line", {
       ...coordinates,
-      "stroke-width": divider ? 2 : Math.max(3, toView(wall.thicknessMm)),
-      class: `wall${divider ? " room-divider" : ""}${activeTask === "ventilation" ? " locked-context" : ""}${selectedWallId === wall.id ? " selected" : ""}`,
+      "stroke-width": divider||doorway ? 2 : Math.max(3, toView(wall.thicknessMm)),
+      class: `wall${divider||doorway ? " room-divider" : ""}${activeTask === "ventilation" ? " locked-context" : ""}${selectedWallId === wall.id ? " selected" : ""}`,
       "data-wall-id": wall.id,
-      "data-boundary-kind": divider ? "room-divider" : "physical-wall",
+      "data-boundary-kind": doorway ? "room-opening" : divider ? "room-divider" : "physical-wall",
+      ...(doorway?{"aria-label":"Doorway room boundary, not a wall"}:{}),
     }));
-    if (divider && activeTask === "plan" && activeTool === "select") {
+    if ((divider||doorway) && activeTask === "plan" && activeTool === "select") {
       modelLayer.append(svgElement("line", {
         ...coordinates,
         class: "room-divider-hit",
@@ -10499,7 +10507,7 @@ function renderInspector() {
   inspectorEmpty.hidden = Boolean(wall || node || component || route || floorArea || space);
   wallInspector.hidden = !wall;
   wallActions.hidden = !wall;
-  document.querySelector("#add-wall-point").disabled = activeTask !== "plan" || activeTool !== "select";
+  document.querySelector("#add-wall-point").disabled = activeTask !== "plan" || activeTool !== "select" || isRoomOpening(wall);
   nodeInspector.hidden = !node;
   componentInspector.hidden = !component;
   componentActions.hidden = !component;
@@ -10522,16 +10530,16 @@ function renderInspector() {
     const start = nodesById.get(wall.startNodeId).positionMm;
     const end = nodesById.get(wall.endNodeId).positionMm;
     const isDivider = wall.classification === "virtual" && wall.boundaryRole === "room-divider";
-    document.querySelector("#wall-kind").textContent = isDivider
+    document.querySelector("#wall-kind").textContent = isRoomOpening(wall) ? "Doorway boundary · nonphysical" : isDivider
       ? "Room divider · nonphysical"
       : wall.classification === "physical"
         ? "Physical wall"
         : "Legacy virtual boundary";
     document.querySelector("#wall-id").textContent = wall.id;
     document.querySelector("#wall-length").textContent = formatMm(Math.hypot(end.x - start.x, end.y - start.y));
-    document.querySelector("#wall-thickness").textContent = isDivider ? "Not a wall quantity" : formatMm(wall.thicknessMm);
+    document.querySelector("#wall-thickness").textContent = isDivider||isRoomOpening(wall) ? "Not a wall quantity" : formatMm(wall.thicknessMm);
     document.querySelector("#wall-reference").textContent = wall.referenceLine;
-    document.querySelector("#wall-height").textContent = isDivider
+    document.querySelector("#wall-height").textContent = isDivider||isRoomOpening(wall)
       ? "Not applicable"
       : wall.heightMm.state === "unknown" ? "Unknown" : formatMm(wall.heightMm.valueMm);
   }

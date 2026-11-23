@@ -50,10 +50,34 @@ export function detectPlanWallCandidates({data,width,height}, mmPerPixel, outlin
   const faint=scanWallInk({data,width,height},mmPerPixel,outline,202);
   // Retain thicker, independently corroborated bands even if a small part of their run
   // was detected as a thin line in the darker pass.
-  return [...strong,...faint.filter(w=>!strong.some(d=>
+  return suppressBridgedHatch([ ...strong,...faint.filter(w=>!strong.some(d=>
     (!w.structuralInk||d.structuralInk) && hasWallOverlap(w,[d],Math.max(2,50/mmPerPixel)) &&
     distance(d.a,d.b)>=0.85*distance(w.a,w.b)
-  )).map(w=>({...w,faint:true}))];
+  )).map(w=>({...w,faint:true})) ],mmPerPixel);
+}
+
+// If two separately detected hatched sections leave a real gap, discard a
+// competing wide match (often a dimension/trim line) crossing that gap.
+function suppressBridgedHatch(walls, mmPerPixel) {
+  const hatch=walls.filter(w=>w.hatched);
+  return walls.filter(w=>{
+    const axis=w.a.y===w.b.y?"x":"y", cross=axis==="x"?"y":"x";
+    const len=w.b[axis]-w.a[axis];
+    if(len*mmPerPixel<1550)return true;
+    const inside=hatch.filter(h=>h!==w&&h.a[cross]===h.b[cross]&&
+      Math.abs(h.a[cross]-w.a[cross])*mmPerPixel<=115&&
+      h.b[axis]-h.a[axis]<=len*0.82&&
+      h.a[axis]>=w.a[axis]-35/mmPerPixel&&h.b[axis]<=w.b[axis]+35/mmPerPixel);
+    const coversGap=inside.some(a=>inside.some(b=>{
+      const gap=b.a[axis]-a.b[axis];
+      return gap*mmPerPixel>=250&&gap*mmPerPixel<=2200&&
+        (a.b[axis]-a.a[axis]+b.b[axis]-b.a[axis])>=len*0.5;
+    }));
+    if(coversGap)return false;
+    return !w.hatched||!hatch.some(h=>h!==w&&h.thicknessMm+45<w.thicknessMm&&
+      h.a[cross]===h.b[cross]&&Math.abs(h.a[cross]-w.a[cross])*mmPerPixel<=100&&
+      Math.max(0,Math.min(h.b[axis],w.b[axis])-Math.max(h.a[axis],w.a[axis]))>=len*0.88);
+  });
 }
 
 // Read the ink between the edges. Multiple persistent thin tracks with little
@@ -63,7 +87,8 @@ function inspectBand(dark,width,height,horizontal,start,end,center,thickness,sol
   const half=thickness/2, rows=[];
   for(let k=Math.ceil(center-half*0.78);k<=center+half*0.78;k++)rows.push(k);
   if(rows.length<4)return {structuralInk:solid,striped:false,hatched:false};
-  const counts=rows.map(()=>0);let total=0, samples=0, marked=0;
+  const counts=rows.map(()=>0), transitions=rows.map(()=>0), prior=rows.map(()=>false);
+  let total=0, samples=0, marked=0;
   const pad=Math.ceil((end-start)*0.12);
   const stride=Math.max(1,Math.floor((end-start)/100));
   for(let n=Math.ceil(start)+pad;n<end-pad;n+=stride){
@@ -71,7 +96,9 @@ function inspectBand(dark,width,height,horizontal,start,end,center,thickness,sol
     let column=0;
     for(let j=0;j<rows.length;j++){
       const x=horizontal?n:rows[j],y=horizontal?rows[j]:n;
-      if(x>=0&&x<width&&y>=0&&y<height&&dark[y*width+x]){total++;counts[j]++;column++;}
+      const ink=x>=0&&x<width&&y>=0&&y<height&&Boolean(dark[y*width+x]);
+      if(ink){total++;counts[j]++;column++;}
+      if(ink&&!prior[j])transitions[j]++;prior[j]=ink;
     }
     if(column)marked++;
   }
@@ -80,8 +107,10 @@ function inspectBand(dark,width,height,horizontal,start,end,center,thickness,sol
   const faint=counts.filter(n=>n/samples<0.2).length;
   const continuous=counts.filter(n=>n/samples>0.72).length;
   const intermittent=counts.filter(n=>n/samples>=0.16&&n/samples<=0.7).length;
-  const striped=!solid && continuous>=1 && faint>=2 && coverage<0.7;
-  const hatched=!striped && !solid && intermittent>=Math.max(3,Math.ceil(rows.length*0.5)) && coverage>=0.18 && marked/samples>=0.75;
+  const patterned=counts.filter((n,j)=>n/samples>=0.1&&n/samples<=0.78&&transitions[j]>=Math.max(5,samples/14)).length;
+  const hatched=!solid&&((patterned>=2&&coverage>=0.16&&marked/samples>=0.55)||
+    (continuous===0&&intermittent>=Math.max(3,Math.ceil(rows.length*0.5))&&coverage>=0.18&&marked/samples>=0.75));
+  const striped=!hatched&&!solid && continuous>=1 && faint>=2 && coverage<0.7;
   return {structuralInk:solid||hatched||(!striped&&coverage>=0.72),striped,hatched};
 }
 
@@ -145,6 +174,19 @@ function scanWallInk({data,width,height},mmPerPixel,outline,threshold) {
           evidence:ink.hatched?"Hatched band between wall edges":evidence,...ink});
       }
     };
+    // Compare independent close edge pairs before the greedy pass.
+    for(let i=0;i<bands.length;i++){
+      const a=bands[i]; if(a.ink>=minWall)continue;
+      for(let j=i+1;j<bands.length;j++){
+        const b=bands[j], span=b.center-a.center;
+        if(span>Math.min(maxWall,285/mmPerPixel))break;
+        if(span<Math.max(minWall,5)||b.ink>=minWall)continue;
+        const start=Math.max(a.start,b.start),end=Math.min(a.end,b.end),center=(a.center+b.center)/2;
+        if(end-start<Math.max(1000/mmPerPixel,6*span)||overlap(a,b)/Math.max(length(a),length(b))<0.48)continue;
+        if(inspectBand(dark,width,height,horizontal,start,end,center,span,false).hatched)
+          add(start,end,center,span,"Parallel wall edges");
+      }
+    }
     const used=new Set();
     for(const [i,a] of bands.entries()){
       if(a.ink>=minWall && a.ink<=maxWall && length(a)>=2*a.ink){
@@ -245,7 +287,18 @@ export function rankWallProposals(walls, existing, outline, mmPerPixel) {
     const outlineEnds=perimeterEnds.filter(Boolean).length;
     const minWidth=wall.faint?145:105;
     const structural=wall.structuralInk&&wall.thicknessMm>=minWidth;
+    const doubled=meta.some((m,j)=>{
+      if(j===i||m.len<len*0.72||orthogonal(wall,m.wall))return false;
+      const offsets=[gap(wall.a,m.wall),gap(wall.b,m.wall)];
+      const min=Math.min(...offsets)*mmPerPixel,max=Math.max(...offsets)*mmPerPixel;
+      const p=segmentProjection(wall.a,m.wall.a,m.wall.b),q=segmentProjection(wall.b,m.wall.a,m.wall.b);
+      return min>=270&&max<=850&&max-min<180&&distance(p,q)*mmPerPixel>=len*0.72;
+    });
     const masonryEvidence=wall.hatched&&len>=1100&&!perimeterRun;
+    const narrowPartition=!wall.faint&&!doubled&&!wall.striped&&!perimeterRun&&
+      wall.evidence==="Parallel wall edges"&&wall.thicknessMm>=80&&wall.thicknessMm<=135&&
+      len>=2400&&outlineEnds===1&&edges.some(e=>orthogonal(wall,e)&&
+        gap(perimeterEnds[0]?wall.a:wall.b,e)<=perimeter);
     const neighbours=[wall.a,wall.b].map(p=>meta.filter((m,j)=>i!==j&&m.len>=1400&&
       !m.wall.striped&&orthogonal(wall,m.wall)&&gap(p,m.wall)<=context));
     const joinedAtBothEnds=neighbours[0].some(a=>neighbours[1].some(b=>a!==b));
@@ -256,12 +309,12 @@ export function rankWallProposals(walls, existing, outline, mmPerPixel) {
     const supported=!wall.striped&&(confirmed||
       (perimeterRun?structural&&len>=1200:
         (outlineEnds===2&&len>=1400)||
-        (structural&&len>=1600)||
-        (len>=1800&&(joinedAtBothEnds||connectedAtOppositeEnd))));
+        (structural&&!wall.hatched&&len>=1600)||narrowPartition||
+        (!wall.hatched&&len>=1800&&(joinedAtBothEnds||connectedAtOppositeEnd))));
     const reason=wall.striped?"Multiple thin lines; check for glazing":confirmed?"Connects to a Studio wall":
       perimeterRun?(supported?"Wall-width ink along the traced perimeter":"Perimeter ink; check for glazing or trim"):
       structural&&supported?"Wall-width infill or solid stroke":
-      supported?"Supported at both ends":masonryEvidence?"Possible masonry; verify both edges":outlineEnds?"Touches outline only; check for joinery":"Unconfirmed stroke; check against plan";
+      narrowPartition&&supported?"Long narrow partition; verify both ends":supported?"Supported at both ends":masonryEvidence?"Possible masonry; verify both edges":outlineEnds?"Touches outline only; check for joinery":"Unconfirmed stroke; check against plan";
     const score=Number(supported)*100 + Number(confirmed)*29 + Number(structural)*18 + Number(masonryEvidence)*25+Number(wall.hatched)*5 +
       outlineEnds*5 + Number(joinedAtBothEnds||connectedAtOppositeEnd)*5 + Math.min(10,len/500);
     return {...wall,supported,masonryReview:masonryEvidence&&!supported,reason:reason+(wall.faint?" · Faint ink":""),score};

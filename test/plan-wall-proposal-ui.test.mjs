@@ -1,7 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
+import {applyReviewedWallProposals} from "../app/plan-wall-apply.mjs";
+import {applyCommand,createProject,identityQuaternion,knownMm} from "../src/domain/spatial.mjs";
+import {createCommandHistory,undoCommand} from "../src/domain/history.mjs";
 import {mountPlanWallProposal} from "../app/plan-wall-proposal.mjs";
-test("preview handles delayed image close, visibility toggle, pointer cancel and stale apply without writing",async()=>{
+test("preview handles interrupted edits and traces, checks, applies and undoes selected walls with the real room engine",async()=>{
   class Node {
     constructor(tag){this.tag=tag;this.children=[];this.style={};this.clientWidth=1000;this.clientHeight=600;this.isConnected=true;}
     append(...nodes){for(const n of nodes)if(typeof n==="object")n.parent=this;this.children.push(...nodes);}
@@ -79,6 +82,64 @@ test("preview handles delayed image close, visibility toggle, pointer cancel and
     assert.equal(calls[0][1].length,1);
     assert.deepEqual(calls[0][1][0],{a:{x:20,y:16},b:{x:90,y:16},thicknessMm:100});
     assert(!find(body,n=>n.tag==="dialog"));
+    const dryHost=new Node("anchor");body.append(dryHost);
+    const floorId="floor-qa";
+    const source={...snapshot,floorId,reference:{transform:{rotationRad:0,translationMm:{x:0,y:0}}}};
+    let current=createCommandHistory(applyCommand(createProject("trace-qa"),{
+      type:"floor.add",floor:{id:floorId,name:"QA floor",transform:{
+        translationMm:{x:0,y:0,z:knownMm(0,"QA")},orientation:identityQuaternion()
+      }}
+    }));
+    let callsToCheck=0;
+    mountPlanWallProposal(dryHost,()=>source,(s,w)=>{current=applyReviewedWallProposals(current,s,w,"apply-qa").next;},
+      (s,w)=>{callsToCheck++;return applyReviewedWallProposals(current,s,w,"draft-qa");});
+    const opened=dryHost.parent.children.filter(n=>n.textContent==="Propose walls from plan").at(-1);
+    await opened.onclick();
+    const c=find(body,n=>n.tag==="canvas");
+    const trace=find(body,n=>n.textContent==="Trace missing wall");
+    const dry=find(body,n=>n.textContent==="Check rooms before adding");
+    const save=find(body,n=>n.textContent==="Add selected walls");
+    assert(dry.disabled);
+    function draw(a,b){
+      trace.onclick();c.onpointerdown(pointer(...a));c.onpointerdown(pointer(...b));
+    }
+    draw([10,10],[105,10]);draw([105,10],[105,68]);draw([105,68],[10,68]);
+    dry.onclick();
+    assert(find(body,n=>n.textContent?.startsWith("No new closed room boundaries")));
+    assert.equal(current.present.walls.length,0);
+    trace.onclick();c.onpointerdown(pointer(10,68));
+    assert(save.disabled);assert(dry.disabled);
+    c.onpointerdown(pointer(11,11)); // near the selected corner, snaps exactly
+    dry.onclick();
+    assert(find(body,n=>n.textContent==="1 new closed room boundary with this selection. Nothing added yet."));
+    assert.equal(callsToCheck,2);
+    assert.equal(current.present.walls.length,0);
+    save.onclick();
+    assert.equal(current.present.walls.length,4);
+    assert.equal(current.past.length,1);
+    assert.equal(undoCommand(current).present.walls.length,0);
+    current=undoCommand(current);
+    await opened.onclick();
+    const d=find(body,n=>n.tag==="canvas");
+    const pick=(name)=>find(body,n=>n.textContent===name);
+    function traceGap(a,b){
+      pick("Trace missing wall").onclick();d.onpointerdown(pointer(...a));d.onpointerdown(pointer(...b));
+    }
+    traceGap([10,10],[37,10]);traceGap([70,10],[105,10]);traceGap([105,10],[105,70]);
+    traceGap([105,70],[10,70]);traceGap([10,70],[10,10]);
+    pick("Check rooms before adding").onclick();
+    assert(find(body,n=>n.textContent?.startsWith("No new closed room boundaries")));
+    pick("Mark doorway boundary").onclick();
+    d.onpointerdown(pointer(30,42));
+    assert(pick("Click near the end of a selected or existing physical wall at the doorway."));
+    d.onpointerdown(pointer(37,11));d.onpointerdown(pointer(71,10));
+    pick("Check rooms before adding").onclick();
+    assert(pick("1 new closed room boundary with this selection. Nothing added yet."));
+    assert.equal(current.present.walls.length,0);
+    pick("Add selected boundaries").onclick();
+    assert.equal(current.present.walls.filter(w=>w.classification==="physical").length,5);
+    assert.equal(current.present.walls.filter(w=>w.boundaryRole==="room-opening").length,1);
+    assert.equal(undoCommand(current).present.walls.length,0);
   } finally {
     names.forEach((key,i)=>{if(prior[i]===undefined)delete globalThis[key];else globalThis[key]=prior[i];});
   }

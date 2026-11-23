@@ -40,6 +40,8 @@ import {
 } from "./engineering-inputs.mjs";
 import {
   deriveRoomBoundaries,
+  isRoomOpening,
+  isSupportedRoomOpening,
   deriveZoneBoundaries,
   inspectRoomBoundary,
   inspectZoneBoundary,
@@ -64,7 +66,7 @@ import {
  * Z-up coordinate system. Unknown elevations remain explicit.
  */
 
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 export const MAX_EMBEDDED_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REFERENCE_ASSETS = 8;
 export const MAX_TOTAL_REFERENCE_BYTES = 20 * 1024 * 1024;
@@ -962,6 +964,26 @@ export function applyCommand(project, command, options = {}) {
       addWallChain(next, command);
       break;
     }
+    case "wall.addRoomOpening": {
+      const {floorId,wallId,startNodeId,endNodeId}=command;
+      requireEntity(next.floors,floorId,"Opening floor");
+      requireUniqueId(next.walls,wallId,"Opening");
+      const opening={id:wallId,floorId,startNodeId,endNodeId,classification:"virtual",
+        boundaryRole:"room-opening",parentRoomId:null,thicknessMm:1,
+        heightMm:unknownMm("Nonphysical boundary at a marked doorway"),referenceLine:"centreline"};
+      if(next.walls.some(w=>wallEndpointPairKey(w.startNodeId,w.endNodeId)===wallEndpointPairKey(startNodeId,endNodeId))){
+        throw new TypeError("A boundary already joins those jambs.");
+      }
+      const nodes=new Map(next.wallNodes.map(n=>[n.id,n]));
+      if(!isSupportedRoomOpening(opening,next.walls.filter(w=>w.classification==="physical"),nodes)){
+        throw new TypeError("Mark only a clear 450–2400 mm gap between two aligned physical wall ends.");
+      }
+      next.walls.push(opening);
+      const affected=deriveRoomBoundaries(next,floorId).diagnostics.some(d=>
+        d.code==="unconfirmed-opening-geometry"&&d.wallIds.includes(wallId));
+      if(affected)throw new TypeError("This opening overlaps or crosses another marked opening.");
+      break;
+    }
     case "wall.moveNode": {
       const node = requireEntity(next.wallNodes, command.nodeId, "Wall node");
       node.positionMm.x = requireFinite(command.xMm, "Wall node x");
@@ -969,6 +991,7 @@ export function applyCommand(project, command, options = {}) {
       break;
     }
     case "wall.split": {
+      if(isRoomOpening(requireEntity(next.walls,command.wallId,"Wall")))throw new TypeError("Doorway boundaries cannot be split.");
       splitWall(next, command);
       break;
     }
@@ -1693,6 +1716,8 @@ export function migrateProjectData(project) {
   // older readers that otherwise silently treat every proposal as legacy.
   // Preserve stored profile absence, targets, allocations and site evidence.
   if (migrated.schemaVersion === 28) migrated = { ...migrated, schemaVersion: 29 };
+  // A nonphysical room-opening edge is not readable by pre-30 clients.
+  if (migrated.schemaVersion === 29) migrated = { ...migrated, schemaVersion: 30 };
   if (migrated.schemaVersion === SCHEMA_VERSION) return migrated;
   throw new RangeError(`Unsupported schema version: ${String(project.schemaVersion)}`);
 }
@@ -2969,19 +2994,20 @@ function interpolateWallElevation(start, end, fraction) {
 
 export function wallConnectedComponentIds(project, seedWallId) {
   validateProject(project);
-  requireEntity(project.walls, seedWallId, "Connected wall seed");
+  if(isRoomOpening(requireEntity(project.walls, seedWallId, "Connected wall seed")))return [seedWallId];
+  const connectedWalls=project.walls.filter(w=>!isRoomOpening(w));
   const selected = new Set([seedWallId]);
   const nodes = new Set();
   let changed = true;
   while (changed) {
     changed = false;
-    for (const wall of project.walls) {
+    for (const wall of connectedWalls) {
       if (selected.has(wall.id)) {
         nodes.add(wall.startNodeId);
         nodes.add(wall.endNodeId);
       }
     }
-    for (const wall of project.walls) {
+    for (const wall of connectedWalls) {
       if (!selected.has(wall.id) && (nodes.has(wall.startNodeId) || nodes.has(wall.endNodeId))) {
         selected.add(wall.id);
         changed = true;
@@ -3172,9 +3198,15 @@ function validateWall(project, wall) {
   }
   const boundaryRole = normalizeChoice(
     wall.boundaryRole,
-    ["room-divider", "legacy-virtual"],
+    ["room-divider", "legacy-virtual", "room-opening"],
     "Virtual boundary role",
   );
+  if (boundaryRole === "room-opening") {
+    if(wall.parentRoomId!==null || wall.thicknessMm!==1 || wall.heightMm.state!=="unknown" || wall.referenceLine!=="centreline"){
+      throw new TypeError("Doorway boundary is nonphysical and cannot have a parent room or wall dimensions");
+    }
+    return;
+  }
   if (boundaryRole === "legacy-virtual") {
     if (wall.parentRoomId !== null) {
       throw new TypeError("Legacy virtual walls cannot claim a parent room");
@@ -3267,8 +3299,8 @@ function validateRoom(project, room) {
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Room boundary wall belongs to another floor: ${wall.id}`);
     }
-    if (wall.classification !== "physical") {
-      throw new TypeError(`Room boundary must use physical walls: ${wall.id}`);
+    if (wall.classification !== "physical" && !isRoomOpening(wall)) {
+      throw new TypeError(`Room boundary must use physical walls or confirmed openings: ${wall.id}`);
     }
     return entry.direction === "forward"
       ? { wallId: wall.id, fromNodeId: wall.startNodeId, toNodeId: wall.endNodeId }
@@ -3417,11 +3449,11 @@ function validateZone(project, zone) {
     if (wall.floorId !== normalized.floorId) {
       throw new TypeError(`Zone boundary edge belongs to another floor: ${wall.id}`);
     }
-    if (wall.classification === "physical" && !parentWallIds.has(wall.id)) {
+    if ((wall.classification === "physical" || isRoomOpening(wall)) && !parentWallIds.has(wall.id)) {
       throw new TypeError(`Zone cannot use a physical wall outside its parent room: ${wall.id}`);
     }
     if (
-      wall.classification === "virtual" &&
+      wall.classification === "virtual" && !isRoomOpening(wall) &&
       (wall.boundaryRole !== "room-divider" || wall.parentRoomId !== parent.id)
     ) {
       throw new TypeError(`Zone divider belongs to another parent room: ${wall.id}`);

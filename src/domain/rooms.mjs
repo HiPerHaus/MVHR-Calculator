@@ -37,6 +37,31 @@ export const ROOM_VENTILATION_ROLES = Object.freeze([
   "none",
 ]);
 
+export const ROOM_OPENING_MIN_MM = 450;
+export const ROOM_OPENING_MAX_MM = 2400;
+export const isRoomOpening = wall => wall?.classification === "virtual" && wall.boundaryRole === "room-opening";
+
+export function isSupportedRoomOpening(opening, physical, nodes) {
+  const a = nodes.get(opening.startNodeId), b = nodes.get(opening.endNodeId);
+  if(!a || !b || a.floorId !== opening.floorId || b.floorId !== opening.floorId)return false;
+  const from=pointFromNode(a),to=pointFromNode(b);
+  const length=Math.hypot(to.x-from.x,to.y-from.y);
+  if(length<ROOM_OPENING_MIN_MM||length>ROOM_OPENING_MAX_MM)return false;
+  const walls=physical.filter(w=>w.floorId===opening.floorId);
+  const jamb=(atId,at,inside)=>walls.some(w=>{
+    const other=w.startNodeId===atId?w.endNodeId:w.endNodeId===atId?w.startNodeId:null;
+    if(!other)return false;
+    const x=pointFromNode(nodes.get(other)),dx=x.x-at.x,dy=x.y-at.y;
+    return dx*(at.x-inside.x)+dy*(at.y-inside.y)>=0.97*length*Math.hypot(dx,dy);
+  });
+  if(!jamb(a.id,from,to)||!jamb(b.id,to,from))return false;
+  return !walls.some(w=>{
+    const c=pointFromNode(nodes.get(w.startNodeId)),d=pointFromNode(nodes.get(w.endNodeId));
+    const int=segmentIntersection(from,to,c,d);
+    return int.intersects&&(int.overlap||![w.startNodeId,w.endNodeId].some(id=>id===a.id||id===b.id));
+  });
+}
+
 export function deriveRoomBoundaries(project, floorId) {
   requireProjectCollections(project);
   requireId(floorId, "Floor ID");
@@ -45,7 +70,24 @@ export function deriveRoomBoundaries(project, floorId) {
   const physicalWalls = project.walls.filter(
     (wall) => wall.floorId === floorId && wall.classification === "physical",
   );
-  return deriveFaces(physicalWalls, nodeById, floorId);
+  const openings=project.walls.filter(w=>w.floorId===floorId&&isRoomOpening(w));
+  const active=openings.filter(w=>isSupportedRoomOpening(w,physicalWalls,nodeById));
+  const conflicts=new Set();
+  for(let i=0;i<active.length;i++)for(let j=i+1;j<active.length;j++){
+    const a=active[i],b=active[j];
+    const int=segmentIntersection(...[a.startNodeId,a.endNodeId,b.startNodeId,b.endNodeId].map(id=>pointFromNode(nodeById.get(id))));
+    if(int.intersects&&(int.overlap||![a.startNodeId,a.endNodeId].some(id=>id===b.startNodeId||id===b.endNodeId))){
+      conflicts.add(a.id);conflicts.add(b.id);
+    }
+  }
+  const valid=active.filter(w=>!conflicts.has(w.id));
+  const resolved=deriveFaces([...physicalWalls,...valid],nodeById,floorId);
+  const validIds=new Set(valid.map(w=>w.id));
+  for(const w of openings)if(!validIds.has(w.id))resolved.diagnostics.push({
+    code:"unconfirmed-opening-geometry",severity:"warning",message:"A marked opening no longer fits clear, aligned physical jambs.",
+    wallIds:[w.id],nodeIds:[w.startNodeId,w.endNodeId],pointMm:null
+  });
+  return resolved;
 }
 
 export function deriveZoneBoundaries(project, parentRoomId) {
@@ -56,6 +98,9 @@ export function deriveZoneBoundaries(project, parentRoomId) {
   const parent = roomPolygonFromBoundary(project, room);
   const boundaryWallIds = new Set(room.boundary.map((entry) => entry.wallId));
   const boundaryWalls = project.walls.filter((wall) => boundaryWallIds.has(wall.id));
+  if(boundaryWalls.some(isRoomOpening)&&inspectRoomBoundary(project,room).status!=="current"){
+    return {candidates:[],diagnostics:[]};
+  }
   const dividers = project.walls.filter(
     (wall) =>
       wall.floorId === room.floorId &&
