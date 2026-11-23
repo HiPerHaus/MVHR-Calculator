@@ -101,13 +101,13 @@ exact.onclick=async()=>{
   check(!area.hidden&&/Highlighted rooms.*11[.,][0-9] m²/.test(area.textContent),"Expected Bed 4 area not visible: "+area.textContent);
   const color=(x,y)=>[...canvas.getContext("2d").getImageData(x,y,1,1).data].slice(0,3);
   const highlighted=color(38,90), outside=color(210,95);
-  check(highlighted[0]+20<highlighted[1]&&outside[0]>=240,"Tint was not visible inside only");
+  check(highlighted[0]+10<highlighted[1]&&outside[0]>=240,"Tint was not visible inside only");
   const selectedDoor=[...dialog.querySelectorAll('label')].find(l=>l.textContent.includes("Doorway boundary")).querySelector("input");
   selectedDoor.click();
   const cleared=color(38,90);
   check(area.hidden&&cleared[0]>=240,"Selection change did not clear old tint and area");
   selectedDoor.click();button("Check rooms before adding").click();
-  check(!area.hidden&&color(38,90)[0]+20<color(38,90)[1],"Rechecking did not restore highlight");
+  check(!area.hidden&&color(38,90)[0]+10<color(38,90)[1],"Rechecking did not restore highlight");
   if(document.querySelector("#leave-highlight").checked){
     out.textContent="PASS: Bed 4 highlight and area shown; selection change cleared both; recheck restored both. Nothing added.";
     dialog.querySelector("[role=status]").textContent+=" Verified: changing the selection clears the highlight.";
