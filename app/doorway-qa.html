@@ -34,7 +34,9 @@ document.querySelector("#run").onclick=async()=>{
   button("Check rooms before adding").click();check(document.querySelector("dialog [role=status]").textContent.startsWith("1 new closed room"),"Corner doorway did not close room");
   check(state.present.walls.length===0,"Room check wrote to project");
   button("Add selected boundaries").click();
-  check(!document.querySelector("dialog"),"Add did not close preview");
+  check(!document.querySelector("dialog")?.open,"Add did not close preview");
+  for(let i=0;i<20&&document.querySelector("dialog");i++)await new Promise(r=>requestAnimationFrame(r));
+  check(!document.querySelector("dialog"),"Closed preview was not removed");
   check(state.present.walls.filter(w=>w.classification==="physical").length===4,"Wrong physical wall count");
   const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"No nonphysical doorway");
   const face=deriveRoomBoundaries(state.present,floorId).candidates[0];
