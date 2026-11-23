@@ -52,6 +52,7 @@ export function mountStudioIntegrationSettings(client, memberships, host) {
       try {
         await setStudioHiperOsEnabled(client, workspaceId, checkbox.checked);
         saved = checkbox.checked;
+        window.dispatchEvent(new Event("studio-integration-updated"));
         status.textContent = "Integration setting saved.";
       } catch (error) {
         checkbox.checked = saved;

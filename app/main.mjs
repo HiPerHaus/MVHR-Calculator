@@ -15,7 +15,8 @@ import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILIT
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
-import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
+import {attachOsSendBack} from "./studio-os-send.mjs";
+import { createPartsCsv, createPartsCsvRows, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
@@ -1561,6 +1562,18 @@ threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"));
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
+queueMicrotask(() => attachOsSendBack({
+  button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
+  snapshot() {
+    const project = sheetPreviewOptionProject;
+    return {
+      workspaceId: cloudSession?.workspace?.id, record: currentCloudRecord,
+      ready: Boolean(project && !exportPartsCsvButton.disabled && !sheetPreviewPanel.hidden && !projectHasUnsavedChanges() && currentCloudRecord?.workspace_id === cloudSession?.workspace?.id),
+      optionId: project?.activeDesignOptionId, scope: sheetExportSystemScope,
+      rows: () => createPartsCsvRows(project, {systemScope:sheetExportSystemScope})
+    };
+  }
+}));
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
 sheetOptionNavigation.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-export-option]");
