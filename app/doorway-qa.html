@@ -1,0 +1,52 @@
+<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Studio doorway browser QA</title>
+<h1>Studio doorway test (synthetic data only)</h1><p id="anchor">Isolated browser fixture: no studio sign-in, customer plans, or cloud writes.</p>
+<button id="run">Run doorway browser test</button><pre role="status" id="out">Ready</pre>
+<script type="module">
+import {mountPlanWallProposal} from "./plan-wall-proposal.mjs";
+import {applyReviewedWallProposals} from "./plan-wall-apply.mjs";
+import {createCommandHistory,executeCommand,undoCommand} from "../src/domain/history.mjs";
+import {createProject,applyCommand,identityQuaternion,knownMm,serializeProject,deserializeProject} from "../src/domain/spatial.mjs";
+import {deriveRoomBoundaries,inspectRoomBoundary} from "../src/domain/rooms.mjs";
+import {roomVolume} from "../src/domain/room-volume.mjs";
+const p=(x,y)=>({x,y}),floorId="floor-fixture";
+const img=document.createElement("canvas");img.width=300;img.height=240;
+const ctx=img.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,300,240);ctx.strokeStyle="#ddd";ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(25,25);ctx.lineTo(250,25);ctx.lineTo(250,190);ctx.moveTo(191,190);ctx.lineTo(25,190);ctx.lineTo(25,25);ctx.stroke();
+const input={floorId,scale:20,dataUrl:img.toDataURL(),outline:[p(0,0),p(300,0),p(300,240),p(0,240)],existing:[],reference:{transform:{rotationRad:0,translationMm:p(0,0)}}};
+const initial=applyCommand(createProject("qa-project"),{type:"floor.add",floor:{id:floorId,name:"QA floor",transform:{translationMm:{...p(0,0),z:knownMm(0,"fixture")},orientation:identityQuaternion()}}});
+let state=createCommandHistory(initial);
+mountPlanWallProposal(document.querySelector("#anchor"),()=>input,
+ (s,selected)=>{state=applyReviewedWallProposals(state,s,selected,"apply").next;},
+ (s,selected)=>applyReviewedWallProposals(state,s,selected,"dry"));
+const out=document.querySelector("#out"),check=(v,m)=>{if(!v)throw Error(m)};
+const button=label=>Array.from(document.querySelectorAll("button")).find(b=>b.textContent===label);
+const waitCanvas=async()=>{for(let i=0;i<80;i++){const c=document.querySelector("dialog canvas");if(c&&button("Check rooms before adding"))return c;await new Promise(r=>requestAnimationFrame(r));}throw Error("Canvas did not load");};
+document.querySelector("#run").onclick=async()=>{
+ out.textContent="Running";state=createCommandHistory(initial);
+ try{
+  button("Propose walls from plan").click();const canvas=await waitCanvas();
+  const clickAt=(x,y)=>{const r=canvas.getBoundingClientRect();
+   canvas.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,button:0,clientX:r.left+x*r.width/canvas.width,clientY:r.top+y*r.height/canvas.height}));};
+  const trace=(a,b)=>{button("Trace missing wall").click();clickAt(...a);clickAt(...b);check(document.querySelector("dialog [role=status]").textContent.includes("Traced wall selected"),"Trace did not stage");};
+  trace([25,25],[250,25]);trace([250,25],[250,190]);trace([25,25],[25,190]);trace([25,190],[191,190]);
+  button("Check rooms before adding").click();check(document.querySelector("dialog [role=status]").textContent.startsWith("No new closed room"),"Open wall was treated as closed");
+  button("Mark doorway boundary").click();clickAt(191,190);clickAt(250,190);
+  button("Check rooms before adding").click();check(document.querySelector("dialog [role=status]").textContent.startsWith("1 new closed room"),"Corner doorway did not close room");
+  check(state.present.walls.length===0,"Room check wrote to project");
+  button("Add selected boundaries").click();
+  check(!document.querySelector("dialog"),"Add did not close preview");
+  check(state.present.walls.filter(w=>w.classification==="physical").length===4,"Wrong physical wall count");
+  const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"No nonphysical doorway");
+  const face=deriveRoomBoundaries(state.present,floorId).candidates[0];
+  const confirmed=applyCommand(state.present,{type:"room.createFromBoundary",floorId,roomId:"fixture-room",name:"Corner room",use:"bedroom",ventilationRole:"supply",boundaryKey:face.key});
+  const legacy=deserializeProject(JSON.stringify({...initial,schemaVersion:29}));check(legacy.schemaVersion===30,"Legacy migration failed");
+  const before=deserializeProject(serializeProject(confirmed));check(inspectRoomBoundary(before,before.rooms[0]).status==="current","Saved room not current");
+  let history=executeCommand(createCommandHistory(before),{type:"wall.delete",wallId:marker.id,retainAffectedRooms:true});
+  check(roomVolume(history.present,history.present.rooms[0]).valueM3===null,"Stale volume counted");
+  check(inspectRoomBoundary(undoCommand(history).present,before.rooms[0]).status==="current","Undo did not restore room");
+  check(undoCommand(state).present.walls.length===0,"Add did not undo in one batch");
+  out.textContent="PASS: actual browser canvas and controls; open gap → one room after nonphysical corner marker; four physical walls; read-only check; legacy migration; save/reopen; marker removal excludes stale volume; Undo restores room.";
+ }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
+};
+document.querySelector("#run").disabled=false;
+</script>
