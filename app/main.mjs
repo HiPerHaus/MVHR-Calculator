@@ -1,3 +1,5 @@
+import { mountPlanWallProposal } from "./plan-wall-proposal.mjs";
+import { applyReviewedWallProposals } from "./plan-wall-apply.mjs";
 import {createAirflowProposalSection} from "./airflow-proposal-ui.mjs";
 import {lpsToM3h,m3hToLps} from "../src/editor/field-airflow-units.mjs";
 import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
@@ -15,7 +17,8 @@ import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILIT
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
-import { createPartsCsv, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
+import {attachOsSendBack} from "./studio-os-send.mjs";
+import { createPartsCsv, createPartsCsvRows, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
@@ -1561,6 +1564,82 @@ threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"));
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
+queueMicrotask(async () => {
+  if (new URLSearchParams(location.search).get("roomTest") !== "1") return;
+  const { mountRoomTest } = await import("./room-test.mjs");
+  mountRoomTest(floorAreaSummary, () => {
+    const workspaceId = cloudSession?.workspace?.id;
+    const reference = selectedReference();
+    const scale = reference && referenceScaleMmPerPixel(reference);
+    const outline = history.present.floorAreaOutlines.find(item => item.floorId === currentFloor()?.id);
+    const asset = reference && history.present.referenceAssets.find(item => item.id === reference.assetId);
+    if (!workspaceId || currentCloudRecord?.workspace_id !== workspaceId || !asset?.dataUrl || !scale || !outline?.vertices?.length) {
+      throw new Error("Open a saved test job with a scaled plan and a floor outline.");
+    }
+    const toSource = point => worldPointToSource(reference.transform,point,scale);
+    const { candidates } = deriveRoomBoundaries(history.present, outline.floorId);
+    return {
+      workspaceId, asset,
+      points: outline.vertices.map(v => toSource(v.positionMm)),
+      candidateRooms: candidates.map(candidate => candidate.polygon.map(toSource)),
+    };
+  }, getStudioClient());
+});
+queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
+  const project = history.present;
+  const floorId = currentFloorId();
+  const reference = selectedReference();
+  const scale = reference && referenceScaleMmPerPixel(reference);
+  const outline = project.floorAreaOutlines.find(item => item.floorId === floorId);
+  const asset = reference && project.referenceAssets.find(item => item.id === reference.assetId);
+  if (activeTask !== "plan" || !floorId || !asset?.dataUrl || !scale || !outline?.vertices?.length) {
+    throw new Error("In Plan, select a scaled PDF or image and draw a closed Floor area outline first.");
+  }
+  const toSource = point => worldPointToSource(reference.transform, point, scale);
+  const nodes = new Map(project.wallNodes.map(node => [node.id,node.positionMm]));
+  const existing = project.walls.filter(w => w.floorId === floorId).map(w => ({
+    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId)), classification:w.classification
+  }));
+  return {
+    project, floorId, reference, scale, dataUrl:asset.dataUrl, crop:reference.cropSourceRectPx,
+    outline:outline.vertices.map(v => toSource(v.positionMm)), existing
+  };
+}, (source, approved) => {
+  if (history.present !== source.project || currentFloorId() !== source.floorId ||
+    selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
+    throw new Error("The floor or plan changed. Reopen the preview before adding walls.");
+  }
+  const { next, rooms } = applyReviewedWallProposals(history, source, approved, crypto.randomUUID());
+  history = next;
+  portableDirty = true;
+  interactionMessage = approved.length+" reviewed wall proposal(s) added. "+
+    (rooms ? rooms+" new closed boundary candidate(s); review in Rooms & zones." : "No new closed rooms yet. Check the open wall ends.")+
+    " Undo removes the batch.";
+  render();
+  savePresent("automatic");
+}));
+queueMicrotask(() => attachOsSendBack({
+  button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
+  referenceButton: document.querySelector("#apply-os-reference"),
+  applyReference(quoteNumber, revision) {
+    const form = document.querySelector("#project-details-form");
+    const optionId = history.present.activeDesignOptionId;
+    const option = history.present.designOptions.find(item => item.id === optionId);
+    if (!option || !form.reportValidity()) return;
+    form.elements.namedItem("projectReference").value = quoteNumber;
+    form.requestSubmit();
+    applyDesignOptionHistory({type:"designOption.update", optionId, name:option.name, revision}, "Drawing reference and revision applied. Save the drawing to keep them.");
+  },
+  snapshot() {
+    const project = sheetPreviewOptionProject;
+    return {
+      workspaceId: cloudSession?.workspace?.id, record: currentCloudRecord,
+      ready: Boolean(project && !exportPartsCsvButton.disabled && !sheetPreviewPanel.hidden && !projectHasUnsavedChanges() && currentCloudRecord?.workspace_id === cloudSession?.workspace?.id),
+      optionId: project?.activeDesignOptionId, scope: sheetExportSystemScope,
+      rows: () => createPartsCsvRows(project, {systemScope:sheetExportSystemScope})
+    };
+  }
+}));
 exportAllOptionsPdfButton.addEventListener("click", exportAllDesignOptionsPdf);
 sheetOptionNavigation.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-export-option]");
@@ -11307,6 +11386,7 @@ cloudSession=initializeCloudUI({
   onAccount(){setTask("account");},
   onChange(state){
     handleWorkingSessionState(state);
+    queueMicrotask(() => window.dispatchEvent(new Event("studio-integration-updated")));
     saveButton.textContent=state.workspace?"Save":"Sign in to save";
     saveAsButton.hidden=!state.workspace;document.querySelector("#project-save-as").hidden=!state.workspace;
     document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";

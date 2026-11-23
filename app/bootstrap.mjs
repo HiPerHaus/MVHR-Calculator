@@ -1,5 +1,6 @@
 import { establishStudioGate, getStudioClient } from "./auth-client.mjs";
 import { setBootAccess } from "./auth-context.mjs";
+import { mountStudioIntegrationSettings } from "./studio-integration-settings.mjs";
 import { shouldReloadProtectedPage } from "./protected-lifecycle.mjs";
 import { verifyStudioAccess } from "../src/persistence/studio-access.mjs";
 
@@ -24,6 +25,7 @@ async function start() {
     status.hidden = true;
     shell.hidden = false;
     await import("./main.mjs");
+    mountStudioIntegrationSettings(client, access.memberships, document.querySelector("#account-workspace"));
   } catch (error) {
     status.classList.add("auth-check-failed");
     status.replaceChildren(
