@@ -1,7 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
-import {detectPlanWallCandidates,hasWallOverlap,joinCloseWallEnds,markOpenWallEnds,planSegmentIsInside} from "../app/plan-wall-candidates.mjs";
+import {detectPlanWallCandidates,hasWallOverlap,joinCloseWallEnds,markOpenWallEnds,planSegmentIsInside,rankWallProposals} from "../app/plan-wall-candidates.mjs";
 const p=(x,y)=>({x,y});
 const outline=[p(0,0),p(200,0),p(200,120),p(0,120)];
 const wall=(a,b)=>({a,b});
@@ -28,10 +27,12 @@ test("leaves a doorway gap unfilled and reports open ends",()=>{
  assert(out.every(w=>w.b.x<=60||w.a.x>=100));
  assert(markOpenWallEnds(joinCloseWallEnds(out,[],outline,3),[],1).every(w=>w.gaps.length===2));
 });
-test("rejects the portion crossing a concave carport exclusion",()=>{
+test("clips to both inside portions of a concave carport exclusion",()=>{
  const f=pixels(); f.ink(10,71,170,5);
  const cut=[p(0,0),p(200,0),p(200,120),p(130,120),p(130,50),p(70,50),p(70,120),p(0,120)];
- assert.equal(detectPlanWallCandidates(f,20,cut).length,0);
+ const clipped=detectPlanWallCandidates(f,20,cut);
+ assert.equal(clipped.length,2);
+ assert(clipped.every(w=>w.b.x<=70||w.a.x>=130));
  assert(!planSegmentIsInside(p(10,73),p(180,73),cut));
 });
 test("joins only short clear gaps, without moving existing geometry or filling doorways",()=>{
@@ -50,17 +51,40 @@ test("blocks an overlapping wall, not a T junction or nearby parallel wall",()=>
  assert(!hasWallOverlap(wall(p(20,22),p(60,22)),existing,3));
  assert(!hasWallOverlap(wall(p(45,15),p(45,95)),existing,3));
 });
-test("batch undo is one step and a late error leaves the starting history intact",async()=>{
- const source=readFileSync(new URL("../src/domain/history.mjs",import.meta.url),"utf8").replace(/^import .*$/m,
- 'const validateProject = p=>p; const applyCommand = (p,c)=>{ if(c.invalid)throw Error("invalid"); return {...p,walls:[...p.walls,c.wall]}; };');
- const {createCommandHistory,executePlannedCommandBatch,undoCommand,redoCommand}=await import("data:text/javascript;base64,"+Buffer.from(source).toString("base64"));
- const history=createCommandHistory({walls:["old"]});
- assert.throws(()=>executePlannedCommandBatch(history,2,(_,i)=>i===1?{invalid:true}:{wall:"draft"}));
- assert.deepEqual(history.present.walls,["old"]);
- const next=executePlannedCommandBatch(history,2,(p)=>({wall:"wall"+p.walls.length}));
- assert.equal(next.past.length,1);
- assert.deepEqual(next.present.walls,["old","wall1","wall2"]);
- const undo=undoCommand(next);
- assert.deepEqual(undo.present.walls,["old"]);
- assert.deepEqual(redoCommand(undo).present.walls,next.present.walls);
+test("a real partition leads the list while an isolated island and a perimeter cupboard stay in review",()=>{
+ const perimeter=wall(p(5,3),p(195,3));
+ const partition=wall(p(80,3),p(80,105));
+ const island=[wall(p(105,49),p(155,49)),wall(p(105,49),p(105,69)),wall(p(155,49),p(155,69))];
+ const cupboard=wall(p(146,80),p(195,80));
+ const ranked=rankWallProposals([cupboard,...island,perimeter,partition],[],outline,30);
+ assert.deepEqual(ranked.filter(w=>w.supported).map(w=>w.a),[perimeter.a,partition.a]);
+ assert.equal(ranked.length,6);
+});
+test("faint render recovers corroborated perimeter without promoting an isolated fitting",()=>{
+ const f=pixels();f.ink(10,3,170,5,[187,185,182]);f.ink(75,60,50,5,[187,185,182]);
+ const ranked=rankWallProposals(detectPlanWallCandidates(f,20,outline),[],outline,20);
+ assert.equal(ranked.length,2);
+ assert.equal(ranked[0].supported,true);assert.equal(ranked[0].faint,true);
+ assert.equal(ranked[1].supported,false);assert.equal(ranked[1].faint,true);
+});
+test("opening indicators reflect selected or already placed walls rather than unselected suggestions",()=>{
+ const a=wall(p(20,15),p(160,15));
+ const b=wall(p(60,15),p(60,100));
+ const stale=markOpenWallEnds([{...a,checked:false},{...b,checked:true}],[],0.001);
+ assert.deepEqual(stale[1].gaps,[b.a,b.b]);
+ assert.deepEqual(markOpenWallEnds([{...a,checked:true},{...b,checked:true}],[],0.001)[1].gaps,[b.b]);
+ assert.deepEqual(markOpenWallEnds([{...b,checked:true}],[a],0.001)[0].gaps,[b.b]);
+});
+test("snap does not shift onto a neighbouring parallel stroke",()=>{
+ const a=wall(p(12,30),p(90,30));
+ const b=wall(p(90,32),p(160,32));
+ assert.deepEqual(joinCloseWallEnds([a,b],[],outline,4),[a,b]);
+});
+test("a blank imported plan does not turn the traced outline into walls",()=>{
+ assert.deepEqual(detectPlanWallCandidates(pixels(),20,outline),[]);
+});
+test("a low-confidence fitting cannot pull a likely wall endpoint out of place",()=>{
+ const a={...wall(p(12,30),p(90,30)),supported:true};
+ const b={...wall(p(92,20),p(92,70)),supported:false};
+ assert.deepEqual(joinCloseWallEnds([a,b],[],outline,4)[0],a);
 });

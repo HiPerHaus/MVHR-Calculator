@@ -1,4 +1,5 @@
 import { mountPlanWallProposal } from "./plan-wall-proposal.mjs";
+import { applyReviewedWallProposals } from "./plan-wall-apply.mjs";
 import {createAirflowProposalSection} from "./airflow-proposal-ui.mjs";
 import {lpsToM3h,m3hToLps} from "../src/editor/field-airflow-units.mjs";
 import {floorCeiling,floorVolumes,roomVolume,ventilationReferenceAssessment} from "../src/domain/room-volume.mjs";
@@ -42,7 +43,6 @@ import {
   canUndo,
   createCommandHistory,
   executeCommand,
-  executePlannedCommandBatch,
   redoCommand,
   undoCommand,
 } from "../src/domain/history.mjs";
@@ -1598,7 +1598,7 @@ queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
   const toSource = point => worldPointToSource(reference.transform, point, scale);
   const nodes = new Map(project.wallNodes.map(node => [node.id,node.positionMm]));
   const existing = project.walls.filter(w => w.floorId === floorId).map(w => ({
-    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId))
+    a:toSource(nodes.get(w.startNodeId)), b:toSource(nodes.get(w.endNodeId)), classification:w.classification
   }));
   return {
     project, floorId, reference, scale, dataUrl:asset.dataUrl, crop:reference.cropSourceRectPx,
@@ -1609,22 +1609,7 @@ queueMicrotask(() => mountPlanWallProposal(floorAreaSummary, () => {
     selectedReference()?.id !== source.reference.id || activeTask !== "plan") {
     throw new Error("The floor or plan changed. Reopen the preview before adding walls.");
   }
-  const before = history.present;
-  const id = crypto.randomUUID();
-  const next = executePlannedCommandBatch(history, approved.length, (working, i) => {
-    const wall = approved[i], stem = "wall-proposal-"+id+"-"+(i+1);
-    const points = [wall.a,wall.b].map(p => ({
-      ...sourcePointToWorld(source.reference.transform,p,source.scale),
-      z:unknownMm("wall proposal elevation not confirmed"),
-    }));
-    return planSnappedWallChain(working,{
-      type:"wall.addChain", floorId:source.floorId, points,
-      nodeIds:[stem+"-start",stem+"-end"],wallIds:[stem],
-      thicknessMm:wall.thicknessMm,heightMm:unknownMm("wall proposal height not confirmed"),
-      classification:"physical",referenceLine:"centreline"
-    },{idPrefix:stem+"-join"});
-  });
-  const rooms = newlyEligibleRoomBoundaries(before,next.present,source.floorId).length;
+  const { next, rooms } = applyReviewedWallProposals(history, source, approved, crypto.randomUUID());
   history = next;
   portableDirty = true;
   interactionMessage = approved.length+" reviewed wall proposal(s) added. "+

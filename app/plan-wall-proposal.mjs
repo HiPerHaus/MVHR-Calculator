@@ -1,4 +1,4 @@
-import { MIN_WALL_MM, detectPlanWallCandidates, hasWallOverlap, joinCloseWallEnds, markOpenWallEnds, planSegmentIsInside } from "./plan-wall-candidates.mjs";
+import { MAX_PLAN_WALL_PROPOSALS, MIN_WALL_MM, detectPlanWallCandidates, hasWallOverlap, joinCloseWallEnds, markOpenWallEnds, planSegmentIsInside, rankWallProposals, segmentProjection } from "./plan-wall-candidates.mjs";
 import { roomPreviewScale } from "./room-test.mjs";
 
 export function mountPlanWallProposal(host, snapshot, accept) {
@@ -35,7 +35,12 @@ export function mountPlanWallProposal(host, snapshot, accept) {
     list.style.cssText="overflow:auto;min-width:0";
     list.setAttribute("aria-label","Wall proposals");
     let resize;
-    dialog.onclose=()=>{resize?.disconnect();dialog.remove();};
+    dialog.onclose=()=>{
+      resize?.disconnect();
+      cancelPaint();
+      dialog.remove();
+    };
+    let cancelPaint=()=>{};
     document.body.append(dialog);dialog.showModal();
     try {
       const input=snapshot();
@@ -50,11 +55,11 @@ export function mountPlanWallProposal(host, snapshot, accept) {
       const h=Math.min(img.naturalHeight,r?r.y+r.height:Infinity,Math.ceil(Math.max(...p.map(a=>a.y))))-y0;
       if(w<1||h<1)throw new Error("The floor outline does not overlap the visible plan.");
       const shrink=Math.min(1,1800/Math.max(w,h));
-      const c=element("canvas","",view);c.width=Math.max(1,Math.round(w*shrink));c.height=Math.max(1,Math.round(h*shrink));
+      const c=element("canvas","",view);c.setAttribute("aria-label","Wall proposal preview");c.width=Math.max(1,Math.round(w*shrink));c.height=Math.max(1,Math.round(h*shrink));
       c.style.cssText="display:block;margin:auto;max-width:none;max-height:none;touch-action:none";
       const sx=c.width/w,sy=c.height/h, toPixel=a=>({x:(a.x-x0)*sx,y:(a.y-y0)*sy});
       const toSource=a=>({x:a.x/sx+x0,y:a.y/sy+y0});
-      const outline=p.map(toPixel), existing=input.existing.map(a=>({a:toPixel(a.a),b:toPixel(a.b)}));
+      const outline=p.map(toPixel), existing=input.existing.map(a=>({a:toPixel(a.a),b:toPixel(a.b),classification:a.classification}));
       const ctx=c.getContext("2d",{willReadFrequently:true});
       ctx.fillStyle="white";ctx.fillRect(0,0,c.width,c.height);
       ctx.save();ctx.beginPath();outline.forEach((a,i)=>i?ctx.lineTo(a.x,a.y):ctx.moveTo(a.x,a.y));
@@ -68,15 +73,32 @@ export function mountPlanWallProposal(host, snapshot, accept) {
         const scale=roomPreviewScale(c.width,c.height,view.clientWidth,view.clientHeight)*zoom;
         c.style.width=Math.floor(c.width*scale)+"px";c.style.height=Math.floor(c.height*scale)+"px";
       };
-      let zoom=1, active=-1, drag=null, blocked=false;
+      let zoom=1, active=-1, drag=null, blocked=false, paint=0;
       control("Fit plan",toolbar,()=>{zoom=1;fit();});
       control("Zoom −",toolbar,()=>{zoom=Math.max(1,zoom/1.5);fit();});
       control("Zoom +",toolbar,()=>{zoom=Math.min(4,zoom*1.5);fit();});
       resize=new ResizeObserver(fit);resize.observe(view);fit();
       const raw=detectPlanWallCandidates(clean,mmPerPixel,outline);
       const distinct=[];
-      for(const wall of raw) if(!hasWallOverlap(wall,[...existing,...distinct],tolerance)) distinct.push(wall);
+      const novel=raw.filter(w=>!hasWallOverlap(w,existing,tolerance));
+      for(const wall of rankWallProposals(novel,existing.filter(w=>w.classification!=="virtual"),outline,mmPerPixel)){
+        if(!hasWallOverlap(wall,distinct,tolerance))distinct.push(wall);
+        if(distinct.length===MAX_PLAN_WALL_PROPOSALS)break;
+      }
       const proposals=joinCloseWallEnds(distinct,existing,outline,tolerance).map(w=>({...w,checked:false}));
+      const weaker=proposals.filter(w=>!w.supported).length;
+      let showWeaker=weaker===proposals.length;
+      const toggle=weaker?control("",toolbar,()=>{
+        showWeaker=!showWeaker;
+        if(!showWeaker && !proposals[active]?.supported && !proposals[active]?.checked)active=-1;
+        update();
+      }):null;
+      const displayed=w=>w.supported||showWeaker||w.checked;
+      cancelPaint=()=>{if(paint)cancelAnimationFrame(paint);};
+      const paintSoon=()=>{
+        if(!paint)paint=requestAnimationFrame(()=>{paint=0;update();});
+      };
+      const instructions="Blue lines have more wall evidence; grey lines need closer review. Click a line to inspect it, drag its ends if needed, then tick it to add. Orange dots mark ends still open with the current selection.";
       const valid=w=>visible(w.a)&&visible(w.b)&&Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel>=MIN_WALL_MM&&
         planSegmentIsInside(w.a,w.b,outline)&&!hasWallOverlap(w,existing,tolerance);
       const applyButton=control("Add selected walls",toolbar,()=>{
@@ -96,24 +118,32 @@ export function mountPlanWallProposal(host, snapshot, accept) {
       const fields=[];
       function update(){
         const approved=proposals.filter(w=>w.checked);
-        const gapEvidence=markOpenWallEnds(proposals.map(w=>({...w})),existing,tolerance/3);
+        const gapEvidence=markOpenWallEnds(proposals,existing,0.001/mmPerPixel);
+        if(toggle){
+          toggle.textContent=(showWeaker?"Hide":"Show")+" less certain ("+weaker+")";
+          toggle.setAttribute("aria-pressed",String(showWeaker));
+        }
         ctx.putImageData(clean,0,0);
         ctx.setLineDash([8,5]);ctx.lineWidth=3;
         proposals.forEach((w,i)=>{
-          ctx.strokeStyle=!valid(w)?"#b42318":w.checked?"#087443":"#075e97";
+          fields[i].row.hidden=!displayed(w);
+          if(!displayed(w))return;
+          ctx.strokeStyle=!valid(w)?"#b42318":w.checked?"#087443":w.supported?"#075e97":"#687281";
           ctx.beginPath();ctx.moveTo(w.a.x,w.a.y);ctx.lineTo(w.b.x,w.b.y);ctx.stroke();
           ctx.fillStyle="#a8500c";
-          for(const a of gapEvidence[i].gaps){ctx.beginPath();ctx.arc(a.x,a.y,4,0,Math.PI*2);ctx.fill();}
+          for(const a of w.checked||i===active?gapEvidence[i].gaps:[]){ctx.beginPath();ctx.arc(a.x,a.y,4,0,Math.PI*2);ctx.fill();}
           if(i===active){
             ctx.fillStyle="#075e97";
             for(const a of [w.a,w.b]){ctx.beginPath();ctx.arc(a.x,a.y,7,0,Math.PI*2);ctx.fill();}
           }
-          fields[i].detail.textContent=(!valid(w)?"Needs adjusting; cannot add":w.evidence)+" · "+gapEvidence[i].gaps.length+" open end(s)";
+          const summary=!valid(w)?"Needs adjusting; cannot add":w.reason+" · "+w.evidence;
+          fields[i].detail.textContent=summary+(w.checked||i===active?" · "+gapEvidence[i].gaps.length+" open end(s) with current selection":"");
           fields[i].row.style.outline=i===active?"2px solid #075e97":"";
         });
         ctx.setLineDash([]);
         applyButton.disabled=!approved.length||approved.some(w=>!valid(w));
-        countText.textContent=approved.length+" of "+proposals.length+" selected";
+        countText.textContent=approved.length+" of "+proposals.length+" selected"+
+          (!showWeaker&&weaker?" · "+proposals.filter(w=>!displayed(w)).length+" hidden":"");
       }
       proposals.forEach((w,i)=>{
         const row=element("div","",list);row.style.cssText="margin:7px 0;padding:5px";
@@ -127,19 +157,42 @@ export function mountPlanWallProposal(host, snapshot, accept) {
       });
       const pos=e=>{const rect=c.getBoundingClientRect();return {x:(e.clientX-rect.left)*c.width/rect.width,y:(e.clientY-rect.top)*c.height/rect.height};};
       c.onpointerdown=e=>{
+        if(e.button!==0||drag)return;
         const p=pos(e),rect=c.getBoundingClientRect();
-        if(active<0)return;
-        const w=proposals[active];
-        const near=k=>Math.hypot((p.x-w[k].x)*rect.width/c.width,(p.y-w[k].y)*rect.height/c.height);
-        const end=near("a")<=near("b")?"a":"b";
-        if(near(end)>16)return;
-        drag={w,end};c.setPointerCapture(e.pointerId);
+        const near=q=>Math.hypot((p.x-q.x)*rect.width/c.width,(p.y-q.y)*rect.height/c.height);
+        if(active>=0){
+          const w=proposals[active],end=near(w.a)<=near(w.b)?"a":"b";
+          if(near(w[end])<=16){
+            drag={w,end,original:w[end],id:e.pointerId};
+            c.setPointerCapture(e.pointerId);return;
+          }
+        }
+        let best=12, index=-1;
+        proposals.forEach((w,i)=>{
+          if(!displayed(w))return;
+          const d=near(segmentProjection(p,w.a,w.b));
+          if(d<best){best=d;index=i;}
+        });
+        if(index>=0){
+          active=index;update();
+          fields[index].row.scrollIntoView({block:"nearest"});
+        }
       };
-      c.onpointermove=e=>{if(!drag)return;const p=pos(e);drag.w[drag.end]={x:Math.max(0,Math.min(c.width,p.x)),y:Math.max(0,Math.min(c.height,p.y))};update();};
-      c.onlostpointercapture=()=>{drag=null;};
+      c.onpointermove=e=>{
+        if(!drag||e.pointerId!==drag.id)return;
+        const p=pos(e);
+        drag.w[drag.end]={x:Math.max(0,Math.min(c.width,p.x)),y:Math.max(0,Math.min(c.height,p.y))};paintSoon();
+      };
+      c.onpointerup=e=>{if(drag?.id===e.pointerId)drag=null;};
+      const cancelDrag=e=>{
+        if(drag?.id!==e.pointerId)return;
+        drag.w[drag.end]=drag.original;drag=null;update();
+      };
+      c.onpointercancel=cancelDrag;
+      c.onlostpointercapture=cancelDrag;
       update();
       status.textContent=proposals.length
-        ? "Dashed lines are suggestions. Tick walls to add or click Inspect and drag an end. Orange dots mark open ends. Doorways aren’t filled automatically."
+        ? instructions+" Studio won’t turn the outline into walls or fill doorways."
         : "No clear wall strokes found inside the outline. Try a sharper, straight-on plan or use the manual Wall tool.";
     } catch (e){status.textContent=e.message;}
   };
