@@ -38,6 +38,34 @@ export function mountStudioIntegrationSettings(client, memberships, host) {
     card.append(heading, label, status);
     host.append(card);
     const workspaceId = membership.workspaceId;
+    const aiLabel = document.createElement("label");
+    aiLabel.textContent = "AI provider ";
+    const provider = document.createElement("select");
+    provider.append(new Option("OpenAI", "openai"), new Option("Anthropic", "anthropic"));
+    aiLabel.append(provider);
+    const test = Object.assign(document.createElement("button"), { type: "button", textContent: "Test AI connection" });
+    const aiStatus = document.createElement("p");
+    aiStatus.setAttribute("role", "status");
+    const showSetup = () => {
+      aiStatus.textContent = "Server secret: " + provider.value.toUpperCase() + "_API_KEY_" + workspaceId.replaceAll("-", "_").toUpperCase();
+    };
+    showSetup();
+    provider.addEventListener("change", showSetup);
+    test.addEventListener("click", async () => {
+      provider.disabled = test.disabled = true;
+      aiStatus.textContent = "Testing provider connection…";
+      try {
+        const result = await client.functions.invoke("studio-ai-connection", { body: { workspaceId, provider: provider.value } });
+        const errorDetail = result.error?.context;
+        const detail = result.error && errorDetail instanceof Response ? await errorDetail.json().catch(() => null) : result.data;
+        aiStatus.textContent = detail?.message ?? "Connection test unavailable.";
+      } catch {
+        aiStatus.textContent = "Connection test unavailable.";
+      } finally {
+        provider.disabled = test.disabled = false;
+      }
+    });
+    card.append(aiLabel, test, aiStatus);
     let saved = false;
     studioHiperOsEnabled(client, workspaceId).then((enabled) => {
       saved = enabled;
