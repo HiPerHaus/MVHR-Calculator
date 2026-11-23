@@ -10,6 +10,11 @@ import {applyReviewedWallProposals} from "./plan-wall-apply.mjs";
 import {createCommandHistory,executeCommand,undoCommand} from "../src/domain/history.mjs";
 import {createProject,applyCommand,identityQuaternion,knownMm,serializeProject,deserializeProject,worldPointToSource,sourcePointToWorld} from "../src/domain/spatial.mjs";
 import {deriveRoomBoundaries,inspectRoomBoundary} from "../src/domain/rooms.mjs";
+import {exportPortableProject,importPortableProject} from "../src/persistence/portable-project.mjs";
+import {createCloudProjectStore,CloudConflictError} from "../src/persistence/cloud-project-store.mjs";
+import * as pdfjs from "../node_modules/pdfjs-dist/legacy/build/pdf.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc="/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs";
+const pdfOptions={pdfjs,pdfResourceUrls:{cMapUrl:"/node_modules/pdfjs-dist/cmaps/",standardFontDataUrl:"/node_modules/pdfjs-dist/standard_fonts/",wasmUrl:"/node_modules/pdfjs-dist/wasm/"}};
 import {roomVolume} from "../src/domain/room-volume.mjs";
 const p=(x,y)=>({x,y}),floorId="floor-fixture";
 const img=document.createElement("canvas");img.width=300;img.height=240;
@@ -61,7 +66,7 @@ exact.onclick=async()=>{
  try{
   const pkg=JSON.parse(await backup.files[0].text());
   const old=JSON.parse(pkg.projectJson);
-  const project=deserializeProject(pkg.projectJson);
+  const project=(await importPortableProject(JSON.stringify(pkg),pdfOptions)).project;
   const outline=project.floorAreaOutlines[0], ref=project.floorReferences.find(f=>f.floorId===outline.floorId);
   const asset=project.referenceAssets.find(a=>a.id===ref.assetId);
   check(asset.fileName.startsWith("PH 4 - MASTER LAYOUT")&&outline.vertices.length===8&&project.walls.length===0,"Wrong test backup");
@@ -94,12 +99,38 @@ exact.onclick=async()=>{
   const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"Doorway is not nonphysical");
   const face=deriveRoomBoundaries(state.present,input.floorId).candidates[0];check(Boolean(face),"No Bed 4 room face after adding");
   const bed=applyCommand(state.present,{type:"room.createFromBoundary",floorId:input.floorId,roomId:"qa-bed-four-only",name:"Bed 4 QA",use:"bedroom",ventilationRole:"supply",boundaryKey:face.key});
-  const portable=JSON.stringify({...pkg,projectJson:serializeProject(bed)});
-  const reopened=deserializeProject(JSON.parse(portable).projectJson);
+  const portable=await exportPortableProject(bed,pdfOptions);
+  const reopened=(await importPortableProject(portable,pdfOptions)).project;
+  const rows=new Map(),files=new Map(),removed=[];
+  const client={storage:{from:()=>({
+    async upload(k,v){files.set(k,v);return {data:{path:k}};},
+    async download(k){return files.has(k)?{data:files.get(k)}:{error:{message:"Missing"}};},
+    async remove(keys){removed.push(...keys);keys.forEach(k=>files.delete(k));return {data:[]};}
+  })},from(){
+    let body,update=false,filters=[];
+    const q={insert(p){body=p;return q;},update(p){body=p;update=true;return q;},eq(k,v){filters.push([k,v]);return q;},select(){return q;},
+      async maybeSingle(){
+        const old=rows.get(body.id);
+        if(update&&(!old||!filters.every(([k,v])=>old[k]===v)))return {data:null,error:null};
+        const fresh={...body,save_version:(old?.save_version??0)+1,previous_object_path:old?.object_path??null};
+        rows.set(body.id,fresh);return {data:structuredClone(fresh)};
+      }};
+    return q;
+  }};
+  let uid=0;const store=createCloudProjectStore(client,{uuid:()=>"browser-fixture-"+(++uid)});
+  const args={workspaceId:"fixture-workspace",userId:"fixture-user",project,name:"Older tab"};
+  const firstSave=await store.save(args);
+  const later=await store.save({...args,project:reopened,name:"Doorway updated",record:firstSave.record});
+  let rejected=false;
+  try{await store.save({...args,record:firstSave.record});}catch(e){rejected=e instanceof CloudConflictError;}
+  check(rejected&&removed.length===1,"An older tab did not hit the expected save-version conflict");
+  const latest=await store.open(rows.get(firstSave.record.id));
+  check(latest.record.save_version===2&&latest.project.walls.some(w=>w.boundaryRole==="room-opening")&&files.has(later.record.object_path),
+   "New doorway was lost following version conflict");
   check(inspectRoomBoundary(reopened,reopened.rooms.find(r=>r.id==="qa-bed-four-only")).status==="current","Reopened Bed 4 boundary lost");
   check(reopened.components.length===baseline.components&&reopened.routes.length===baseline.routes,"Existing ventilation layout changed");
   check(undoCommand(state).present.walls.length===0,"Undo did not remove the proposal batch");
-  out.textContent="PASS: exact Bed 4 backup; Studio found the bedroom divider and two separate masonry runs; no room before marking doorway; one room after; four physical walls plus one nonphysical boundary; export format reopened; existing design untouched; Undo passed. Legacy project "+old.schemaVersion+" → "+reopened.schemaVersion+".";
+  out.textContent="PASS: exact Bed 4 backup; Studio found the bedroom divider and two separate masonry runs; no room before marking doorway; one room after; four physical walls plus one nonphysical boundary; official PDF-backed export and import reopened; stale-tab save rejected by the local cloud-store test; existing design untouched; Undo passed. Legacy project "+old.schemaVersion+" → "+reopened.schemaVersion+".";
  }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
  finally{exact.disabled=false;}
 };
