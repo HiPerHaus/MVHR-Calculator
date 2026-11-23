@@ -26,7 +26,16 @@ Deno.serve(async request => {
   if (typeof image !== "string" || image.length > 3500000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(image)) return reply(400, "Invalid test image.");
   const model = Deno.env.get(openAI ? "STUDIO_ROOM_TEST_OPENAI_MODEL" : "STUDIO_ROOM_TEST_ANTHROPIC_MODEL");
   if (!model) return reply(409, "Configure a vision model for the test.");
-  const prompt = 'Trace internal room polygons within the visible plan. Coordinates are fractions of the image width and height from its top left. Return only JSON {"rooms":[{"label":"printed name or Unlabelled","points":[[x,y],...]}]}. Use shared wall edges between adjoining rooms. Do not infer ventilation roles or invent rooms from fixtures. Ignore white space outside the plan.';
+  const roomIds: number[] | null = input.roomIds === undefined ? null : input.roomIds;
+  if (input.roomIds !== undefined && (!Array.isArray(roomIds) || roomIds.length < 1 || roomIds.length > 120 ||
+    !roomIds.every(id => Number.isInteger(id) && id >= 1 && id <= 120) ||
+    new Set(roomIds).size !== roomIds.length)) return reply(400, "Invalid room identifiers.");
+  const prompt = roomIds
+    ? 'Read the architectural room names within the teal outlines for the numbered regions ' + roomIds.join(', ') +
+      '. The teal numbers are references, not room names. Return only JSON {"labels":[{"id":1,"label":"exact printed room name"}]}. ' +
+      'If the label is unclear, missing or several room labels occur inside a numbered region, omit that ID for human review. ' +
+      'Do not use finish notes, furniture, cupboards, door tags or dimensions as room names. Never redraw a boundary or guess a ventilation role.'
+    : 'Trace internal room polygons within the visible plan. Coordinates are fractions of the image width and height from its top left. Return only JSON {"rooms":[{"label":"printed name or Unlabelled","points":[[x,y],...]}]}. Use shared wall edges between adjoining rooms. Do not infer ventilation roles or invent rooms from fixtures. Ignore white space outside the plan.';
   const message = openAI ? [{type:"text",text:prompt},{type:"image_url",image_url:{url:image}}] : [{type:"text",text:prompt},{type:"image",source:{type:"base64",media_type:"image/jpeg",data:image.split(",")[1]}}];
   try {
     const response = await fetch(openAI ? "https://api.openai.com/v1/chat/completions" : "https://api.anthropic.com/v1/messages", {
@@ -37,7 +46,20 @@ Deno.serve(async request => {
     if (!response.ok) return reply(502,"Provider could not analyse the plan.");
     const result = await response.json();
     const raw = openAI ? result.choices?.[0]?.message?.content : result.content?.find((item:{type:string})=>item.type==="text")?.text;
-    const {rooms} = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/g,""));
+    const parsed = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/g,""));
+    if (roomIds) {
+      const ids = new Set(roomIds), used = new Set<number>();
+      const labels = parsed?.labels;
+      if (!Array.isArray(labels) || labels.length > roomIds.length || !labels.every(item => {
+        if (!item || !ids.has(item.id) || used.has(item.id) ||
+            typeof item.label !== "string" || !item.label.trim() || item.label.length > 150) return false;
+        used.add(item.id);
+        return true;
+      })) return reply(502, "The provider returned invalid room labels.");
+      const clean = labels.map(({id,label}) => ({id,label:label.trim()}));
+      return Response.json({labels:clean},{headers});
+    }
+    const rooms = parsed?.rooms;
     if (!Array.isArray(rooms) || rooms.length > 120 || !rooms.every(r => r && typeof r.label === "string" && r.label.length <= 150 && Array.isArray(r.points) && r.points.length >= 3 && r.points.length <= 200 && r.points.every((p:unknown)=>Array.isArray(p) && p.length===2 && p.every(n=>Number.isFinite(n)&&n>=0&&n<=1)))) return reply(502,"The provider returned invalid room geometry.");
     return Response.json({rooms},{headers});
   } catch { return reply(502,"Room detection failed. Try again or choose another model."); }

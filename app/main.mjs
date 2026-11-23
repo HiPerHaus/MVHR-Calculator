@@ -1574,7 +1574,13 @@ queueMicrotask(async () => {
     if (!workspaceId || currentCloudRecord?.workspace_id !== workspaceId || !asset?.dataUrl || !scale || !outline?.vertices?.length) {
       throw new Error("Open a saved test job with a scaled plan and a floor outline.");
     }
-    return {workspaceId, asset, points:outline.vertices.map(v => worldPointToSource(reference.transform,v.positionMm,scale))};
+    const toSource = point => worldPointToSource(reference.transform,point,scale);
+    const { candidates } = deriveRoomBoundaries(history.present, outline.floorId);
+    return {
+      workspaceId, asset,
+      points: outline.vertices.map(v => toSource(v.positionMm)),
+      candidateRooms: candidates.map(candidate => candidate.polygon.map(toSource)),
+    };
   }, getStudioClient());
 });
 queueMicrotask(() => attachOsSendBack({

@@ -1,3 +1,5 @@
+import { applyLabelSuggestions, findRoomMarker, isRoomInsideOutline } from "./room-test-boundaries.mjs";
+
 export function roomPreviewScale(planWidth, planHeight, viewportWidth, viewportHeight) {
   if (![planWidth, planHeight, viewportWidth, viewportHeight].every(n => Number.isFinite(n) && n > 0)) return 1;
   return Math.min(viewportWidth / planWidth, viewportHeight / planHeight);
@@ -42,11 +44,14 @@ export function mountRoomTest(host, snapshot, client) {
     document.body.append(dialog);
     dialog.showModal();
     try {
-      const { workspaceId, asset, points } = snapshot();
+      const { workspaceId, asset, points, candidateRooms = [] } = snapshot();
       const image = new Image();
       image.src = asset.dataUrl;
       await image.decode();
       if (!dialog.isConnected) return;
+      const localRooms = candidateRooms.filter(polygon => isRoomInsideOutline(polygon, points));
+      if (!localRooms.length) throw new Error("No closed Studio wall boundaries inside this floor outline. Draw or close the walls in Plan first. AI will not invent the geometry.");
+      if (localRooms.length > 120) throw new Error("This test supports up to 120 closed rooms on one floor.");
       const bounds = axis => points.map(point => point[axis]);
       const left = Math.max(0, Math.floor(Math.min(...bounds("x"))));
       const top = Math.max(0, Math.floor(Math.min(...bounds("y"))));
@@ -96,86 +101,82 @@ export function mountRoomTest(host, snapshot, client) {
       ctx.drawImage(image,0,0);
       ctx.restore();
       const clean = ctx.getImageData(0,0,canvas.width,canvas.height);
+      const projected = point => ({ x:(point.x-left)*canvas.width/width, y:(point.y-top)*canvas.height/height });
+      const rooms = localRooms.map((polygon, index) => {
+        const corners = polygon.map(projected);
+        return { id: index+1, corners, marker:findRoomMarker(corners), label:"" };
+      });
+      const show = document.createElement("input");
+      show.type = "checkbox";
+      show.checked = true;
+      show.style.cssText = "width:auto;margin:0";
+      const overlayControl = document.createElement("label");
+      overlayControl.style.cssText = "display:inline-flex;align-items:center;gap:6px";
+      overlayControl.append(show, " Show Studio walls");
+      toolbar.append(overlayControl);
+      const drawOverlay = (displayRooms) => {
+        ctx.putImageData(clean,0,0);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#126073";
+        ctx.font = "bold 16px sans-serif";
+        for (const room of displayRooms) {
+          ctx.beginPath();
+          room.corners.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+          ctx.closePath();
+          ctx.stroke();
+          if (!room.marker) continue;
+          const {x,y} = room.marker;
+          const title = room.label ? room.id+" "+room.label : String(room.id);
+          ctx.fillStyle = "rgba(255,255,255,.93)";
+          ctx.fillRect(x-2,y-17,ctx.measureText(title).width+5,20);
+          ctx.fillStyle = "#126073";
+          ctx.fillText(title,x,y);
+        }
+      };
+      drawOverlay(rooms);
       const jpeg = canvas.toDataURL("image/jpeg",0.88);
+      let displayedRooms = rooms;
+      const render = () => show.checked ? drawOverlay(displayedRooms) : ctx.putImageData(clean,0,0);
+      show.onchange = render;
       const provider = document.createElement("select");
       provider.ariaLabel = "Test provider";
       provider.style.cssText = "width:auto;max-width:100%";
       provider.append(new Option("OpenAI","openai"),new Option("Anthropic","anthropic"));
       const run = document.createElement("button");
       run.type = "button";
-      run.textContent = "Send this floor for room detection";
+      run.textContent = "Suggest names for these rooms";
       toolbar.append(provider, run);
-      status.textContent = "Only the plan inside this outline will be sent.";
+      status.textContent = "Only the cropped plan and numbered Studio boundaries will be sent. AI suggests names, not walls.";
       run.onclick = async () => {
         run.disabled = provider.disabled = true;
-        status.textContent = "Detecting rooms…";
+        status.textContent = "Reading room labels…";
         try {
-          const result = await client.functions.invoke("studio-room-test",{body:{workspaceId,provider:provider.value,image:jpeg}});
+          const result = await client.functions.invoke("studio-room-test",{body:{workspaceId,provider:provider.value,image:jpeg,roomIds:rooms.map(room=>room.id)}});
           if (!dialog.isConnected) return;
           if (result.error) {
             const detail = await result.error.context?.json?.().catch(()=>null);
             throw new Error(detail?.message || "Room detection is unavailable.");
           }
-          const rooms = result.data.rooms;
-          const toggle = document.createElement("input");
-          toggle.type = "checkbox";
-          toggle.checked = true;
-          const label = document.createElement("label");
-          label.append(toggle," Show proposed rooms");
-          toggle.style.cssText = "width:auto;margin:0";
-          label.style.cssText = "display:inline-flex;align-items:center;gap:6px";
-          toolbar.append(label);
+          displayedRooms = applyLabelSuggestions(rooms, result.data?.labels);
+          const count = displayedRooms.filter(room=>room.label).length;
           roomList.hidden = false;
           const heading = document.createElement("strong");
-          heading.textContent = "Proposed rooms";
+          heading.textContent = "Suggested names";
           roomList.append(heading);
           resizePlan();
-          function render() {
-            ctx.putImageData(clean,0,0);
-            if (!toggle.checked) return;
-            ctx.strokeStyle = ctx.fillStyle = "#ad245a";
-            ctx.lineWidth = 3;
-            ctx.font = "16px sans-serif";
-            for (const room of rooms) {
-              const pts = room.points.map(([x,y])=>[x*canvas.width,y*canvas.height]);
-              ctx.beginPath();
-              pts.forEach(([x,y],i)=>i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
-              ctx.closePath();
-              ctx.stroke();
-              ctx.fillText(room.label,pts.reduce((v,p)=>v+p[0],0)/pts.length,pts.reduce((v,p)=>v+p[1],0)/pts.length);
-            }
-          }
-          toggle.onchange = render;
-          for (const room of rooms) {
+          for (const room of displayedRooms) {
+            const label = document.createElement("label");
+            label.textContent = "Room "+room.id;
             const input = document.createElement("input");
             input.value = room.label;
-            input.ariaLabel = "Proposed room name";
+            input.placeholder = "Needs review";
+            input.ariaLabel = "Suggested name for room "+room.id;
             input.oninput = () => {room.label=input.value; render();};
-            roomList.append(input);
+            label.append(input);
+            roomList.append(label);
           }
-          let drag;
-          function pointer(event) {
-            const rect=canvas.getBoundingClientRect();
-            return [(event.clientX-rect.left)/rect.width,(event.clientY-rect.top)/rect.height];
-          }
-          canvas.onpointerdown = event => {
-            if (!toggle.checked) return;
-            const [x,y]=pointer(event), rect=canvas.getBoundingClientRect();
-            let nearest=14;
-            for (const room of rooms) for (const p of room.points) {
-              const dist=Math.hypot((p[0]-x)*rect.width,(p[1]-y)*rect.height);
-              if(dist<nearest){drag=p; nearest=dist;}
-            }
-            if(drag) canvas.setPointerCapture(event.pointerId);
-          };
-          canvas.onpointermove = event => {
-            if(!drag) return;
-            const [x,y]=pointer(event);
-            drag[0]=Math.max(0,Math.min(1,x)); drag[1]=Math.max(0,Math.min(1,y)); render();
-          };
-          canvas.onlostpointercapture = () => {drag=null;};
           render();
-          status.textContent = rooms.length+" proposed rooms. Zoom in to inspect. Drag a corner or edit a label. Closing discards the overlay.";
+          status.textContent = count+" of "+rooms.length+" rooms named. Check the names against the plan. Closing discards the suggestions.";
           run.remove();
         } catch (error) {
           status.textContent = error.message;
