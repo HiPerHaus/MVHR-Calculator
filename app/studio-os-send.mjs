@@ -5,6 +5,10 @@ const osOrigin = "https://app.hiper-os.au";
 export function attachOsSendBack({button, client, snapshot, status}) {
   const target = new URLSearchParams(location.search).get("osDesign");
   if (!target || !/^[0-9a-f-]{36}$/i.test(target) || !window.opener) return;
+  const reference = new URLSearchParams(location.hash.slice(1)).get("osReference");
+  if (reference) {
+    button.textContent = `Send back to HiPer OS · ${reference.slice(0, 150)}`;
+  }
   let busy = false;
   async function refresh() {
     const state = snapshot();
