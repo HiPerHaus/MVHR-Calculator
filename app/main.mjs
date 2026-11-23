@@ -1562,6 +1562,21 @@ threeDHost.addEventListener("pointerup", endThreeDPointer);
 threeDHost.addEventListener("pointercancel", endThreeDPointer);
 exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"));
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
+queueMicrotask(async () => {
+  if (new URLSearchParams(location.search).get("roomTest") !== "1") return;
+  const { mountRoomTest } = await import("./room-test.mjs");
+  mountRoomTest(floorAreaSummary, () => {
+    const workspaceId = cloudSession?.workspace?.id;
+    const reference = selectedReference();
+    const scale = reference && referenceScaleMmPerPixel(reference);
+    const outline = history.present.floorAreaOutlines.find(item => item.floorId === currentFloor()?.id);
+    const asset = reference && history.present.referenceAssets.find(item => item.id === reference.assetId);
+    if (!workspaceId || currentCloudRecord?.workspace_id !== workspaceId || !asset?.dataUrl || !scale || !outline?.vertices?.length) {
+      throw new Error("Open a saved test job with a scaled plan and a floor outline.");
+    }
+    return {workspaceId, asset, points:outline.vertices.map(v => worldPointToSource(reference.transform,v.positionMm,scale))};
+  }, getStudioClient());
+});
 queueMicrotask(() => attachOsSendBack({
   button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
   referenceButton: document.querySelector("#apply-os-reference"),
