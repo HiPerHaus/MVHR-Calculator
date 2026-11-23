@@ -1,3 +1,8 @@
+export function roomPreviewScale(planWidth, planHeight, viewportWidth, viewportHeight) {
+  if (![planWidth, planHeight, viewportWidth, viewportHeight].every(n => Number.isFinite(n) && n > 0)) return 1;
+  return Math.min(viewportWidth / planWidth, viewportHeight / planHeight);
+}
+
 export function mountRoomTest(host, snapshot, client) {
   if (new URLSearchParams(location.search).get("roomTest") !== "1") return;
   const button = document.createElement("button");
@@ -6,12 +11,34 @@ export function mountRoomTest(host, snapshot, client) {
   host.after(button);
   button.onclick = async () => {
     const dialog = document.createElement("dialog");
+    dialog.setAttribute("aria-label", "Room detection preview");
+    dialog.style.cssText = "box-sizing:border-box;width:calc(100vw - 24px);height:calc(100dvh - 24px);max-width:none;max-height:none;margin:auto;padding:12px;overflow:hidden";
+    const layout = document.createElement("div");
+    layout.style.cssText = "height:100%;min-height:0;display:flex;flex-direction:column;gap:8px";
+    const toolbar = document.createElement("div");
+    toolbar.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
+    const content = document.createElement("div");
+    content.style.cssText = "flex:1;min-height:0;min-width:0;display:flex;gap:8px";
+    const viewport = document.createElement("div");
+    viewport.setAttribute("aria-label", "Floor plan preview");
+    viewport.style.cssText = "flex:1;min-width:0;min-height:0;overflow:auto;background:white";
+    const roomList = document.createElement("aside");
+    roomList.setAttribute("aria-label", "Proposed rooms");
+    roomList.style.cssText = "flex:0 0 clamp(145px,22vw,240px);min-width:0;min-height:0;overflow:auto";
+    roomList.hidden = true;
+    content.append(viewport, roomList);
     const close = document.createElement("button");
+    close.type = "button";
     close.textContent = "Close test";
     close.onclick = () => dialog.close();
-    dialog.onclose = () => dialog.remove();
+    let resize;
+    dialog.onclose = () => { resize?.disconnect(); dialog.remove(); };
     const status = document.createElement("p");
-    dialog.append(close, status);
+    status.setAttribute("role", "status");
+    status.style.margin = "0";
+    toolbar.append(close);
+    layout.append(toolbar, status, content);
+    dialog.append(layout);
     document.body.append(dialog);
     dialog.showModal();
     try {
@@ -30,7 +57,32 @@ export function mountRoomTest(host, snapshot, client) {
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(width * scale));
       canvas.height = Math.max(1, Math.round(height * scale));
-      canvas.style.cssText = "display:block;max-width:75vw;max-height:60vh;touch-action:none";
+      canvas.style.cssText = "display:block;max-width:none;max-height:none;touch-action:none;margin:auto";
+      viewport.append(canvas);
+      let zoom = 1;
+      function resizePlan() {
+        const narrow = dialog.clientWidth < 680;
+        content.style.flexDirection = narrow ? "column" : "row";
+        roomList.style.flexBasis = narrow ? "min(20vh, 150px)" : "clamp(145px,22vw,240px)";
+        if (!viewport.clientWidth || !viewport.clientHeight) return;
+        // Use the same scale for both axes so room geometry and wall lengths are not distorted.
+        const scale = roomPreviewScale(canvas.width, canvas.height, viewport.clientWidth, viewport.clientHeight) * zoom;
+        canvas.style.width = Math.max(1, Math.floor(canvas.width * scale)) + "px";
+        canvas.style.height = Math.max(1, Math.floor(canvas.height * scale)) + "px";
+      }
+      function zoomButton(label, change) {
+        const control = document.createElement("button");
+        control.type = "button";
+        control.textContent = label;
+        control.onclick = () => { zoom = change(zoom); resizePlan(); };
+        toolbar.append(control);
+      }
+      zoomButton("Fit plan", () => 1);
+      zoomButton("Zoom −", z => Math.max(1, z / 1.5));
+      zoomButton("Zoom +", z => Math.min(4, z * 1.5));
+      resize = new ResizeObserver(resizePlan);
+      resize.observe(viewport);
+      resizePlan();
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = "white";
       ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -47,10 +99,12 @@ export function mountRoomTest(host, snapshot, client) {
       const jpeg = canvas.toDataURL("image/jpeg",0.88);
       const provider = document.createElement("select");
       provider.ariaLabel = "Test provider";
+      provider.style.cssText = "width:auto;max-width:100%";
       provider.append(new Option("OpenAI","openai"),new Option("Anthropic","anthropic"));
       const run = document.createElement("button");
+      run.type = "button";
       run.textContent = "Send this floor for room detection";
-      dialog.append(canvas,provider,run);
+      toolbar.append(provider, run);
       status.textContent = "Only the plan inside this outline will be sent.";
       run.onclick = async () => {
         run.disabled = provider.disabled = true;
@@ -68,7 +122,14 @@ export function mountRoomTest(host, snapshot, client) {
           toggle.checked = true;
           const label = document.createElement("label");
           label.append(toggle," Show proposed rooms");
-          dialog.append(label);
+          toggle.style.cssText = "width:auto;margin:0";
+          label.style.cssText = "display:inline-flex;align-items:center;gap:6px";
+          toolbar.append(label);
+          roomList.hidden = false;
+          const heading = document.createElement("strong");
+          heading.textContent = "Proposed rooms";
+          roomList.append(heading);
+          resizePlan();
           function render() {
             ctx.putImageData(clean,0,0);
             if (!toggle.checked) return;
@@ -90,7 +151,7 @@ export function mountRoomTest(host, snapshot, client) {
             input.value = room.label;
             input.ariaLabel = "Proposed room name";
             input.oninput = () => {room.label=input.value; render();};
-            dialog.append(input);
+            roomList.append(input);
           }
           let drag;
           function pointer(event) {
@@ -114,7 +175,7 @@ export function mountRoomTest(host, snapshot, client) {
           };
           canvas.onlostpointercapture = () => {drag=null;};
           render();
-          status.textContent = rooms.length+" proposed rooms. Drag a corner or edit a label. Closing discards the overlay.";
+          status.textContent = rooms.length+" proposed rooms. Zoom in to inspect. Drag a corner or edit a label. Closing discards the overlay.";
           run.remove();
         } catch (error) {
           status.textContent = error.message;
