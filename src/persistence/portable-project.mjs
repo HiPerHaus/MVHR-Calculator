@@ -89,7 +89,12 @@ export async function importPortableProject(encoded, options = {}) {
   const sourceSchemaVersion = rawProject?.schemaVersion;
   const project = structuredClone(deserializeProject(envelope.projectJson));
   await verifyReferenceAssets(project, options);
-  const portableBudget = inspectPortableEnvelopeBudget(serializeProject(project), {
+  const savedProjectJson=serializeProject(project);
+  const savedSchemaVersion=JSON.parse(savedProjectJson).schemaVersion;
+  // Format 29 is still our normal on-disk format for drawings without
+  // doorways. Reading it into the newer model is not a portable upgrade.
+  const migrated=sourceSchemaVersion!==SCHEMA_VERSION&&sourceSchemaVersion!==savedSchemaVersion;
+  const portableBudget = inspectPortableEnvelopeBudget(savedProjectJson, {
     maximumBytes: options.maximumBytes,
   });
   return {
@@ -97,8 +102,8 @@ export async function importPortableProject(encoded, options = {}) {
     exportedAtUtc: envelope.exportedAtUtc,
     migration: {
       fromSchemaVersion: sourceSchemaVersion,
-      toSchemaVersion: SCHEMA_VERSION,
-      migrated: sourceSchemaVersion !== SCHEMA_VERSION,
+      toSchemaVersion: migrated?SCHEMA_VERSION:sourceSchemaVersion,
+      migrated,
     },
     authorityRestored: false,
     portableBudget,
