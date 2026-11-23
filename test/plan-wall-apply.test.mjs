@@ -1,8 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {createCommandHistory,undoCommand,redoCommand} from "../src/domain/history.mjs";
+import {createCommandHistory,executeCommand,undoCommand,redoCommand} from "../src/domain/history.mjs";
 import {applyCommand,createProject,identityQuaternion,knownMm,serializeProject,deserializeProject,wallConnectedComponentIds} from "../src/domain/spatial.mjs";
 import {deriveRoomBoundaries,inspectRoomBoundary} from "../src/domain/rooms.mjs";
+import {createSyntheticComponent} from "../src/editor/synthetic-catalogue.mjs";
+import {roomVolume} from "../src/domain/room-volume.mjs";
 import {applyReviewedWallProposals} from "../app/plan-wall-apply.mjs";
 
 const floorId="floor-ground",p=(x,y)=>({x,y}),w=(a,b)=>({a,b,thicknessMm:100});
@@ -84,4 +86,50 @@ test("the doorway is left out of connected physical deletion and becomes inactiv
  assert.equal(result.candidates.length,0);
  assert(result.diagnostics.some(d=>d.code==="unconfirmed-opening-geometry"));
  assert.equal(next.present.walls.length,6);
+});
+
+
+test("the browser-reproduced Bed 4 corner gap closes with one straight jamb and a perpendicular wall",()=>{
+ const x=173, y=224, left=107, top=6;
+ const wallPieces=[w(p(7,top),p(x,top)),w(p(7,top),p(7,y)),w(p(x,top),p(x,y)),w(p(7,y),p(left,y))];
+ const marker={...w(p(left,y),p(x,y)),roomOpening:true};
+ const before=makeHistory(), scaleSource={...source,scale:17.6357581844436};
+ assert.equal(applyReviewedWallProposals(before,scaleSource,wallPieces,"corner-open").rooms,0);
+ const {next,rooms}=applyReviewedWallProposals(before,scaleSource,[...wallPieces,marker],"corner-marked");
+ assert.equal(rooms,1);
+ assert.equal(next.present.walls.filter(w=>w.classification==="physical").length,4);
+ const face=deriveRoomBoundaries(next.present,floorId).candidates[0];
+ const confirmed=applyCommand(next.present,{type:"room.createFromBoundary",floorId,roomId:"corner-room",boundaryKey:face.key,name:"Test Bed 4",use:"bedroom",ventilationRole:"supply"});
+ assert.equal(inspectRoomBoundary(deserializeProject(serializeProject(confirmed)),confirmed.rooms[0]).status,"current");
+ assert.equal(undoCommand(next).present.walls.length,0);
+});
+
+test("two perpendicular wall ends alone cannot mark an arbitrary joining span",()=>{
+ const parts=[w(p(100,0),p(100,100)),w(p(205,0),p(205,100))];
+ const opening={...w(p(100,100),p(205,100)),roomOpening:true};
+ assert.throws(()=>applyReviewedWallProposals(makeHistory(),source,[...parts,opening],"two-corners"),/at least one straight jamb/);
+});
+
+
+test("removing a doorway excludes stale room volume but keeps the supply grille assignment and Undo",()=>{
+ const [ja,jb]=[p(155,0),p(240,0)];
+ const wallPieces=[w(a,ja),w(jb,b),w(b,c),w(c,d),w(d,a)];
+ const {next}=applyReviewedWallProposals(makeHistory(),source,[...wallPieces,{...w(ja,jb),roomOpening:true}],"supply-door");
+ const face=deriveRoomBoundaries(next.present,floorId).candidates[0];
+ let project=applyCommand(next.present,{type:"room.createFromBoundary",floorId,roomId:"room-with-supply",boundaryKey:face.key,name:"Bed 4 test",use:"bedroom",ventilationRole:"supply"});
+ const terminal=createSyntheticComponent("synthetic-supply-terminal",{id:"bed-4-grille",floorId,xMm:1650,yMm:2200});
+ project=applyCommand(project,{type:"component.add",component:terminal});
+ project=applyCommand(project,{type:"terminal.assignRoom",roomId:"room-with-supply",componentId:terminal.id,portId:terminal.ports[0].id});
+ const saved=deserializeProject(serializeProject(project));
+ const stored=saved.rooms[0].terminalAssociations;
+ assert.equal(stored.length,1);
+ assert.equal(roomVolume(saved,saved.rooms[0]).state,"calculated");
+ const door=saved.walls.find(w=>w.boundaryRole==="room-opening");
+ const history=executeCommand(createCommandHistory(saved),{type:"wall.delete",wallId:door.id,retainAffectedRooms:true});
+ assert.equal(history.present.rooms[0].name,"Bed 4 test");
+ assert.deepEqual(history.present.rooms[0].terminalAssociations,stored);
+ assert.equal(roomVolume(history.present,history.present.rooms[0]).valueM3,null);
+ const undone=undoCommand(history).present;
+ assert.deepEqual(undone.rooms[0].terminalAssociations,stored);
+ assert.equal(inspectRoomBoundary(undone,undone.rooms[0]).status,"current");
 });

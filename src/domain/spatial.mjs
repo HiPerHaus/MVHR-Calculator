@@ -976,7 +976,7 @@ export function applyCommand(project, command, options = {}) {
       }
       const nodes=new Map(next.wallNodes.map(n=>[n.id,n]));
       if(!isSupportedRoomOpening(opening,next.walls.filter(w=>w.classification==="physical"),nodes)){
-        throw new TypeError("Mark only a clear 450–2400 mm gap between two aligned physical wall ends.");
+        throw new TypeError("Mark only a clear 450–2400 mm gap between physical wall ends, with at least one straight jamb.");
       }
       next.walls.push(opening);
       const affected=deriveRoomBoundaries(next,floorId).diagnostics.some(d=>

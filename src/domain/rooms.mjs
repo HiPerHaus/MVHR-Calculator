@@ -48,13 +48,22 @@ export function isSupportedRoomOpening(opening, physical, nodes) {
   const length=Math.hypot(to.x-from.x,to.y-from.y);
   if(length<ROOM_OPENING_MIN_MM||length>ROOM_OPENING_MAX_MM)return false;
   const walls=physical.filter(w=>w.floorId===opening.floorId);
-  const jamb=(atId,at,inside)=>walls.some(w=>{
-    const other=w.startNodeId===atId?w.endNodeId:w.endNodeId===atId?w.startNodeId:null;
-    if(!other)return false;
-    const x=pointFromNode(nodes.get(other)),dx=x.x-at.x,dy=x.y-at.y;
-    return dx*(at.x-inside.x)+dy*(at.y-inside.y)>=0.97*length*Math.hypot(dx,dy);
-  });
-  if(!jamb(a.id,from,to)||!jamb(b.id,to,from))return false;
+  const jamb=(atId,at,inside)=>{
+    const evidence={straight:false,corner:false};
+    for(const w of walls){
+      const other=w.startNodeId===atId?w.endNodeId:w.endNodeId===atId?w.startNodeId:null;
+      if(!other)continue;
+      const x=pointFromNode(nodes.get(other)),dx=x.x-at.x,dy=x.y-at.y;
+      const cos=(dx*(at.x-inside.x)+dy*(at.y-inside.y))/(length*Math.hypot(dx,dy));
+      if(cos>=0.97)evidence.straight=true;
+      if(Math.abs(cos)<=0.24)evidence.corner=true;
+    }
+    return evidence;
+  };
+  const left=jamb(a.id,from,to),right=jamb(b.id,to,from);
+  // A flush door can end at a perpendicular wall. Require at least one
+  // outward straight jamb; two unrelated perpendicular ends do not qualify.
+  if(!(left.straight&&(right.straight||right.corner)||right.straight&&left.corner))return false;
   return !walls.some(w=>{
     const c=pointFromNode(nodes.get(w.startNodeId)),d=pointFromNode(nodes.get(w.endNodeId));
     const int=segmentIntersection(from,to,c,d);

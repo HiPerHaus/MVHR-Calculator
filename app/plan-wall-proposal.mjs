@@ -100,7 +100,8 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
         if(!paint)paint=requestAnimationFrame(()=>{paint=0;update();});
       };
       const instructions="Blue lines have more wall evidence. Purple lines may be masonry; grey lines need closer review. Click a line to inspect it, drag its ends if needed, then tick it to add. Orange dots mark ends still open with the current selection.";
-      const valid=w=>visible(w.a)&&visible(w.b)&&Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel>=MIN_WALL_MM&&
+      const minLength=w=>w.manual&&!w.roomOpening?Math.max(150,w.thicknessMm):MIN_WALL_MM;
+      const valid=w=>visible(w.a)&&visible(w.b)&&Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel>=minLength(w)&&
         (!w.roomOpening||Math.hypot(w.a.x-w.b.x,w.a.y-w.b.y)*mmPerPixel<=ROOM_OPENING_MAX_MM)&&
         planSegmentIsInside(w.a,w.b,outline)&&!hasWallOverlap(w,existing,tolerance);
       const traceButton=control("Trace missing wall",toolbar,()=>{
@@ -208,7 +209,8 @@ export function mountPlanWallProposal(host, snapshot, accept, checkRooms) {
           const findSnap=points=>{
             let point=null,best=radius;
             for(const q of points){
-              if(start&&Math.hypot(q.x-start.x,q.y-start.y)<MIN_WALL_MM/mmPerPixel)continue;
+              const minimum=isOpening?ROOM_OPENING_MIN_MM:Math.max(150,Number(gauge.value)||150);
+              if(start&&Math.hypot(q.x-start.x,q.y-start.y)<minimum/mmPerPixel)continue;
               const dist=Math.hypot(p.x-q.x,p.y-q.y);
               if(dist<best){point=q;best=dist;}
             }
