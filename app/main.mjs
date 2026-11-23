@@ -1564,6 +1564,16 @@ exportSheetPdfButton.addEventListener("click", () => openSheetOutputPicker("pdf"
 exportPartsCsvButton.addEventListener("click", exportPartsCsv);
 queueMicrotask(() => attachOsSendBack({
   button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
+  referenceButton: document.querySelector("#apply-os-reference"),
+  applyReference(quoteNumber, revision) {
+    const form = document.querySelector("#project-details-form");
+    const optionId = history.present.activeDesignOptionId;
+    const option = history.present.designOptions.find(item => item.id === optionId);
+    if (!option || !form.reportValidity()) return;
+    form.elements.namedItem("projectReference").value = quoteNumber;
+    form.requestSubmit();
+    applyDesignOptionHistory({type:"designOption.update", optionId, name:option.name, revision}, "Drawing reference and revision applied. Save the drawing to keep them.");
+  },
   snapshot() {
     const project = sheetPreviewOptionProject;
     return {
@@ -11320,6 +11330,7 @@ cloudSession=initializeCloudUI({
   onAccount(){setTask("account");},
   onChange(state){
     handleWorkingSessionState(state);
+    queueMicrotask(() => window.dispatchEvent(new Event("studio-integration-updated")));
     saveButton.textContent=state.workspace?"Save":"Sign in to save";
     saveAsButton.hidden=!state.workspace;document.querySelector("#project-save-as").hidden=!state.workspace;
     document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";

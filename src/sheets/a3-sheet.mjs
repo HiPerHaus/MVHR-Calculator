@@ -1017,7 +1017,9 @@ function renderTitleBlock(sheet,bounds){
  const rows=[['PROJECT',sheet.metadata.projectName],['SYSTEM',sheet.metadata.ventilationDesignTypeLabel],['CLIENT',sheet.metadata.clientName],['ADDRESS',sheet.metadata.siteName],['DRAWING',sheet.metadata.drawingTitle]];
  for(const [label,value] of rows){out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/><text x="${x+3}" y="${cy+3}" font-size="1.9" fill="#687880">${label}</text>`);const lines=wrapSheetText(value||'—',38,label==='ADDRESS'?3:2);out.push(renderTextLines(lines,x+3,cy+6.5,2.8,3.3));cy+=label==='ADDRESS'?16:12;}
  out.push(`<line x1="${x}" y1="${cy}" x2="${x+w}" y2="${cy}" stroke="#a2aaad" stroke-width="0.2"/>`);
- out.push(renderTextLines(wrapSheetText(`${sheet.metadata.drawingId} · Rev ${sheet.metadata.revision}`,43,1),x+3,cy+5,2.8,3.2));
+ const reference = sheet.metadata.drawingReference || sheet.metadata.drawingId;
+ out.push(renderTextLines(wrapSheetText(`Ref ${reference}`,31,1),x+3,cy+5,2.8,3.2));
+ out.push(renderTextLines(wrapSheetText(`Rev ${sheet.metadata.revision.replace(/^rev(?:ision)?\.?\s*/i,"")}`,12,1),x+w*0.72,cy+5,2.8,3.2));
  out.push(renderTextLines(wrapSheetText(`${sheet.metadata.issueDate} · ${sheet.fit.label} · ${sheet.printScene.floorName}`,47,1),x+3,cy+10,2.5,3.1));
  out.push(renderTextLines(wrapSheetText(`DRAWN BY ${sheet.metadata.drawnBy||'—'} · CHECKED BY ${sheet.metadata.checkedBy||'—'}`,48,1),x+3,cy+15,2.4,3));
  out.push(renderTextLines(wrapSheetText(sheet.metadata.status,43,2),x+3,y+h-7,2.6,3.3));
@@ -1112,6 +1114,7 @@ function normalizeMetadata(project, metadata) {
     siteName: sanitizeXmlText(metadata.siteName ?? project.projectDetails?.address ?? "Not set", "Site name"),
     clientName: sanitizeXmlText(metadata.clientName ?? project.projectDetails?.clientName ?? "Not set", "Client name"),
     drawingTitle: sanitizeXmlText(metadata.drawingTitle, "Drawing title", true),
+    drawingReference: sanitizeXmlText(project.projectDetails?.projectReference ?? "", "Drawing reference"),
     drawingId: sanitizeXmlText(metadata.drawingId, "Drawing ID", true),
     issueDate,
     status,

@@ -2,20 +2,35 @@ import {studioHiperOsEnabled} from "./studio-integration-settings.mjs";
 import {createOsTakeoff} from "./os-takeoff.mjs";
 
 const osOrigin = "https://app.hiper-os.au";
-export function attachOsSendBack({button, client, snapshot, status}) {
+export function attachOsSendBack({button, client, snapshot, status, referenceButton, applyReference}) {
   const target = new URLSearchParams(location.search).get("osDesign");
   if (!target || !/^[0-9a-f-]{36}$/i.test(target) || !window.opener) return;
   const reference = new URLSearchParams(location.hash.slice(1)).get("osReference");
   if (reference) {
     button.textContent = `Send back to HiPer OS · ${reference.slice(0, 150)}`;
   }
+  const fields = new URLSearchParams(location.hash.slice(1));
+  const quote = fields.get("quoteNumber")?.trim();
+  const revision = fields.get("drawingRevision");
+  const hasReference = Boolean(quote && quote.length <= 80 && /^[1-9]\d{0,8}$/.test(revision ?? ""));
+  if (referenceButton && hasReference) {
+    referenceButton.textContent = `Use ${quote} · Rev ${revision}`;
+    referenceButton.addEventListener("click", async () => {
+      const workspace = snapshot()?.workspaceId;
+      if (workspace && await studioHiperOsEnabled(client, workspace).catch(() => false)) applyReference(quote, revision);
+    });
+  }
   let busy = false;
   async function refresh() {
     const state = snapshot();
     button.hidden = true;
+    if (referenceButton) referenceButton.hidden = true;
     if (!state?.workspaceId) return;
     try {
-      if (await studioHiperOsEnabled(client, state.workspaceId)) button.hidden = false;
+      if (await studioHiperOsEnabled(client, state.workspaceId)) {
+        button.hidden = false;
+        if (referenceButton) referenceButton.hidden = !hasReference;
+      }
     } catch { /* Standalone editing remains available when settings cannot load. */ }
   }
   window.addEventListener("focus", refresh);
