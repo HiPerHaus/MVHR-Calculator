@@ -1,18 +1,21 @@
 <!doctype html><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Studio doorway browser QA</title>
 <h1>Studio doorway test (synthetic data only)</h1><p id="anchor">Isolated browser fixture: no studio sign-in, customer plans, or cloud writes.</p>
-<button id="run">Run doorway browser test</button><pre role="status" id="out">Ready</pre>
+<button id="run">Run doorway browser test</button>
+<hr><p>Exact-plan test: select a local Studio portable backup. The backup is read in this browser only; do not use this test page to save cloud projects.</p>
+<label>Local portable backup <input id="backup" type="file" accept=".json,application/json"></label>
+<button id="exact" disabled>Run Bed 4 on local backup</button><pre role="status" id="out">Ready</pre>
 <script type="module">
 import {mountPlanWallProposal} from "./plan-wall-proposal.mjs";
 import {applyReviewedWallProposals} from "./plan-wall-apply.mjs";
 import {createCommandHistory,executeCommand,undoCommand} from "../src/domain/history.mjs";
-import {createProject,applyCommand,identityQuaternion,knownMm,serializeProject,deserializeProject} from "../src/domain/spatial.mjs";
+import {createProject,applyCommand,identityQuaternion,knownMm,serializeProject,deserializeProject,worldPointToSource,sourcePointToWorld} from "../src/domain/spatial.mjs";
 import {deriveRoomBoundaries,inspectRoomBoundary} from "../src/domain/rooms.mjs";
 import {roomVolume} from "../src/domain/room-volume.mjs";
 const p=(x,y)=>({x,y}),floorId="floor-fixture";
 const img=document.createElement("canvas");img.width=300;img.height=240;
 const ctx=img.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,300,240);ctx.strokeStyle="#ddd";ctx.lineWidth=2;
 ctx.beginPath();ctx.moveTo(25,25);ctx.lineTo(250,25);ctx.lineTo(250,190);ctx.moveTo(191,190);ctx.lineTo(25,190);ctx.lineTo(25,25);ctx.stroke();
-const input={floorId,scale:20,dataUrl:img.toDataURL(),outline:[p(0,0),p(300,0),p(300,240),p(0,240)],existing:[],reference:{transform:{rotationRad:0,translationMm:p(0,0)}}};
+let input={floorId,scale:20,dataUrl:img.toDataURL(),outline:[p(0,0),p(300,0),p(300,240),p(0,240)],existing:[],reference:{transform:{rotationRad:0,translationMm:p(0,0)}}};
 const initial=applyCommand(createProject("qa-project"),{type:"floor.add",floor:{id:floorId,name:"QA floor",transform:{translationMm:{...p(0,0),z:knownMm(0,"fixture")},orientation:identityQuaternion()}}});
 let state=createCommandHistory(initial);
 mountPlanWallProposal(document.querySelector("#anchor"),()=>input,
@@ -51,4 +54,53 @@ document.querySelector("#run").onclick=async()=>{
  }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
 };
 document.querySelector("#run").disabled=false;
+const backup=document.querySelector("#backup"), exact=document.querySelector("#exact");
+backup.onchange=()=>{exact.disabled=!backup.files?.length;};
+exact.onclick=async()=>{
+ exact.disabled=true;out.textContent="Checking Bed 4 in local backup…";
+ try{
+  const pkg=JSON.parse(await backup.files[0].text());
+  const old=JSON.parse(pkg.projectJson);
+  const project=deserializeProject(pkg.projectJson);
+  const outline=project.floorAreaOutlines[0], ref=project.floorReferences.find(f=>f.floorId===outline.floorId);
+  const asset=project.referenceAssets.find(a=>a.id===ref.assetId);
+  check(asset.fileName.startsWith("PH 4 - MASTER LAYOUT")&&outline.vertices.length===8&&project.walls.length===0,"Wrong test backup");
+  const scale=ref.calibration.scaleMmPerPixel;
+  const sourceOutline=outline.vertices.map(v=>worldPointToSource(ref.transform,v.positionMm,scale));
+  input={floorId:outline.floorId,scale,dataUrl:asset.dataUrl,outline:sourceOutline,existing:[],reference:ref,crop:ref.cropSourceRectPx};
+  state=createCommandHistory(project);
+  const baseline={components:project.components.length,routes:project.routes.length,rooms:project.rooms.length};
+  const expectedWalls=4;
+  button("Propose walls from plan").click();const canvas=await waitCanvas();
+  const dialog=document.querySelector("dialog");
+  const summary=dialog.querySelector("aside").textContent;
+  check(summary.includes("Long narrow partition"),"Actual bedroom partition missing");
+  check((summary.match(/Possible masonry/g)||[]).length===2,"Expected two separate masonry suggestions");
+  const first=dialog.querySelector('aside input[type=checkbox]');first.click();
+  // Canvas has the exact native crop/scale. The coordinates identify the
+  // corners and doorway in the verified fixture, not geometry in the product.
+  const at=(x,y)=>{const r=canvas.getBoundingClientRect();
+   canvas.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,button:0,clientX:r.left+x*r.width/canvas.width,clientY:r.top+y*r.height/canvas.height}));};
+  const trace=(a,b)=>{button("Trace missing wall").click();at(...a);at(...b);check(dialog.querySelector("[role=status]").textContent.includes("Traced wall selected"),"Exact plan trace failed");};
+  trace([9,6],[173,6]);trace([9,6],[9,224]);trace([9,224],[109,224]);
+  button("Check rooms before adding").click();
+  check(dialog.querySelector("[role=status]").textContent.startsWith("No new closed room"),"Room falsely detected before marking the door");
+  button("Mark doorway boundary").click();at(109,224);at(173,224);button("Check rooms before adding").click();
+  check(dialog.querySelector("[role=status]").textContent.startsWith("1 new closed room"),"Bed 4 did not close: "+dialog.querySelector("[role=status]").textContent);
+  check(state.present.walls.length===0,"Checking wrote to copy");
+  button("Add selected boundaries").click();
+  check(!dialog.open,"Add did not close the preview");
+  check(state.present.walls.filter(w=>w.classification==="physical").length===expectedWalls,"Expected four physical walls");
+  const marker=state.present.walls.find(w=>w.boundaryRole==="room-opening");check(marker,"Doorway is not nonphysical");
+  const face=deriveRoomBoundaries(state.present,input.floorId).candidates[0];check(Boolean(face),"No Bed 4 room face after adding");
+  const bed=applyCommand(state.present,{type:"room.createFromBoundary",floorId:input.floorId,roomId:"qa-bed-four-only",name:"Bed 4 QA",use:"bedroom",ventilationRole:"supply",boundaryKey:face.key});
+  const portable=JSON.stringify({...pkg,projectJson:serializeProject(bed)});
+  const reopened=deserializeProject(JSON.parse(portable).projectJson);
+  check(inspectRoomBoundary(reopened,reopened.rooms.find(r=>r.id==="qa-bed-four-only")).status==="current","Reopened Bed 4 boundary lost");
+  check(reopened.components.length===baseline.components&&reopened.routes.length===baseline.routes,"Existing ventilation layout changed");
+  check(undoCommand(state).present.walls.length===0,"Undo did not remove the proposal batch");
+  out.textContent="PASS: exact Bed 4 backup; Studio found the bedroom divider and two separate masonry runs; no room before marking doorway; one room after; four physical walls plus one nonphysical boundary; export format reopened; existing design untouched; Undo passed. Legacy project "+old.schemaVersion+" → "+reopened.schemaVersion+".";
+ }catch(e){out.textContent="FAIL: "+e.message;console.error(e);}
+ finally{exact.disabled=false;}
+};
 </script>
