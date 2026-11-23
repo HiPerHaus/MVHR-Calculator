@@ -36,9 +36,12 @@ test("portable migration from every schema preserves every field available in th
     }));
     const migrated = opened.project;
 
+    // Format 29 remains supported on disk for plans without doorway boundaries.
+    // Loading it normalises the in-memory model without marking the file as migrated.
+    const unchangedOnDisk = schemaVersion >= 29;
     assert.equal(opened.migration.fromSchemaVersion, schemaVersion);
-    assert.equal(opened.migration.toSchemaVersion, SCHEMA_VERSION);
-    assert.equal(opened.migration.migrated, schemaVersion !== SCHEMA_VERSION);
+    assert.equal(opened.migration.toSchemaVersion, unchangedOnDisk ? schemaVersion : SCHEMA_VERSION);
+    assert.equal(opened.migration.migrated, !unchangedOnDisk);
     assert.equal(migrated.schemaVersion, SCHEMA_VERSION);
     assert.equal(migrated.ventilationDesignType, "unclassified");
     assert.deepEqual(migrated.floors, current.floors, `schema ${schemaVersion} floors`);
