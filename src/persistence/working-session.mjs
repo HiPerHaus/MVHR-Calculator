@@ -22,7 +22,7 @@ export function validateWorkingSession(value,context){
  if(!camera||!['x','y','width','height'].every(k=>Number.isFinite(camera[k]))||camera.width<=0||camera.height<=0)throw new TypeError('Invalid recovery camera');
  return {...value,project};
 }
-export function createWorkingSessionStore(indexedDB,{tabId}={}){
+export function createWorkingSessionStore(indexedDB,{tabId,shareLast=true}={}){
  let database,tail=Promise.resolve(),queuedWrite=null;
  const open=()=>database??=new Promise((resolve,reject)=>{
   if(!indexedDB)return reject(new Error('Browser drawing recovery is unavailable'));
@@ -35,13 +35,13 @@ export function createWorkingSessionStore(indexedDB,{tabId}={}){
   tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error??new Error('Drawing recovery failed'));tx.onabort=()=>reject(tx.error??new Error('Drawing recovery aborted'));
   try{action(store,value=>{result=value;});}catch(error){try{tx.abort();}catch{}reject(error);}
  });}
- const keys=context=>{const key=workingContextKey(context);return [`${key}:tab:${tabId}`,`${key}:last`];};
+ const keys=context=>{const key=workingContextKey(context);return [`${key}:tab:${tabId}`,...(shareLast?[`${key}:last`]:[])];};
  return {
   read(context){
    // Reads are ordering barriers too: a later write must neither replace the
    // snapshot being read nor overtake the read transaction.
    queuedWrite=null;const binding={...context},[tab,last]=keys(binding);
-   const pending=tail.then(()=>access('readonly',(store,done)=>{const request=store.get(tab);request.onsuccess=()=>{if(request.result){done(request.result);return;}const fallback=store.get(last);fallback.onsuccess=()=>done(fallback.result??null);};})).then(value=>value?validateWorkingSession(value,binding):null);
+   const pending=tail.then(()=>access('readonly',(store,done)=>{const request=store.get(tab);request.onsuccess=()=>{if(request.result||!last){done(request.result??null);return;}const fallback=store.get(last);fallback.onsuccess=()=>done(fallback.result??null);};})).then(value=>value?validateWorkingSession(value,binding):null);
    tail=pending;return pending;
   },
   // Recovery snapshots carry the whole project JSON (including embedded plans).

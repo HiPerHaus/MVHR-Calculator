@@ -18,13 +18,20 @@ import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/p
 import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
 import {attachOsSendBack} from "./studio-os-send.mjs";
+import {matchesOsProject, openOrCreateOsProject, osProjectIdentity, readOsLaunch} from "./studio-os-launch.mjs";
+import {studioHiperOsEnabled} from "./studio-integration-settings.mjs";
 import { createPartsCsv, createPartsCsvRows, partsCsvFileName } from "../src/sheets/parts-csv-export.mjs";
 import { createMixedPagePdfBlob, downloadPdfBlob } from "./sheet-pdf-export.mjs";
 import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
 import { getBootAccess } from "./auth-context.mjs";
 let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
-const workingSessions=createWorkingSessionStore(window.indexedDB,{tabId:workingTabId(window.sessionStorage)});
+const osIntent = new URLSearchParams(location.search).has("osDesign") && Boolean(window.opener);
+const osLaunch = readOsLaunch({search:location.search,hash:location.hash,referrer:document.referrer,hasOpener:Boolean(window.opener)});
+let osBinding = null;
+const workingSessions=createWorkingSessionStore(window.indexedDB,{
+  tabId:workingTabId(window.sessionStorage), shareLast:!osIntent
+});
 let workingReady=false,workingRestoring=false,workingRestoreStarted=false,workingActivity=0,workingQueued=false,workingOwnerKey=null;
 let workingModel=null,workingJson=null,workingRecoveryError="",workingWrites=0;
 import { createCompactProjectStorage, compactExistingProjectStorage } from "../src/persistence/compact-storage.mjs";
@@ -1630,21 +1637,14 @@ function stageReviewedWallSelection(source, approved) {
 }
 queueMicrotask(() => attachOsSendBack({
   button: document.querySelector("#send-takeoff-os"), client: getStudioClient(), status: sheetPreviewStatus,
-  referenceButton: document.querySelector("#apply-os-reference"),
-  applyReference(quoteNumber, revision) {
-    const form = document.querySelector("#project-details-form");
-    const optionId = history.present.activeDesignOptionId;
-    const option = history.present.designOptions.find(item => item.id === optionId);
-    if (!option || !form.reportValidity()) return;
-    form.elements.namedItem("projectReference").value = quoteNumber;
-    form.requestSubmit();
-    applyDesignOptionHistory({type:"designOption.update", optionId, name:option.name, revision}, "Drawing reference and revision applied. Save the drawing to keep them.");
-  },
   snapshot() {
     const project = sheetPreviewOptionProject;
+    const workspaceId = cloudSession?.workspace?.id;
+    const linked = Boolean(osBinding && osBinding.workspaceId === workspaceId &&
+      matchesOsProject({record:currentCloudRecord,project:history.present},osBinding.identity,workspaceId));
     return {
-      workspaceId: cloudSession?.workspace?.id, record: currentCloudRecord,
-      ready: Boolean(project && !exportPartsCsvButton.disabled && !sheetPreviewPanel.hidden && !projectHasUnsavedChanges() && currentCloudRecord?.workspace_id === cloudSession?.workspace?.id),
+      workspaceId, record: currentCloudRecord, linked,
+      ready: Boolean(linked && project && !exportPartsCsvButton.disabled && !sheetPreviewPanel.hidden && !projectHasUnsavedChanges()),
       optionId: project?.activeDesignOptionId, scope: sheetExportSystemScope,
       rows: () => createPartsCsvRows(project, {systemScope:sheetExportSystemScope})
     };
@@ -11372,7 +11372,51 @@ function isTextInput(target) {
 initialCameraFit.arm();
 setTask("project");
 render();
+if (osIntent) setOsLaunchStatus("Opening the linked HiPer OS drawing…");
 
+function setOsLaunchStatus(message) {
+  const notice = document.querySelector("#os-launch-status");
+  notice.hidden = !message;
+  notice.textContent = message;
+}
+
+function makeNewOsDrawing(projectId) {
+  let project = createInitialProject(projectId);
+  project = applyCommand(project, {type:"project.updateDetails", details:{
+    ...project.projectDetails, name:osLaunch.name, projectReference:osLaunch.quoteNumber
+  }});
+  const option=project.designOptions.find(item=>item.id===project.activeDesignOptionId);
+  return applyCommand(project, {type:"designOption.update", optionId:option.id, name:option.name, revision:osLaunch.revision});
+}
+
+async function loadOsWorkingSession(context) {
+  if (!osLaunch) throw new Error("Reopen Studio with Open in Studio on the HiPer OS design revision.");
+  if (cloudSession.workspaces.length !== 1) throw new Error("The destination Studio workspace is ambiguous. No drawing was created.");
+  if (!await studioHiperOsEnabled(getStudioClient(), context.workspaceId)) {
+    throw new Error("HiPer OS integration is off for this Studio workspace. Enable it in Account & company, then reopen from HiPer OS.");
+  }
+  const identity=await osProjectIdentity(context.workspaceId,osLaunch.designId);
+  const startContext=workingContextKey(context), current=workingContext();
+  if (!current || workingContextKey(current)!==startContext || workingActivity!==0) {
+    throw new Error("The Studio session changed. Reopen the design from HiPer OS.");
+  }
+  const loaded=await openOrCreateOsProject({
+    store:cloudSession.store, identity, workspaceId:context.workspaceId, userId:context.userId,
+    name:osLaunch.name, makeProject:makeNewOsDrawing
+  });
+  const recovered=await workingSessions.read(context).catch(()=>null);
+  osBinding={identity,workspaceId:context.workspaceId};
+  let data=matchesOsProject(recovered,identity,context.workspaceId) && recovered.dirty
+    ? recovered
+    : {project:loaded.project,name:loaded.name,dirty:false,cloudRecord:loaded.record,task:"project",camera:{...camera}};
+  if (!data.project.projectDetails.projectReference && osLaunch.quoteNumber) {
+    const project = applyCommand(data.project,{type:"project.updateDetails",details:{
+      ...data.project.projectDetails,projectReference:osLaunch.quoteNumber
+    }});
+    data={...data,project,dirty:true};
+  }
+  return data;
+}
 
 async function saveExplicit() {
   if(cloudSession?.loading){interactionMessage="Checking sign-in; please wait before saving.";updateStatus();return false;}
@@ -11466,14 +11510,15 @@ async function restoreWorkingSession(context){
  const previousStorage=storageState,pendingStorage={kind:"pending",label:"Reopening current drawing…",detail:"Checking browser recovery and your saved project"};
  storageState=pendingStorage;renderStorageState();
  try{
-  let recovered=await workingSessions.read(context);
-  if(!recovered&&context.userId&&workingActivity===0){
+  let recovered=osIntent ? await loadOsWorkingSession(context) : await workingSessions.read(context);
+  if(!osIntent&&!recovered&&context.userId&&workingActivity===0){
    const records=await cloudSession.store.list(context.workspaceId);
    const recent=records.find(record=>record.updated_by===context.userId);
    if(recent){const loaded=await cloudSession.store.open(recent);recovered={project:loaded.project,projectJson:serializeProject(loaded.project),name:loaded.name,dirty:false,cloudRecord:loaded.record,task:"project",camera:{...camera}};}
   }
   const current=workingContext();
   if(!current||workingContextKey(current)!==workingContextKey(context))return;
+  if(osIntent&&workingActivity!==0)throw new Error("The current drawing changed. Reopen the design from HiPer OS.");
   if(recovered&&workingActivity===0){
    workingRestoring=true;
    applyLocalReopen({project:recovered.project},{named:false});
@@ -11495,9 +11540,14 @@ async function restoreWorkingSession(context){
    if(recoveredTask==="sheets")openSheetPreview({designStage:true});else setTask(recoveredTask,{designNavigation:["plan","ventilation","checks"].includes(recoveredTask)});
    const dirty=projectHasUnsavedChanges();storageState={kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:currentCloudRecord?`Cloud version ${currentCloudRecord.save_version} · device recovery is separate from Save`:"Current drawing restored from this browser"};
    interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · changes still need saving":""}`;
+   if (osIntent) {
+    const ref=recovered.project.projectDetails.projectReference;
+    setOsLaunchStatus(ref ? `Opened linked HiPer OS drawing · Quote ${ref}`
+      : "Opened linked HiPer OS drawing · No quote number has been assigned in HiPer OS yet.");
+   }
    render();renderStorageState();updateStatus();
   }
- }catch(error){workingSessionFailed(error);}
+ }catch(error){if(osIntent){setOsLaunchStatus(error.message);updateStatus();}else workingSessionFailed(error);}
  finally{
   workingRestoring=false;
   if(storageState===pendingStorage)storageState=previousStorage;

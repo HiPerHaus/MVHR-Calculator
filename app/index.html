@@ -422,6 +422,7 @@
           <div><strong id="project-workspace-heading">Projects</strong><span>Open a drawing or continue designing.</span></div>
           <button id="new-project" type="button">New project</button>
         </header>
+        <p id="os-launch-status" class="project-storage-note" role="status" hidden></p>
         <div class="project-workflow-layout project-home-layout">
           <article class="workflow-card workflow-card-wide">
             <h2>Set up a drawing</h2><p class="project-home-note">Upload a plan, or choose Edit floor plan to draw manually at full scale.</p>
@@ -452,7 +453,7 @@
                 <label>Drawing title<input name="drawingTitle" maxlength="160" placeholder="Project name - Ground Floor - Ventilation Layout" /></label>
                 <label>Drawn by<input name="drawnBy" maxlength="120" autocomplete="name" /></label>
                 <label>Checked by<input name="checkedBy" maxlength="120" autocomplete="off" /></label>
-                <button type="button" id="apply-os-reference" hidden>Use HiPer OS reference</button><button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
+                <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
               </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
             </details>
             <details class="project-home-options"><summary>Design options</summary>

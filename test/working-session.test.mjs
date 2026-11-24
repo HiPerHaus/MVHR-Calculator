@@ -164,3 +164,14 @@ test('commissioning view survives working-session recovery',async()=>{
  await store.write(context,{...snapshot(),task:'commissioning'});
  assert.equal((await store.read(context)).task,'commissioning');
 });
+
+test('an OS launch can recover in its own tab without replacing the ordinary last drawing',async()=>{
+ const db=indexedDbFixture();
+ const normal=createWorkingSessionStore(db,{tabId:'regular'});
+ const handoff=createWorkingSessionStore(db,{tabId:'from-os',shareLast:false});
+ await normal.write(context,snapshot('Pocket House'));
+ assert.equal(await handoff.read(context),null);
+ await handoff.write(context,snapshot('Lockleys from OS'));
+ assert.equal((await createWorkingSessionStore(db,{tabId:'from-os',shareLast:false}).read(context)).name,'Lockleys from OS');
+ assert.equal((await createWorkingSessionStore(db,{tabId:'new-regular'}).read(context)).name,'Pocket House');
+});

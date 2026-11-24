@@ -18,10 +18,12 @@ export function createCloudProjectStore(client,{uuid=()=>crypto.randomUUID()}={}
  return {
   async workspaces(){return checked(await client.from('studio_workspaces').select('id,name').order('name'));},
   async list(workspaceId){return checked(await client.from('studio_projects').select('*').eq('workspace_id',workspaceId).order('updated_at',{ascending:false}));},
-  async save({project,name,workspaceId,userId,record=null}) {
+  async find(workspaceId,id){return checked(await client.from('studio_projects').select('*').eq('workspace_id',workspaceId).eq('id',id).maybeSingle());},
+  async save({project,name,workspaceId,userId,record=null,newRecordId=null}) {
    const cleanName=name.trim();if(!cleanName||cleanName.length>120)throw new TypeError('Project name must contain 1–120 characters');
    if(record && (record.workspace_id!==workspaceId || record.project_id!==project.id))throw new TypeError('Cloud project identity mismatch');
-   const id=record?.id??uuid(),path=`${workspaceId}/${userId}/${id}/${uuid()}.json`;
+   if(newRecordId && record)throw new TypeError('An existing drawing cannot change its cloud identity');
+   const id=record?.id??newRecordId??uuid(),path=`${workspaceId}/${userId}/${id}/${uuid()}.json`;
    const projectJson=serializeProject(project);
    const file=new Blob([JSON.stringify({format:CLOUD_FILE_FORMAT,projectId:project.id,projectJson})],{type:'application/json'});
    if(file.size>MAX_CLOUD_BYTES)throw new RangeError('This drawing exceeds the 48 MB cloud file limit. Export a backup and reduce the reference file size.');
@@ -32,6 +34,7 @@ export function createCloudProjectStore(client,{uuid=()=>crypto.randomUUID()}={}
    try {
     const request=record ? client.from('studio_projects').update(payload).eq('id',id).eq('workspace_id',workspaceId).eq('save_version',record.save_version) : client.from('studio_projects').insert(payload);
     const result=await request.select('*').maybeSingle();
+    if(result.error?.code==='23505' && newRecordId)throw new CloudConflictError();
     if(result.error)throw new Error(result.error.message);
     if(!result.data)throw new CloudConflictError();
     saved=result.data;

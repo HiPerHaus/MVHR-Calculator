@@ -2,34 +2,19 @@ import {studioHiperOsEnabled} from "./studio-integration-settings.mjs";
 import {createOsTakeoff} from "./os-takeoff.mjs";
 
 const osOrigin = "https://app.hiper-os.au";
-export function attachOsSendBack({button, client, snapshot, status, referenceButton, applyReference}) {
+export function attachOsSendBack({button, client, snapshot, status}) {
   const target = new URLSearchParams(location.search).get("osDesign");
   if (!target || !/^[0-9a-f-]{36}$/i.test(target) || !window.opener) return;
   const reference = new URLSearchParams(location.hash.slice(1)).get("osReference");
-  if (reference) {
-    button.textContent = `Send back to HiPer OS · ${reference.slice(0, 150)}`;
-  }
-  const fields = new URLSearchParams(location.hash.slice(1));
-  const quote = fields.get("quoteNumber")?.trim();
-  const revision = fields.get("drawingRevision");
-  const hasReference = Boolean(quote && quote.length <= 80 && /^[1-9]\d{0,8}$/.test(revision ?? ""));
-  if (referenceButton && hasReference) {
-    referenceButton.textContent = `Use ${quote} · Rev ${revision}`;
-    referenceButton.addEventListener("click", async () => {
-      const workspace = snapshot()?.workspaceId;
-      if (workspace && await studioHiperOsEnabled(client, workspace).catch(() => false)) applyReference(quote, revision);
-    });
-  }
+  if (reference) button.textContent = `Send back to HiPer OS · ${reference.slice(0, 150)}`;
   let busy = false;
   async function refresh() {
     const state = snapshot();
     button.hidden = true;
-    if (referenceButton) referenceButton.hidden = true;
-    if (!state?.workspaceId) return;
+    if (!state?.linked || !state?.workspaceId) return;
     try {
       if (await studioHiperOsEnabled(client, state.workspaceId)) {
-        button.hidden = false;
-        if (referenceButton) referenceButton.hidden = !hasReference;
+        if(snapshot()?.linked && snapshot()?.workspaceId===state.workspaceId)button.hidden = false;
       }
     } catch { /* Standalone editing remains available when settings cannot load. */ }
   }
@@ -44,7 +29,7 @@ export function attachOsSendBack({button, client, snapshot, status, referenceBut
     button.disabled = true;
     try {
       const state = snapshot();
-      if (!state?.record || !state.ready) throw new Error("Save the drawing and select one export option before sending.");
+      if (!state?.linked || !state?.record || !state.ready) throw new Error("Save the drawing and select one export option before sending.");
       const payload = createOsTakeoff(state.rows(), state.record, state.optionId, state.scope);
       const result = await client.rpc("studio_issue_os_takeoff", {
         p_project:state.record.id, p_version:state.record.save_version,

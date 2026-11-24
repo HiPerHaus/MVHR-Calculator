@@ -1,0 +1,9 @@
+# Open in Studio from HiPer OS
+
+An Open in Studio popup from the production HiPer OS origin opens a separate Studio cloud drawing for that OS design revision. The destination key combines the existing OS design revision ID and signed-in Studio workspace ID. The quote number is a reference in the drawing details; it is not the link key. If the OS revision is not linked to a quote, leave the reference blank rather than issuing or guessing a number. A later launch can prefill an empty reference without replacing an existing one; save that update normally.
+
+Studio does not resume the last unrelated drawing in this popup. The first launch in a single enabled Studio workspace creates a blank drawing and saves it there. A retry opens the same drawing, including after a concurrent first launch. Tab recovery does not replace the normal Studio last-opened drawing. Same-named manually created projects are not linked by inference. Different OS design revision IDs are separate; there is no cross-revision project migration in this change.
+
+This uses existing authenticated cloud project access and does not require a schema change. The launcher requires an OS opener and matching HTTPS referrer with a valid design ID and revision. Copying a URL into another tab cannot attach an ordinary project. Send back is shown only when the current cloud record matches the launched drawing identity. The separate takeoff receipt and OS import still require their existing server prerequisites.
+
+Release smoke check: with an unrelated project open, use a dummy OS design revision with a linked quote, check the drawing and quote number, repeat the launch, verify the original drawing is unchanged, then repeat for an unquoted revision. Check disabled integration, cross-origin, duplicate saves, and the linked-only takeoff control separately. No customer plans are needed.
