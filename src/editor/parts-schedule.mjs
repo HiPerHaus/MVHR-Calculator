@@ -107,6 +107,8 @@ function componentScheduleLines(components, assemblyByComponentId) {
       : ["terminal", "external-grille"].includes(category) ? "terminals" : "equipment";
     const combinedGrille = category === "external-grille" && component.ports.some(port => port.stream === "intake") && component.ports.some(port => port.stream === "exhaust");
     const handing = combinedGrille ? (component.externalGrilleHanding ?? "left") : null;
+    const symbol = component.displaySymbol ?? snapshot?.symbol;
+    const hasTerminalBreakdown = symbol?.shape === "wall-grille";
     const key = [
       snapshot?.catalogueId ?? "no-catalogue",
       snapshot?.catalogueVersion ?? "no-catalogue-version",
@@ -115,6 +117,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
       component.productId ?? "no-product-id",
       component.catalogueStatus ?? "unclassified",
       handing ?? "no-handing",
+      hasTerminalBreakdown ? "terminal-breakdown" : "as-placed",
     ].join("\u0000");
     let line = byKey.get(key);
     if (!line) {
@@ -123,7 +126,8 @@ function componentScheduleLines(components, assemblyByComponentId) {
         key,
         ref: null,
         section,
-        isAssemblySummary: Boolean((component.displaySymbol ?? snapshot?.symbol)?.cwProfile || (component.displaySymbol ?? snapshot?.symbol)?.shape === "wall-grille"),
+        isAssemblySummary: Boolean(symbol?.cwProfile || hasTerminalBreakdown),
+        hasTerminalBreakdown,
         handing,
         description: `${component.displayName ?? component.id}${handing ? ` · ${handing === "left" ? "Left" : "Right"}` : ""}`,
         manufacturer: component.manufacturer ?? null,

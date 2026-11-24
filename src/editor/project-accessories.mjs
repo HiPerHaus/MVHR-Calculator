@@ -1,4 +1,4 @@
-import {cwQuoteCodes,cwMountQuoteCode,quoteCodeEvidence,quotedCode} from "./quote-product-codes.mjs";
+import {cwQuoteCodes,cwMountQuoteCode,quoteCodeEvidence,quotedCode,CW420_BRANCH_ARTICLE} from "./quote-product-codes.mjs";
 import {mountedCwDrawingLayout} from "../domain/mounted-cw-drawing-connections.mjs";
 import {routeLengthSummary} from "../domain/spatial.mjs";
 import {deriveEppProjectTotals} from './epp-takeoff.mjs';
@@ -12,12 +12,22 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const qSeries=localUnits.filter(c=>/(?:^|[-\s])q(?:350|450|600)|ZEN-Q(?:350|450|600)/i.test(identity(c)));
  const surge=localUnits.filter(c=>!/(?:^|[-\s])q(?:450|600)|ZEN-Q(?:450|600)/i.test(identity(c)));
  const cwGroups=new Map();
- const cwAdd=(code,description,quantity)=>{const key=code||description;const existing=cwGroups.get(key);if(existing)existing.quantity+=quantity;else cwGroups.set(key,{code,description,quantity,unit:'ea',codeSource:quoteCodeEvidence(code)});};
+ const cwAdd=(code,description,quantity,{manufacturerArticle=null}={})=>{
+  const key=code||description,existing=cwGroups.get(key),codeSource=quoteCodeEvidence(code);
+  if(existing)existing.quantity+=quantity;
+  else cwGroups.set(key,{code,description:`${description}${codeSource?.supplier?' · '+codeSource.supplier:''}`,quantity,unit:'ea',codeSource,...(manufacturerArticle?{manufacturerArticle}:{})});
+ };
+ const cwBranch=(size,count,code,quantity)=>{
+  const description=`CW${size} branch plate · ${count} × 90 mm`;
+  if(Number(size)===420&&count===8){
+   cwAdd('',`${description} · Fantech code to confirm`,quantity,{manufacturerArticle:CW420_BRANCH_ARTICLE});
+  }else cwAdd(code??'',`${description}${code?'':' · product code to select'}`,quantity);
+ };
  for(const component of localUnits){
   const layout=mountedCwDrawingLayout(component);if(!layout)continue;
   const {size,branchCount}=layout.mountedCw,codes=cwQuoteCodes(size);
   cwAdd(codes.module??'',`CW${size} attenuator module${codes.module?'':' · product code to select'}`,2);
-  cwAdd(codes.branch??'',`CW${size} branch plate · ${branchCount} × 90 mm${codes.branch?'':' · product code to select'}`,2);
+  cwBranch(size,branchCount,codes.branch,2);
   const mounting=cwMountQuoteCode(component,size);
   if(mounting)cwAdd(mounting,`CW${size} mounting set · ${/aerofresh/i.test(identity(component))?'Aerofresh 450 / 600':/q600/i.test(identity(component))?'Q600':'Q350 / Q450'}`,1);
   else cwAdd('',`CW${size} mounting set · product code to select`,1);
@@ -26,25 +36,30 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
   const profile=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.cwProfile;if(!profile)continue;
   const {size,mainSize,count}=profile,codes=cwQuoteCodes(size,mainSize);
   cwAdd(codes.module??'',`CW${size} attenuator module${codes.module?'':' · product code to select'}`,1);
-  cwAdd(codes.branch??'',`CW${size} branch plate · ${count} × 90 mm${codes.branch?'':' · product code to select'}`,1);
+  cwBranch(size,count,codes.branch,1);
   cwAdd(codes.end??'',`CW${size} end plate · DN${mainSize}${codes.end?'':' · product code to select'}`,1);
  }
  const cwLines=[...cwGroups.values()];
  const terminalGroups=new Map();
- const terminalAdd=(code,description)=>{const key=code||description;const previous=terminalGroups.get(key);if(previous)previous.quantity++;else terminalGroups.set(key,{code,description,quantity:1,unit:'ea',codeSource:quoteCodeEvidence(code)});};
+ const terminalAdd=(code,description,componentId,role='housing')=>{
+  const key=code||description;
+  const previous=terminalGroups.get(key);
+  if(previous){previous.quantity++;previous.componentIds.push(componentId);}
+  else terminalGroups.set(key,{code,description,quantity:1,unit:'ea',codeSource:quoteCodeEvidence(code),role,componentIds:[componentId]});
+ };
  for(const component of project.components.filter(c=>c.floorId===floorId)){
   const shape=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.shape;
   if(shape==='wall-grille'){
-   terminalAdd('AER-GR-RECT-W','Aerofresh magnetic cover · cool white');
+   terminalAdd('AER-GR-RECT-W','AeroFresh magnetic cover · cool white',component.id,'cover');
    const entry=component.ports.find(p=>p.interface?.nominalSizeMm===90)?.drawingEntryId;
    const code=entry==='back'?'AER-GR-RECT-BX90R':['left','right'].includes(entry)?'AER-GR-R-BX90E':null;
-   terminalAdd(code??'',code?`Aerofresh grille housing · ${entry==='back'?'rear entry':'side entry'}`:'Aerofresh grille housing · entry to select');
+   terminalAdd(code??'',code?`Aerofresh grille housing · ${entry==='back'?'rear entry':'side entry'}`:'Aerofresh grille housing · entry to select',component.id);
   } else if(shape==='luna-grille'){
    const routes=project.routes.filter(r=>r.ductKind==='semi-rigid-radial'&&[r.startAttachment,r.endAttachment].some(e=>e?.componentId===component.id));
    const counts=new Set(routes.map(r=>r.parallelRunCount??null));
    const runs=routes.length?(counts.size===1?[...counts][0]:null):component.ductRunCount;
    const code=quotedCode(runs===1?'ZEN-H-TVA90-300':runs===2?'ZEN-H-TVA90-300TW':'');
-   terminalAdd(code??'',`TVA-P 90 housing · 300 mm · ${runs===1?'single connection':runs===2?'twin connection':'Single / Twin to select'}`);
+   terminalAdd(code??'',`TVA-P 90 housing · 300 mm · ${runs===1?'single connection':runs===2?'twin connection':'Single / Twin to select'}`,component.id);
   }
  }
  const terminalLines=[...terminalGroups.values()];

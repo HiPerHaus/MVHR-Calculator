@@ -271,10 +271,24 @@ export const QUOTE_PRODUCT_CODES = Object.freeze({
   }
 });
 
+// Fantech supplied these CW420 codes on a separate proforma, not the price list.
+const FANTECH_SUPPLEMENTAL_CODES = Object.freeze({
+  "ZEN-ACWS-420": "Attenuator CW-S 420",
+  "ZEN-MSCW-420": "CW-K-420 mounting set for Q350 / Q450",
+});
+const FANTECH_CW420_SOURCE = Object.freeze({
+  title: "Fantech proforma M0597600", supplier: "Fantech",
+  verificationStatus: "supplier-proforma-order-code-only",
+});
+// That same document clips the branch plate's Fantech code after ZEN-MPCWM-420-.
+// The full Zehnder article is independently documentable; it is not a local SKU.
+export const CW420_BRANCH_ARTICLE = "990323622";
+
 export function quotedCode(code) {
-  return Object.hasOwn(QUOTE_PRODUCT_CODES, code) ? code : null;
+  return Object.hasOwn(QUOTE_PRODUCT_CODES, code) || Object.hasOwn(FANTECH_SUPPLEMENTAL_CODES, code) ? code : null;
 }
 export function quoteCodeEvidence(code) {
+  if (Object.hasOwn(FANTECH_SUPPLEMENTAL_CODES, code)) return {...FANTECH_CW420_SOURCE, locator:FANTECH_SUPPLEMENTAL_CODES[code]};
   const part = QUOTE_PRODUCT_CODES[code];
   return part ? {...QUOTE_CODE_SOURCE, locator:`Price List!A${part.row},C${part.row}`} : null;
 }
@@ -290,7 +304,7 @@ export function componentQuoteCode(component) {
   return quotedCode(component.productId ?? '');
 }
 export function cwQuoteCodes(size,mainSize) {
-  const module = {220:'ZEN-ACWS-220',320:'ZEN-ACWS-320',520:'ZEN-ACWS-520',625:'ZEN-ACWS625'}[size];
+  const module = {220:'ZEN-ACWS-220',320:'ZEN-ACWS-320',420:'ZEN-ACWS-420',520:'ZEN-ACWS-520',625:'ZEN-ACWS625'}[size];
   const branch = {220:'ZEN-MPCWM-220-4X90',320:'ZEN-MPCWM-320-6X90',520:'ZEN-MPCWM-520-10X90',625:'ZEN-MPCWM625-12X90'}[size];
   const end = {'220-125':'ZEN-EPCWP-220-125','320-125':'ZEN-EPCWP-320-125','320-160':'ZEN-MP320-160','520-160':'ZEN-MP520-160','625-200':'ZEN-EP625-200'}[`${size}-${mainSize}`];
   return {module:quotedCode(module),branch:quotedCode(branch),end:quotedCode(end)};
@@ -299,6 +313,6 @@ export function cwMountQuoteCode(component,size) {
   const identity=[component.mvhrDesignIntent?.model,component.catalogueItemId,component.productId].filter(Boolean).join(' ');
   if (/aerofresh-450|AER-450HRV/.test(identity)) return quotedCode({'320':'HRV-MSCW-A450-320','520':'HRV-MSCW-A450-520'}[size]);
   if (/q600|Q600/.test(identity)) return quotedCode({'520':'ZEN-MSCW6-520','625':'ZEN-MSCW6-625'}[size]);
-  if (/q350|q450|Q350|Q450/.test(identity)) return quotedCode({'320':'ZEN-MSCW-320','520':'ZEN-MSCW-520','625':'ZEN-MSCW-625'}[size]);
+  if (/q350|q450|Q350|Q450/.test(identity)) return quotedCode({'320':'ZEN-MSCW-320','420':'ZEN-MSCW-420','520':'ZEN-MSCW-520','625':'ZEN-MSCW-625'}[size]);
   return null;
 }

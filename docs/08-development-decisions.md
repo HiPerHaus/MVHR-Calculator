@@ -1335,3 +1335,11 @@ Fit the full visible plan to its printable drawing area, rounding the required s
 After approximately three idle seconds, commit the latest working draft to its already-bound cloud drawing. The first explicit Save still names/binds a new, local or imported drawing; a HiPer OS launch already creates that binding. Autosave does not start a project, change quote linkage, apply unsubmitted forms or create an issued revision. The existing version check protects changes from other tabs and devices. Conflicts pause autosave for that drawing and leave device recovery/Save As available. Offline edits remain recoverable on this device and queue for autosave once connectivity returns. Other save errors surface for an explicit retry, not an uncontrolled loop.
 
 The existing cloud store uploads a complete drawing, including references, and retains prior objects. Start no more than one automatic save per thirty seconds per open drawing; an explicit Save bypasses the interval. Auto writes do not run for zoom, camera or selection changes. No object deletion, storage policy or migration is part of this change. Consider asset deduplication and a reviewed retention policy before shortening the interval or rolling out to large fleets.
+
+### 2026-11-24 — AeroFresh wall grille order rows
+
+A placed wall grille remains a single symbol with its drawing reference. In the A4 parts list and linked CSV/quote takeoff, list its cool-white magnetic cover under Terminals alongside Luna grilles, and the matching rear/side housing under Terminal components. The composite drawing symbol is not a third order line. Group like codes on each floor and keep unknown entry choices visible. Saved drawings and their product selections are not changed by the export.
+
+### 2026-11-24 — Fantech CW420 order information outside the price list
+
+Fantech proforma M0597600 identifies the CW-S 420 attenuator and the Q350/Q450 CW-K 420 mounting set. Use their full supplier codes, without pricing. Class the eight-port CW-M 420 branch plate under CW components as Fantech-supplied, with Zehnder article 990323622 and the full Fantech order code to confirm (the proforma clips it). Do not send the manufacturer article as a matched local SKU to HiPer OS. Do not infer other mounting set or end plate order codes.

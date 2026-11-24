@@ -79,19 +79,21 @@ test('A4 part numbers have their own column and stay out of names',()=>{
 });
 test('unlisted purchasable parts move to the final Local supply section without duplicating totals or listed choices',()=>{
  let p=fixture();
- const replacement=createConfiguredMvhrComponent({model:'q350-hrv',mounting:'vertical',handing:'left',layout:'unit-mounted-cw',cwSize:'420'},{id:'unit-test',floorId:'ground',xMm:1000,yMm:1000});
- p=applyCommand(p,{type:'component.replaceDrawingConfiguration',componentId:'unit-test',component:replacement});
+ // CW420 now has supplier evidence. Use a genuinely unmatched end plate to
+ // exercise Local supply without downgrading known parts on the same assembly.
+ const cw625=createCatalogueComponent('standalone-cw-625-supply-horizontal-dn160',{id:'cw625-test',floorId:'ground',xMm:2000,yMm:1000,allowAssemblyOnly:true});
+ p=applyCommand(p,{type:'component.add',component:cw625});
  p=applyCommand(p,{type:'component.add',component:createCatalogueComponent('luna-supply',{id:'luna-pending',floorId:'ground',xMm:3000,yMm:1000})});
  const schedule=createPartsSchedule(p,{floorId:'ground'}),before=structuredClone(schedule),rows=partsListRows(schedule),start=rows.findIndex(row=>row.section&&row.description==='Local supply'),local=rows.slice(start+1);
- assert.ok(start>0);assert.equal(local.length,3);assert.ok(local.every(row=>row.localSupply&&row.kind==='part'));
- assert.equal(local.find(row=>row.description.includes('attenuator module')).quantity,'2');
- assert.equal(local.find(row=>row.description.includes('branch plate')).quantity,'2');
- assert.equal(local.find(row=>row.description.includes('mounting set')).quantity,'1');
+ assert.ok(start>0);assert.equal(local.length,1);assert.ok(local.every(row=>row.localSupply&&row.kind==='part'));
+ assert.match(local[0].description,/CW625 end plate · DN160/);
+ assert.equal(local[0].quantity,'1');
  assert.ok(rows.slice(0,start).some(row=>row.description.includes('50 m coil')));
  assert.ok(rows.slice(0,start).some(row=>row.kind==='selection'&&row.description.includes('TVA-P')));
  assert.ok(rows.slice(0,start).some(row=>row.kind==='cut-piece'));
  assert.ok(rows.slice(0,start).some(row=>row.partNumber==='ZEN-Q350HRV'));
- assert.equal(rows.some(row=>row.section&&row.description==='CW components'),false);
+ assert.ok(rows.slice(0,start).some(row=>row.section&&row.description==='CW components'));
+ assert.ok(rows.slice(0,start).some(row=>row.partNumber==='ZEN-ACWS625'));
  assert.ok(rows.every((row,index)=>!row.section||(rows[index+1]&&!rows[index+1].section)));
  assert.deepEqual(schedule,before);
  const sheet=createA3SheetModel(p,metadata),pages=createA4PartsListPages(sheet);assert.match(pages.map(page=>renderA4PartsListSvg(sheet,page)).join(''),/Local supply/);

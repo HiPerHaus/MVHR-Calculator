@@ -32,7 +32,7 @@ export function createPartsCsvRows(project, { projectName, systemScope = "combin
     let section = "";
     for (const row of partsListRows(schedule)) {
       if (row.section) { section = row.description; continue; }
-      const component = schedule.componentLines.find(line => line.ref === row.ref);
+      const component = row.terminalRole === "cover" ? null : schedule.componentLines.find(line => line.ref === row.ref);
       const projectScoped = ["JOB", "90", "EPP"].includes(row.ref);
       const issues = component ? schedule.unresolved.filter(item => item.ref === row.ref).map(item => item.detail) : [];
       if (/pending|not set/i.test(row.quantity)) issues.push("Quantity is incomplete; pending values are not zero.");
@@ -108,6 +108,7 @@ function rowBasis(row, schedule, component) {
   if (row.kind === "summary") return "Reference summary only; not an additional purchase quantity.";
   if (row.kind === "cut-piece") return "Unused CW branch stub; already included in the project DN90 coil total. Do not add to stock a second time.";
   if (row.kind === "decentralised-cable") return schedule.decentralisedCableLines.find(line => line.ref === row.ref)?.quantityBasis || "Marked plan route only; no installation allowance.";
+  if (row.terminalRole === "cover") return "One cover per placed wall/bulkhead grille on this floor; housing is listed separately.";
   if (component) return "Persisted placed-component count on this floor. Product code/reference does not establish regional compatibility.";
   if (row.partNumber === "ZEN-CT90-50M") return `${metres(a.duct90.drawnLengthMm)} m known drawn plan length + ${metres(a.duct90.stubTotalMm)} m known unused-CW stubs + ${metres(a.duct90.riserLengthMm ?? 0)} m known straight risers = ${metres(a.duct90.knownTotalLengthMm)} m known subtotal; round up to ${a.duct90.coilLengthMm / 1000} m coils across all floors. Additional rises, drops and waste are not inferred.`;
   if (row.partNumber === "ZEN-OR90") return `${a.oRingQuantity} known O-rings, one per CW branch and connected 90 mm terminal duct; round up to packs of 10 across all floors${a.pendingORings ? "; some connections are pending" : ""}.`;
