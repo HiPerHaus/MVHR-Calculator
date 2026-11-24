@@ -1329,3 +1329,9 @@ The owner-supplied Q350/Q450 TR CW520 reference is shown for upright, unit-mount
 ## 2026-11-19 – A3 plan export fit
 
 Fit the full visible plan to its printable drawing area, rounding the required scale denominator up to the next tenth for the title block. Calibrated storeys in the same design option use the largest common scale that fits them all. The 6 mm drawing inset leaves room for printed linework and symbols.
+
+### 2026-11-24 — Autosave for existing Studio cloud drawings
+
+After approximately three idle seconds, commit the latest working draft to its already-bound cloud drawing. The first explicit Save still names/binds a new, local or imported drawing; a HiPer OS launch already creates that binding. Autosave does not start a project, change quote linkage, apply unsubmitted forms or create an issued revision. The existing version check protects changes from other tabs and devices. Conflicts pause autosave for that drawing and leave device recovery/Save As available. Offline edits remain recoverable on this device and queue for autosave once connectivity returns. Other save errors surface for an explicit retry, not an uncontrolled loop.
+
+The existing cloud store uploads a complete drawing, including references, and retains prior objects. Start no more than one automatic save per thirty seconds per open drawing; an explicit Save bypasses the interval. Auto writes do not run for zoom, camera or selection changes. No object deletion, storage policy or migration is part of this change. Consider asset deduplication and a reviewed retention policy before shortening the interval or rolling out to large fleets.

@@ -36,7 +36,7 @@
         <div class="local-controls">
           <div id="local-state" class="draft-state" data-state="unsaved">
             <span class="state-dot"></span>
-            <span id="local-state-label">Not saved</span>
+            <span id="local-state-label" role="status">Not saved</span>
           </div>
           <button id="cloud-projects-button" type="button">Open saved projects</button>
           <button id="save-local" type="button">Sign in to save</button>
@@ -454,7 +454,7 @@
                 <label>Drawn by<input name="drawnBy" maxlength="120" autocomplete="name" /></label>
                 <label>Checked by<input name="checkedBy" maxlength="120" autocomplete="off" /></label>
                 <button type="submit">Apply project details</button><p id="project-details-status" role="status"></p>
-              </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Save the drawing to keep your changes.</p>
+              </form><p id="project-ventilation-type-status" class="project-type-status">Choose the system type explicitly. Existing drawings remain unclassified until reviewed.</p><p>These details appear in the sheet title block. Choose Apply project details to add them to the drawing. Saved cloud drawings then autosave.</p>
             </details>
             <details class="project-home-options"><summary>Design options</summary>
               <div class="design-option-controls">
@@ -1044,7 +1044,7 @@
     </dialog>
     <dialog id="engineering-edits-dialog" aria-labelledby="engineering-edits-title">
       <h2 id="engineering-edits-title">Unsaved engineering inputs</h2>
-      <p>Save these inputs to the working project, discard them, or cancel and keep editing. Results and exports use saved inputs only. Save the project separately for a named checkpoint.</p>
+      <p>Save these inputs to the working project, discard them, or cancel and keep editing. Results and exports use saved inputs only. Saved cloud drawings then autosave. New drawings need a first Save.</p>
       <p id="engineering-edits-error" role="alert"></p>
       <div class="dialog-actions">
         <button id="engineering-edits-save" type="button">Save inputs and continue</button>

@@ -14,6 +14,7 @@ import { buildCommissioningReport } from "../src/editor/commissioning-report.mjs
 import { createFramePreviewScheduler } from "../src/editor/frame-preview.mjs";
 import { layoutPointerPosition } from "../src/editor/layout-pointer.mjs";
 import { ventilationVisibilityGroup, routeVisibilityGroup, VENTILATION_VISIBILITY_GROUPS } from "../src/editor/ventilation-visibility.mjs";
+import {createCloudAutosave} from "../src/persistence/cloud-autosave.mjs";
 import {createWorkingSessionStore,workingTabId,workingContextKey} from "../src/persistence/working-session.mjs";
 import { sheetPdfFileName, selectSheetOutputPages } from "../src/sheets/sheet-output.mjs";
 import { createDesignOptionOutput } from "../src/sheets/design-option-output.mjs";
@@ -26,6 +27,8 @@ import { initializeCloudUI } from "./cloud-ui.mjs";
 import { getStudioClient } from "./auth-client.mjs";
 import { getBootAccess } from "./auth-context.mjs";
 let cloudSession=null, currentCloudRecord=null, cloudSavePending=null, cloudBindingVersion=0;
+let cloudAutosaveFailure = null;
+const cloudAutosave = createCloudAutosave({read: cloudAutosaveTarget, save: () => saveToCloud(true)});
 const osIntent = new URLSearchParams(location.search).has("osDesign") && Boolean(window.opener);
 const osLaunch = readOsLaunch({search:location.search,hash:location.hash,referrer:document.referrer,hasOpener:Boolean(window.opener)});
 let osBinding = null;
@@ -1386,7 +1389,7 @@ projectSaveAsButton.addEventListener("click", () => openProjectNameDialog("save-
 projectNameForm.addEventListener("submit", applyProjectNameChoice);
 document.querySelector("#project-details-form").addEventListener("submit",event=>{
  event.preventDefault();const form=event.currentTarget;
- try{const details=Object.fromEntries(new FormData(form));commitCommand({type:"project.updateDetails",details},"Project details applied · save the drawing to keep changes");currentProjectName=details.name.trim();document.querySelector("#project-details-status").textContent="Applied. Save the drawing to keep these details.";renderProjectWorkspace();}
+ try{const details=Object.fromEntries(new FormData(form));if(!commitCommand({type:"project.updateDetails",details},"Project details applied")){document.querySelector("#project-details-status").textContent=interactionMessage;return;}currentProjectName=details.name.trim();document.querySelector("#project-details-status").textContent="Applied to the drawing.";renderProjectWorkspace();}
  catch(error){document.querySelector("#project-details-status").textContent=error.message;}
 });
 projectVentilationTypeSelect.addEventListener("change",()=>requestVentilationProjectType(projectVentilationTypeSelect.value));
@@ -1732,7 +1735,7 @@ openConfirmDialog.addEventListener("close", async () => {
   pendingProjectTransition = null;
   if (!transition) return;
   if (openConfirmDialog.returnValue === "save") {
-    if (await saveExplicit()) transition();
+    if (await saveExplicit() && !projectHasUnsavedChanges()) transition();
     return;
   }
   if (openConfirmDialog.returnValue === "discard") {
@@ -1740,6 +1743,7 @@ openConfirmDialog.addEventListener("close", async () => {
     return;
   }
   interactionMessage = "Action cancelled; current project preserved";
+  refreshCloudAutosave();
   render();
 });
 deleteWallDialog.addEventListener("close", applyWallDeleteChoice);
@@ -3211,15 +3215,25 @@ function createCleanProject(name) {
 }
 
 async function saveCurrentProjectAs(name) {
+  const binding = cloudBindingVersion;
+  if (cloudSavePending) await cloudSavePending;
+  if (binding !== cloudBindingVersion) return;
   const copy = deserializeProject(serializeProject({
     ...structuredClone(history.present),
     id: createOpaqueProjectId(),
     projectDetails:{...history.present.projectDetails,name},
   }));
   if(cloudSession?.workspace) {
-    const previousHistory=history,oldName=currentProjectName,oldRecord=currentCloudRecord;
+    const previousHistory=history,oldName=currentProjectName,oldRecord=currentCloudRecord,oldFailure=cloudAutosaveFailure;
     history=createCommandHistory(copy);currentProjectName=name;currentCloudRecord=null;cloudBindingVersion++;
-    if(!await saveExplicit()){history=previousHistory;currentProjectName=oldName;currentCloudRecord=oldRecord;cloudBindingVersion++;}
+    if(!await saveExplicit()){
+      if(cloudBindingVersion!==binding+1)return;
+      const failedStorage=storageState;
+      history=previousHistory;currentProjectName=oldName;currentCloudRecord=oldRecord;cloudBindingVersion++;
+      cloudAutosaveFailure=oldFailure?.binding===binding?{...oldFailure,binding:cloudBindingVersion}:null;
+      storageState={kind:"failed",label:"Save As failed · original drawing still open",detail:failedStorage.detail};
+      refreshCloudAutosave();
+    }
     queueWorkingSession();render();return;
   }
   const saved = projectLibrary.saveProject(copy, name);
@@ -3257,6 +3271,14 @@ function openProjectFromLibraryClick(event) {
 }
 
 function requestProjectTransition(transition, message) {
+  if (cloudSavePending) {
+    interactionMessage = "Finishing the current cloud save before switching drawings…";
+    updateStatus();
+    const binding = cloudBindingVersion;
+    cloudSavePending.then(() => { if (cloudBindingVersion === binding) requestProjectTransition(transition, message); });
+    return;
+  }
+  if (openConfirmDialog.open) return;
   if (hasEngineeringEdits()) return requestEngineeringTransition(() => requestProjectTransition(transition, message));
   const needsGuard = requiresProjectReplacementConfirmation({
     committedProjectChanged: projectHasUnsavedChanges(),
@@ -3273,6 +3295,7 @@ function requestProjectTransition(transition, message) {
   }
   pendingProjectTransition = transition;
   openConfirmMessage.textContent = `${message} Save the current named project first, discard the changes, or cancel.`;
+  cloudAutosave.cancel();
   openConfirmDialog.showModal();
 }
 
@@ -5861,7 +5884,10 @@ function savePresent(reason) {
     };
     interactionMessage = `Save failed: ${result.message}. Keep this drawing open and use Export project for a file backup before refreshing.`;
   }
-  if(reason!=="explicit" && cloudSession?.workspace)storageState={kind:"unsaved",label:"Unsaved changes · choose Save",detail:currentCloudRecord?"Device recovery is separate from Save":result.ok?"Local recovery retained; cloud save not acknowledged":"Local recovery is full; keep this drawing open and choose Save or Export project"};
+  if (reason !== "explicit" && cloudSession?.workspace) {
+    refreshCloudAutosave();
+    storageState = cloudDraftStatus();
+  }
   renderStorageState();
   updateStatus();
   if (activeTask === "project") renderProjectWorkspace();
@@ -10872,9 +10898,9 @@ function applySelectedDecentralisedController() {
 
 function renderStorageState() {
   localState.dataset.state = storageState.kind;
-  localStateLabel.textContent = storageState.label;
-  localState.title = `${storageState.detail}. Local prototype storage is not company authentication or cloud storage.`;
-  saveButton.disabled = storageState.kind === "pending";
+  if (localStateLabel.textContent !== storageState.label) localStateLabel.textContent = storageState.label;
+  localState.title = storageState.detail;
+  saveButton.disabled = storageState.kind === "pending" || Boolean(cloudSavePending || cloudSession?.loading);
 }
 
 function updateStatus() {
@@ -11418,22 +11444,80 @@ async function loadOsWorkingSession(context) {
   return data;
 }
 
+function cloudAutosaveTarget() {
+  if (!workingReady || workingRestoring || cloudSession?.loading || !cloudSession?.user ||
+      !cloudSession?.workspace || cloudSavePending || openConfirmDialog.open || navigator.onLine === false ||
+      cloudAutosaveFailure?.binding === cloudBindingVersion) return null;
+  if (currentCloudRecord?.workspace_id !== cloudSession.workspace.id ||
+      currentCloudRecord.project_id !== history.present.id || !projectHasUnsavedChanges()) return null;
+  return cloudBindingVersion;
+}
+
+function refreshCloudAutosave() {
+  cloudAutosave.resetIfChanged(cloudBindingVersion);
+  cloudAutosave.schedule();
+}
+
+function cloudDraftStatus() {
+  if (cloudSavePending) return {kind:"pending",label:"Saving to cloud…",detail:"The latest edits will be saved in the next pass if needed"};
+  if (projectHasUnsavedChanges()) {
+    if (cloudAutosaveFailure?.binding === cloudBindingVersion) return cloudAutosaveFailure.status;
+    if (currentCloudRecord?.project_id === history.present.id) return navigator.onLine === false
+      ? {kind:"unsaved",label:"Offline · cloud save paused",detail:"This drawing will autosave when back online; export a backup if device recovery is unavailable"}
+      : {kind:"unsaved",label:"Changes waiting to autosave",detail:"Studio saves when you pause editing. Use Save to sync immediately"};
+    return {kind:"unsaved",label:"Not yet saved to cloud",detail:"Use Save once to create a named cloud drawing. Later edits autosave"};
+  }
+  return currentCloudRecord
+    ? {kind:"saved",label:`Saved to cloud · ${currentProjectName}`,detail:`Saved at ${new Date(currentCloudRecord.updated_at).toLocaleString()}`}
+    : {kind:"saved",label:`Saved on this device · ${currentProjectName}`,detail:"Use Save to keep this drawing across devices"};
+}
+
 async function saveExplicit() {
-  if(cloudSession?.loading){interactionMessage="Checking sign-in; please wait before saving.";updateStatus();return false;}
-  if(cloudSavePending)return cloudSavePending;
+  if(cloudSession?.loading || (workingContext() && !workingReady)){interactionMessage="Studio is still opening the drawing. Please wait before saving.";updateStatus();return false;}
+  if(cloudSavePending){
+    const binding=cloudBindingVersion;
+    if(!await cloudSavePending || binding!==cloudBindingVersion)return false;
+  }
   if(!cloudSession?.workspace){document.querySelector("#account-nav").click();return false;}
-  const project=deserializeProject(serializeProject(history.present)),name=currentProjectName;
+  if(currentCloudRecord && !projectHasUnsavedChanges())return true;
+  return saveToCloud(false);
+}
+
+async function saveToCloud(automatic) {
+  if (cloudSavePending || (automatic && cloudAutosaveTarget() === null)) return false;
+  const project=history.present,name=currentProjectName;
   const workspaceId=cloudSession.workspace.id,userId=cloudSession.user.id,binding=cloudBindingVersion;
-  storageState={kind:"pending",label:"Saving to cloud…",detail:"Wait for the cloud save acknowledgement"};renderStorageState();
+  const record=currentCloudRecord,store=cloudSession.store;
+  const sameDrawing=()=>cloudSession?.user?.id===userId && cloudSession?.workspace?.id===workspaceId && binding===cloudBindingVersion && project.id===history.present.id;
+  cloudAutosave.didStartSave(binding);
+  cloudAutosaveFailure=null;
+  storageState={kind:"pending",label:automatic?"Autosaving to cloud…":"Saving to cloud…",detail:"Waiting for cloud confirmation"};renderStorageState();
   cloudSavePending=(async()=>{
     try {
-      const result=await cloudSession.store.save({project,name,workspaceId,userId,record:currentCloudRecord});
-      if(cloudSession?.user?.id!==userId || cloudSession?.workspace?.id!==workspaceId || binding!==cloudBindingVersion)return false;
+      const result=await store.save({project,name,workspaceId,userId,record});
+      if(!sameDrawing())return false;
       currentCloudRecord=result.record;savedProjectJson=result.projectJson;savedProjectName=name;
-      storageState=projectHasUnsavedChanges()?{kind:"unsaved",label:"Cloud saved · newer changes unsaved",detail:"Choose Save again"}:{kind:"saved",label:`Saved to cloud · ${name}`,detail:`Version ${result.record.save_version} · ${new Date(result.record.updated_at).toLocaleString()}`};
-      interactionMessage=`“${name}” saved to your private cloud workspace`;return true;
-    }catch(error){storageState={kind:"failed",label:"Cloud save failed",detail:error.message};interactionMessage=`Cloud save failed: ${error.message}. Current drawing remains open; Export project makes a file backup.`;return false;}
-    finally{cloudSavePending=null;queueWorkingSession();renderStorageState();updateStatus();if(activeTask==="project")renderProjectWorkspace();}
+      if(!automatic) interactionMessage=`“${name}” saved to your private cloud workspace`;
+      return true;
+    }catch(error){
+      if (!sameDrawing()) return false;
+      const conflict=error.name==="CloudConflictError";
+      const offline=!conflict && navigator.onLine===false;
+      cloudAutosaveFailure={binding,offline,status:{
+        kind:"failed",label:conflict?"Cloud conflict · edits not synced":offline?"Offline · cloud save paused":"Cloud save failed · edits not synced",
+        detail:conflict?error.message:`${error.message}. Use Save to retry or export a backup.`,
+      }};
+      if(!automatic || conflict)interactionMessage=`Cloud save failed: ${error.message} Your edits are still open here.`;
+      return false;
+    }finally {
+      cloudSavePending=null;
+      if(sameDrawing()){
+        storageState=cloudDraftStatus();
+        queueWorkingSession();renderStorageState();updateStatus();
+        if(activeTask==="project")renderProjectWorkspace();
+      }
+      refreshCloudAutosave();
+    }
   })();
   return cloudSavePending;
 }
@@ -11447,7 +11531,7 @@ cloudSession=initializeCloudUI({
     queueMicrotask(() => window.dispatchEvent(new Event("studio-integration-updated")));
     saveButton.textContent=state.workspace?"Save":"Sign in to save";
     saveAsButton.hidden=!state.workspace;document.querySelector("#project-save-as").hidden=!state.workspace;
-    document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Choose Save to keep your latest changes.`:"Sign in to save and reopen drawings across devices.";
+    document.querySelector("#project-storage-note").textContent=state.workspace?`Cloud workspace: ${state.workspace.name}. Saved drawings autosave after edits. Use Save to sync now or save a new drawing for the first time.`:"Sign in to save and reopen drawings across devices.";
     saveButton.disabled=state.loading || Boolean(cloudSavePending) || (!workingReady&&Boolean(workingContext(state)));
     if(state.user && !state.workspace && !state.loading){interactionMessage="This account has no invited Studio workspace. Your drawing remains open.";updateStatus();}
   },
@@ -11461,7 +11545,8 @@ cloudSession=initializeCloudUI({
   async beforeSignOut(){
     await workingSessions.flush().catch(()=>{});
     if(cloudSavePending)throw new Error("Wait for the current cloud save before signing out.");
-    if(cloudSession?.workspace && projectHasUnsavedChanges())throw new Error("Save your drawing before signing out. Export backup is also available.");
+    if(cloudSession?.workspace && currentCloudRecord && projectHasUnsavedChanges() && !await saveExplicit())throw new Error("The drawing could not be synced. Export a backup or resolve the save error before signing out.");
+    if(cloudSession?.workspace && projectHasUnsavedChanges())throw new Error("Save or export the open drawing before signing out.");
   },
   onSignedOut(){if(currentCloudRecord){currentCloudRecord=null;cloudBindingVersion++;createCleanProject("Untitled project");}window.location.replace("/login/?signedout=1");},
   onAccessLost(reason){window.location.replace(`/login/?reason=${encodeURIComponent(reason)}`);}
@@ -11488,8 +11573,8 @@ function queueWorkingSession(modelChanged=false){
    const model=history.present;workingWrites++;
    workingSessions.write(context,snapshot).then(()=>{
     workingRecoveryError="";
-    if(history.present===model&&currentProjectName===snapshot.name&&workingContext()&&workingContextKey(workingContext())===workingContextKey(context)&&storageState.kind==="unsaved"&&projectHasUnsavedChanges()){
-     storageState={kind:"unsaved",label:cloudSession?.workspace?"Unsaved changes · choose Save":"Unsaved changes · recovery stored",detail:"Current drawing recovered on this device; Save keeps the cloud copy updated"};renderStorageState();
+    if(!cloudSession?.workspace&&history.present===model&&currentProjectName===snapshot.name&&workingContext()&&workingContextKey(workingContext())===workingContextKey(context)&&storageState.kind==="unsaved"&&projectHasUnsavedChanges()){
+     storageState={kind:"unsaved",label:"Unsaved changes · recovery stored",detail:"Current drawing recovered on this device; sign in to save to cloud"};renderStorageState();
     }
    }).catch(workingSessionFailed).finally(()=>workingWrites--);
   }catch(error){workingSessionFailed(error);}
@@ -11538,8 +11623,8 @@ async function restoreWorkingSession(context){
    // reopen an older 3D session in the normal ventilation workspace.
    const recoveredTask = recovered.task === "three-d" ? "ventilation" : recovered.task;
    if(recoveredTask==="sheets")openSheetPreview({designStage:true});else setTask(recoveredTask,{designNavigation:["plan","ventilation","checks"].includes(recoveredTask)});
-   const dirty=projectHasUnsavedChanges();storageState={kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:currentCloudRecord?`Cloud version ${currentCloudRecord.save_version} · device recovery is separate from Save`:"Current drawing restored from this browser"};
-   interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · changes still need saving":""}`;
+   const dirty=projectHasUnsavedChanges();storageState=cloudSession?.workspace?cloudDraftStatus():{kind:dirty?"unsaved":"saved",label:`${dirty?"Recovered unsaved changes":"Reopened"} · ${recovered.name}`,detail:"Current drawing restored from this browser"};
+   interactionMessage=`Continued “${recovered.name}” where you left it${dirty?" · recovered edits are open":""}`;
    if (osIntent) {
     const ref=recovered.project.projectDetails.projectReference;
     setOsLaunchStatus(ref ? `Opened linked HiPer OS drawing · Quote ${ref}`
@@ -11556,12 +11641,20 @@ async function restoreWorkingSession(context){
   if(!current||workingContextKey(current)!==workingContextKey(context)){
    workingRestoreStarted=false;workingReady=false;
    if(current)queueMicrotask(()=>handleWorkingSessionState(cloudSession));
-  }else{workingReady=true;queueWorkingSession();}
+  }else{workingReady=true;queueWorkingSession();refreshCloudAutosave();}
   saveButton.disabled=Boolean(cloudSession?.loading)||Boolean(cloudSavePending);
  }
 }
 window.addEventListener("pagehide",()=>{viewRecoveryTask.flush();queueWorkingSession();});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)queueWorkingSession();});
+window.addEventListener("offline",()=>{
+ cloudAutosave.cancel();
+ if(cloudSession?.workspace && currentCloudRecord && projectHasUnsavedChanges()){storageState=cloudDraftStatus();renderStorageState();}
+});
+window.addEventListener("online",()=>{
+ if(cloudAutosaveFailure?.binding===cloudBindingVersion && cloudAutosaveFailure.offline)cloudAutosaveFailure=null;
+ if(cloudSession?.workspace && currentCloudRecord && projectHasUnsavedChanges()){storageState=cloudDraftStatus();renderStorageState();refreshCloudAutosave();}
+});
 canvas.addEventListener("pointerup",()=>queueWorkingSession());
 // Wheel view recovery is coalesced by viewRecoveryTask; model edits save immediately.
 document.querySelector('.drawing-view-toolbar')?.addEventListener("click",()=>queueWorkingSession());
@@ -11574,7 +11667,7 @@ window.addEventListener("beforeunload",event=>{
 // Site records preserve design targets; the separate reviewed proposal action is explicit. Empty readings remain unknown.
 function commitFieldCommand(command, message) {
   const saved = commitCommand(command, message);
-  const notice = fieldNode("p", saved ? `${message}. Use Save to sync the project.` : interactionMessage, "field-feedback");
+  const notice = fieldNode("p", saved ? `${message}. Check the drawing’s save status before leaving.` : interactionMessage, "field-feedback");
   notice.setAttribute("role", "status");
   document.querySelector(`#${activeTask}-workspace`)?.prepend(notice);
   return saved;
