@@ -1,3 +1,4 @@
+import { isLineaTerminal } from "../domain/linear-terminal.mjs";
 import { spaceBoundaryNeedsReassignment } from "./space-boundary-state.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { engineeringComponentFingerprint, engineeringRouteFingerprint, engineeringSystemFingerprint } from "../domain/engineering-inputs.mjs";
@@ -196,6 +197,12 @@ function evaluateAllocation(allocation, componentById, roots, graph, diagnostics
   const result = { ...structuredClone(allocation), stream, endpointKey: endpointKey(allocation.componentId, allocation.portId), routeIds: [], componentIds: [], componentPassages: [], root: null, graphStatus: "blocked" };
   if (!port || !["supply", "extract"].includes(stream)) {
     diagnostics.push(diagnostic("allocation-terminal-invalid", "error", `Allocation ${allocation.id} does not reference one typed supply/extract terminal port.`, { allocationId: allocation.id }));
+    return result;
+  }
+  if (isLineaTerminal(component) && component.ports.length > 1) {
+    diagnostics.push(diagnostic("linea-multiple-feeds-engineering-review", "error",
+      `${component.displayName} has separate DN90 feeds. The drawing and room target are retained, but the engineering calculation cannot assign the entire outlet flow to the first feed or assume a split.`,
+      { allocationId: allocation.id, componentId: component.id }));
     return result;
   }
   const candidates = (roots[stream] ?? []).map(root => ({ root, resolved: resolveUniquePath(result.endpointKey, root.key, graph.adjacency) }));

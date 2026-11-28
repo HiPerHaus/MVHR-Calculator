@@ -1,3 +1,4 @@
+import { OWNER_SUPPLIED_EQUIPMENT } from '../domain/equipment-supply.mjs';
 import {quotedCode} from '../editor/quote-product-codes.mjs';
 import {decentralisedCableTypeLabel} from '../editor/decentralised-mvhr.mjs';
 import {escapeXml,wrapSheetText} from './a3-sheet.mjs';
@@ -11,15 +12,20 @@ export function partsListRows(schedule){
  const componentRefs=new Map(schedule.componentLines.flatMap(line=>(line.componentIds??[]).map(id=>[id,line.ref])));
  for(const [key,title] of [['mvhr','MVHR units'],['decentralised','Decentralised MVHR physical units'],['decentralised-control','Decentralised controllers'],['terminals','Terminals']]){
   // A drawn wall grille is one symbol, but only its cover and housing are ordered.
-  const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key&&!line.hasTerminalBreakdown);
+  const lines=schedule.componentLines.filter(line=>(line.section??'equipment')===key&&!line.hasTerminalBreakdown&&line.equipmentSupply!==OWNER_SUPPLIED_EQUIPMENT);
   const terminalCovers=key==='terminals'?covers:[];
   if(!lines.length&&!terminalCovers.length)continue;
   section(title);
   for(const cover of terminalCovers){
    const refs=[...new Set(cover.componentIds.map(id=>componentRefs.get(id)).filter(Boolean))];
-   add(refs.length===1?refs[0]:'TERM',cover.description,cover.quantity,cover.unit,cover.code,cover.code?'part':'selection','cover');
+   add(refs.length===1?refs[0]:'TERM',cover.description,cover.quantity,cover.unit,cover.code||cover.manufacturerArticle||'',cover.code?'part':'selection','cover');
   }
   for(const line of lines)add(line.ref,line.description,line.quantity,'ea',line.partNumber??line.productId??line.manufacturerArticle??'',line.isAssemblySummary?'assembly':'part');
+ }
+ const ownerUnits=schedule.componentLines.filter(line=>line.equipmentSupply===OWNER_SUPPLIED_EQUIPMENT);
+ if(ownerUnits.length){
+  section('Owner-supplied units — not for purchase');
+  for(const line of ownerUnits)add(line.ref,line.description,line.quantity,'ea','',OWNER_SUPPLIED_EQUIPMENT);
  }
  if(schedule.decentralisedCableLines?.length){section('Decentralised controller cable plan routes — not duct');for(const cable of schedule.decentralisedCableLines)add(cable.ref,`Controller Cable - ${cable.displayCableType??decentralisedCableTypeLabel(cable)} · ${(cable.planLengthMm/1000).toFixed(2)} m plan route`,(cable.planLengthMm/1000).toFixed(2),'m-plan','','decentralised-cable');}
  if(schedule.decentralisedSystems?.unitCount){
@@ -28,7 +34,8 @@ export function partsListRows(schedule){
  }
  if(!schedule.componentLines.length){section('MVHR units and terminals');add('—','No equipment placed',0,'ea','','summary');}
  const terminalComponents=accessories.terminalLines.filter(line=>line.role!=='cover');
- if(terminalComponents.length){section('Terminal components');for(const line of terminalComponents)add('TERM',line.description,line.quantity,line.unit,line.code,line.code?'part':'selection');}
+ if(terminalComponents.length){section('Terminal components');for(const line of terminalComponents)add('TERM',line.description,line.quantity,line.unit,line.code||line.manufacturerArticle||'',line.code?'part':'selection');}
+ if(accessories.lineaFilterReferences?.length){section('Linea extract filters · selection required');for(const article of accessories.lineaFilterReferences)add('TERM','Zehnder CSB-P extract filter · confirm required pack quantity and AU availability','Not set','pack',article,'selection');}
  if(accessories.cwLines.length){section('CW components');for(const line of accessories.cwLines)add('CW',line.description,line.quantity,line.unit,line.code||line.manufacturerArticle||'',line.manufacturerArticle?'selection':'part');}
  if(accessories.unitLines.length){section('HRV accessories');for(const line of accessories.unitLines)add('HRV',line.description,line.quantity,line.unit,line.code);}
  if(accessories.jobLines.length){section('Job allowances and packs — counted once for the project');for(const line of accessories.jobLines)add('JOB',line.description,line.quantity,line.unit,line.code);}

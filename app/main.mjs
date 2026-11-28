@@ -1,3 +1,4 @@
+import { isLineaTerminal } from "../src/domain/linear-terminal.mjs";
 import { mountPlanWallProposal } from "./plan-wall-proposal.mjs";
 import { applyReviewedWallProposals } from "./plan-wall-apply.mjs";
 import {createAirflowProposalSection} from "./airflow-proposal-ui.mjs";
@@ -47,6 +48,7 @@ import { CW_PROFILES, STANDALONE_CW_GRAPHIC_ID, standaloneCwRecordId, standalone
 import { terminalDrawingAnchors } from "../src/domain/terminal-drawing-connections.mjs";
 import { inspectExternalGrilleSeparation } from "../src/editor/external-grille-spacing.mjs";
 import { constrainEppPlanPoints, hasHrvCeilingElbow } from "../src/domain/epp-plan-constraints.mjs";
+import { canSetEquipmentSupply, isOwnerSuppliedEquipment, OWNER_SUPPLIED_EQUIPMENT } from "../src/domain/equipment-supply.mjs";
 import { createConfiguredMvhrComponent, MVHR_LAYOUTS } from "../src/editor/mvhr-placement.mjs";
 import {
   canRedo,
@@ -117,6 +119,7 @@ import {
 import {
   activateTerminalPlacementMode,
   terminalPlacementLabel,
+  terminalProductLabel,
   terminalPlacementRecordId,
 } from "../src/editor/terminal-placement-mode.mjs";
 import {
@@ -145,6 +148,7 @@ import {
   externalGrilleShapes,
   LUNA_GRILLE_PLAN_GRAPHIC_ID,
   WALL_GRILLE_PLAN_GRAPHIC_ID,
+  LINEA_GRILLE_PLAN_GRAPHIC_ID,
   GENERIC_CW_PLAN_GRAPHIC_ID,
   Q350_PLAN_GRAPHIC_ID,
   deriveComponentPlanGraphic,
@@ -961,6 +965,8 @@ const mvhrModel = document.querySelector("#mvhr-model");
 const mvhrHanding = document.querySelector("#mvhr-handing");
 const mvhrLayout = document.querySelector("#mvhr-layout");
 const mvhrCwSize = document.querySelector("#mvhr-cw-size");
+const mvhrEquipmentSupply = document.querySelector("#mvhr-equipment-supply");
+const mvhrSubmit = document.querySelector("#submit-mvhr-placement");
 const mvhrSummary = document.querySelector("#mvhr-preview-summary");
 const mvhrError = document.querySelector("#mvhr-placement-error");
 const mvhrDefaults = new Map();
@@ -972,6 +978,7 @@ function updateMvhrPreview() {
   const germanBim=/^q(?:350|450)-de-(?:hrv|erv)$/u.test(mvhrModel.value);
   const aerofresh300 = mvhrModel.value.startsWith("aerofresh-300");
   const remoteOnly = generic || ca200 || germanBim || aerofresh300;
+  document.querySelector("#mvhr-supply-note").hidden = mvhrEquipmentSupply.value !== OWNER_SUPPLIED_EQUIPMENT;
   mvhrHanding.disabled = generic;
   mvhrLayout.querySelector('[value="unit-mounted-cw"]').disabled = remoteOnly;
   if (remoteOnly && mvhrLayout.value === "unit-mounted-cw") {
@@ -1008,13 +1015,21 @@ mvhrForm.addEventListener("submit", (event) => {
   if (!pendingMvhrDrop) return;
   const drop = pendingMvhrDrop;
   const selection = { mounting: drop.mounting, model: mvhrModel.value,
-    handing: mvhrHanding.value, layout: mvhrLayout.value, cwSize: mvhrCwSize.value };
+    handing: mvhrHanding.value, layout: mvhrLayout.value, cwSize: mvhrCwSize.value, equipmentSupply: mvhrEquipmentSupply.value };
   const id = drop.componentId ?? `component-catalogue-${componentIdentityCounter}`;
   try {
     const component = createConfiguredMvhrComponent(selection, {
       id, floorId: currentFloorId(), xMm: drop.point.x, yMm: drop.point.y,
     });
-    if (!commitCommand(drop.componentId ? {type:"component.replaceDrawingConfiguration",componentId:id,component} : { type: "component.add", component }, drop.componentId ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
+    const previous = drop.componentId ? history.present.components.find(candidate => candidate.id === id) : null;
+    const supplyOnly = previous && ["mounting", "model", "handing", "layout", "cwSize"]
+      .every(field => previous.mvhrDesignIntent[field] === component.mvhrDesignIntent[field]);
+    const command = supplyOnly
+      ? { type: "component.setEquipmentSupply", componentId: id, equipmentSupply: selection.equipmentSupply }
+      : previous
+        ? { type: "component.replaceDrawingConfiguration", componentId: id, component }
+        : { type: "component.add", component };
+    if (!commitCommand(command, supplyOnly ? "Unit supply responsibility updated" : previous ? "MVHR / CW configuration changed" : "MVHR unit placed; accessory layout intention recorded")) {
       mvhrError.textContent = interactionMessage;
       return;
     }
@@ -1035,6 +1050,8 @@ function openMvhrPlacement(point, repeat) {
   mvhrHanding.value = defaults?.handing ?? "left";
   mvhrLayout.value = defaults?.layout ?? "unit-only";
   mvhrCwSize.value = defaults?.cwSize ?? "320";
+  mvhrEquipmentSupply.value = "included";
+  mvhrSubmit.textContent = "Place unit";
   document.querySelector("#mvhr-placement-title").textContent = `Configure ${mvhrPlacementMounting} MVHR`;
   mvhrError.textContent = "";
   updateMvhrPreview();
@@ -1099,6 +1116,8 @@ function editPlacedMvhr(component){
   pendingMvhrDrop.componentId=component.id;pendingMvhrDrop.mounting=intent.mounting;
   for(const option of mvhrModel.options)option.disabled=intent.mounting==="horizontal" && !["generic","ca200"].includes(option.value);
   mvhrModel.value=intent.model;mvhrHanding.value=intent.handing??"left";mvhrLayout.value=intent.layout;mvhrCwSize.value=intent.cwSize??"320";
+  mvhrEquipmentSupply.value = component.equipmentSupply ?? "included";
+  mvhrSubmit.textContent = "Apply changes";
   document.querySelector("#mvhr-placement-title").textContent="Change MVHR / CW configuration";
   updateMvhrPreview();
 }
@@ -1118,10 +1137,19 @@ function openComponentContextAt(component, clientX, clientY) {
     });
   }
 
+  if (canSetEquipmentSupply(component)) {
+    const ownerSupplied = isOwnerSuppliedEquipment(component);
+    addContextAction(ownerSupplied ? "Include unit in supply" : "Mark unit as owner-supplied", () => {
+      commitCommand({ type: "component.setEquipmentSupply", componentId: component.id,
+        equipmentSupply: ownerSupplied ? "included" : OWNER_SUPPLIED_EQUIPMENT },
+      ownerSupplied ? "Unit included in supply" : "Unit marked owner-supplied; accessories still included");
+      render();
+    });
+  }
   if(component.mvhrDesignIntent) {
     addContextAction("Change unit / CW size…",()=>editPlacedMvhr(component));
     if(component.mvhrDesignIntent.model!=="generic")addContextAction("Flip Left / Right",()=>{
-      const intent={...component.mvhrDesignIntent,handing:component.mvhrDesignIntent.handing==="left"?"right":"left"};
+      const intent={...component.mvhrDesignIntent,equipmentSupply:component.equipmentSupply,handing:component.mvhrDesignIntent.handing==="left"?"right":"left"};
       const replacement=createConfiguredMvhrComponent(intent,{id:component.id,floorId:component.floorId,xMm:component.positionMm.x,yMm:component.positionMm.y});
       commitCommand({type:"component.replaceDrawingConfiguration",componentId:component.id,component:replacement},"Unit orientation flipped; attached ducts updated");render();
     });
@@ -1212,7 +1240,7 @@ function placeConfiguredTerminal(drop, service) {
   terminalDefaults.set(drop.shape, service);
   mechanicalState.selectedComponentId = id;
   if (!drop.keepArmed && !drop.repeat) setTool("select");
-  interactionMessage = `${drop.shape === "round" ? "Round" : "Rectangular"} ${service} terminal placed${drop.space ? ` in ${drop.space.space.name}` : ""}${drop.keepArmed ? " · tap again or change outlet type" : ""}`;
+  interactionMessage = `${terminalProductLabel(drop.shape)} ${service} terminal placed${drop.space ? ` in ${drop.space.space.name}` : ""}${drop.keepArmed ? " · tap again or change outlet type" : ""}`;
   render();
   return true;
 }
@@ -1238,8 +1266,8 @@ function openTerminalPlacement(point, repeat) {
   }
   pendingTerminalDrop = drop;
   terminalService.value = automatic ?? remembered ?? "";
-  document.querySelector("#terminal-placement-title").textContent = `Configure ${drop.shape === "round" ? "round" : "rectangular"} terminal`;
-  document.querySelector("#terminal-product-name").textContent = drop.shape === "round" ? "Luna grille" : "Aerofresh box · magnetic cover";
+  document.querySelector("#terminal-placement-title").textContent = `Configure ${terminalProductLabel(drop.shape)} terminal`;
+  document.querySelector("#terminal-product-name").textContent = drop.shape === "round" ? "Luna grille" : drop.shape === "rectangular" ? "Aerofresh box · magnetic cover" : terminalProductLabel(drop.shape);
   document.querySelector("#terminal-space-note").textContent = automatic
     ? `${space.space.name}: ${automatic === "supply" ? "Supply" : "Extract"} selected from the ${space.kind}. You can change it.`
     : space ? `${space.space.name} has no Supply/Extract role. Choose the air service manually.` : "No unambiguous room or zone here. Choose the air service manually.";
@@ -7837,6 +7865,8 @@ function renderComponent(component) {
       : null;
   label.textContent = planGraphic?.graphicId === EXTERNAL_GRILLE_PLAN_GRAPHIC_ID
     ? (component.displayName ?? "External grille")
+    : planGraphic?.graphicId === LINEA_GRILLE_PLAN_GRAPHIC_ID
+    ? `Linea ${planGraphic.lineaSize} ${planGraphic.stream}`
     : [WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic?.graphicId)
     ? `${planGraphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID ? "Luna" : "Aerofresh"} ${planGraphic.stream}`
     : terminalPort
@@ -7854,10 +7884,11 @@ function renderComponent(component) {
       : planGraphic?.graphicId === GENERIC_CW_PLAN_GRAPHIC_ID
         ? `Generic ${planGraphic.serviceLabel.toLowerCase()} CW-style assembly · provisional`
       : `${component.displayName ?? component.id} · ${evidenceLabel}`;
+  if (isOwnerSuppliedEquipment(component)) label.textContent += " · Owner-supplied";
   if (planGraphic) {
     label.setAttribute("x", toView(position.x));
     label.setAttribute("y", toView(position.y + Math.max(symbol.widthMm, symbol.heightMm) / 2) + 16);
-    if ([EXTERNAL_GRILLE_PLAN_GRAPHIC_ID, WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic.graphicId)) {
+    if ([EXTERNAL_GRILLE_PLAN_GRAPHIC_ID, WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID, LINEA_GRILLE_PLAN_GRAPHIC_ID].includes(planGraphic.graphicId)) {
       const unitsPerPixel = camera.width / Math.max(drawingCanvasRect().width, 1);
       label.style.fontSize = `${11 * unitsPerPixel}px`;
       label.setAttribute("y", toView(position.y + symbol.heightMm / 2) + 15 * unitsPerPixel);
@@ -8007,7 +8038,7 @@ function appendComponentPlanGraphic(group, graphic, options = {}) {
     }
     group.append(drawing);return;
   }
-  if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(graphic.graphicId)) {
+  if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID, LINEA_GRILLE_PLAN_GRAPHIC_ID].includes(graphic.graphicId)) {
     const drawing = svgElement("g", {
       transform: `scale(${1 / MILLIMETRES_PER_VIEW_UNIT})`,
       class: `wall-grille-graphic${options.ghost ? " ghost" : ""}`,
@@ -8841,10 +8872,10 @@ function renderCataloguePalette() {
       name: `${mounting === "vertical" ? "Vertical" : "Horizontal"} MVHR`,
       searchTerms: "CA200 ComfoAir 200 Q350 Q450 Zehnder Aerofresh 450 HRV ERV CW ComfoWell attenuators", placeable: true,
     })),
-    ...["round", "rectangular"].map(shape => ({
+    ...["round", "rectangular", "linea-400", "linea-600"].map(shape => ({
       id: `terminal-${shape}`, group: "Terminals", terminalSection:"Internal", category: "terminal-placement", terminalShape: shape,
-      name: shape === "round" ? "Round" : "Rectangle",
-      searchTerms: shape === "round" ? "internal Luna supply extract grille round terminal" : "internal Aerofresh magnetic cover supply extract wall bulkhead rectangular terminal",
+      name: terminalProductLabel(shape),
+      searchTerms: shape === "round" ? "internal Luna supply extract grille round terminal" : shape === "rectangular" ? "internal Aerofresh magnetic cover supply extract wall bulkhead rectangular terminal" : "Zehnder ComfoGrid ComfoCase CSB-P linear slot grille wall ceiling supply extract DN90",
       placeable: true,
     })),
     ...["individual","combined"].map(kind=>({
@@ -8962,7 +8993,7 @@ function renderCataloguePalette() {
     tile.append(
       glyph,
       htmlText("strong", item.name),
-      htmlText("small", item.cwOrientation ? "Choose CW size & air service" : item.isExternalGrille ? item.externalGrilleKind === "individual" ? "Intake or exhaust" : "Intake + exhaust" : item.terminalShape ? item.terminalShape === "round" ? "Luna · Supply or Extract" : "Aerofresh magnetic cover · Supply or Extract" : item.mounting
+      htmlText("small", item.cwOrientation ? "Choose CW size & air service" : item.isExternalGrille ? item.externalGrilleKind === "individual" ? "Intake or exhaust" : "Intake + exhaust" : item.terminalShape ? item.terminalShape === "round" ? "Luna · Supply or Extract" : item.terminalShape === "rectangular" ? "Aerofresh magnetic cover · Supply or Extract" : `Supply or Extract · ${item.terminalShape === "linea-400" ? "1" : "2"} × DN90` : item.mounting
         ? item.mounting === "vertical" ? "Place, then choose model & layout" : "CA200 or generic planning unit"
         : item.isAssemblyTemplate
         ? `${item.componentCount} grouped parts · service zone`
@@ -9002,7 +9033,7 @@ function createTerminalServiceControls() {
   }
   const hint = htmlText(
     "p",
-    `Outlet product: ${terminalPlacementMode?.shape === "rectangular" ? "Rectangle" : "Round"} · choose a product below to change it`,
+    `Outlet product: ${terminalProductLabel(terminalPlacementMode?.shape ?? "round")} · choose a product below to change it`,
     "terminal-service-hint",
   );
   group.append(hint);
@@ -9257,7 +9288,7 @@ function renderChecksWorkspace() {
     ].filter(Boolean).join(" · ");
     checksScheduleParts.append(checksListRow(
       `${line.ref} · ${line.description}`,
-      `${line.quantity} placed · ${evidence} · ${identifiers}`,
+      `${line.quantity} placed · ${line.equipmentSupply === OWNER_SUPPLIED_EQUIPMENT ? "owner-supplied, not for purchase · " : ""}${evidence} · ${identifiers}`,
     ));
   }
   if (schedule.componentLines.length === 0) {
@@ -10464,6 +10495,7 @@ function componentEvidenceLabel(component) {
 }
 
 function componentEvidenceDescription(component) {
+  if (isLineaTerminal(component)) return "Zehnder white Linea face with matching CSB-P housing · manufacturer references only · verify Australian supply, mounting, cutout, filter, balancing access and airflow/noise at duty. Port positions are schematic.";
   if (component.catalogueStatus === "source-backed-drawing-profile-provisional-setout") return `Manual centre spacings and rear offsets · provisional side-to-side setout · DN125 drawing connections · remote ComfoWell only${component.mvhrDesignIntent?.handing === "left" ? " · provisional left-hand port roles, verify against the unit" : ""}`;
   if (component.decentralisedMvhr) return "Current product identity and operating topology retained · schematic marker only · wall opening, suitability, clearance, electrical design, compatibility and delivered airflow not assessed";
   if (component.decentralisedController) return `${component.decentralisedController.compatibilityStatus.replaceAll("-", " ")} · ${component.decentralisedController.sourceRevision} · cable routes are plan markup only · no electrical compliance or installation approval`;
@@ -10612,7 +10644,7 @@ function renderInspector() {
         ? "Drawing symbol only; housing connection positions and sizes are not established."
         : "No routable ports. This branded body is setout-only while handed role evidence is pending; use Generic test MVHR unit for generic routing.";
     const intent = component.mvhrDesignIntent;
-    document.querySelector("#component-evidence").textContent = componentEvidenceDescription(component) + (intent
+    document.querySelector("#component-evidence").textContent = componentEvidenceDescription(component) + (isOwnerSuppliedEquipment(component) ? " · Owner-supplied unit (excluded from supply takeoff)" : "") + (intent
       ? ` · ${intent.mounting} planning intention · ${MVHR_LAYOUTS[intent.layout] ?? intent.layout}${intent.layout === "unit-mounted-cw" ? ` · CW${intent.cwSize ?? "320"} schematic · DN90 drawing connections enabled` : intent.assemblyState === "layout-pending" ? " · accessory layout pending; unit only placed" : ""}`
       : "");
     renderComponentRoomAssignment(component);
@@ -10684,6 +10716,7 @@ function renderRouteInspector(route) {
     ? `Point ${selectedRoutePointIndex} selected. Drag its round handle or remove it; start and end connections remain locked.`
     : "Use + to add a point, then drag round intermediate handles. Alt-click to cycle overlapping ducts. Attached endpoints stay locked.";
   singleRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === 1));
+  twinRouteRunButton.disabled = [route.startAttachment, route.endAttachment].some(endpoint => endpoint && isLineaTerminal(history.present.components.find(component => component.id === endpoint.componentId)));
   twinRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === 2));
   clearRouteRunButton.setAttribute("aria-pressed", String(route.parallelRunCount === null));
   const arrangement = route.parallelRunCount === 1
@@ -10710,13 +10743,14 @@ function routeTerminalDemandSummary(route) {
 
 function renderComponentDuctRunControl(component) {
   const terminalPort = roomTerminalPort(history.present, component.id);
-  const enabled = Boolean(terminalPort);
+  const linea = isLineaTerminal(component);
+  const enabled = Boolean(terminalPort) && !linea;
   singleComponentDuctRunButton.disabled = !enabled;
   twinComponentDuctRunButton.disabled = !enabled;
   clearComponentDuctRunsButton.disabled = !enabled || component.ductRunCount === null;
   singleComponentDuctRunButton.setAttribute("aria-pressed", String(enabled && component.ductRunCount === 1));
   twinComponentDuctRunButton.setAttribute("aria-pressed", String(enabled && component.ductRunCount === 2));
-  componentDuctRunDetail.textContent = enabled
+  componentDuctRunDetail.textContent = linea ? `Fixed housing selection · ${component.ports.length} separate DN90 feed${component.ports.length === 1 ? "" : "s"} · one route per connection` : enabled
     ? component.ductRunCount === null
       ? `${formatRoomChoice(terminalPort.stream)} outlet · duct arrangement not selected · no airflow inferred`
       : component.ductRunCount === 1

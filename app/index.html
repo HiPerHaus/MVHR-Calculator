@@ -1227,11 +1227,18 @@
         <label id="mvhr-cw-size-label" hidden>CW size
           <select id="mvhr-cw-size"><option value="320">CW320 · 6 ports per stream</option><option value="420">CW420 · 8 ports per stream</option><option value="520">CW520 · 10 ports per stream</option><option value="625">CW625 · 12 ports per stream</option></select>
         </label>
+        <label>Unit supply
+          <select id="mvhr-equipment-supply" aria-describedby="mvhr-supply-note">
+            <option value="included">Include unit in supply</option>
+            <option value="owner-supplied">Owner supplies unit</option>
+          </select>
+        </label>
+        <p id="mvhr-supply-note" hidden>The unit stays in the drawing and design but is not included in the supply takeoff. Accessories stay separate.</p>
         <p id="mvhr-preview-summary" aria-live="polite"></p>
         <p id="mvhr-placement-error" class="dialog-error" role="alert"></p>
         <div class="dialog-actions">
           <button id="cancel-mvhr-placement" type="button">Cancel</button>
-          <button type="submit" class="primary-action">Place unit</button>
+          <button id="submit-mvhr-placement" type="submit" class="primary-action">Place unit</button>
         </div>
       </form>
     </dialog>

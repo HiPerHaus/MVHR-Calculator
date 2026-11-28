@@ -1,3 +1,4 @@
+import { isOwnerSuppliedEquipment, OWNER_SUPPLIED_EQUIPMENT } from "../domain/equipment-supply.mjs";
 import { ventilationOutputView } from "./ventilation-output-scope.mjs";
 import {componentQuoteCode,quoteCodeEvidence} from "./quote-product-codes.mjs";
 import {deriveProjectAccessories} from "./project-accessories.mjs";
@@ -108,7 +109,8 @@ function componentScheduleLines(components, assemblyByComponentId) {
     const combinedGrille = category === "external-grille" && component.ports.some(port => port.stream === "intake") && component.ports.some(port => port.stream === "exhaust");
     const handing = combinedGrille ? (component.externalGrilleHanding ?? "left") : null;
     const symbol = component.displaySymbol ?? snapshot?.symbol;
-    const hasTerminalBreakdown = symbol?.shape === "wall-grille";
+    const hasTerminalBreakdown = ["wall-grille", "linear-grille"].includes(symbol?.shape);
+    const equipmentSupply = isOwnerSuppliedEquipment(component) ? OWNER_SUPPLIED_EQUIPMENT : null;
     const key = [
       snapshot?.catalogueId ?? "no-catalogue",
       snapshot?.catalogueVersion ?? "no-catalogue-version",
@@ -118,6 +120,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
       component.catalogueStatus ?? "unclassified",
       handing ?? "no-handing",
       hasTerminalBreakdown ? "terminal-breakdown" : "as-placed",
+      equipmentSupply ?? "included-in-supply",
     ].join("\u0000");
     let line = byKey.get(key);
     if (!line) {
@@ -128,6 +131,7 @@ function componentScheduleLines(components, assemblyByComponentId) {
         section,
         isAssemblySummary: Boolean(symbol?.cwProfile || hasTerminalBreakdown),
         hasTerminalBreakdown,
+        ...(equipmentSupply ? { equipmentSupply } : {}),
         handing,
         description: `${component.displayName ?? component.id}${handing ? ` · ${handing === "left" ? "Left" : "Right"}` : ""}`,
         manufacturer: component.manufacturer ?? null,

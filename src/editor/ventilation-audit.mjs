@@ -1,3 +1,4 @@
+import { isLineaTerminal } from "../domain/linear-terminal.mjs";
 import { inspectExternalGrilleSeparation } from "./external-grille-spacing.mjs";
 import { routeLengthSummary, validateProject } from "../domain/spatial.mjs";
 import { routeFamilyForKind } from "./component-catalogue.mjs";
@@ -368,25 +369,27 @@ function inspectAssemblyMainPaths(assemblies, distributionMainPortsByRole, unitP
 
 function inspectOutlets(components, unitPortsByRole, graph, diagnostics) {
   for (const component of components) {
-    const terminalPort = assignableOutletPort(component);
-    if (!terminalPort) continue;
-    const endpoint = endpointValue(component, terminalPort);
-    if (!graph.externallyOccupied.has(endpoint.key)) {
-      diagnostics.push(diagnostic("outlet-disconnected", "error", "Outlet is disconnected", `${component.displayName} has no attached ${formatInterface(terminalPort.interface)} route.`, {
-        componentId: component.id,
-        portId: terminalPort.id,
-      }));
-    } else if ((unitPortsByRole.get(terminalPort.role) ?? []).length > 0 && !canReachAny(endpoint.key, unitPortsByRole.get(terminalPort.role) ?? [], graph.adjacency)) {
-      diagnostics.push(diagnostic("outlet-path-incomplete", "error", "Outlet path does not reach the correct HRV side", `${component.displayName} is connected locally but no ${terminalPort.role.toLowerCase()} HRV port is reachable through the modelled network.`, {
-        componentId: component.id,
-        portId: terminalPort.id,
-      }));
-    }
-    if (component.ductRunCount === null) {
-      diagnostics.push(diagnostic("outlet-run-count-unset", "warning", "Outlet run count is unset", `${component.displayName} still needs an explicit duct-run count. No airflow is inferred.`, {
-        componentId: component.id,
-        portId: terminalPort.id,
-      }));
+    const linea = isLineaTerminal(component);
+    const outlets = linea ? component.ports : [assignableOutletPort(component)].filter(Boolean);
+    for (const terminalPort of outlets) {
+      const endpoint = endpointValue(component, terminalPort);
+      if (!graph.externallyOccupied.has(endpoint.key)) {
+        diagnostics.push(diagnostic("outlet-disconnected", "error", "Outlet is disconnected", `${component.displayName}${linea ? " · feed " + (outlets.indexOf(terminalPort)+1) : ""} has no attached ${formatInterface(terminalPort.interface)} route.`, {
+          componentId: component.id,
+          portId: terminalPort.id,
+        }));
+      } else if ((unitPortsByRole.get(terminalPort.role) ?? []).length > 0 && !canReachAny(endpoint.key, unitPortsByRole.get(terminalPort.role) ?? [], graph.adjacency)) {
+        diagnostics.push(diagnostic("outlet-path-incomplete", "error", "Outlet path does not reach the correct HRV side", `${component.displayName} is connected locally but no ${terminalPort.role.toLowerCase()} HRV port is reachable through the modelled network.`, {
+          componentId: component.id,
+          portId: terminalPort.id,
+        }));
+      }
+      if (component.ductRunCount === null) {
+        diagnostics.push(diagnostic("outlet-run-count-unset", "warning", "Outlet run count is unset", `${component.displayName} still needs an explicit duct-run count. No airflow is inferred.`, {
+          componentId: component.id,
+          portId: terminalPort.id,
+        }));
+      }
     }
   }
 }
@@ -397,7 +400,7 @@ function summarizeSpareBranches(components, externallyOccupied) {
     const branches = component.ports.filter((port) => (
       port.interface?.family === "semi-rigid-pe" && port.interface?.nominalSizeMm === 90
     ));
-    if (branches.length < 2) continue;
+    if (branches.length < 2 || isLineaTerminal(component)) continue;
     for (const port of branches) {
       if (externallyOccupied.has(endpointKey(component.id, port.id))) continue;
       const total = totals.get(port.stream);

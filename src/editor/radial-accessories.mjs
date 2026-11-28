@@ -21,7 +21,7 @@ export function deriveRadialAccessories(project,{floorId,stubLengthMm=CW_UNUSED_
   const cw=Boolean(symbol?.cwProfile||mounted.length||/remote-radial-plate$/.test(record));
   const ports=mounted.length?mounted.map(b=>({id:`${c.id}-port-${b.key}`})):c.ports.filter(p=>p.interface?.family==='semi-rigid-pe'&&p.interface.nominalSizeMm===90);
   if(cw){for(const p of ports){cwPortQuantity++;if(!usage.has(key({componentId:c.id,portId:p.id})))unusedCwPortQuantity++;}continue;}
-  if(!['luna-grille','wall-grille'].includes(symbol?.shape)&&!/tva/i.test(record))continue;
+  if(!['luna-grille','wall-grille','linear-grille'].includes(symbol?.shape)&&!/tva/i.test(record))continue;
   for(const p of ports){const endpoint=key({componentId:c.id,portId:p.id});
    if(terminalUsage.has(endpoint)){const runs=terminalUsage.get(endpoint);if(runs===null)pendingTerminalRunCount++;else connectedTerminalQuantity+=runs;}
    else if(usage.has(endpoint))connectedTerminalQuantity++;
@@ -30,5 +30,5 @@ export function deriveRadialAccessories(project,{floorId,stubLengthMm=CW_UNUSED_
  return {cwPortQuantity,unusedCwPortQuantity,connectedTerminalQuantity,pendingTerminalRunCount,
   oRingQuantity:cwPortQuantity+connectedTerminalQuantity,capQuantity:unusedCwPortQuantity,stubQuantity:unusedCwPortQuantity,
   stubLengthMm,stubTotalMm:stubLengthMm===null?null:stubLengthMm*unusedCwPortQuantity,
-  basis:'One O-ring per CW branch, used or unused; one per connected 90 mm TVA/Luna or Aerofresh duct. Unused CW branches each receive one pipe stub and cap. CW usage follows distinct saved branch endpoints. Stub duct length is additional to drawn routes.'};
+  basis:'One O-ring per CW branch, used or unused; one per connected 90 mm TVA/Luna, AeroFresh or Linea drawing feed. Unused CW branches each receive one pipe stub and cap. CW usage follows distinct saved branch endpoints. Confirm Linea seals included with housing before ordering spare seals. Stub duct length is additional to drawn routes.'};
 }

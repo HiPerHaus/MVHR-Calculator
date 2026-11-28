@@ -41,15 +41,20 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  }
  const cwLines=[...cwGroups.values()];
  const terminalGroups=new Map();
- const terminalAdd=(code,description,componentId,role='housing')=>{
+ const terminalAdd=(code,description,componentId,role='housing',manufacturerArticle=null)=>{
   const key=code||description;
   const previous=terminalGroups.get(key);
   if(previous){previous.quantity++;previous.componentIds.push(componentId);}
-  else terminalGroups.set(key,{code,description,quantity:1,unit:'ea',codeSource:quoteCodeEvidence(code),role,componentIds:[componentId]});
+  else terminalGroups.set(key,{code,description,quantity:1,unit:'ea',codeSource:quoteCodeEvidence(code),role,componentIds:[componentId],...(manufacturerArticle ? {manufacturerArticle} : {})});
  };
  for(const component of project.components.filter(c=>c.floorId===floorId)){
   const shape=(component.displaySymbol??component.catalogueSnapshot?.symbol)?.shape;
-  if(shape==='wall-grille'){
+  if(shape==='linear-grille'){
+   const spec=component.catalogueSnapshot?.terminalSpecification?.linea;
+   if(!spec)continue;
+   terminalAdd('',`Zehnder ComfoGrid Linea ${spec.size} white face · AU availability/code to confirm`,component.id,'cover',spec.faceArticle);
+   terminalAdd('',`Zehnder ComfoCase CSB-P ${spec.size} · ${spec.feedCount} × DN90 · AU availability/code to confirm`,component.id,'housing',spec.housingArticle);
+  } else if(shape==='wall-grille'){
    terminalAdd('AER-GR-RECT-W','AeroFresh magnetic cover · cool white',component.id,'cover');
    const entry=component.ports.find(p=>p.interface?.nominalSizeMm===90)?.drawingEntryId;
    const code=entry==='back'?'AER-GR-RECT-BX90R':['left','right'].includes(entry)?'AER-GR-R-BX90E':null;
@@ -73,7 +78,7 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const owner=project.floors.find(f=>designFloors.has(f.id));
  const extractPoints=project.components.filter(c=>{
   const symbol=c.displaySymbol??c.catalogueSnapshot?.symbol;
-  return !unit(c)&&(c.ports.length===1||['luna-grille','wall-grille'].includes(symbol?.shape))&&c.ports.some(p=>p.system==='mvhr'&&p.stream==='extract'&&p.interface?.nominalSizeMm===90);
+  return symbol?.shape!=='linear-grille'&&!unit(c)&&(c.ports.length===1||['luna-grille','wall-grille'].includes(symbol?.shape))&&c.ports.some(p=>p.system==='mvhr'&&p.stream==='extract'&&p.interface?.nominalSizeMm===90);
  });
  const radial=project.floors.map(f=>deriveRadialAccessories(project,{floorId:f.id,stubLengthMm}));
  const oRingQuantity=radial.reduce((sum,a)=>sum+a.oRingQuantity,0),pendingORings=radial.reduce((sum,a)=>sum+a.pendingTerminalRunCount,0);
@@ -87,12 +92,14 @@ export function deriveProjectAccessories(project,{floorId,stubLengthMm}={}){
  const knownTotalLengthMm=drawnLengthMm+stubTotalMm+riserLengthMm,coilLengthMm=50000;
  const duct90={drawnLengthMm,stubTotalMm,riserLengthMm,knownTotalLengthMm,totalLengthMm:pendingDuctCount?null:knownTotalLengthMm,coilLengthMm,coilQuantity:Math.ceil(knownTotalLengthMm/coilLengthMm),pendingCount:pendingDuctCount,showOnThisFloor:owner?.id===floorId};
  const capQuantity=radial.reduce((sum,a)=>sum+a.capQuantity,0);
+ const lineaFilterReferences=[...new Set(project.components.filter(c=>c.ports.some(p=>p.system==='mvhr'&&p.stream==='extract'))
+  .map(c=>c.catalogueSnapshot?.terminalSpecification?.linea).filter(Boolean).map(spec=>spec.filterArticle))];
  const filterBagQuantity=Math.ceil(extractPoints.length/10),oRingPackQuantity=Math.ceil(oRingQuantity/10);
  const jobLines=owner?.id===floorId?[
   {code:'ZEN-C90-CSET',description:'ComfoSet 90',quantity:3,unit:'ea'},
   ...(filterBagQuantity?[{code:'AER-GR-FILT-DN125',description:`Extract vent filters · ${extractPoints.length} ${extractPoints.length===1?'point':'points'}, 10 filters per bag`,quantity:filterBagQuantity,unit:'bag'}]:[]),
   ...(oRingPackQuantity||pendingORings?[{code:'ZEN-OR90',description:`90 mm O-rings · ${oRingQuantity} required${pendingORings?' + pending connections':''}, 10 per pack`,quantity:pendingORings?`${oRingPackQuantity} + pending`:oRingPackQuantity,unit:'pack'}]:[]),
  ]:[];
- return {unitLines,cwLines,terminalLines,jobLines,jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,capQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project,risers),
-  basis:'Drain trap and eligible surge protector per HRV; Q-series controls per Q-series unit. Three ComfoSet 90 per job. One filter per extract point, supplied in bags of ten. Project packs appear once on the first floor with ventilation.'};
+ return {unitLines,cwLines,terminalLines,jobLines,lineaFilterReferences:owner?.id===floorId?lineaFilterReferences:[],jobOwnerFloorId:owner?.id??null,jobOwnerFloorName:owner?.name??null,extractPointQuantity:extractPoints.length,filterBagQuantity,capQuantity,oRingQuantity,oRingPackQuantity,pendingORings,duct90,eppTotals:deriveEppProjectTotals(project,risers),
+  basis:'Drain trap and eligible surge protector per HRV; Q-series controls per Q-series unit. Three ComfoSet 90 per job. One standard filter per applicable round/AeroFresh extract point, supplied in bags of ten; Linea requires its own housing-specific filter selection. Project packs appear once on the first floor with ventilation.'};
 }

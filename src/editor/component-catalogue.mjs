@@ -2,6 +2,8 @@ import { COMBINED_DN160_PORT_PITCH_MM } from "../domain/combined-grille-drawing-
 import { ca200Records } from "./ca200-profile.mjs";
 import { standaloneCwRecords } from "./standalone-cw.mjs";
 import { decentralisedControllerRecords, decentralisedMvhrRecords } from "./decentralised-mvhr.mjs";
+import { LINEA_SERIES, lineaRecordId } from "./zehnder-linea.mjs";
+import { roomOutletAnchor } from "../domain/linear-terminal.mjs";
 import { terminalDrawingPortDefinition } from "../domain/terminal-drawing-connections.mjs";
 import { EXTERNAL_GRILLE_EVIDENCE } from "./external-grille-evidence.mjs";
 import { AEROFRESH_MANUAL_EVIDENCE } from "./aerofresh-manual-evidence.mjs";
@@ -378,6 +380,7 @@ export const COMPONENT_CATALOGUE = deepFreeze([
   lunaGrilleRecord("extract"),
   aerofreshGrilleRecord("supply"),
   aerofreshGrilleRecord("extract"),
+  ...Object.values(LINEA_SERIES).flatMap(spec => ["supply", "extract"].map(stream => lineaGrilleRecord(spec, stream))),
   componentRecord({
     id: "synthetic-supply-terminal",
     versionId: "generic-supply-terminal-90.v2",
@@ -613,7 +616,7 @@ export function createCatalogueComponent(catalogueItemId, placement) {
     manufacturer: item.manufacturer,
     displayName: item.name,
     displaySymbol: structuredClone(item.symbol),
-    ductRunCount: null,
+    ductRunCount: item.terminalSpecification?.linea?.feedCount ?? null,
     positionMm: {
       x,
       y,
@@ -673,8 +676,9 @@ export function deriveVentilationConnectionDemand(project) {
     const terminalPorts = (component.ports ?? []).filter((port) => (
       port.system === "mvhr" && (port.stream === "supply" || port.stream === "extract")
     ));
-    if (terminalPorts.length !== 1) continue;
-    const side = demand[terminalPorts[0].stream];
+    const anchor = roomOutletAnchor(component, terminalPorts);
+    if (!anchor) continue;
+    const side = demand[anchor.stream];
     side.outletCount += 1;
     if (Number.isSafeInteger(component.ductRunCount) && component.ductRunCount > 0) {
       side.knownRunCount += component.ductRunCount;
@@ -1129,6 +1133,28 @@ function lunaGrilleRecord(stream) {
     symbol: { shape: "luna-grille", widthMm: 300, heightMm: 300, stream, scaleMeaning: "schematic-only" },
     ports: [terminalDrawingPortDefinition({shape:"luna-grille",stream,widthMm:300,heightMm:300})],
     note: "Owner drawing convention: blue outward arrows for supply, red inward arrows for extract. Product identity is retained; housing dimensions, connector locations, airflow and pressure losses remain unknown.",
+  });
+}
+
+function lineaGrilleRecord(spec, stream) {
+  const id = lineaRecordId(spec.size, stream);
+  const role = stream === "supply" ? "Dwelling supply" : "Dwelling extract";
+  const connection = interfaceDefinition("semi-rigid-pe", 90, "manufacturer-nominal-diameter-drawing-setout",
+    { installationCompatibilityStatus: "unverified" });
+  const symbol = { shape: "linear-grille", lineaSize: spec.size, widthMm: spec.faceLengthMm, heightMm: 220, stream, scaleMeaning: "schematic-only" };
+  return componentRecord({
+    id, versionId: `${id}.drawing.v1`, group: "Terminals", category: "terminal",
+    manufacturer: "Zehnder", productId: null, manufacturerArticle: spec.faceArticle,
+    localSkuCrosswalkStatus: "unverified", name: `Zehnder Linea ${spec.size} · ${stream}`,
+    status: "source-backed-linea-drawing-review-required",
+    source: { face: { url: spec.faceSource, article: spec.faceArticle }, housing: { url: spec.housingSource, article: spec.housingArticle } },
+    dimensions: { unit: "mm", body: null, grilleFace: { lengthMm: spec.faceLengthMm, widthMm: spec.faceWidthMm },
+      evidenceStatus: "manufacturer-face-only", note: "Do not use drawing symbol for cutouts, clearances, or duct setout." },
+    terminalSpecification: { mounting: "wall-or-ceiling", stream, linea: spec },
+    symbol,
+    ports: (spec.feedCount === 1 ? [0] : [-spec.faceLengthMm/4, spec.faceLengthMm/4]).map(
+      (x, i) => port(`duct-${i+1}`, x, symbol.heightMm/2, 0, 1, stream, role, connection)),
+    note: "White face with matching ComfoCase CSB-P. The DN90 configuration shown has schematic ports; verify local sourcing, cutout, clearance, balancing access, filter and airflow/pressure/noise at design duty. No flow or loss is inferred.",
   });
 }
 

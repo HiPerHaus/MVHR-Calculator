@@ -23,7 +23,7 @@ import { createEngineeringNetworkDraft } from "../src/editor/engineering-network
 import { createEngineeringReport } from "../src/editor/engineering-report.mjs";
 import { createEngineeringReportHtml } from "../src/editor/engineering-report-html.mjs";
 import { deriveRoomBoundaries } from "../src/domain/rooms.mjs";
-import { routeFamilyForKind } from "../src/editor/component-catalogue.mjs";
+import { createCatalogueComponent, routeFamilyForKind } from "../src/editor/component-catalogue.mjs";
 
 test("explicit terminal allocations propagate through typed routes without treating targets as achieved flow", () => {
   let project = engineeringFixture();
@@ -38,6 +38,23 @@ test("explicit terminal allocations propagate through typed routes without treat
   assert.match(result.evidenceBoundary, /design-target evaluation only/i);
   assert.equal(result.spaceChecks.lines.every(line => line.state === "allocated"), true);
   assert.equal(result.diagnostics.some(item => item.code === "fan-curve-unresolved"), true);
+});
+
+test("the two-feed Linea 600 counts once in the room but does not infer an engineering flow split", () => {
+  let project = engineeringFixture();
+  project = applyCommand(project, {type:"component.delete", componentId:"terminal-supply", confirmedScope:inspectComponentDeletion(project,"terminal-supply")});
+  const component = createCatalogueComponent("zehnder-linea-600-supply", {id:"linea-supply",floorId:"floor-ground",xMm:2100,yMm:1000});
+  project = add(project, component);
+  project = applyCommand(project, {type:"terminal.assignRoom",roomId:"room-supply",componentId:component.id,portId:component.ports[0].id});
+  project = addRoute(project, "route-supply", "unit-supply", component.id, component.ports[0].id, "supply", "Dwelling supply", 1000, 1);
+  const design=baseDesign();
+  design.terminalAllocations[0]=allocation("allocation-supply",component.id,component.ports[0].id,"room-supply");
+  project=setNetworkDesign(project,design);
+  assert.equal(inspectAirflowBalance(project,"floor-ground").totals.supply.terminalCount,1);
+  const result=evaluateEngineeringNetwork(project,"floor-ground","normal");
+  assert.ok(result.diagnostics.some(item=>item.code==="linea-multiple-feeds-engineering-review"));
+  assert.equal(result.status,"blocked");
+  assert.equal(result.routes.find(item=>item.routeId==="route-supply").flowLps,0);
 });
 
 test("m³/h inputs convert exactly to canonical L/s while retaining their declared unit", () => {

@@ -1,4 +1,5 @@
 import { enableMountedCwDrawingConnections } from "../domain/mounted-cw-drawing-connections.mjs";
+import { setEquipmentSupply } from "../domain/equipment-supply.mjs";
 import { createCatalogueComponent } from "./component-catalogue.mjs";
 
 export const MVHR_LAYOUTS = Object.freeze({
@@ -37,6 +38,7 @@ export function createConfiguredMvhrComponent(selection, placement) {
     assemblyState: layout === "unit-only" ? "unit-only" : layout === "unit-mounted-cw" ? "schematic-mounted-cw" : "layout-pending",
     note: "Planning intention only. Accessories, joints, installed mounting geometry and service clearances are not generated or verified.",
   };
+  if (selection.equipmentSupply !== undefined) setEquipmentSupply(component, selection.equipmentSupply);
   enableMountedCwDrawingConnections(component);
   if (model === "generic") component.displayName = `Generic ${mounting} MVHR`;
   return component;

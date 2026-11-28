@@ -1,5 +1,6 @@
 import { floorPortTransform } from "../domain/spatial.mjs";
 import { inspectFloorAreaOutline } from "../domain/floor-area.mjs";
+import { isLineaTerminal } from "../domain/linear-terminal.mjs";
 import { terminalDrawingAnchors } from "../domain/terminal-drawing-connections.mjs";
 import { deriveSweptCentreline } from "./duct-body-geometry.mjs";
 import { routingCoordinationInputs } from "./routing-coordination.mjs";
@@ -470,7 +471,7 @@ function eligibleDn90Ports(project, floorId, occupied) {
   for (const component of project.components ?? []) {
     if (component.floorId !== floorId) continue;
     const eligible = component.ports.filter(isDn90MvhrPort);
-    const terminal = component.ports.length === 1 && eligible.length === 1;
+    const terminal = isLineaTerminal(component) || (component.ports.length === 1 && eligible.length === 1);
     for (const port of eligible) {
       const key = `${component.id}/${port.id}`;
       if (occupied.has(key)) continue;

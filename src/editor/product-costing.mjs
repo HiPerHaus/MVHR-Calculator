@@ -1,3 +1,4 @@
+import { OWNER_SUPPLIED_EQUIPMENT } from "../domain/equipment-supply.mjs";
 import { validateProject } from "../domain/spatial.mjs";
 import { createPartsSchedule } from "./parts-schedule.mjs";
 
@@ -8,7 +9,7 @@ import { createPartsSchedule } from "./parts-schedule.mjs";
 export function inspectProductCostingReadiness(project, floorId) {
   validateProject(project);
   const schedule = createPartsSchedule(project, { floorId });
-  const componentLines = schedule.componentLines.map((line) => ({
+  const componentLines = schedule.componentLines.filter(line => line.equipmentSupply !== OWNER_SUPPLIED_EQUIPMENT).map((line) => ({
     ref: line.ref,
     description: line.description,
     quantity: line.quantity,
@@ -70,6 +71,7 @@ export function inspectProductCostingReadiness(project, floorId) {
       "Unmodelled fittings, adapters, sleeves, seals, supports and access provisions",
       "Purchased pack rounding, cutting waste and installation allowances",
       "Labour, electrical work, commissioning and site-specific work",
+      "Owner-supplied MVHR units (separate model references, not purchase items)",
       "Tax, discounts, markup, validity and supplier availability",
     ],
     evidenceBoundary: "Quantities come from the model schedule, but no supplier cost, sell price, margin or total is inferred. Unknown prices remain null, not zero. This is not a quote, purchase order or cost-permission boundary.",

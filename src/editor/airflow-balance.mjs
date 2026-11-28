@@ -1,4 +1,5 @@
 import { spaceBoundaryNeedsReassignment } from "./space-boundary-state.mjs";
+import { roomOutletAnchor } from "../domain/linear-terminal.mjs";
 import { validateProject } from "../domain/spatial.mjs";
 
 /**
@@ -166,7 +167,7 @@ function assignableTerminalPort(component) {
   const ports = component.ports.filter((port) => (
     port.system === "mvhr" && (port.stream === "supply" || port.stream === "extract")
   ));
-  return ports.length === 1 ? ports[0] : null;
+  return roomOutletAnchor(component, ports);
 }
 
 function endpointKey(componentId, portId) {

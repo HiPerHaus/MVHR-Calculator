@@ -202,3 +202,19 @@ function rectangleOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 60
 function denseOutline() { return [{ x: 0, y: 0 }, { x: 12000, y: 0 }, { x: 12000, y: 8000 }, { x: 0, y: 8000 }]; }
 function concaveOutline() { return [{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 4000 }, { x: 3500, y: 4000 }, { x: 3500, y: 1500 }, { x: 2500, y: 1500 }, { x: 2500, y: 4000 }, { x: 0, y: 4000 }]; }
 function rotate(point, angleRad) { return { x: point.x * Math.cos(angleRad) - point.y * Math.sin(angleRad), y: point.x * Math.sin(angleRad) + point.y * Math.cos(angleRad) }; }
+
+test("Linea 600 automatic route preview treats both ports as destinations and consumes separate CW branches", () => {
+  let project = scaledFixture(rectangleOutline());
+  project = add(project, createCatalogueComponent(standaloneCwRecordId({ size: "320", orientation: "vertical", stream: "supply" }), {
+    id: "cw-linea", floorId: "ground", xMm: 1200, yMm: 2200, allowAssemblyOnly: true,
+  }));
+  project = add(project, createCatalogueComponent("zehnder-linea-600-supply", {
+    id: "linea", floorId: "ground", xMm: 4400, yMm: 2200,
+  }));
+  const preview = inspectAutomaticRadialRouting(project, "ground");
+  assert.equal(preview.status, "ready");
+  assert.equal(preview.proposals.length, 2);
+  assert.equal(new Set(preview.proposals.map(row=>row.source.portId)).size, 2);
+  assert.equal(new Set(preview.proposals.map(row=>row.destination.portId)).size, 2);
+  assert.ok(preview.proposals.every(row=>row.source.componentId==="cw-linea" && row.destination.componentId==="linea"));
+});

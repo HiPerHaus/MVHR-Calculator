@@ -3,8 +3,10 @@ import {normalizeCeiling,normalizeVentilationReference} from "./room-volume.mjs"
 import {applyCommissioningCommand,validateCommissioning} from "./commissioning.mjs";
 import {createProjectDetails,normalizeProjectDetails} from "./project-details.mjs";
 import {normalizeVentilationProjectType} from "./ventilation-project-type.mjs";
+import { setEquipmentSupply } from "./equipment-supply.mjs";
 import { matchCombinedGrilleSpacing } from "./combined-grille-drawing-spacing.mjs";
 import { enableMountedCwDrawingConnections } from "./mounted-cw-drawing-connections.mjs";
+import { isLineaTerminal, roomOutletAnchor } from "./linear-terminal.mjs";
 import { enableTerminalDrawingConnection, selectTerminalDrawingEntry } from "./terminal-drawing-connections.mjs";
 import { isEppPlanSegment, constrainEppPlanPoints, alignEppPortApproaches, realignEppPlanConnections, compactHrvCeilingElbowEndpoints, ensureHrvCeilingElbowLead, hasHrvCeilingElbow } from "./epp-plan-constraints.mjs";
 import {
@@ -334,6 +336,11 @@ export function applyCommand(project, command, options = {}) {
     }
     case "component.matchCombinedGrilleSpacing": {
       for(const component of next.components)if(matchCombinedGrilleSpacing(component))synchronizeAttachedRouteEndpoints(next,component.id);
+      break;
+    }
+    case "component.setEquipmentSupply": {
+      const component = requireEntity(next.components, command.componentId, "Component");
+      setEquipmentSupply(component, command.equipmentSupply);
       break;
     }
     case "component.setExternalGrilleHanding": {
@@ -3501,7 +3508,7 @@ function assignableRoomTerminalPort(component) {
   const candidates = component.ports.filter(
     (port) => port.system === "mvhr" && (port.stream === "supply" || port.stream === "extract"),
   );
-  return candidates.length === 1 ? candidates[0] : null;
+  return roomOutletAnchor(component, candidates);
 }
 
 function requireRoomTerminalPort(component, portId) {
@@ -3696,6 +3703,10 @@ function normalizeComponent(component) {
     ...(component.decentralisedController ? { decentralisedController: normalizeDecentralisedControllerMetadata(component.decentralisedController) } : {}),
   };
   if (normalized.decentralisedMvhr && normalized.decentralisedController) throw new TypeError("A component cannot be both a decentralised unit and controller");
+  if (isLineaTerminal(normalized) && ductRunCount !== ports.length) {
+    throw new TypeError("Zehnder Linea duct run count is fixed by the selected housing.");
+  }
+  if (Object.hasOwn(normalized, "equipmentSupply")) setEquipmentSupply(normalized, normalized.equipmentSupply);
   if (ductRunCount !== null && !assignableRoomTerminalPort(normalized)) {
     throw new TypeError("Duct run count is only valid for a single-port MVHR supply or extract terminal");
   }
@@ -4259,6 +4270,9 @@ function validateRouteAttachmentTypes(project, route) {
   for (const endpoint of attachments) {
     const component = requireEntity(project.components, endpoint.componentId, "Route component");
     const port = requireEntity(component.ports, endpoint.portId, "Route port");
+    if (isLineaTerminal(component) && route.parallelRunCount > 1) {
+      throw new TypeError("Use one separate DN90 route per Zehnder Linea housing connection.");
+    }
     if ((component.floorGrilleFeed?.floorId ?? component.floorId) !== route.floorId) {
       throw new TypeError("Route and attached component must belong to the same floor");
     }

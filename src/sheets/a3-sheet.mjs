@@ -1,3 +1,4 @@
+import { isOwnerSuppliedEquipment, OWNER_SUPPLIED_EQUIPMENT } from "../domain/equipment-supply.mjs";
 import { buildAirflowProposal } from "../domain/airflow-proposal.mjs";
 import { buildCommissioningReport } from "../editor/commissioning-report.mjs";
 import { ventilationOutputView } from "../editor/ventilation-output-scope.mjs";
@@ -20,6 +21,7 @@ import {
   externalGrilleShapes,
   LUNA_GRILLE_PLAN_GRAPHIC_ID,
   WALL_GRILLE_PLAN_GRAPHIC_ID,
+  LINEA_GRILLE_PLAN_GRAPHIC_ID,
   GENERIC_CW_PLAN_GRAPHIC_ID,
   Q350_PLAN_GRAPHIC_ID,
   deriveComponentPlanGraphic,
@@ -318,6 +320,7 @@ function buildPrintScene(project, floorId, partsSchedule) {
     scheduleRef: componentRefById.get(component.id) ?? "P??",
     ...(component.riserId ? { riserId: component.riserId } : {}),
     displayName: sanitizeXmlText(component.displayName ?? component.id, "Component display name"),
+    ...(isOwnerSuppliedEquipment(component) ? { equipmentSupply: OWNER_SUPPLIED_EQUIPMENT } : {}),
     catalogueStatus: sanitizeXmlText(component.catalogueStatus ?? "unclassified", "Component status"),
     positionMm: planPoint(component.positionMm, `Component ${component.id} position`),
     yawRad: quaternionYaw(component.orientation),
@@ -442,9 +445,9 @@ function buildLegend(scene) {
   const seen=new Set();
   for(const component of scene.components){
     const g=component.planGraphic;
-    const key=component.decentralisedMvhr?`decentralised-unit:${component.catalogueItemId??decentralisedUnitTypeLabel(component)}`:component.decentralisedController?`decentralised-controller:${decentralisedControllerTypeLabel(component)}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr:${g.recordId ?? g.graphicId}:${g.handing}:${g.mounting ?? ''}:${g.mountedCw?.size ?? ''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
+    const key=component.decentralisedMvhr?`decentralised-unit:${component.catalogueItemId??decentralisedUnitTypeLabel(component)}`:component.decentralisedController?`decentralised-controller:${decentralisedControllerTypeLabel(component)}`:g?.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`luna-${g.stream}`:g?.graphicId===LINEA_GRILLE_PLAN_GRAPHIC_ID?`linea-${g.lineaSize}-${g.stream}`:g?.graphicId===WALL_GRILLE_PLAN_GRAPHIC_ID?`wall-grille-${g.stream}`:g?.graphicId===Q350_PLAN_GRAPHIC_ID || g?.graphicId===CA200_GRAPHIC_ID?`mvhr:${g.recordId ?? g.graphicId}:${g.handing}:${g.mounting ?? ''}:${g.mountedCw?.size ?? ''}`:g?.graphicId===STANDALONE_CW_GRAPHIC_ID?`cw-${g.stream}`:g?.graphicId===EXTERNAL_GRILLE_PLAN_GRAPHIC_ID?`external-grille-${g.combined?'combined':g.ports[0]?.stream??'individual'}`:'component';
     if(seen.has(key))continue;seen.add(key);
-    const label=key.startsWith("decentralised-controller:")?`Controller - ${decentralisedControllerTypeLabel(component)}`:key.startsWith('decentralised-unit:')?`Decentralised MVHR - ${decentralisedUnitTypeLabel(component)}`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`${g.modelName ?? 'ComfoAir 200'} · ${g.handingLabel ?? (g.handing === 'left' ? 'LH' : 'RH')}${g.mountedCw ? ` + CW${g.mountedCw.size}` : ''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
+    const label=key.startsWith("decentralised-controller:")?`Controller - ${decentralisedControllerTypeLabel(component)}`:key.startsWith('decentralised-unit:')?`Decentralised MVHR - ${decentralisedUnitTypeLabel(component)}`:key.startsWith('luna')?`Ceiling mounted ${g.stream} grille`:key.startsWith('linea-')?`Zehnder Linea ${g.lineaSize} ${g.stream} grille`:key.startsWith('wall-grille')?`Wall / bulkhead ${g.stream} grille`:key.startsWith('mvhr')?`${g.modelName ?? 'ComfoAir 200'} · ${g.handingLabel ?? (g.handing === 'left' ? 'LH' : 'RH')}${g.mountedCw ? ` + CW${g.mountedCw.size}` : ''}`:key.startsWith('cw-')?`${g.stream} CW attenuator / manifold`:key.startsWith('external-grille-')?(g.combined?'Combined outdoor intake / exhaust grille':`Separate outdoor ${g.ports[0]?.stream??''} grille`):"Placed component — P reference links to parts schedule";
     legend.push({key,label,graphic:g});
   }
   if (scene.references.some((reference) => !reference.calibrated)) {
@@ -708,7 +711,7 @@ function renderComponent(component, transform) {
     const height = component.symbol.heightMm * transform.scale;
     const markupId = (unit ?? component.decentralisedController).markupId ?? component.scheduleRef;
     const mode = unit ? (unit.operatingMode === "alternating-paired" ? "ALT" : "BAL") : "CTRL";
-    const labelDetail = [mode, unit?.pairGroupId].filter(Boolean).join(" · ");
+    const labelDetail = [mode, unit?.pairGroupId, isOwnerSuppliedEquipment(component) ? "Owner-supplied" : null].filter(Boolean).join(" · ");
     const halfWidth = Math.abs(Math.cos(component.yawRad)) * (width / 2 + (unit ? 2.5 : 0))
       + Math.abs(Math.sin(component.yawRad)) * (height / 2 + (unit ? 1.5 : 0));
     const colour = unit ? "#154f3f" : "#6f5310";
@@ -729,7 +732,7 @@ function renderComponent(component, transform) {
   if(component.planGraphic?.graphicId===CA200_GRAPHIC_ID) {
     const graphic=component.planGraphic;
     const shapes=ca200Shapes(graphic).map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}>${shape.text?escapeXml(shape.text):""}</${shape.tag}>`).join("");
-    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})">${shapes}</g><text x="0" y="${formatNumber(graphic.depthMm*transform.scale/2+5)}" text-anchor="middle" font-size="2.7" fill="#29434d">${escapeXml(component.scheduleRef)} · CA200 · ${graphic.handing}</text></g>`;
+    return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})">${shapes}</g><text${isOwnerSuppliedEquipment(component) ? ' data-keep-on-drawing="true"' : ""} x="0" y="${formatNumber(graphic.depthMm*transform.scale/2+5)}" text-anchor="middle" font-size="2.7" fill="#29434d">${escapeXml(component.scheduleRef)} · CA200 · ${graphic.handing}${isOwnerSuppliedEquipment(component) ? " · Owner-supplied" : ""}</text></g>`;
   }
   if(component.planGraphic?.graphicId===STANDALONE_CW_GRAPHIC_ID) {
     const graphic=component.planGraphic;
@@ -741,7 +744,7 @@ function renderComponent(component, transform) {
     const shapes=externalGrilleShapes(graphic).map(shape=>`<${shape.tag} ${Object.entries(shape.attributes).map(([key,value])=>`${key}="${escapeXml(String(value))}"`).join(" ")}>${shape.text?escapeXml(shape.text):""}</${shape.tag}>`).join("");
     return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-external-grille-handing="${graphic.handing}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})">${shapes}</g><text x="0" y="${formatNumber(graphic.depthMm*transform.scale/2+3)}" text-anchor="middle" font-size="2.7" fill="#29434d">${escapeXml(component.scheduleRef)}</text></g>`;
   }
-  if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId)) {
+  if ([WALL_GRILLE_PLAN_GRAPHIC_ID, LUNA_GRILLE_PLAN_GRAPHIC_ID, LINEA_GRILLE_PLAN_GRAPHIC_ID].includes(component.planGraphic?.graphicId)) {
     const graphic = component.planGraphic;
     const ductMask=graphic.graphicId===LUNA_GRILLE_PLAN_GRAPHIC_ID?`<circle data-part="luna-duct-mask" cx="0" cy="0" r="${formatNumber(graphic.ductMaskRadiusMm)}" fill="white" stroke="none"/>`:"";
     return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-plan-graphic="${graphic.graphicId}" data-service="${graphic.stream}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})"><g transform="scale(${formatNumber(transform.scale)})" fill="none" stroke="${graphic.colour}" stroke-width="1.5" vector-effect="non-scaling-stroke">${ductMask}${graphic.paths.map((d, index) => `<path d="${d}" fill="${graphic.graphicId === LUNA_GRILLE_PLAN_GRAPHIC_ID && index === 0 ? "white" : "none"}" stroke-width="${graphic.strokeWidths?.[index] ?? 1.5}" vector-effect="non-scaling-stroke"/>`).join("")}</g><text x="0" y="${formatNumber(graphic.depthMm * transform.scale / 2 + 3)}" text-anchor="middle" fill="#29434d" font-size="2.7">${escapeXml(component.scheduleRef)}</text></g>`;
@@ -751,7 +754,7 @@ function renderComponent(component, transform) {
   const shape = component.symbol.shape === "circle"
     ? `<circle cx="0" cy="0" r="${formatNumber(width / 2)}"/>`
     : `<rect x="${formatNumber(-width / 2)}" y="${formatNumber(-height / 2)}" width="${formatNumber(width)}" height="${formatNumber(height)}"/>`;
-  return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})" fill="white" stroke="#2f5966" stroke-width="0.45">${shape}<text x="0" y="0.9" text-anchor="middle" fill="#29434d" stroke="none" font-size="2.7" font-weight="700">${escapeXml(component.scheduleRef)}</text></g>`;
+  return `<g data-kind="component" data-id="${escapeXml(component.id)}" data-schedule-ref="${escapeXml(component.scheduleRef)}" transform="translate(${x} ${y}) rotate(${formatNumber(angle)})" fill="white" stroke="#2f5966" stroke-width="0.45">${shape}<text${isOwnerSuppliedEquipment(component) ? ' data-keep-on-drawing="true"' : ""} x="0" y="0.9" text-anchor="middle" fill="#29434d" stroke="none" font-size="2.7" font-weight="700">${escapeXml(component.scheduleRef)}${isOwnerSuppliedEquipment(component) ? " · Owner-supplied" : ""}</text></g>`;
 }
 
 function renderQ350Component(component, transform, x, y, angle, { legend = false } = {}) {
@@ -794,7 +797,7 @@ function renderQ350Component(component, transform, x, y, angle, { legend = false
   }
   out.push(
     `<text x="0" y="0.65" text-anchor="middle" fill="#29434d" stroke="white" stroke-width="0.55" paint-order="stroke" font-size="1.9" font-weight="800">${escapeXml(component.scheduleRef)}</text>`,
-    `<text x="0" y="2.35" text-anchor="middle" fill="#52666e" stroke="white" stroke-width="0.45" paint-order="stroke" font-size="1.3" font-weight="800">${escapeXml(graphic.shortModelName ?? "Q350")} ${escapeXml(graphic.handingLabel)}</text>`,
+    `<text${isOwnerSuppliedEquipment(component) ? ' data-keep-on-drawing="true"' : ""} x="0" y="2.35" text-anchor="middle" fill="#52666e" stroke="white" stroke-width="0.45" paint-order="stroke" font-size="1.3" font-weight="800">${escapeXml(graphic.shortModelName ?? "Q350")} ${escapeXml(graphic.handingLabel)}${isOwnerSuppliedEquipment(component) ? " · Owner-supplied" : ""}</text>`,
     `<text x="0" y="${formatNumber((graphic.frontCue.yMm - 42) * scale)}" text-anchor="middle" fill="#445960" stroke="white" stroke-width="0.35" paint-order="stroke" font-size="1.1" font-weight="800">FRONT</text>`,
     "</g>",
   );
@@ -898,12 +901,12 @@ function renderPartsSchedule(sheet) {
   const rows = [
     ...schedule.componentLines.map((line) => ({
       ref: line.ref,
-      kind: "PART",
+      kind: line.equipmentSupply === OWNER_SUPPLIED_EQUIPMENT ? "OWNER" : "PART",
       description: line.description,
       identifier: line.manufacturerArticle
         ? `${line.productId ?? "Local ID pending"} · art ${line.manufacturerArticle}`
         : line.productId ?? "Unmatched product",
-      quantity: `${line.quantity} · ${scheduleEvidenceLabel(line.evidenceClass)}`,
+      quantity: line.equipmentSupply === OWNER_SUPPLIED_EQUIPMENT ? `${line.quantity} · not for purchase` : `${line.quantity} · ${scheduleEvidenceLabel(line.evidenceClass)}`,
     })),
     ...schedule.routeLines.map((line) => ({
       ref: line.ref,
@@ -1032,7 +1035,7 @@ function renderTextLines(lines, x, y, fontSize, lineHeight) {
 
 function legendSwatch(key, x, y,item={}) {
   const g=item.graphic;
-  if(key.startsWith('luna-')||key.startsWith('wall-grille-')){
+  if(key.startsWith('luna-')||key.startsWith('wall-grille-')||key.startsWith('linea-')){
     const scale=Math.min(11/g.widthMm,8/g.depthMm);
     const ductMask=key.startsWith('luna-')?`<circle data-part="luna-duct-mask" cx="0" cy="0" r="${formatNumber(g.ductMaskRadiusMm)}" fill="white" stroke="none"/>`:"";
     return `<g data-kind="legend-terminal" transform="translate(${x+2.5} ${y}) scale(${scale})" fill="none" stroke="${g.colour}" stroke-width="${.3/scale}">${ductMask}${g.paths.map((d,index)=>`<path d="${d}" fill="${key.startsWith('luna-')&&index===0?'white':'none'}"/>`).join('')}</g>`;

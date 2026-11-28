@@ -1,3 +1,4 @@
+import { OWNER_SUPPLIED_EQUIPMENT } from "../domain/equipment-supply.mjs";
 import { normalizeVentilationWorkspace, ventilationWorkspaceLabel } from "../editor/ventilation-workspace.mjs";
 import { createPartsSchedule } from "../editor/parts-schedule.mjs";
 import { partsListRows } from "./a4-parts-list.mjs";
@@ -35,6 +36,7 @@ export function createPartsCsvRows(project, { projectName, systemScope = "combin
       const component = row.terminalRole === "cover" ? null : schedule.componentLines.find(line => line.ref === row.ref);
       const projectScoped = ["JOB", "90", "EPP"].includes(row.ref);
       const issues = component ? schedule.unresolved.filter(item => item.ref === row.ref).map(item => item.detail) : [];
+      if (row.kind === OWNER_SUPPLIED_EQUIPMENT) issues.unshift("Owner supplies the unit. Do not order or quote it.");
       if (/pending|not set/i.test(row.quantity)) issues.push("Quantity is incomplete; pending values are not zero.");
       if (row.kind === "selection") issues.push("Product or connection selection is required before ordering.");
       if (row.kind === "part" && (!row.partNumber || row.localSupply)) issues.push("Local supply or unmatched product reference: confirm the order code and availability.");
@@ -66,7 +68,9 @@ export function createPartsCsvRows(project, { projectName, systemScope = "combin
         });
       }
     }
-    const unresolved = [...schedule.unresolved,
+    // Owner-unit evidence still appears on its reference row above, not as a procurement issue.
+    const ownerRefs = new Set(schedule.componentLines.filter(line => line.equipmentSupply === OWNER_SUPPLIED_EQUIPMENT).map(line => line.ref));
+    const unresolved = [...schedule.unresolved.filter(item => !ownerRefs.has(item.ref)),
       ...schedule.eppTakeoff.filter(line => line.reviewRequired).map(line => ({ code: "epp-allowance-review", ref: line.routeId, detail: `${line.basis}: ${line.note}` })),
       ...schedule.eppUnitConnectionAllowances.map(line => ({ code: "hrv-connection-allowance-review", ref: line.routeId, detail: line.note })),
       ...schedule.decentralisedSystems.diagnostics.map(item => ({ code: item.code, ref: item.componentId, detail: item.detail })),
@@ -104,6 +108,7 @@ function pendingMetres(mm, pending) { return pending ? (mm > 0 ? `${metres(mm)} 
 
 function rowBasis(row, schedule, component) {
   const a = schedule.projectAccessories;
+  if (row.kind === OWNER_SUPPLIED_EQUIPMENT) return "Placed-unit reference only; not a purchase quantity. Accessories and ductwork are listed separately.";
   if (row.kind === "assembly") return "Assembly reference only. Its separately listed components carry purchase quantities; do not order the assembly again.";
   if (row.kind === "summary") return "Reference summary only; not an additional purchase quantity.";
   if (row.kind === "cut-piece") return "Unused CW branch stub; already included in the project DN90 coil total. Do not add to stock a second time.";

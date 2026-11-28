@@ -12,6 +12,8 @@ export const GENERIC_CW_PLAN_GRAPHIC_ID = "hiper-generic-cw-inspired-plan-v1";
 
 export const LUNA_GRILLE_PLAN_GRAPHIC_ID = "hiper-luna-grille-v1";
 
+export const LINEA_GRILLE_PLAN_GRAPHIC_ID = "zehnder-linea-grille-schematic-v1";
+
 export const WALL_GRILLE_PLAN_GRAPHIC_ID = "hiper-wall-bulkhead-grille-v1";
 
 export function wallGrillePaths(stream, widthMm, heightMm) {
@@ -61,6 +63,15 @@ export function deriveComponentPlanGraphic(component) {
     paths: lunaGrillePaths(symbol.stream, symbol.widthMm), strokeWidths: [4, 1, 1, 1, 1, 1],
     evidenceBoundary: "schematic symbol only; no physical dimensions or connection locations",
   });
+  if (symbol?.shape === "linear-grille") {
+    const paths = wallGrillePaths(symbol.stream, symbol.widthMm, symbol.heightMm);
+    const y = symbol.heightMm * .32;
+    paths.push(`M ${-symbol.widthMm * .44} ${y} H ${symbol.widthMm * .44}`);
+    return deepFreeze({ graphicId: LINEA_GRILLE_PLAN_GRAPHIC_ID, kind: "manufacturer-identity-schematic-symbol",
+      stream: symbol.stream, lineaSize: symbol.lineaSize, widthMm: symbol.widthMm, depthMm: symbol.heightMm,
+      colour: symbol.stream === "supply" ? "#5050ff" : "#ff3038", paths,
+      evidenceBoundary: "schematic symbol and port centre locations; do not use as a cutout template" });
+  }
   if (symbol?.shape === "wall-grille") return deepFreeze({
     graphicId: WALL_GRILLE_PLAN_GRAPHIC_ID, kind: "owner-schematic-symbol", stream: symbol.stream,
     widthMm: symbol.widthMm, depthMm: symbol.heightMm,
